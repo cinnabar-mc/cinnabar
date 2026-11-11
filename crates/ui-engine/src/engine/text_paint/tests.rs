@@ -775,6 +775,51 @@ fn named_descender_selection_covers_the_painted_glyph() {
     }
 }
 
+#[test]
+fn multi_line_selection_skips_formatting_codes_and_highlights_each_line_box() {
+    let json = serde_json::json!({ "namespace": "fixture", "screen": {
+        "type": "edit_box", "size": [200, 100], "text_control": "value", "max_length": 64,
+        "anchor_from": "top_left", "anchor_to": "top_left", "controls": [{ "value": {
+            "type": "label", "text": "§a0\n00", "localize": false, "size": [200, 100],
+            "anchor_from": "top_left", "anchor_to": "top_left", "shadow": false } }] } })
+    .to_string();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let highlights = |selection| {
+        let (_, nodes) = paint_fixture_selection(&fixture_font(), metrics, &json, Some(selection));
+        let text = nodes
+            .iter()
+            .find_map(|node| match node.visual() {
+                UiVisual::Text { layout, .. } => Some((node.bounds(), Arc::clone(layout))),
+                _ => None,
+            })
+            .unwrap();
+        let boxes = nodes
+            .iter()
+            .filter(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+            .map(|node| node.bounds())
+            .collect::<Vec<_>>();
+        (text, boxes)
+    };
+    let (_, lines) = highlights([0, "§a0\n00".len()]);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines[0].max().y() <= lines[1].min().y());
+    assert!(lines[1].max().x() > lines[0].max().x());
+    // "§a" draws nothing, so selecting through the first line's "0" covers that glyph alone.
+    let ((bounds, layout), boxes) = highlights(["§a".len(), "§a0".len()]);
+    assert_eq!(layout.line_count(), 2);
+    assert_eq!(boxes, [lines[0]]);
+    let glyph = &layout.glyphs()[0];
+    assert_eq!(glyph.line, 0);
+    assert_eq!(
+        boxes[0].min().x(),
+        bounds.min().x() + glyph.bounds_64[0] as f32 / 64.0
+    );
+    assert_eq!(
+        boxes[0].max().x(),
+        bounds.min().x() + glyph.bounds_64[2] as f32 / 64.0
+    );
+}
+
 /// Smooth outline faces retain fractional placement; pixel faces keep their physical grid.
 #[test]
 fn filtered_outline_labels_preserve_fractional_positions() {

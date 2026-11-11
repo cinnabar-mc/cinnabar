@@ -228,6 +228,8 @@ impl UiRuntime {
     /// Shows a book screen over the world.
     pub fn open_book(&mut self, state: BookState) {
         self.session.screen.container_close_armed = false;
+        // A new book never inherits the caret of the last one, even with identical text.
+        self.session.screen.release_field_editor();
         self.session.screen.book = Some(state);
         self.session.inventory_open = true;
         self.session.chat_focused = false;

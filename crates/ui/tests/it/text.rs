@@ -4,7 +4,7 @@ use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, enc
 use sha2::{Digest, Sha256};
 use ui::{
     BedrockColor, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, TextError, TextLayout,
-    TextLayoutCache, TextLayoutRequest, TextStyle, UiLimits, UiScale, parse_bedrock_text,
+    TextLayoutCache, TextLayoutRequest, TextStyle, TextWrap, UiLimits, UiScale, parse_bedrock_text,
 };
 
 #[test]
@@ -268,6 +268,37 @@ fn caret_stops_follow_source_bytes_and_pens_instead_of_ink_widths() {
         assert_eq!(drawn.glyphs()[1].bounds_64[0], 2 * unit);
         assert_eq!(drawn.size_64()[0], 6 * unit as u32);
     }
+}
+
+#[test]
+fn range_boxes_follow_unparsed_bytes_and_padded_line_pitch() {
+    let font = font([0x34; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let text = "§aAB\nhe";
+    let drawn = cache
+        .layout(TextLayoutRequest {
+            text,
+            style: TextStyle::default(),
+            width_64: 4096,
+            line_height_64: 64,
+            baseline_64: 0,
+            scale: UiScale::new(1.0).unwrap(),
+            font: &font,
+            wrap: TextWrap {
+                line_padding_64: 32,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    let b = text.find('B').unwrap();
+    let h = text.find('h').unwrap();
+    let boxes = drawn.range_boxes_64(text, b..h + 1);
+    assert_eq!(boxes.len(), 2, "{boxes:?}");
+    let top = boxes[0][1];
+    assert_eq!(boxes[0], [64, top, 128, top + 64]);
+    assert_eq!(boxes[1], [0, top + 96, 64, top + 160]);
+    assert!(drawn.range_boxes_64(text, 0.."§a".len()).is_empty());
+    assert_eq!(drawn.range_boxes_64(text, 0..text.len()).len(), 2);
 }
 
 #[test]

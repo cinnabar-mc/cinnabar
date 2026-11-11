@@ -205,6 +205,12 @@ impl ScreenState {
         })
     }
 
+    /// Drops the focused field's caret and selection, so the next field to take focus starts
+    /// with its caret at the end even when it holds the same text.
+    pub(in crate::ui_runtime) fn release_field_editor(&mut self) {
+        self.field_editor.owner = None;
+    }
+
     /// The field editor while it holds the focused field's caret: it took up that field in
     /// this window and the field still has the editor's text.
     fn mirrored_editor(&self) -> Option<&ui::ChatEditor> {

@@ -396,11 +396,13 @@ impl Canvas<'_> {
             );
         }
         let selection = style.edit.and_then(|edit| edit.selection);
-        let lines = layout.line_count();
-        // A wrapped or multi-line box highlights the selected glyphs on each line.
-        let spans = selection
-            .filter(|_| lines > 1)
-            .map(|selection| selected_line_spans(&layout, &text, selection));
+        // A wrapped or multi-line box highlights the selected glyphs on each line box.
+        let boxes = selection
+            .filter(|_| layout.line_count() > 1)
+            .map(|selection| {
+                let [start, end] = selection.map(|byte| crate::caret::caret_byte(&text, byte));
+                layout.range_boxes_64(&text, start..end)
+            });
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -419,21 +421,15 @@ impl Canvas<'_> {
                 shadow,
             }),
         );
-        if let Some(spans) = spans {
-            let line_height = height / f32::from(lines);
-            for (line, [from, to]) in spans {
-                let line_top = top + f32::from(line) * line_height;
+        if let Some(boxes) = boxes {
+            for area in boxes {
+                let [from, line_top, to, line_bottom] = area.map(|edge| edge as f32 / 64.0);
                 self.push(
                     UiVisual::InvertedSprite {
                         texture_page: self.solid_page,
                         uv: [0, 0, 1, 1],
                     },
-                    [
-                        dest[0] + from,
-                        line_top,
-                        dest[0] + to,
-                        line_top + line_height,
-                    ],
+                    [left + from, top + line_top, left + to, top + line_bottom],
                 )?;
             }
         } else if let Some(selection) = selection {
@@ -463,30 +459,6 @@ impl Canvas<'_> {
         }
         Ok(())
     }
-}
-
-/// Each line's horizontal extent, in layout px, of the glyphs inside the byte range
-/// `selection` of `text`, top line first.
-fn selected_line_spans(
-    layout: &ui::TextLayout,
-    text: &str,
-    selection: [usize; 2],
-) -> Vec<(u16, [f32; 2])> {
-    let [start, end] =
-        selection.map(|byte| text[..crate::caret::caret_byte(text, byte)].chars().count());
-    let mut spans: Vec<(u16, [f32; 2])> = Vec::new();
-    for (glyph, source) in layout.glyphs().iter().zip(layout.glyph_source_indices()) {
-        if !source.is_some_and(|at| (start..end).contains(&at)) {
-            continue;
-        }
-        let [from, _, to, _] = glyph.bounds_64.map(|edge| edge as f32 / 64.0);
-        match spans.iter_mut().find(|(line, _)| *line == glyph.line) {
-            Some((_, span)) => *span = [span[0].min(from), span[1].max(to)],
-            None => spans.push((glyph.line, [from, to])),
-        }
-    }
-    spans.sort_by_key(|(line, _)| *line);
-    spans
 }
 
 /// Name tag backing is black at alpha 0.25.

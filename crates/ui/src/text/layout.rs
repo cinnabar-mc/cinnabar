@@ -5,7 +5,7 @@
 use assets::{CompiledFontCatalog, GlyphMetrics};
 
 use super::{
-    FIXED_POINT_DENOMINATOR, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_WRAP_LINES,
+    FIXED_POINT_DENOMINATOR, GlyphQuad, LineRows, MAX_GLYPHS_PER_LAYOUT, MAX_WRAP_LINES,
     REPLACEMENT_CODEPOINT, TEXT_BOLD_OFFSET_64, TextError, TextLayout, TextLayoutKey,
     TextLayoutRequest, TextLineAlign, TextStyle, WordChop, invisible, line_metrics::LineMetrics,
     parse::parse_bedrock_text_with_sources, units::Units,
@@ -471,10 +471,16 @@ impl Lines<'_> {
         }
         let count = i64::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?;
         let nominal_height_64 = self.metrics.block_height_64(count)?;
-        let height_64 = if self.request.wrap.allow_vertical_overflow {
-            nominal_height_64
+        let (height_64, shift_64) = if self.request.wrap.allow_vertical_overflow {
+            (nominal_height_64, 0)
         } else {
             normalize_vertical_bounds(&mut self.glyphs, nominal_height_64)?
+        };
+        let line_rows = LineRows {
+            units,
+            pitch_64: self.metrics.pitch_64,
+            height_64: self.metrics.height_64,
+            shift_64,
         };
         let first_line = self
             .glyphs
@@ -502,6 +508,7 @@ impl Lines<'_> {
                 .into_iter()
                 .map(|mark| (mark.source != usize::MAX).then_some(mark.source))
                 .collect(),
+            line_rows,
             line_count: u16::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?,
             size_64: [checked_u32(maximum_width_64)?, checked_u32(height_64)?],
             ellipsized: self.ellipsized,
@@ -511,10 +518,12 @@ impl Lines<'_> {
     }
 }
 
+/// Moves glyph ink that rises above the first line box down into the layout; returns the
+/// layout's height and how far everything moved, in output 1/64 pixels.
 fn normalize_vertical_bounds(
     glyphs: &mut [GlyphQuad],
     nominal_height_64: i64,
-) -> Result<i64, TextError> {
+) -> Result<(i64, i64), TextError> {
     let min_64 = glyphs
         .iter()
         .map(|glyph| i64::from(glyph.bounds_64[1]))
@@ -528,7 +537,7 @@ fn normalize_vertical_bounds(
         glyph.bounds_64[1] = checked_i32(i64::from(glyph.bounds_64[1]) + shift_64)?;
         glyph.bounds_64[3] = checked_i32(i64::from(glyph.bounds_64[3]) + shift_64)?;
     }
-    Ok(max_64 - min_64)
+    Ok((max_64 - min_64, shift_64))
 }
 
 fn resolve_glyph(
