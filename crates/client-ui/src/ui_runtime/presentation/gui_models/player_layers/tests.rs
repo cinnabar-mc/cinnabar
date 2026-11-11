@@ -224,7 +224,10 @@ fn authored_material_culling_and_depth_reach_the_retained_controller_draws() {
         }
         source.push((
             "materials/preview.material".into(),
+            // Only a version 1.0.0 file applies `+states`; a version 0 root would declare
+            // a material named `materials` instead.
             serde_json::to_vec(&serde_json::json!({"materials": {
+                "version": "1.0.0",
                 "fixture_preview:entity_alphablend": {
                     "+states": states,
                     "depthFunc": depth_func,
