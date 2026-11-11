@@ -1,5 +1,5 @@
 use super::material_states::{per_bone_pack, summary, visible};
-use super::{MANIFEST, write};
+use super::{MANIFEST, pack, write};
 use serde_json::{Value, json};
 
 /// Compiles the per-bone fixture with `bindings` as its Cinnabar extension document and returns
@@ -143,6 +143,29 @@ fn glint_and_tint_materials_draw_only_with_their_required_textures() {
         assert_eq!(!bones[0].1.is_empty(), drawn, "{defines}");
         assert_eq!(bones[1].1.len(), 1, "other bones keep drawing: {defines}");
     }
+}
+
+#[test]
+fn a_controller_whose_only_draw_lacks_its_textures_leaves_no_records_behind() {
+    let fixture = pack(0, "fixture_glint", false);
+    let definitions = json!({"materials": {"version": "1.0.0",
+        "fixture_glint:entity_alphatest": {"+defines": ["GLINT"]}
+    }});
+    write(
+        fixture.path(),
+        "materials/entity.material",
+        &serde_json::to_vec(&definitions).unwrap(),
+    );
+    // The fixture controller supplies one texture and GLINT needs two.
+    let compiled =
+        pack_entity_compiler::compile_entity_assets_with_report(fixture.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.material_diagnostics.skipped_draws, 1);
+    let render = &compiled.assets.render;
+    assert!(render.layers.is_empty());
+    assert!(render.slots.is_empty() && render.candidates.is_empty());
+    assert!(render.visibility.is_empty() && render.geometries.is_empty());
+    let bytes = assets::encode_entity_blob(&compiled.assets).unwrap();
+    assert!(assets::RuntimeEntityAssets::decode(&bytes).is_ok());
 }
 
 #[test]

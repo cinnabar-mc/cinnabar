@@ -305,12 +305,27 @@ pub(super) struct Records<'a> {
     pub skipped_draws: &'a mut u32,
 }
 
+impl Records<'_> {
+    /// Removes the slots, candidates, visibility rules and geometry choices `base` appended,
+    /// which are the tails of their tables, so a controller none of whose draws remain leaves
+    /// no unowned records in the carrier.
+    fn discard(&mut self, base: &EntityRenderLayer) {
+        let first_slot = base.first_slot as usize;
+        if let Some(slot) = self.slots.get(first_slot) {
+            self.candidates.truncate(slot.first_candidate as usize);
+        }
+        self.slots.truncate(first_slot);
+        self.visibility.truncate(base.first_visibility as usize);
+        self.geometries.truncate(base.first_geometry as usize);
+    }
+}
+
 /// Appends `base` once per material group, each a copy of the controller's layer drawing its
 /// group's bones under the controller's activation.
 pub(super) fn append(
     base: EntityRenderLayer,
     mut groups: Vec<Group>,
-    records: Records<'_>,
+    mut records: Records<'_>,
     molang: &mut MolangCompiler,
 ) -> Result<(), AssetError> {
     // A material whose controller supplies too few textures is not drawn, as on Bedrock; its
@@ -319,6 +334,7 @@ pub(super) fn append(
     groups.retain(|group| group.raster.required_textures <= base.slot_count);
     *records.skipped_draws += (before - groups.len()) as u32;
     if groups.is_empty() {
+        records.discard(&base);
         return Ok(());
     }
     let Records {
