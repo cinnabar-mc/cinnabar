@@ -2,6 +2,7 @@
 
 use super::catalog::RecipeCatalog;
 use super::model::{Ingredient, RecipeHandle};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// The output a recipe declares.
@@ -13,6 +14,23 @@ pub struct RecipeOutput {
     pub block_runtime_id: u32,
     /// The result's complete item data, kept byte for byte.
     pub user_data: RecipeOutputData,
+}
+
+impl RecipeOutput {
+    /// The stack the recipe declares, carrying its item data and that data's digest.
+    #[must_use]
+    pub fn stack(&self) -> crate::NetworkItemStack {
+        let extra_data = self.user_data.bytes();
+        crate::NetworkItemStack {
+            network_id: self.network_id,
+            metadata: u32::from(self.aux),
+            count: u16::from(self.count),
+            block_runtime_id: i32::from_ne_bytes(self.block_runtime_id.to_ne_bytes()),
+            nbt_digest: Sha256::digest(&extra_data).into(),
+            extra_data,
+            ..crate::NetworkItemStack::empty()
+        }
+    }
 }
 
 /// User data on a recipe result.
@@ -52,6 +70,16 @@ impl RecipeOutputData {
             });
         }
         crate::item::item_user_data_complete(extra).then(|| Self::Tagged(Arc::from(extra)))
+    }
+
+    /// The item data that makes this result a distinct item, such as a custom name or lore.
+    /// Plain and shield envelopes carry none, so results that differ only in those agree.
+    #[must_use]
+    pub fn identity(&self) -> Option<Arc<[u8]>> {
+        match self {
+            Self::Tagged(bytes) => Some(Arc::clone(bytes)),
+            Self::Absent | Self::Empty | Self::Shield { .. } => None,
+        }
     }
 
     /// Recreates exactly the item data advertised by the recipe.

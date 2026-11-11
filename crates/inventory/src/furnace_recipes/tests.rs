@@ -496,6 +496,67 @@ fn furnace_results_deduplicate_alternatives_and_filter_by_the_active_station() {
     );
 }
 
+/// Furnace results of one item that differ in item data, such as a server's custom name, are
+/// listed separately; results with the same data still deduplicate.
+#[test]
+fn furnace_results_with_distinct_item_data_stay_separate() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let named = |name: &str| {
+        ::protocol::edit_item_extra(
+            &[],
+            &::protocol::ItemNbtEdit {
+                custom_name: Some(Some(name.to_owned())),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .to_vec()
+    };
+    let recipes = [
+        ("minecraft:oak_log", named("Ember")),
+        ("minecraft:birch_log", named("Cinder")),
+        ("minecraft:raw_iron", named("Cinder")),
+        ("minecraft:oak_log", Vec::new()),
+    ];
+    let update = CraftingDataFixture::clearing(
+        recipes
+            .into_iter()
+            .enumerate()
+            .map(|(index, (name, user_data))| {
+                let mut output = OutputFixture::new(3, 1);
+                output.user_data = user_data;
+                RecipeFixture {
+                    tag: "furnace".into(),
+                    net_id: index as u32 + 1,
+                    ..RecipeFixture::shapeless(
+                        "",
+                        vec![IngredientFixture::named(name, 0)],
+                        vec![output],
+                    )
+                }
+            })
+            .collect(),
+    )
+    .update();
+    inventory
+        .enqueue_inventory_event(1, 2, InventoryEvent::Recipes(update))
+        .unwrap();
+    inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
+    inventory.drain_pending_inventory();
+    let listed = inventory.furnace_recipes(false);
+    let names = listed
+        .iter()
+        .map(|recipe| {
+            ::protocol::item_custom_name(&recipe.output.as_ref().unwrap().user_data.bytes())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names.len(), 3);
+    for name in ["Ember", "Cinder"] {
+        assert!(names.iter().any(|listed| listed.as_deref() == Some(name)));
+    }
+    assert!(names.contains(&None));
+}
+
 #[test]
 fn furnace_recipe_selection_places_a_fuel_item_in_the_ingredient_role() {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);

@@ -23,16 +23,10 @@ pub fn active(player: &player_state::PlayerState) -> bool {
 
 /// The stack a furnace recipe produces.
 pub fn output_stack(recipe: &ScreenRecipe) -> NetworkItemStack {
-    let Some(output) = &recipe.output else {
-        return NetworkItemStack::empty();
-    };
-    NetworkItemStack {
-        network_id: output.network_id,
-        metadata: u32::from(output.aux),
-        count: u16::from(output.count),
-        block_runtime_id: output.block_runtime_id as i32,
-        ..NetworkItemStack::empty()
-    }
+    recipe
+        .output
+        .as_ref()
+        .map_or_else(NetworkItemStack::empty, protocol::RecipeOutput::stack)
 }
 
 /// A shared projection borrowed against its unchanged recipe catalog.

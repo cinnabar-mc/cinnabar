@@ -23,10 +23,14 @@ fn string(out: &mut Vec<u8>, s: &str) {
 }
 
 fn session() -> InventorySession {
+    session_with(decode_recipe_update(&recipe_body()).unwrap())
+}
+
+/// A vanilla-registry session whose crafting authority has committed `update`.
+fn session_with(update: protocol::RecipeUpdate) -> InventorySession {
     let registry = ItemRegistryEvent {
         entries: protocol::vanilla_item_registry(),
     };
-    let update = decode_recipe_update(&recipe_body()).unwrap();
     let mut session = InventorySession::new(1);
     session.ledger_mut().apply_registry(&registry);
     session.crafting_authority.observe(
@@ -130,6 +134,63 @@ fn the_recipe_book_lists_one_usable_recipe_per_output() {
             .map(|entry| entry.recipe.network_id())
             .collect::<Vec<_>>(),
         [1, 3]
+    );
+}
+
+/// Results of one item that differ in item data, such as a server's custom name, are separate
+/// book entries; results with the same data still share one.
+#[test]
+fn the_recipe_book_keeps_differently_named_results_apart() {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    };
+    let table = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:crafting_table")
+        .unwrap()
+        .network_id;
+    let named = |name: &str| {
+        protocol::edit_item_extra(
+            &[],
+            &protocol::ItemNbtEdit {
+                custom_name: Some(Some(name.to_owned())),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .to_vec()
+    };
+    let recipes = [
+        named("Sapphire table"),
+        named("Ruby table"),
+        named("Ruby table"),
+        Vec::new(),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, user_data)| {
+        let mut output = OutputFixture::new(table, 1);
+        output.user_data = user_data;
+        RecipeFixture {
+            net_id: index as u32 + 1,
+            ..RecipeFixture::shaped(
+                "test:table",
+                1,
+                1,
+                vec![IngredientFixture::named("minecraft:oak_planks", 0)],
+                vec![output],
+            )
+        }
+    })
+    .collect();
+    let session = session_with(CraftingDataFixture::clearing(recipes).update());
+    assert_eq!(
+        session
+            .book_recipes(false, false, 0, usize::MAX)
+            .iter()
+            .map(|entry| entry.recipe.network_id())
+            .collect::<Vec<_>>(),
+        [1, 2, 4]
     );
 }
 

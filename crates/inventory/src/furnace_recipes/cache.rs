@@ -12,7 +12,7 @@ pub(crate) struct Cache {
     inputs: Option<Inputs>,
     all: Arc<[usize]>,
     supplied: Arc<[usize]>,
-    supplied_outputs: HashSet<(i32, u16, u32)>,
+    supplied_outputs: HashSet<OutputKey>,
 }
 
 #[derive(Debug)]
@@ -137,7 +137,7 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
                     })
             {
                 let output = recipe.output.as_ref().unwrap();
-                let key = (output.network_id, output.aux, output.block_runtime_id);
+                let key = output_key(output);
                 let count = ledger.furnace_source_count(recipe);
                 let supplied = ledger.can_supply_furnace_recipe(recipe);
                 if let Some(&position) = positions.get(&key) {
@@ -158,7 +158,7 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
             .iter()
             .filter(|(_, _, _, supplied)| *supplied)
             .filter_map(|(_, recipe, ..)| recipe.output.as_ref())
-            .map(|output| (output.network_id, output.aux, output.block_runtime_id))
+            .map(output_key)
             .collect();
         cache.supplied = listed
             .into_iter()
@@ -185,6 +185,18 @@ pub(super) fn supplied(inventory: &InventorySession, recipe: &ScreenRecipe) -> b
             .lock()
             .unwrap()
             .supplied_outputs
-            .contains(&(output.network_id, output.aux, output.block_runtime_id))
+            .contains(&output_key(output))
     })
+}
+
+/// A furnace result's item and item data, which together tell listed outputs apart.
+type OutputKey = (i32, u16, u32, Option<Arc<[u8]>>);
+
+fn output_key(output: &protocol::RecipeOutput) -> OutputKey {
+    (
+        output.network_id,
+        output.aux,
+        output.block_runtime_id,
+        output.user_data.identity(),
+    )
 }

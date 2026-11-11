@@ -321,4 +321,10 @@ fn named_result_data_keeps_its_crafting_recipe() {
         ::protocol::item_custom_name(&output.user_data.bytes()).as_deref(),
         Some("Block of Sapphire")
     );
+    let stack = output.stack();
+    assert_eq!(stack.extra_data, data);
+    assert_eq!(
+        stack.nbt_digest,
+        <[u8; 32]>::from(<sha2::Sha256 as sha2::Digest>::digest(&data))
+    );
 }
