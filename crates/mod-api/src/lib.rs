@@ -17,8 +17,8 @@ pub use terrain_limits::{
 mod guest;
 mod input;
 pub use input::{
-    MAX_CONTROL_KEY_BYTES, MAX_CONTROL_KEYS, MAX_INPUT_ACTION_BYTES, MAX_INPUT_BINDINGS,
-    MAX_INPUT_BINDINGS_PER_READ, control_key_valid,
+    MAX_CONTROL_KEY_BYTES, MAX_CONTROL_KEYS, MAX_INPUT_ACTION_BYTES, MAX_INPUT_BINDING_WRITES,
+    MAX_INPUT_BINDINGS, MAX_INPUT_BINDINGS_PER_READ, control_key_valid,
 };
 pub mod native_camera;
 pub mod native_frame;

@@ -555,6 +555,26 @@ interface input {
     /// Revisions are host-local: clear guest caches on reinitialization. Returns an error
     /// until settings are sampled or for invalid page bounds. Does not resolve actions.
     read-bindings: func(after: option<u64>, offset: u32, limit: u32) -> result<option<bindings>, string>;
+    /// A change to one action's keyboard and mouse assignment, as the player can make it in
+    /// the Controls settings. Gamepad, touch and macro assignments are never changed.
+    variant binding-change {
+        /// Assigns one physical key or MouseLeft/MouseRight/MouseMiddle, named exactly as in
+        /// controls.keys-held, replacing the action's keyboard and mouse assignment.
+        assign(string),
+        /// Leaves the action without a keyboard or mouse assignment.
+        unbind,
+        /// Restores the action's default keyboard and mouse assignment.
+        reset,
+    }
+    /// Requests a saved change to the player's own binding for one remappable action, named
+    /// as in action-binding. Requires controls authority and shares the controls write budget.
+    /// Staged until the callback succeeds, then applied and saved exactly like the player's own
+    /// Controls edit; a later write to the same action replaces one not yet applied. At most
+    /// MAX_INPUT_BINDING_WRITES actions await application; writing another fails until the
+    /// host applies them, normally right after the frame callback. The host rejects
+    /// changes Controls would reject, such as an action with no keyboard row or a resulting
+    /// binding set that is invalid; read-bindings reports the outcome in a later revision.
+    write-binding: func(action: string, change: binding-change) -> result<_, string>;
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     /// Reads this callback's control sample with controls authority and the shared read allowance.

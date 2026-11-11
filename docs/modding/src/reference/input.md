@@ -227,6 +227,27 @@ record bindings {
 
 Types: [`action-binding`](input.md#type-action-binding).
 
+<a id="type-binding-change"></a>
+
+### `binding-change`
+
+A change to one action's keyboard and mouse assignment, as the player can make it in
+the Controls settings. Gamepad, touch and macro assignments are never changed.
+
+```wit
+variant binding-change {
+    assign(string),
+    unbind,
+    reset,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `assign` | `string` | Assigns one physical key or MouseLeft/MouseRight/MouseMiddle, named exactly as in<br>controls.keys-held, replacing the action's keyboard and mouse assignment. |
+| `unbind` |  | Leaves the action without a keyboard or mouse assignment. |
+| `reset` |  | Restores the action's default keyboard and mouse assignment. |
+
 <a id="type-scroll"></a>
 
 ### `scroll`
@@ -291,6 +312,25 @@ Revisions are host-local: clear guest caches on reinitialization. Returns an err
 until settings are sampled or for invalid page bounds. Does not resolve actions.
 
 Types: [`bindings`](input.md#type-bindings).
+
+<a id="write-binding"></a>
+
+### `write-binding`
+
+```wit
+write-binding: func(action: string, change: binding-change) -> result<_, string>;
+```
+
+Requests a saved change to the player's own binding for one remappable action, named
+as in action-binding. Requires controls authority and shares the controls write budget.
+Staged until the callback succeeds, then applied and saved exactly like the player's own
+Controls edit; a later write to the same action replaces one not yet applied. At most
+MAX_INPUT_BINDING_WRITES actions await application; writing another fails until the
+host applies them, normally right after the frame callback. The host rejects
+changes Controls would reject, such as an action with no keyboard row or a resulting
+binding set that is invalid; read-bindings reports the outcome in a later revision.
+
+Types: [`binding-change`](input.md#type-binding-change).
 
 <a id="demo-pressed"></a>
 

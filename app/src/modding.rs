@@ -487,7 +487,8 @@ fn configure_systems(app: &mut App, watching: bool) {
     );
     app.init_resource::<packet_delay::RealPositionSnapshot>()
         .add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod))
-        .add_systems(Update, inventory::apply_inventory_requests.after(drive_mod));
+        .add_systems(Update, inventory::apply_inventory_requests.after(drive_mod))
+        .add_systems(Update, bindings::apply_binding_writes.after(drive_mod));
 }
 
 /// Starts the shared callback allowance before any input or event reaches a guest.

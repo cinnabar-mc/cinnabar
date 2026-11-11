@@ -49,6 +49,17 @@ with more required modifier groups on the same key and context takes precedence,
 when it names another action. Equal specificity remains an alternative. Collect the
 complete binding revision before resolving actions.
 
+## Changing the player's bindings
+
+`input::write_binding(action, change)` edits the player's own keyboard and mouse assignment
+for one remappable action, such as `freelook` or `cycle-perspective`, the way the Controls
+settings do. `BindingChange::Assign(key)` takes a `keys_held` name such as `KeyF` or
+`MouseMiddle`; `Unbind` and `Reset` clear or restore the default. The change is staged until
+the callback succeeds, then validated, applied and saved like the player's own edit, so it
+persists after your mod is unloaded. Rejected changes leave the bindings as they were; read
+the next binding revision to see the result. Write only in response to the player's own
+choice in your interface, never every frame.
+
 `keys_admitted` comes from the same finalized routing sample as the host's physical
 attack/use gates. It excludes macro-consumed keys, release quarantine after rebinds or
 ownership changes, UI barriers, reserved keys and controls excluded by the selected input

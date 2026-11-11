@@ -27,7 +27,7 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 | `mod_host::MEMORY_BYTES` | 16777216 | Linear memory per personal mod. |
 | `mod_api::MAX_LOADED_MODS` | 256 | Concurrent local mods. |
 | `mod_host::MAX_COMPONENT_BYTES` | 4194304 | Executable component bytes. |
-| `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21233966 | Component envelope including embedded resources. |
+| `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21234010 | Component envelope including embedded resources. |
 | `mod_host::package::MAX_PACKAGE_BYTES` | 16777216 | Indexed directory package bytes. |
 | `mod_host::MAX_LABEL_BYTES` | 256 | Plain label bytes. |
 | `mod_api::MAX_SETTINGS_BYTES` | 16384 | Settings JSON bytes. |
@@ -42,6 +42,7 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | --- | ---: | --- |
 | `mod_api::MAX_SELECTED_SLOT_READS` | 8 | Selected-slot reads per callback, apart from the player-state read allowance. |
 | `mod_api::MAX_INPUT_BINDINGS_PER_READ` | 16 | Physical binding entries copied per read. |
+| `mod_api::MAX_INPUT_BINDING_WRITES` | 8 | Actions whose player binding changes may await application at once. |
 | `mod_api::MAX_INPUT_BINDINGS` | 128 | Physical binding entries per settings snapshot. |
 | `mod_api::MAX_INPUT_ACTION_BYTES` | 32 | Bytes per stable binding action name. |
 | `mod_api::MAX_CONTROL_KEYS` | 64 | Physical keys per held/admitted/pressed list, selection or reservation. Held and admitted lists truncate independently in physical-name order; above the cap, chord resolution can differ from the host gate. |
