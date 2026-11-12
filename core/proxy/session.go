@@ -344,7 +344,13 @@ func selectSessionPacks(stack *selectedResourcePackStack, logger *slog.Logger) (
 	}
 	var offers []sessionOffer
 	for _, entry := range stack.offer.TexturePacks() {
-		offers = append(offers, sessionOffer{info: entry.Info(), pack: entry.Pack()})
+		pack := entry.Pack()
+		if pack == nil {
+			if localPack, _, err := findLocalMatchingPack(entry.Info().UUID.String()); err == nil && localPack != nil {
+				pack = localPack
+			}
+		}
+		offers = append(offers, sessionOffer{info: entry.Info(), pack: pack})
 	}
 	var entries []sessionStackEntry
 	for _, entry := range stack.snapshot.Entries() {
@@ -397,6 +403,19 @@ func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, requ
 		if parsed, err := uuid.Parse(entry.uuid); err == nil {
 			id = resourcePackIdentity(parsed.String(), entry.version)
 			offer = byIdentity[id]
+		}
+		if offer.pack == nil {
+			if localPack, _, err := findLocalMatchingPack(entry.uuid); err == nil && localPack != nil {
+				offer = sessionOffer{
+					info: protocol.TexturePackInfo{
+						UUID:        uuid.MustParse(entry.uuid),
+						Version:     entry.version,
+						SubPackName: entry.subPack,
+					},
+					pack: localPack,
+				}
+				id = resourcePackIdentity(entry.uuid, entry.version)
+			}
 		}
 		if offer.pack == nil || seen[id] || offer.info.SubPackName != entry.subPack {
 			if required {

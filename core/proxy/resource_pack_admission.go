@@ -77,6 +77,7 @@ type resourcePackAcquisitionBudget struct {
 	mu       sync.Mutex
 	accepted []bool
 	offered  map[string]uint64 // admitted UUID/version -> latest declared transfer size
+	matchedLocal map[string]*resource.Pack // lowercase UUID -> local matching pack
 
 	packs      uint32                   // admitted packs not served from the cache
 	finished   uint32                   // downloads completed
@@ -93,7 +94,7 @@ type packDownload struct {
 }
 
 func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.CancelCauseFunc) *resourcePackAcquisitionBudget {
-	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel}
+	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel, matchedLocal: make(map[string]*resource.Pack)}
 }
 
 // observe must see ResourcePacksInfo before gophertunnel handles it: admission needs the offered sizes.
@@ -110,6 +111,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	defer budget.mu.Unlock()
 	budget.accepted, budget.offered = nil, map[string]uint64{}
 	budget.downloads = map[string]*packDownload{}
+	budget.matchedLocal = map[string]*resource.Pack{}
 	budget.packs, budget.finished, budget.total, budget.received = 0, 0, 0, 0
 	defer budget.reportLocked()
 	if !decoded {
@@ -124,6 +126,14 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 		}
 		seen[id] = true
 		if pack.Size > math.MaxInt {
+			continue
+		}
+		// Like vanilla MCPE: if a local pack exists whose manifest matches the server pack UUID,
+		// use the local pack directly and bypass downloading it from the server.
+		if localPack, _, err := findLocalMatchingPack(pack.UUID.String()); err == nil && localPack != nil {
+			budget.matchedLocal[strings.ToLower(pack.UUID.String())] = localPack
+			budget.accepted[index] = false
+			budget.offered[id] = pack.Size
 			continue
 		}
 		budget.packs++
@@ -198,15 +208,18 @@ func (budget *resourcePackAcquisitionBudget) reportLocked() {
 	})
 }
 
-// excludes validates the actual archive against the admitted transfer. This also
-// catches chunk downloads whose manifest identity differs from their transfer.
-// Length checks use the current transfer declaration, independently of progress totals.
+// excludes validates the actual archive against the admitted transfer.
+// Local packs matching the server manifest UUID are never excluded, even when modified or of differing size.
 func (budget *resourcePackAcquisitionBudget) excludes(pack *resource.Pack) bool {
 	if budget == nil {
 		return false
 	}
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
+	packUUID := strings.ToLower(pack.UUID().String())
+	if _, matched := budget.matchedLocal[packUUID]; matched {
+		return false
+	}
 	id := packIdentity(pack)
 	offered, admitted := budget.offered[id]
 	size := pack.Size()
@@ -347,6 +360,9 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 		info := entry.Info()
 		offerIDs[resourcePackIdentity(info.UUID.String(), info.Version)] = true
 		if offer.TexturePackRequired() && entry.Pack() == nil {
+			if localPack, _, err := findLocalMatchingPack(info.UUID.String()); err == nil && localPack != nil {
+				continue
+			}
 			return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
 		}
 	}
@@ -354,6 +370,9 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 		for _, entry := range snapshot.Entries() {
 			id := resourcePackIdentity(entry.UUID(), entry.Version())
 			if offerIDs[id] && !admitted[id] {
+				if localPack, _, err := findLocalMatchingPack(entry.UUID()); err == nil && localPack != nil {
+					continue
+				}
 				return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
 			}
 		}
