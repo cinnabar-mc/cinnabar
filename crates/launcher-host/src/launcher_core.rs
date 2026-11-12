@@ -139,7 +139,9 @@ fn launcher_command(
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
         .arg("-device-file")
-        .arg(layout.device_profile_file());
+        .arg(layout.device_profile_file())
+        .arg("-installed-resource-pack-dir")
+        .arg(layout.global_resource_packs_dir());
     // Direct-mode account cores run alongside game cores that own this exclusive lease.
     if lease_game_cache {
         command
@@ -322,6 +324,13 @@ mod tests {
                 .get_args()
                 .any(|arg| arg == "-resource-pack-cache-dir")
         );
+        // The library is read-only, so every core that may serve a join reuses it.
+        let library = layout.global_resource_packs_dir();
+        for command in [&game, &launcher] {
+            let args: Vec<_> = command.get_args().collect();
+            let flag = args.iter().position(|arg| *arg == "-installed-resource-pack-dir");
+            assert_eq!(flag.map(|index| args[index + 1]), Some(library.as_os_str()));
+        }
     }
     #[test]
     fn menu_addresses_map_to_connect_targets() {

@@ -108,6 +108,7 @@ type options struct {
 	resourcePackCacheDir      string
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
+	installedResourcePackDir  string
 	controlStatus             bool
 	cinnabarAPI               bool
 	xboxPresence              bool
@@ -145,6 +146,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
+	flags.StringVar(&opts.installedResourcePackDir, "installed-resource-pack-dir", "", "reuse installed resource-pack archives that match an offered pack's UUID, version and size")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
 	flags.BoolVar(&opts.xboxPresence, "xbox-presence", false, "own Xbox title presence for the account (requires -control-status)")
 	flags.BoolVar(&opts.cinnabarAPI, "cinnabar-api", false, "connect the account to the Cinnabar API once the control client configures it (requires -control-status)")
@@ -253,7 +255,7 @@ func runWithResourcePackCacheFactory(
 		if opts.authCache == "" {
 			return errors.New("auth-events mode requires -auth-cache")
 		}
-		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" || opts.controlStatus {
+		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" || opts.installedResourcePackDir != "" || opts.controlStatus {
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
 		return authflow.Run(ctx, authflow.Config{
@@ -323,7 +325,7 @@ func runWithResourcePackCacheFactory(
 	}
 	logger.Info("authentication ready", "mode", authentication)
 	if opts.catalogFile != "" {
-		if opts.resourcePackCacheDir != "" {
+		if opts.resourcePackCacheDir != "" || opts.installedResourcePackDir != "" {
 			return errors.New("catalog mode cannot be combined with resource-pack cache options")
 		}
 		if account == nil {
@@ -361,6 +363,9 @@ func runWithResourcePackCacheFactory(
 			resourcePackCache = cache
 			closeResourcePackCache = cache.Close
 		}
+	}
+	if opts.installedResourcePackDir != "" {
+		resourcePackCache = packcache.NewInstalled(opts.installedResourcePackDir, resourcePackCache)
 	}
 	// The launcher runs local worlds and reports the open one over local_world.v1.
 	var localWorlds *localworld.Local
