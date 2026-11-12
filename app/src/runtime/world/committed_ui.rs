@@ -111,21 +111,26 @@ pub(crate) fn drain_committed_ui_before_authority(
             CommittedUiEvent::Form {
                 sequence,
                 dimension_epoch: event_epoch,
-                event,
+                mut event,
             } => {
                 if event_epoch != dimension_epoch {
                     continue;
                 }
-                // Authority may already include actors spawned after this form.
-                let npc_actor = if let protocol::ServerFormModel::NpcDialogue(npc) = &event.model {
-                    let authority = client_world.stream.as_ref().unwrap().authority();
-                    authority
-                        .actor_by_unique_id(npc.npc_unique_id)
-                        .and_then(|actor| authority.actor_lifetime(actor.runtime_id))
-                        .filter(|actor| actor.spawn_revision <= sequence)
-                } else {
-                    None
+                let npc_unique_id = match &event.model {
+                    protocol::ServerFormModel::NpcDialogue(npc) => Some(npc.npc_unique_id),
+                    _ => None,
                 };
+                // Authority may already include actors spawned after this form.
+                let npc_actor = npc_unique_id.and_then(|unique_id| {
+                    let authority = client_world.stream.as_ref().unwrap().authority();
+                    let snapshot = authority.actor_by_unique_id(unique_id)?;
+                    let actor = authority
+                        .actor_lifetime(snapshot.runtime_id)
+                        .filter(|actor| actor.spawn_revision <= sequence)?;
+                    // Vanilla servers leave the packet's text to the NPC's synced data.
+                    event.fill_npc_dialogue_from_actor(snapshot.npc_dialogue());
+                    Some(actor)
+                });
                 ui_runtime
                     .apply(
                         &mut player_runtime,
