@@ -87,7 +87,8 @@ impl SkullKind {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SkullMount {
-    /// Standing on a block; `rotation_degrees` is the NBT `Rotation`, 0 facing south.
+    /// Standing on a block; `rotation_degrees` is the NBT `Rotation`, the yaw of the player who
+    /// placed it (0 looking south). The head faces back toward that player.
     Floor { rotation_degrees: f32 },
     /// Mounted on the wall opposite `Facing`, looking along it.
     Wall(Facing),
@@ -99,10 +100,11 @@ pub struct SkullModel {
     pub mount: SkullMount,
 }
 
-/// Yaw turning a head whose `Rotation` is 0 (facing south) to `rotation_degrees`.
+/// Yaw turning the model (front toward -Z) to face back toward the player whose yaw is the
+/// block actor's `Rotation`, so a head with `Rotation` 0 looks north.
 #[must_use]
 pub fn floor_yaw_degrees(rotation_degrees: f32) -> f32 {
-    180.0 - rotation_degrees
+    -rotation_degrees
 }
 
 pub(super) fn emit(
@@ -222,11 +224,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nbt_types_and_floor_yaw_follow_the_rotation_convention() {
+    fn nbt_types_follow_the_legacy_skull_type_ordinals() {
         assert_eq!(SkullKind::from_nbt(3), Some(SkullKind::Player));
         assert_eq!(SkullKind::from_nbt(9), None);
-        // Rotation 0 faces south (yaw 180); a quarter turn faces west (yaw 90).
-        assert_eq!(floor_yaw_degrees(0.0), Facing::South.yaw_degrees());
-        assert_eq!(floor_yaw_degrees(90.0), Facing::West.yaw_degrees());
+    }
+
+    /// The block actor stores the placing player's yaw (0 looks south), and the head turns back
+    /// to face that player: a head with `Rotation` 0 looks north.
+    #[test]
+    fn floor_heads_face_back_toward_the_player_whose_yaw_they_store() {
+        assert_eq!(floor_yaw_degrees(0.0), Facing::North.yaw_degrees());
+        assert_eq!(
+            floor_yaw_degrees(90.0).rem_euclid(360.0),
+            Facing::East.yaw_degrees()
+        );
+        assert_eq!(
+            floor_yaw_degrees(180.0).rem_euclid(360.0),
+            Facing::South.yaw_degrees()
+        );
+        assert_eq!(
+            floor_yaw_degrees(270.0).rem_euclid(360.0),
+            Facing::West.yaw_degrees()
+        );
     }
 }
