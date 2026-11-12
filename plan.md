@@ -1877,6 +1877,12 @@ so vanilla's `.tga` cannot shadow them, and grass sides are composed into Bedroc
 Every vanilla 1.7.10 and 1.8.9 block and item texture with a Bedrock counterpart maps to it, and
 their HUD crops match pixel for pixel. Translation holds at most 1 GiB of decoded and derived
 pixels, an implementation bound rather than a vanilla limit.
+A Bedrock pack that draws its HUD from the legacy `textures/gui/icons.png` and `gui.png` atlases
+gets the individual `textures/ui` hearts, hunger, armour, air, hotbar and experience-bar textures
+cut from them at import, never replacing a texture the pack ships itself. Packs already installed
+need a re-import, server-sent packs are not converted, and that real Bedrock reads those atlases
+for such packs, and for which packs, is unverified, so this is a provisional approximation that
+closes no parity gate.
 Compasses and clocks animate with a pack's own strips: its `compass_atlas`, `recovery_compass_atlas`
 and `watch_atlas` images, shown at the native 32 and 64 frames. A strip under the Java item name
 (`compass.png`, `clock.png`) in a Bedrock pack at exactly the native frame count is also used.

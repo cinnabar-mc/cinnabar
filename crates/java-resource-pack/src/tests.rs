@@ -830,3 +830,102 @@ fn roots_are_found_at_the_shallowest_marker() {
         None
     );
 }
+
+/// The files `legacy_hud_textures` derives, keyed by path, for a pack providing `provided`.
+fn derived<'a>(
+    icons: Option<&[u8]>,
+    gui: Option<&[u8]>,
+    provided: &'a [&'a str],
+) -> Vec<(String, Vec<u8>)> {
+    legacy_hud_textures(icons, gui, &|path| provided.contains(&path), TEXTURE_LIMIT)
+}
+
+#[test]
+fn bedrock_legacy_atlases_become_the_split_hud_textures() {
+    let icons = marked_atlas(
+        256,
+        &[
+            (icon("heart/full"), BLUE),
+            (icon("food_full"), RED),
+            (icon("experience_bar_progress"), YELLOW),
+        ],
+    );
+    let gui = marked_atlas(
+        256,
+        &[
+            (crate::hud::LEGACY_HOTBAR, GREEN),
+            (crate::hud::LEGACY_SELECTION, WHITE),
+        ],
+    );
+    let files = derived(Some(&icons), Some(&gui), &[]);
+    let out: BTreeMap<&str, &[u8]> = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect();
+    assert_eq!(pixel(&out, "textures/ui/heart.png", 4, 4).1, BLUE);
+    assert_eq!(pixel(&out, "textures/ui/hunger_full.png", 4, 4).1, RED);
+    assert_eq!(
+        pixel(&out, "textures/ui/experiencebarfull.png", 90, 2),
+        ((182, 5), YELLOW)
+    );
+    assert_eq!(pixel(&out, "textures/ui/hotbar_0.png", 10, 10).1, GREEN);
+    assert_eq!(pixel(&out, "textures/ui/hotbar_8.png", 10, 10).1, GREEN);
+    assert_eq!(
+        pixel(&out, "textures/ui/selected_hotbar_slot.png", 12, 12).1,
+        WHITE
+    );
+    assert!(out.contains_key("textures/ui/experiencebarfull.json"));
+    assert!(out.contains_key("textures/ui/experiencenub.png"));
+}
+
+#[test]
+fn legacy_atlas_textures_never_replace_files_the_pack_provides() {
+    let icons = marked_atlas(
+        256,
+        &[
+            (icon("heart/full"), BLUE),
+            (icon("experience_bar_background"), GREEN),
+        ],
+    );
+    let files = derived(
+        Some(&icons),
+        None,
+        &[
+            "textures/ui/heart.png",
+            "textures/ui/experiencebarempty.png",
+        ],
+    );
+    let paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
+    assert!(!paths.contains(&"textures/ui/heart.png"));
+    assert!(paths.contains(&"textures/ui/heart_half.png"));
+    for path in [
+        "textures/ui/experiencebarempty.png",
+        "textures/ui/experiencebarempty.json",
+        "textures/ui/experiencenub.png",
+    ] {
+        assert!(
+            !paths.contains(&path),
+            "{path} describes the pack's own bar"
+        );
+    }
+}
+
+#[test]
+fn unreadable_legacy_atlases_derive_nothing() {
+    assert!(derived(Some(b"not a png"), Some(b""), &[]).is_empty());
+    assert!(derived(None, None, &[]).is_empty());
+}
+
+#[test]
+fn legacy_atlas_textures_follow_the_atlas_resolution() {
+    let gui = marked_atlas(512, &[(crate::hud::LEGACY_HOTBAR, GREEN)]);
+    let files = derived(None, Some(&gui), &[]);
+    let out: BTreeMap<&str, &[u8]> = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect();
+    assert_eq!(
+        pixel(&out, "textures/ui/hotbar_3.png", 0, 0),
+        ((40, 44), GREEN)
+    );
+}

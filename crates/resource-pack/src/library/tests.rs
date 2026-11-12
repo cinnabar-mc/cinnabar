@@ -257,6 +257,76 @@ fn java_edition_packs_import_as_translated_bedrock_packs() {
     );
 }
 
+/// A transparent 256x256 atlas with `region` (x, y, width, height) filled with `color`.
+fn atlas(region: [u32; 4], color: [u8; 4]) -> Vec<u8> {
+    let mut image = image::RgbaImage::new(256, 256);
+    for y in region[1]..region[1] + region[3] {
+        for x in region[0]..region[0] + region[2] {
+            image.put_pixel(x, y, image::Rgba(color));
+        }
+    }
+    let mut bytes = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+/// The pixel at (`x`, `y`) of a PNG.
+fn pixel_of(bytes: &[u8], x: u32, y: u32) -> [u8; 4] {
+    image::load_from_memory(bytes)
+        .unwrap()
+        .into_rgba8()
+        .get_pixel(x, y)
+        .0
+}
+
+#[test]
+fn bedrock_packs_with_legacy_hud_atlases_import_with_split_hud_textures() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let blue = [0, 0, 255, 255];
+    let green = [0, 255, 0, 255];
+    let own_heart = png([9, 8, 7, 255]);
+    let legacy_manifest = manifest(7, "resources", "");
+    // The full heart sits at (52, 0) of the icons atlas; the hotbar strip at the gui atlas origin.
+    let icons = atlas([52, 0, 9, 9], blue);
+    let gui = atlas([0, 0, 182, 22], green);
+    let bytes = zip(&[
+        ("manifest.json", legacy_manifest.as_bytes()),
+        ("textures/gui/icons.png", &icons),
+        ("textures/gui/gui.png", &gui),
+    ]);
+    let report = library
+        .import(&fixture.write("legacy.mcpack", &bytes))
+        .unwrap();
+    assert!(report.rejected.is_empty(), "{:?}", report.rejected);
+    library.activate(report.imported[0].id).unwrap();
+    let view = LayeredPackView::new(library.apply().unwrap());
+    let heart = view.read("textures/ui/heart.png").expect("heart derived");
+    assert_eq!(pixel_of(&heart, 4, 4), blue);
+    let slot = view.read("textures/ui/hotbar_4.png").expect("slot derived");
+    assert_eq!(pixel_of(&slot, 10, 10), green);
+    assert!(view.read("textures/ui/selected_hotbar_slot.png").is_some());
+
+    // A texture the pack ships itself is never replaced by one cut from an atlas.
+    let bytes = zip(&[
+        ("manifest.json", manifest(8, "resources", "").as_bytes()),
+        ("textures/gui/icons.png", &icons),
+        ("textures/ui/heart.png", &own_heart),
+    ]);
+    let report = library
+        .import(&fixture.write("own.mcpack", &bytes))
+        .unwrap();
+    library.activate(report.imported[0].id).unwrap();
+    let view = LayeredPackView::new(library.apply().unwrap());
+    assert_eq!(
+        view.read("textures/ui/heart.png").unwrap().as_ref(),
+        own_heart.as_slice()
+    );
+    assert!(view.read("textures/ui/heart_half.png").is_some());
+}
+
 #[test]
 fn java_edition_packs_without_usable_textures_are_rejected() {
     let fixture = Fixture::new();
