@@ -90,6 +90,22 @@ pub fn translate(
     translate::translate(paths, read, name, max_texture_bytes)
 }
 
+/// The Bedrock UI textures a legacy `gui/icons.png` and `gui/gui.png` describe, for a Bedrock
+/// pack that draws its HUD from those atlases: hearts, hunger, armour and air icons, effect
+/// backgrounds, the hotbar slots and selection, and the experience bar with its sidecars, as
+/// `(path, PNG or JSON bytes)`. `has` says whether the pack already provides a path, and such a
+/// path is left out so the pack's own file wins. Sources that are missing or not PNGs contribute
+/// nothing, and generated PNGs over `max_texture_bytes` are left out.
+#[must_use]
+pub fn legacy_hud_textures(
+    icons: Option<&[u8]>,
+    gui: Option<&[u8]>,
+    has: &dyn Fn(&str) -> bool,
+    max_texture_bytes: u64,
+) -> Vec<(String, Vec<u8>)> {
+    hud::legacy_atlas_files(icons, gui, has, max_texture_bytes, &texture::Budget::new())
+}
+
 #[cfg(test)]
 mod tests;
 
