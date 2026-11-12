@@ -190,6 +190,8 @@ pub fn core_command_for_address(
         .arg(address)
         .arg("-resource-pack-cache-dir")
         .arg(layout.resource_pack_cache_dir())
+        .arg("-installed-resource-pack-dir")
+        .arg(layout.global_resource_packs_dir())
         .arg("-device-file")
         .arg(layout.device_profile_file());
     // Passed only when the spawning session provably owns the verified blob
