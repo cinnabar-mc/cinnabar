@@ -6,6 +6,7 @@ use bridge::{Backend, GameMode, WorldState};
 
 use super::super::progress::Stage;
 use super::super::prompt::{DOCKER_URL, Prompt, PromptButton, PromptFor, PromptKind};
+use super::super::tab::Tab;
 use super::*;
 
 fn world(id: &str, name: &str) -> World {
@@ -1009,3 +1010,5 @@ fn world_options_toggles_drop_invalid_text_in_gated_fields() {
     assert!(menu.form_error().is_none());
     assert_eq!(menu.screen(), Screen::List);
 }
+
+mod packs;

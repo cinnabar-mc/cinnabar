@@ -72,9 +72,34 @@ Default game mode and default player permission apply on the next start. If a co
 the Game section explains that the saved change applies on the next start. Rules applied live stay
 pending until the server exits successfully. A crash or forced shutdown keeps them pending.
 
-Resource packs, behaviour packs and experiments remain unavailable. Xbox Live, Realms and
+Experiments remain unavailable. Xbox Live, Realms and
 friends-broadcast settings are not exposed on the local BDS multiplayer page. Hardcore remains
 unavailable, as do custom flat presets and Education Edition. Runtime acceptance of every option across supported BDS platforms remains open.
+
+## World packs
+
+Edit world offers Resource packs and Behaviour packs for BDS worlds. A world keeps its packs in its
+own server folder: pack folders under `resource_packs/` and `behavior_packs/`, named by pack id, and
+the ordered `world_resource_packs.json` and `world_behavior_packs.json`, highest priority first. BDS
+1.26.60.6 loads a behaviour pack and accepts a configured resource pack from this layout at startup.
+
+- Add accepts a `.mcpack`, `.mcaddon` or `.zip` file. An add-on bundle contributes only the packs
+  that belong to the tab, and the refusal names the other tab when none do. A pack goes to the front,
+  replacing any copy with the same id.
+- Up, Down and Remove reorder or delete a pack and its copy. Entries a world lists without holding a
+  copy, such as packs a server supplies itself, are shown as not stored in the world and can be removed.
+- A world exported from the Bedrock game lists its packs without holding them. Find in Minecraft on
+  such a row copies the pack from the game's `resource_packs`, `behavior_packs` and
+  `development_*_packs` folders (the exact listed version, else the newest) into the world and points
+  the entry at that version. It reads those folders only when pressed, never follows links, and
+  stays within the archive limits.
+- Changes are refused while the world is open or saving. A list file that does not parse is never
+  overwritten; extra fields on entries the launcher did not write are kept.
+- Worlds imported from `.mcworld` files show the packs they brought.
+- Create World offers the same tabs for BDS worlds. Each chosen file is checked when picked and kept
+  as a path until Create installs it with the new world; a file that has since gone makes Create fail
+  and keeps no world. Android lists no create-time picks because its picked copy is removed first.
+- Packs are not scanned for dependencies, and Dragonfly worlds have no pack support.
 
 ## BDS acquisition
 

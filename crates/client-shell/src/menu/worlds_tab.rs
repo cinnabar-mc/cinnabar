@@ -13,8 +13,10 @@ use {
 use {
     crate::local_worlds::LocalWorlds,
     launcher::local_worlds::{
-        model::{Input, Screen, Tab, WorldsView},
+        model::{Input, Screen},
         progress::Progress,
+        tab::Tab,
+        view::WorldsView,
     },
 };
 
@@ -429,9 +431,7 @@ impl MenuRuntime {
                     Tab::ALL
                         .iter()
                         .copied()
-                        .filter(|tab| {
-                            tab.supported() && (*tab == Tab::General || view.options_available())
-                        })
+                        .filter(|tab| view.tab_available(*tab))
                         .map(A::Tab),
                 );
                 match view.tab {
@@ -462,7 +462,11 @@ impl MenuRuntime {
                     Tab::Advanced if !editing => {
                         actions.extend([A::SeedField, A::Flat(false), A::Flat(true)])
                     }
-                    _ => {}
+                    tab => {
+                        if let (Some(kind), Some(packs)) = (tab.pack_kind(), &view.packs) {
+                            actions.extend(A::pack_list(kind, packs.list(kind)));
+                        }
+                    }
                 }
                 for &id in launcher::local_worlds::options::WorldOption::ALL {
                     let definition = id.definition();

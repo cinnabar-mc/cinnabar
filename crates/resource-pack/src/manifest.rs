@@ -61,6 +61,45 @@ fn declared_identity(root: &Value, layout: Layout) -> Result<(Uuid, Version), Ad
     Ok((uuid, version))
 }
 
+/// What a pack manifest declares about the pack itself, for lists that attach packs to a world.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackSummary {
+    pub id: Uuid,
+    pub version: [u32; 3],
+    /// The header name as authored, which may be a localization key.
+    pub name: String,
+    pub description: String,
+    /// Declares a `resources` module.
+    pub resources: bool,
+    /// Declares a `data` or `script` module, which a dedicated server loads as a behaviour pack.
+    pub behaviour: bool,
+}
+
+/// Reads a manifest's identity, display text and module kinds with the client's format rules.
+pub fn summarize_manifest(bytes: &[u8]) -> Result<PackSummary, AdmissionError> {
+    let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
+    let layout = format::layout(bytes, &root).ok_or(AdmissionError::UnsupportedManifestFormat)?;
+    let (id, version) = declared_identity(&root, layout)?;
+    let has_module = |kinds: &[&str]| {
+        layout.modules(&root).as_array().is_some_and(|modules| {
+            modules.iter().any(|module| {
+                module["type"]
+                    .as_str()
+                    .is_some_and(|kind| kinds.contains(&kind))
+            })
+        })
+    };
+    let text = |key: &str| root["header"][key].as_str().unwrap_or_default().to_owned();
+    Ok(PackSummary {
+        id,
+        version: version.0,
+        name: text("name"),
+        description: text("description"),
+        resources: has_module(&["resources"]),
+        behaviour: has_module(&["data", "script"]),
+    })
+}
+
 pub(crate) struct Manifest {
     pub(crate) subpacks: Vec<Subpack>,
 }
@@ -142,6 +181,25 @@ mod tests {
     use super::*;
 
     const ID: Uuid = Uuid::from_u128(1);
+
+    #[test]
+    fn summaries_report_identity_text_and_module_kinds() {
+        let text = r#"{"format_version": 2, "header": {"name": "Arena", "description": "A pack",
+            "uuid": "00000000-0000-0000-0000-000000000001", "version": [1, 2, 3]},
+            "modules": [{"type": "data"}, {"type": "script"}]}"#;
+        let summary = summarize_manifest(text.as_bytes()).unwrap();
+        assert_eq!(summary.id, ID);
+        assert_eq!(summary.version, [1, 2, 3]);
+        assert_eq!(
+            (summary.name.as_str(), summary.description.as_str()),
+            ("Arena", "A pack")
+        );
+        assert!(summary.behaviour && !summary.resources);
+        let resources = text.replace("\"data\"", "\"resources\"");
+        let summary = summarize_manifest(resources.as_bytes()).unwrap();
+        assert!(summary.resources && summary.behaviour);
+        assert!(summarize_manifest(b"{").is_err());
+    }
 
     #[test]
     fn pack_version_components_stop_at_u16_max() {

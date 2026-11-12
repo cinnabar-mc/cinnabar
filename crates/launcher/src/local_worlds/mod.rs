@@ -4,8 +4,11 @@ pub mod form;
 pub mod in_world;
 pub mod model;
 pub mod options;
+pub mod packs;
 pub mod progress;
 pub mod prompt;
+pub mod tab;
+pub mod view;
 pub mod world;
 
 pub use form::{
@@ -13,6 +16,8 @@ pub use form::{
     difficulty_description, difficulty_label, game_mode_description, game_mode_label,
     world_type_label,
 };
-pub use model::{Effect, Event, Input, Screen, Tab, WorldsMenu, WorldsView};
+pub use model::{Effect, Event, Input, Screen, WorldsMenu};
 pub use progress::{Progress, Stage};
 pub use prompt::{Prompt, PromptButton, PromptFor};
+pub use tab::Tab;
+pub use view::WorldsView;

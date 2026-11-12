@@ -1917,9 +1917,19 @@ server exit. Changing the default game mode also sends a targeted console comman
 host; the world default and default player permission still take effect on the next start. Console
 write success does not confirm the server applied the player mode; live acceptance and native
 settings parity remain incomplete. Pack and experiment
+server exit. Default game mode and default player permission changes still wait for the next
+start; live application of these settings remains an incomplete parity gap. Experiment
 configuration, hardcore, flat presets, Education Edition, operator status for a signed-out or
 offline-fallback host, the in-game Personal Game Mode and Multiplayer section, and live acceptance
 of every option on supported platforms remain incomplete.
+Create world and Edit world attach resource and behaviour packs to BDS worlds by importing `.mcpack`,
+`.mcaddon` or `.zip` files into the world's own `resource_packs/` and `behavior_packs/` folders and
+its `world_*_packs.json` lists, with reordering and removal; BDS 1.26.60.6 was observed loading a
+behaviour pack and accepting a configured resource pack from that layout. A listed pack the world
+lacks can be copied from the Bedrock game's pack folders. Delivery of world resource packs to the local client, pack
+dependency checks, Android create-time picks (the picked copy is removed first), Dragonfly worlds, experiments, and the
+archive size and entry bounds, which are implementation guards rather than identified vanilla
+limits, remain incomplete.
 Join initiation failures log their full cause for local worlds and direct sessions as well as
 launcher server joins. The offline Android join report still lacks a reproduced failure or session
 log; logging the cause improves diagnosis and does not close its acceptance gap.
