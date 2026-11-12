@@ -1927,7 +1927,7 @@ Create world and Edit world attach resource and behaviour packs to BDS worlds by
 its `world_*_packs.json` lists, with reordering and removal; BDS 1.26.60.6 was observed loading a
 behaviour pack and accepting a configured resource pack from that layout. A listed pack the world
 lacks can be copied from the Bedrock game's pack folders. Delivery of world resource packs to the local client, pack
-dependency checks, Android create-time picks (the picked copy is removed first), Dragonfly worlds, experiments, and the
+dependency checks, Android create-time picks (the picked copy is removed first), experiments, and the
 archive size and entry bounds, which are implementation guards rather than identified vanilla
 limits, remain incomplete.
 Join initiation failures log their full cause for local worlds and direct sessions as well as

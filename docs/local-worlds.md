@@ -99,7 +99,7 @@ the ordered `world_resource_packs.json` and `world_behavior_packs.json`, highest
 - Create World offers the same tabs for BDS worlds. Each chosen file is checked when picked and kept
   as a path until Create installs it with the new world; a file that has since gone makes Create fail
   and keeps no world. Android lists no create-time picks because its picked copy is removed first.
-- Packs are not scanned for dependencies, and Dragonfly worlds have no pack support.
+- Packs are not scanned for dependencies. Legacy Dragonfly worlds are not managed.
 
 ## BDS acquisition
 
