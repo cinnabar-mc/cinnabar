@@ -360,10 +360,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         }),
         "health": health,
         "form": form_snapshot(world),
-        "hud": world.get_resource::<UiRuntimeResource>().map(|ui| json!({
-            "title": ui.hud().title_text(),
-            "subtitle": ui.hud().subtitle_text(),
-        })),
+        "hud": world.get_resource::<UiRuntimeResource>().map(|ui| hud_snapshot(ui.hud())),
         "java_animations": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| settings.feel().java_animations),
         "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
@@ -480,6 +477,16 @@ pub(super) fn snapshot(world: &World) -> Value {
 }
 
 /// Exposes the active form's rendered input targets in window coordinates for headless checks.
+/// The HUD text a scripted test reads: the latest title and subtitle, and the
+/// action bar while it is still on screen (null once it fades or is cleared).
+fn hud_snapshot(hud: &ui::HudStore) -> Value {
+    json!({
+        "title": hud.title_text(),
+        "subtitle": hud.subtitle_text(),
+        "action_bar": hud.actionbar().map(|bar| bar.text.as_ref()),
+    })
+}
+
 fn form_snapshot(world: &World) -> Option<Value> {
     let entry = world
         .get_resource::<UiRuntimeResource>()?
@@ -612,5 +619,24 @@ mod visible_parts_tests {
             ["body", "head", "tracer"]
         );
         assert!(visible_parts([], &names).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod hud_snapshot_tests {
+    use std::sync::Arc;
+
+    use super::hud_snapshot;
+
+    /// The action bar is reported while it is on screen and as null once it fades.
+    #[test]
+    fn the_action_bar_is_reported_until_it_fades() {
+        let mut hud = ui::HudStore::default();
+        assert!(hud_snapshot(&hud)["action_bar"].is_null());
+        hud.set_actionbar(Arc::from("Place: Oak Planks"), 1, 0);
+        hud.expire(4_999);
+        assert_eq!(hud_snapshot(&hud)["action_bar"], "Place: Oak Planks");
+        hud.expire(5_000);
+        assert!(hud_snapshot(&hud)["action_bar"].is_null());
     }
 }

@@ -34,6 +34,8 @@ schemas document every argument. Agents drive the client only through this endpo
   `category=level` directives (such as `net=debug`; the tool description lists the categories)
   and raw tracing `EnvFilter` directives, layered over the defaults and `RUST_LOG`.
   `log_filter_get` reports the runtime `spec` and the `effective` filter.
+- `state.hud` reports the latest `title` and `subtitle`, and the `action_bar` text while it is on
+  screen (null once it fades or is cleared).
 - `state.player_motion` includes the simulation tick, velocity, accepted motion sequence, jump
   eligibility, physical jump state, processed sprint state, active item use and the selected
   item's resolved use profile. `state.local_mods` also reports bounded
