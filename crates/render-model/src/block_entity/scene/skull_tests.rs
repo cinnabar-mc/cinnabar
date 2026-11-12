@@ -130,3 +130,34 @@ fn retained_skull_levels_invalidate_the_cache_and_do_not_light_later_cracks() {
     assert_eq!(cached.revision, second.revision);
     assert_eq!(cached.solid, second.solid);
 }
+
+/// The block actor's `Rotation` is the placing player's yaw: a head placed by a player looking
+/// south (0) turns its face north, back toward the player.
+#[test]
+fn floor_head_front_face_points_back_at_the_placing_player() {
+    let mut scene = scene();
+    for (rotation, toward_player) in [
+        (0.0, Vec3::NEG_Z),
+        (90.0, Vec3::X),
+        (180.0, Vec3::Z),
+        (270.0, Vec3::NEG_X),
+    ] {
+        let frame = scene.update(
+            SceneClock::default(),
+            &[],
+            &[skull(
+                SkullMount::Floor {
+                    rotation_degrees: rotation,
+                },
+                0,
+                0,
+            )],
+        );
+        // Face 0 of the head box is its front, whose normal is the model's -Z.
+        let front = Vec3::from_array(frame.solid[0].normal);
+        assert!(
+            front.abs_diff_eq(toward_player, 1.0e-5),
+            "rotation {rotation}: {front:?}"
+        );
+    }
+}
