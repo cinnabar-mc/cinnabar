@@ -15,6 +15,7 @@ fn layer_pack_catalog(base: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> Cata
 mod admitted_titles;
 mod effects;
 mod large_animation;
+mod mob_effects;
 mod native_precedence;
 mod nested_titles;
 mod retained_titles;

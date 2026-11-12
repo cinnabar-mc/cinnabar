@@ -27,6 +27,7 @@ mod chat;
 mod color_tests;
 #[cfg(test)]
 mod crisp_tests;
+mod effects;
 #[cfg(test)]
 mod image_tests;
 pub mod prepared;
@@ -87,6 +88,10 @@ pub fn register(registry: &mut ScreenRegistry) {
     catalog.restore_before(CarrierRestore {
         authored: titles::authored,
         restore: titles::restore,
+    });
+    catalog.restore_before(CarrierRestore {
+        authored: effects::authored,
+        restore: effects::restore,
     });
     catalog.after_layers(chat::prefer_builtin);
 }
