@@ -328,7 +328,9 @@ mod tests {
         let library = layout.global_resource_packs_dir();
         for command in [&game, &launcher] {
             let args: Vec<_> = command.get_args().collect();
-            let flag = args.iter().position(|arg| *arg == "-installed-resource-pack-dir");
+            let flag = args
+                .iter()
+                .position(|arg| *arg == "-installed-resource-pack-dir");
             assert_eq!(flag.map(|index| args[index + 1]), Some(library.as_os_str()));
         }
     }
