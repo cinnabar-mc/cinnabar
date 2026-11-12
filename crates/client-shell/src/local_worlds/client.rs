@@ -8,10 +8,13 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use launcher::local_worlds::world::{PrefsUpdate, WorldThumbnail};
+use launcher::local_worlds::{
+    packs::{PackFile, PackKind, StagedPack, WorldPacks},
+    world::{PrefsUpdate, WorldThumbnail},
+};
 use launcher_host::desktop::picker::{self, Filter};
 use launcher_host::local_worlds::{
-    CoreLink, CoreRoute, Manager, WORLD_ARCHIVE_EXTENSION, WorldError,
+    CoreLink, CoreRoute, MAX_PACK_ARCHIVE_BYTES, Manager, WORLD_ARCHIVE_EXTENSION, WorldError,
 };
 
 use super::model::{Effect, Event};
@@ -26,6 +29,23 @@ const WORLD_FILES: Filter = Filter {
     unavailable_hint: "Drop a world file onto the Worlds tab to import it.",
     max_bytes: None,
 };
+
+/// The picker for packs of `kind`.
+const fn pack_files(kind: PackKind) -> Filter {
+    Filter {
+        title: match kind {
+            PackKind::Resource => "Add resource pack",
+            PackKind::Behaviour => "Add behaviour pack",
+        },
+        name: match kind {
+            PackKind::Resource => "Resource packs",
+            PackKind::Behaviour => "Behaviour packs",
+        },
+        extensions: &resource_pack::PACK_IMPORT_EXTENSIONS,
+        unavailable_hint: "Packs can also be copied into the world's folder.",
+        max_bytes: Some(MAX_PACK_ARCHIVE_BYTES),
+    }
+}
 
 /// Work kept on the local-world worker, including thumbnail persistence.
 enum Request {
@@ -264,6 +284,48 @@ fn execute(
                 errors: vec![error],
             },
         },
+        Effect::LoadPacks(id) => packs_event(id.clone(), manager.packs(&id)),
+        // Android's picked file is a private copy removed once this request ends, before the world
+        // is created.
+        Effect::StagePack(_) if cfg!(target_os = "android") => Event::PackStageFailed(
+            "Add packs from Edit world once the world is created.".to_owned(),
+        ),
+        Effect::StagePack(kind) => match picker::pick(&pack_files(kind)) {
+            Ok(Some(file)) => {
+                let path = file.as_ref().to_path_buf();
+                match manager.preview_pack(kind, &path, cancelled) {
+                    Ok(pack) => Event::PackStaged(Some(StagedPack {
+                        file: PackFile { kind, path },
+                        pack,
+                    })),
+                    Err(error) => {
+                        bevy::log::warn!(%error, "could not read a pack for a new world");
+                        Event::PackStageFailed(capitalized(error.public_message()))
+                    }
+                }
+            }
+            Ok(None) => Event::PackStaged(None),
+            Err(message) => Event::PackStageFailed(message),
+        },
+        Effect::AddPack { id, kind } => match picker::pick(&pack_files(kind)) {
+            Ok(Some(file)) => {
+                let result = manager.add_pack(&id, kind, file.as_ref(), cancelled);
+                packs_event(id, result)
+            }
+            // A cancelled dialog changes nothing; the answer ends the menu's wait.
+            Ok(None) => packs_event(id.clone(), manager.packs(&id)),
+            Err(message) => Event::PackFailed { id, message },
+        },
+        Effect::FindPack { id, kind, pack } => {
+            let roots = launcher_host::minecraft_import::game_data_roots();
+            packs_event(id.clone(), manager.find_pack(&id, kind, &pack, &roots))
+        }
+        Effect::RemovePack { id, kind, pack } => {
+            packs_event(id.clone(), manager.remove_pack(&id, kind, &pack))
+        }
+        Effect::MovePack { id, kind, pack, to } => {
+            packs_event(id.clone(), manager.move_pack(&id, kind, &pack, to))
+        }
         Effect::PollStatus => Event::Status(route.status(manager)),
         Effect::Close => {
             manager.close();
@@ -275,6 +337,28 @@ fn execute(
         }
         Effect::OpenUrl(_) => return None,
     })
+}
+
+/// The menu's answer to a pack request on world `id`.
+fn packs_event(id: String, result: Result<WorldPacks, WorldError>) -> Event {
+    match result {
+        Ok(packs) => Event::Packs { id, packs },
+        Err(error) => {
+            bevy::log::warn!(%error, "could not change a world's packs");
+            Event::PackFailed {
+                id,
+                message: capitalized(error.public_message()),
+            }
+        }
+    }
+}
+
+/// Refusals are written to follow a file name; shown alone they start a sentence.
+fn capitalized(mut message: String) -> String {
+    if let Some(first) = message.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    message
 }
 
 /// Imports each file in turn; a refusal names its file.

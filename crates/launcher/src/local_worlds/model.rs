@@ -6,8 +6,11 @@ use bridge::{Backend, GameMode, WorldState};
 use std::path::PathBuf;
 
 use super::form::{CreateForm, EditForm, validate_name};
+use super::packs::{PackKind, PackState, StagedPack, WorldPacks};
 use super::progress::{self, Progress};
 use super::prompt::{DOCKER_URL, Prompt, PromptButton, PromptFor, PromptKind};
+use super::tab::Tab;
+use super::view::WorldsView;
 
 const FALLBACK_ERROR: &str = "The local world could not be started";
 
@@ -67,6 +70,15 @@ pub enum Input {
     Import,
     /// Imports dropped world files.
     ImportFiles(Vec<PathBuf>),
+    /// Picks a pack file and adds it to the edited world's list of this kind.
+    AddPack(PackKind),
+    /// Removes the pack at this index of the edited world's list.
+    RemovePack(PackKind, usize),
+    /// Moves the pack at this index one place toward the front (`true`) or back of its list.
+    MovePack(PackKind, usize, bool),
+    /// Copies the pack at this index, which the edited world lists without holding, from the
+    /// Bedrock game's pack folders.
+    FindPack(PackKind, usize),
     /// Cancels the current screen; while opening it also closes the world.
     Back,
     /// A change to the open world `id` from its in-game settings.
@@ -88,6 +100,35 @@ pub enum Effect {
         id: String,
         revision: u64,
         update: WorldUpdate,
+    },
+    /// Reads the packs of a saved world.
+    LoadPacks(String),
+    /// Asks for a pack file and checks it for the world being created.
+    StagePack(PackKind),
+    /// Asks for a pack file and adds it to the front of the world's list of this kind.
+    AddPack {
+        id: String,
+        kind: PackKind,
+    },
+    RemovePack {
+        id: String,
+        kind: PackKind,
+        /// The pack's manifest UUID.
+        pack: String,
+    },
+    /// Copies a pack the world lists without holding from the Bedrock game's pack folders.
+    FindPack {
+        id: String,
+        kind: PackKind,
+        /// The pack's manifest UUID.
+        pack: String,
+    },
+    /// Moves a pack to index `to` of its list.
+    MovePack {
+        id: String,
+        kind: PackKind,
+        pack: String,
+        to: usize,
     },
     Open(String),
     /// Reads the open world's status once it changes, or after a short wait.
@@ -127,6 +168,20 @@ pub enum Event {
         revision: u64,
         error: String,
     },
+    /// A world's packs after they were read or changed.
+    Packs {
+        id: String,
+        packs: WorldPacks,
+    },
+    /// A pack request failed, or its file was refused; the world's packs are unchanged.
+    PackFailed {
+        id: String,
+        message: String,
+    },
+    /// The pack file chosen for the new world, or `None` when the dialog was cancelled.
+    PackStaged(Option<StagedPack>),
+    /// A pack file chosen for the new world was refused.
+    PackStageFailed(String),
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
     EulaRequired,
@@ -141,81 +196,6 @@ pub enum Event {
 }
 
 pub const EULA_URL: &str = "https://www.minecraft.net/eula";
-
-macro_rules! world_tabs {
-    ($first:ident: $first_label:literal, $first_supported:literal; $($tab:ident: $label:literal, $supported:literal;)*) => {
-        /// Categories shown in the create and edit sidebar.
-        #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-        pub enum Tab { #[default] $first, $($tab,)* }
-        impl Tab {
-            pub const ALL: &'static [Self] = &[Self::$first, $(Self::$tab,)*];
-            /// The sidebar label for this tab.
-            pub const fn label(self) -> &'static str {
-                match self { Self::$first => $first_label, $(Self::$tab => $label,)* }
-            }
-            /// Whether this tab has configurable settings.
-            pub const fn supported(self) -> bool {
-                match self { Self::$first => $first_supported, $(Self::$tab => $supported,)* }
-            }
-        }
-    };
-}
-world_tabs! {
-    General: "General", true;
-    Advanced: "Advanced", true;
-    Multiplayer: "Multiplayer", true;
-    Cheats: "Cheats", true;
-    ResourcePacks: "Resource packs", false;
-    BehaviourPacks: "Behaviour packs", false;
-    Experiments: "Experiments", false;
-}
-
-/// What the create, edit and modal screens present, mirrored into the menu view each frame.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldsView {
-    pub screen: Screen,
-    pub tab: Tab,
-    pub create: CreateForm,
-    pub edit: Option<EditForm>,
-    /// The saved world behind the edit form (its size and last-saved date).
-    pub edited: Option<World>,
-    pub form_error: Option<&'static str>,
-    pub option_text: std::collections::BTreeMap<super::options::WorldOption, String>,
-    pub error: Option<String>,
-    pub prompt: Option<Prompt>,
-    pub progress: Option<Progress>,
-    pub busy: bool,
-    /// Whether the selected BDS backend can run on this machine.
-    pub bds_can_run: bool,
-    pub bds_unavailable: Option<UnavailableReason>,
-}
-
-impl WorldsView {
-    /// A numeric option's text as typed, or its current value before any typing.
-    pub fn numeric_text(&self, id: super::options::WorldOption) -> String {
-        if let Some(text) = self.option_text.get(&id) {
-            return text.clone();
-        }
-        self.edit
-            .as_ref()
-            .filter(|_| self.screen == Screen::Edit)
-            .map_or(&self.create.options, |edit| &edit.options)
-            .get(id)
-            .to_string()
-    }
-
-    /// Whether the active form uses the BDS backend that supports world options, with level
-    /// data small enough to read and write them.
-    pub fn options_available(&self) -> bool {
-        if self.edit.is_some() {
-            self.edited
-                .as_ref()
-                .is_some_and(|world| world.backend == Backend::Bds && !world.options_unavailable)
-        } else {
-            true
-        }
-    }
-}
 
 /// What a Docker modal or EULA gate resumes once cleared.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -254,6 +234,7 @@ pub struct WorldsMenu {
     /// The open world whose running server missed an in-game change this session.
     missed_live: Option<String>,
     in_world: super::in_world::Edits,
+    packs: PackState,
 }
 
 impl WorldsMenu {
@@ -286,6 +267,8 @@ impl WorldsMenu {
                 .cloned(),
             form_error: self.form_error,
             option_text: self.option_text.clone(),
+            packs: self.packs.shown(),
+            pack_error: self.packs.error().map(str::to_owned),
             error: self.error.clone(),
             prompt: self.prompt(),
             progress: self.progress(),
@@ -427,6 +410,7 @@ impl WorldsMenu {
         match pending {
             Pending::Create => {
                 self.create = CreateForm::default();
+                self.packs.begin_create();
                 self.option_text.clear();
                 self.tab = Tab::General;
                 self.form_error = None;
@@ -434,7 +418,8 @@ impl WorldsMenu {
                 Vec::new()
             }
             Pending::SubmitCreate => match self.create.build() {
-                Ok(new_world) => {
+                Ok(mut new_world) => {
+                    new_world.packs = self.packs.files();
                     self.form_error = None;
                     self.busy = true;
                     self.mutation_pending = true;
@@ -532,10 +517,18 @@ impl WorldsMenu {
                 Vec::new()
             }
             Input::SelectTab(tab) => {
-                if tab == Tab::General || self.view().options_available() {
+                if self.view().tab_available(tab) {
                     self.tab = tab;
                 }
                 Vec::new()
+            }
+            Input::AddPack(_)
+            | Input::RemovePack(..)
+            | Input::MovePack(..)
+            | Input::FindPack(..)
+                if matches!(self.screen, Screen::Edit | Screen::Create) =>
+            {
+                self.pack_request(input)
             }
             Input::SetGameMode(mode) => {
                 match (&mut self.edit, self.screen) {
@@ -621,6 +614,10 @@ impl WorldsMenu {
                     self.tab = Tab::General;
                     self.form_error = None;
                     self.screen = Screen::Edit;
+                    if world.backend == Backend::Bds {
+                        return vec![self.packs.begin(&world.id)];
+                    }
+                    self.packs.clear();
                 }
                 Vec::new()
             }
@@ -694,7 +691,7 @@ impl WorldsMenu {
                 return Vec::new();
             }
         };
-        let update = edit_changes(edit, saved, name);
+        let update = edit.changes_from(saved, name);
         self.form_error = None;
         if update == WorldUpdate::default() {
             self.edit = None;
@@ -723,6 +720,13 @@ impl WorldsMenu {
             self.form_error = Some("Enter a valid number within the displayed range");
         }
         invalid
+    }
+
+    /// Runs a pack edit of the edited world, holding the form until the worker answers.
+    fn pack_request(&mut self, input: Input) -> Vec<Effect> {
+        let effect = self.packs.request(input);
+        self.busy |= effect.is_some();
+        effect.into_iter().collect()
     }
 
     /// Opens the world whose settings were just saved, when the edit screen's Play asked for it.
@@ -857,6 +861,14 @@ impl WorldsMenu {
                     .finish(&mut self.worlds, &id, revision, Err(error));
                 Vec::new()
             }
+            Event::Packs { .. }
+            | Event::PackFailed { .. }
+            | Event::PackStaged(_)
+            | Event::PackStageFailed(_) => {
+                self.busy = self.mutation_pending;
+                self.packs.apply(event);
+                Vec::new()
+            }
             Event::Status(status) => {
                 self.note_status(&status);
                 self.apply_status(status)
@@ -961,19 +973,6 @@ impl WorldsMenu {
                 vec![Effect::Close]
             }
         }
-    }
-}
-
-/// Includes only fields that differ from the saved world, using the validated name.
-fn edit_changes(edit: &EditForm, saved: &World, name: String) -> WorldUpdate {
-    WorldUpdate {
-        name: (name != saved.name).then_some(name),
-        game_mode: (edit.game_mode != saved.game_mode).then_some(edit.game_mode),
-        difficulty: (edit.difficulty != saved.difficulty).then_some(edit.difficulty),
-        options: {
-            let changes = edit.options.changes_from(&edit.original_options);
-            (!changes.is_empty()).then_some(changes)
-        },
     }
 }
 

@@ -456,6 +456,43 @@ pub(super) fn world_edit_advanced() -> Fixture {
     Fixture::Menu(view)
 }
 
+/// Shows the pack tab at `tab` of an edited BDS world carrying a few packs.
+pub(super) fn world_edit_packs(tab: usize, error: Option<&str>) -> Fixture {
+    use launcher::local_worlds::packs::{WorldPack, WorldPacks};
+    let Fixture::Menu(mut view) = world_edit_advanced() else {
+        unreachable!()
+    };
+    let pack = |name: &str, id: &str, external: bool| WorldPack {
+        id: id.into(),
+        version: [1, 2, 0],
+        name: name.into(),
+        description: if external {
+            String::new()
+        } else {
+            "Original artwork for the arena".into()
+        },
+        external,
+    };
+    view.local.tab = launcher::local_worlds::Tab::ALL[tab];
+    view.local.packs = Some(WorldPacks {
+        resource: vec![
+            pack(
+                "Arena textures",
+                "11111111-1111-4111-8111-111111111111",
+                false,
+            ),
+            pack("Sky overlay", "22222222-2222-4222-8222-222222222222", false),
+        ],
+        behaviour: vec![pack(
+            "33333333-3333-4333-8333-333333333333",
+            "33333333-3333-4333-8333-333333333333",
+            true,
+        )],
+    });
+    view.local.pack_error = error.map(str::to_owned);
+    Fixture::Menu(view)
+}
+
 /// Create and edit world-form states, one per tab plus the tall full-advanced view.
 pub(super) const WORLD_FORM_STATES: &[State] = &[
     State {
@@ -517,5 +554,17 @@ pub(super) const WORLD_FORM_STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: world_edit_advanced,
+    },
+    State {
+        name: "world-edit-resource-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_edit_packs(4, None),
+    },
+    State {
+        name: "world-edit-behaviour-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || world_edit_packs(5, Some("the file holds no behaviour pack")),
     },
 ];

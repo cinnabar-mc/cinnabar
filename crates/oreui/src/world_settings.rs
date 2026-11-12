@@ -23,6 +23,7 @@ use ui_engine::engine::screen::PaintError;
 
 mod advanced;
 mod options;
+mod packs;
 mod sections;
 mod sidebar;
 
@@ -127,6 +128,9 @@ pub(super) fn draw(
         Tab::Advanced if !editing => advanced::draw(canvas, view, &view.local, area)?,
         Tab::Advanced if view.local.options_available() => {
             advanced::edit(canvas, view, &view.local, area)?
+        }
+        tab if tab.pack_kind().is_some() => {
+            packs::draw(canvas, view, &view.local, area, tab, editing)?
         }
         tab if tab.supported() => options::draw(canvas, view, &view.local, area, area[1], editing)?,
         _ => sections::row(canvas, area, area[1], |canvas, inner| {

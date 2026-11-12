@@ -81,12 +81,15 @@ fn unsupported_world_settings_do_not_publish_inputs() {
         hits.iter()
             .all(|(action, _)| matches!(action, MenuAction::LocalWorld(_)))
     );
-    assert_eq!(
-        hits.iter()
-            .filter(|(action, _)| matches!(action, MenuAction::LocalWorld(A::Tab(_))))
-            .count(),
-        4
-    );
+    let tabs: Vec<_> = hits
+        .iter()
+        .filter_map(|(action, _)| match action {
+            MenuAction::LocalWorld(A::Tab(tab)) => Some(*tab),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tabs.len(), 6, "every tab but Experiments opens: {tabs:?}");
+    assert!(!tabs.contains(&Tab::Experiments));
 }
 
 #[test]
