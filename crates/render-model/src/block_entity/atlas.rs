@@ -89,6 +89,24 @@ pub struct TextureRef {
 }
 
 impl TextureRef {
+    /// Reads a texture authored against a square skin layout as the legacy half-height layout
+    /// when it was packed twice as wide as tall. The legacy rows are the top half of the square
+    /// layout's, so the logical size keeps the width and halves the height.
+    #[must_use]
+    pub fn legacy_skin_aware(self) -> Self {
+        let [width, height] = self.logical;
+        let square = (width - height).abs() < f32::EPSILON;
+        let half_height = (self.rect.width - 2.0 * self.rect.height).abs() < 1.0e-3;
+        if square && half_height && self.rect.height > 0.0 {
+            Self {
+                logical: [width, height / 2.0],
+                ..self
+            }
+        } else {
+            self
+        }
+    }
+
     /// Converts a `[u, v, width, height]` texel rect of the logical texture to atlas-pixel
     /// `[u0, v0, u1, v1]`, so a higher-resolution replacement texture still maps.
     #[must_use]
@@ -878,5 +896,41 @@ mod tests {
         assert_eq!(atlas.size()[1], 5 + dynamic_height(2));
         assert_eq!(atlas.text_cell(0).unwrap().y, (5 + MAP_STRIP_HEIGHT) as f32);
         assert!(atlas.text_cell(TEXT_SLOT_COUNT).is_some());
+    }
+
+    fn placed(width: f32, height: f32, logical: [f32; 2]) -> TextureRef {
+        TextureRef {
+            rect: AtlasRect {
+                x: 10.0,
+                y: 20.0,
+                width,
+                height,
+            },
+            logical,
+        }
+    }
+
+    #[test]
+    fn legacy_skin_layout_halves_only_a_wide_texture_authored_square() {
+        // 64x32 and a scaled-up 128x64 are the legacy layout of a 64x64 skin.
+        for (width, height) in [(64.0, 32.0), (128.0, 64.0)] {
+            let texture = placed(width, height, [64.0, 64.0]).legacy_skin_aware();
+            assert_eq!(texture.logical, [64.0, 32.0]);
+            // The head's top row maps to the top of the placed rect at the texture's own scale.
+            assert_eq!(
+                texture.rect_uv([0.0, 0.0, 64.0, 32.0]),
+                [10.0, 20.0, 10.0 + width, 20.0 + height]
+            );
+        }
+        // Square textures, including higher-resolution ones, and textures authored at 2:1 keep
+        // their logical size.
+        for texture in [
+            placed(64.0, 64.0, [64.0, 64.0]),
+            placed(128.0, 128.0, [64.0, 64.0]),
+            placed(64.0, 32.0, [64.0, 32.0]),
+            placed(128.0, 64.0, [64.0, 32.0]),
+        ] {
+            assert_eq!(texture.legacy_skin_aware(), texture);
+        }
     }
 }
