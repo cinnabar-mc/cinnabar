@@ -476,9 +476,9 @@ pub(super) fn snapshot(world: &World) -> Value {
     snapshot
 }
 
-/// Exposes the active form's rendered input targets in window coordinates for headless checks.
 /// The HUD text a scripted test reads: the latest title and subtitle, and the
-/// action bar while it is still on screen (null once it fades or is cleared).
+/// action bar until its title timing ends or it is cleared, then null. A pack
+/// that keeps the action bar drawn longer than that timing is not reflected.
 fn hud_snapshot(hud: &ui::HudStore) -> Value {
     json!({
         "title": hud.title_text(),
@@ -487,6 +487,7 @@ fn hud_snapshot(hud: &ui::HudStore) -> Value {
     })
 }
 
+/// Exposes the active form's rendered input targets in window coordinates for headless checks.
 fn form_snapshot(world: &World) -> Option<Value> {
     let entry = world
         .get_resource::<UiRuntimeResource>()?
@@ -628,7 +629,7 @@ mod hud_snapshot_tests {
 
     use super::hud_snapshot;
 
-    /// The action bar is reported while it is on screen and as null once it fades.
+    /// The action bar is reported until its title timing ends, then as null.
     #[test]
     fn the_action_bar_is_reported_until_it_fades() {
         let mut hud = ui::HudStore::default();
