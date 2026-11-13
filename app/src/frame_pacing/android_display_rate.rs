@@ -2,15 +2,21 @@
 //! request the system chooses, and Android 15 and later hold an app in the game category at
 //! a 60 Hz default.
 
+use std::time::{Duration, Instant};
+
 use render_model::FrameRate;
+
+/// How long a rejected request waits before it is made again.
+const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// A native window's identity and the rate requested for it; no rate accepts the system's
 /// choice.
 type Request = (usize, Option<FrameRate>);
 
-/// The request the compositor was last told, so it only hears about changes.
+/// The last request made and when to repeat it if the compositor rejected it. An accepted
+/// request stays on the window through display-mode changes, so it is never repeated.
 #[derive(Debug, Default)]
-struct DisplayRateRequests(Option<Request>);
+struct DisplayRateRequests(Option<(Request, Option<Instant>)>);
 
 impl DisplayRateRequests {
     /// Forgets the last request. Android drops a request with the window it was made on.
@@ -18,13 +24,18 @@ impl DisplayRateRequests {
         self.0 = None;
     }
 
-    /// Records `request` and returns it when the compositor has not been told it yet.
-    fn changed(&mut self, request: Request) -> Option<Request> {
-        if self.0 == Some(request) {
-            return None;
+    /// Whether `request` should be made at `now`: it differs from the last one, or the last
+    /// one was rejected and its retry is due.
+    fn due(&self, request: Request, now: Instant) -> bool {
+        match self.0 {
+            Some((last, retry_at)) if last == request => retry_at.is_some_and(|at| now >= at),
+            _ => true,
         }
-        self.0 = Some(request);
-        Some(request)
+    }
+
+    /// Records that `request` was made at `now` and whether the compositor accepted it.
+    fn record(&mut self, request: Request, accepted: bool, now: Instant) {
+        self.0 = Some((request, (!accepted).then(|| now + RETRY_INTERVAL)));
     }
 }
 
@@ -33,7 +44,11 @@ pub(crate) use native::install;
 
 #[cfg(target_os = "android")]
 mod native {
-    use std::{ffi::c_void, sync::OnceLock};
+    use std::{
+        ffi::c_void,
+        sync::{Once, OnceLock},
+        time::Instant,
+    };
 
     use bevy::{
         ecs::system::NonSendMarker,
@@ -86,7 +101,8 @@ mod native {
     }
 
     /// Requests the display rate for the frame-rate target when the target or the native
-    /// window changes, and again after the app resumes with a new window.
+    /// window changes, again after the app resumes with a new window, and again at the retry
+    /// interval while the compositor rejects it.
     fn request_display_rate(
         runtime: Res<FramePacingRuntime>,
         presentation: Res<PresentModeRuntime>,
@@ -117,22 +133,29 @@ mod native {
             environment.context(runtime.ignore_window_state),
         );
         let pointer = window.ptr().as_ptr().cast::<c_void>();
-        let Some((_, rate)) = requests.changed((pointer as usize, rate)) else {
+        let request = (pointer as usize, rate);
+        let now = Instant::now();
+        if !requests.due(request, now) {
             return;
-        };
+        }
         let Some(set_frame_rate) = set_frame_rate_function() else {
+            requests.record(request, true, now);
             return;
         };
         // Zero withdraws the request and accepts the system's choice.
         let hertz = rate.map_or(0.0, |rate| rate.millihertz() as f32 / 1_000.0);
         // SAFETY: `window` holds a reference to the live native window for this call.
         let status = unsafe { set_frame_rate(pointer, hertz, COMPATIBILITY_DEFAULT) };
+        requests.record(request, status == 0, now);
         if status != 0 {
-            bevy::log::warn!(
-                status,
-                hertz,
-                "Android rejected the display refresh request"
-            );
+            static WARNING: Once = Once::new();
+            WARNING.call_once(|| {
+                bevy::log::warn!(
+                    status,
+                    hertz,
+                    "Android rejected the display refresh request"
+                );
+            });
         }
     }
 }
@@ -147,26 +170,49 @@ mod tests {
 
     /// The compositor hears a request once, then only when the rate or the window changes.
     #[test]
-    fn a_request_is_sent_when_the_rate_or_the_window_changes() {
+    fn a_request_is_made_when_the_rate_or_the_window_changes() {
         let mut requests = DisplayRateRequests::default();
+        let now = Instant::now();
         let (first, second) = (0x1000, 0x2000);
-        assert_eq!(requests.changed((first, hz(120))), Some((first, hz(120))));
-        assert_eq!(requests.changed((first, hz(120))), None);
-        assert_eq!(requests.changed((first, hz(60))), Some((first, hz(60))));
-        assert_eq!(requests.changed((first, hz(60))), None);
-        assert_eq!(requests.changed((second, hz(60))), Some((second, hz(60))));
-        assert_eq!(requests.changed((second, None)), Some((second, None)));
-        assert_eq!(requests.changed((second, None)), None);
+        for request in [
+            (first, hz(120)),
+            (first, hz(60)),
+            (second, hz(60)),
+            (second, None),
+        ] {
+            assert!(requests.due(request, now), "{request:?}");
+            requests.record(request, true, now);
+            assert!(!requests.due(request, now), "{request:?}");
+            assert!(!requests.due(request, now + 10 * RETRY_INTERVAL));
+        }
     }
 
     /// A window recreated at the same address after a resume has no request of its own.
     #[test]
-    fn a_forgotten_request_is_sent_again() {
+    fn a_forgotten_request_is_made_again() {
         let mut requests = DisplayRateRequests::default();
+        let now = Instant::now();
         let request = (0x1000, hz(120));
-        assert_eq!(requests.changed(request), Some(request));
+        requests.record(request, true, now);
         requests.forget();
-        assert_eq!(requests.changed(request), Some(request));
-        assert_eq!(requests.changed(request), None);
+        assert!(requests.due(request, now));
+    }
+
+    /// A rejected request is repeated after the retry interval, not every frame.
+    #[test]
+    fn a_rejected_request_is_retried_after_the_interval_until_accepted() {
+        let mut requests = DisplayRateRequests::default();
+        let start = Instant::now();
+        let request = (0x1000, hz(120));
+        requests.record(request, false, start);
+        assert!(!requests.due(request, start));
+        assert!(!requests.due(request, start + RETRY_INTERVAL / 2));
+        assert!(requests.due(request, start + RETRY_INTERVAL));
+        assert!(
+            requests.due((0x1000, hz(60)), start),
+            "a new rate does not wait"
+        );
+        requests.record(request, true, start + RETRY_INTERVAL);
+        assert!(!requests.due(request, start + 2 * RETRY_INTERVAL));
     }
 }
