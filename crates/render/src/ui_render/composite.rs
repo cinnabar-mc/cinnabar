@@ -886,28 +886,16 @@ fn observe_ui_output(
             .store(native.was_presented(), Ordering::Relaxed);
         return;
     }
-    let blend_state = match camera.map(|camera| &camera.output_mode) {
-        Some(CameraOutputMode::Skip) => return,
-        Some(CameraOutputMode::Write { blend_state, .. }) => blend_state.or_else(|| {
-            camera
-                .filter(|camera| camera.sorted_camera_index_for_target > 0)
-                .map(|_| BlendState::ALPHA_BLENDING)
-        }),
-        None => None,
-    };
-    let Some(target_format) = target.out_texture_view_format() else {
+    if matches!(
+        camera.map(|camera| &camera.output_mode),
+        Some(CameraOutputMode::Skip)
+    ) {
+        return;
+    }
+    let Some(key) = crate::pipeline_warmup::output_blit_key(target, camera, space) else {
         return;
     };
-    let pipeline = pipelines.specialize(
-        &cache,
-        &blit,
-        bevy::core_pipeline::blit::BlitPipelineKey {
-            target_format,
-            blend_state,
-            samples: 1,
-            source_space: bevy::render::view::ResolvedCompositingSpace::space(space),
-        },
-    );
+    let pipeline = pipelines.specialize(&cache, &blit, key);
     layer.content_presented.store(
         cache.get_render_pipeline(pipeline).is_some(),
         Ordering::Relaxed,

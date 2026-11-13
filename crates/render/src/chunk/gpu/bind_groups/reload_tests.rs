@@ -163,7 +163,9 @@ fn menu_bootstrap_atlas_upload_is_deferred_and_published_once() {
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
     world.insert_resource(RenderQueue::new(queue));
-    let admission = render_scene::startup_work::WorldWorkAdmission::after_menu();
+    let admission = render_scene::startup_work::WorldWorkAdmission::after_menu(
+        render_scene::startup_work::WorldGpuStart::AfterMenu,
+    );
     admission.menu_presented();
     world.insert_resource(admission);
     world.init_resource::<ChunkTextureAssets>();
