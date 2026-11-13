@@ -35,20 +35,45 @@ fn release_pack_read_caches(
     mut pressure: MessageReader<MemoryPressure>,
     reload: Option<Res<PackReload>>,
 ) {
-    if pressure.read().count() == 0 {
+    let Some(pressure) = pressure.read().copied().max() else {
         return;
-    }
+    };
     if let Some(reload) = reload {
-        client_runtime::session::release_off_frame(reload.take_cached_reads());
+        // The reads are dropped off the frame, after this frame's own purge has run.
+        client_runtime::session::release_off_frame(DropThen {
+            released: Some(reload.take_cached_reads()),
+            then: Some(move || purge_emptied_heap(pressure)),
+        });
     }
 }
 
-/// Returns freed heap pages to the OS at the end of a frame whose pressure emptied caches. Low
-/// pressure only shrinks them, which is not worth a purge's pause on a visible client.
+/// Carries released allocations to the thread that drops them and runs `then` once they are
+/// freed. A purge that ran before the drop would find them still allocated.
+struct DropThen<T, F: FnOnce()> {
+    released: Option<T>,
+    then: Option<F>,
+}
+
+impl<T, F: FnOnce()> Drop for DropThen<T, F> {
+    fn drop(&mut self) {
+        drop(self.released.take());
+        if let Some(then) = self.then.take() {
+            then();
+        }
+    }
+}
+
+/// Returns freed heap pages to the OS at the end of a frame whose pressure emptied caches.
 fn purge_released_heap(mut pressure: MessageReader<MemoryPressure>) {
-    if let Some(pressure) = pressure.read().copied().max()
-        && pressure.releases_everything()
-    {
+    if let Some(pressure) = pressure.read().copied().max() {
+        purge_emptied_heap(pressure);
+    }
+}
+
+/// Purges the heap after a release that emptied caches. Low pressure only shrinks them, which
+/// is not worth a purge's pause on a visible client.
+fn purge_emptied_heap(pressure: MemoryPressure) {
+    if pressure.releases_everything() {
         purge_heap(pressure);
     }
 }
@@ -87,5 +112,30 @@ mod android {
                 mallopt(M_PURGE, 0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// The purge that follows an off-frame release must find the released memory already freed.
+    #[test]
+    fn the_follow_up_runs_only_after_the_released_allocations_are_dropped() {
+        struct Released<'a>(&'a AtomicBool);
+        impl Drop for Released<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        let (freed, freed_first) = (AtomicBool::new(false), AtomicBool::new(false));
+        let carried = DropThen {
+            released: Some(Released(&freed)),
+            then: Some(|| freed_first.store(freed.load(Ordering::Acquire), Ordering::Release)),
+        };
+        assert!(!freed.load(Ordering::Acquire));
+        drop(carried);
+        assert!(freed_first.load(Ordering::Acquire));
     }
 }
