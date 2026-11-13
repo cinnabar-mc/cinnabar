@@ -63,15 +63,15 @@ impl TerminalCause {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
+        // The browser client installs neither the panic capture nor the GPU error record.
         #[cfg(not(target_arch = "wasm32"))]
-        let panic = launcher_host::lifecycle::crash::last_panic();
+        let (gpu_error, panic) = (
+            crate::app::logging::first_gpu_error(),
+            launcher_host::lifecycle::crash::last_panic(),
+        );
         #[cfg(target_arch = "wasm32")]
-        let panic: Option<String> = None;
-        terminal_message(
-            cause.as_deref(),
-            crate::app::logging::first_gpu_error().as_deref(),
-            panic.as_deref(),
-        )
+        let (gpu_error, panic): (Option<String>, Option<String>) = (None, None);
+        terminal_message(cause.as_deref(), gpu_error.as_deref(), panic.as_deref())
     }
 }
 
