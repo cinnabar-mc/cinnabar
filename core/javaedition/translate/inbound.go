@@ -125,7 +125,7 @@ func (s *Session) joinGame(pk *java.JoinGame) error {
 		EntityRuntimeID:         runtimeID(pk.EntityID),
 		PlayerGameMode:          int32(pk.GameMode),
 		BaseGameVersion:         "*",
-		PlayerPosition:          mgl32.Vec3{0, float32(64 + eyeHeight), 0},
+		PlayerPosition:          mgl32.Vec3{0, float32(64 + networkOffset), 0},
 		Dimension:               layoutOf(pk.Dimension).bedrock,
 		WorldGameMode:           int32(pk.GameMode),
 		Hardcore:                pk.Hardcore,
@@ -168,7 +168,7 @@ func (s *Session) respawn(pk *java.Respawn) {
 	if previous != st.dimension {
 		s.queue(&packet.ChangeDimension{
 			Dimension: layoutOf(st.dimension).bedrock,
-			Position:  mgl32.Vec3{float32(st.position[0]), float32(st.position[1] + eyeHeight), float32(st.position[2])},
+			Position:  mgl32.Vec3{float32(st.position[0]), float32(st.position[1] + networkOffset), float32(st.position[2])},
 		})
 	}
 	s.queue(&packet.SetPlayerGameType{GameType: int32(pk.GameMode)})
@@ -181,7 +181,7 @@ func (s *Session) positionAndLook(pk *java.PlayerPositionAndLook) error {
 	feet := pk.Y - eyeHeight
 	st.position = [3]float64{pk.X, feet, pk.Z}
 	st.yaw, st.pitch = pk.Yaw, pk.Pitch
-	eye := mgl32.Vec3{float32(pk.X), float32(pk.Y), float32(pk.Z)}
+	eye := mgl32.Vec3{float32(pk.X), float32(feet + networkOffset), float32(pk.Z)}
 	st.teleport = &eye
 	s.publish(pk.X, pk.Z)
 	s.queue(&packet.MovePlayer{

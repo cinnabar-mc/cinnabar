@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"math"
 	"os"
 	"reflect"
 	"testing"
@@ -231,7 +232,7 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 	if _, publisher := spawn[0].(*packet.NetworkChunkPublisherUpdate); !publisher || !ok {
 		t.Fatalf("spawn translated to %T, %T", spawn[0], spawn[1])
 	}
-	if move.Mode != packet.MoveModeTeleport || move.Position != (mgl32.Vec3{8.5, float32(1 + eyeHeight), 8.5}) || move.Yaw != 90 {
+	if move.Mode != packet.MoveModeTeleport || move.Position != (mgl32.Vec3{8.5, float32(1 + networkOffset), 8.5}) || move.Yaw != 90 {
 		t.Fatalf("MovePlayer = %+v", move)
 	}
 	if status, ok := spawn[len(spawn)-1].(*packet.PlayStatus); !ok || status.Status != packet.PlayStatusPlayerSpawn {
@@ -253,7 +254,7 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 	serve(&java.SpawnPlayer{EntityID: 9, UUID: "00000000-0000-4000-8000-000000000009", Name: "Alex", X: 8 * 32, Y: 1 * 32, Z: 4 * 32, Yaw: 64, CurrentItem: 0,
 		Metadata: java.Metadata{{Index: 0, Type: java.MetadataByte, Value: int8(flagSneaking)}}})
 	moved := serve(&java.EntityRelativeMove{EntityID: 9, DX: 16, DY: 0, DZ: -32})
-	if actor := moved[0].(*packet.MoveActorAbsolute); actor.Position != (mgl32.Vec3{8.5, 1 + float32(eyeHeight), 3}) {
+	if actor := moved[0].(*packet.MoveActorAbsolute); actor.Position != (mgl32.Vec3{8.5, float32(1 + networkOffset), 3}) {
 		t.Fatalf("remote player moved to %v", actor.Position)
 	}
 	// Stone beside the fence joins it on that side too.
@@ -325,11 +326,11 @@ func TestClientPacketsBecomeJavaPackets(t *testing.T) {
 		}
 		return pk
 	}
-	eye := float32(64 + eyeHeight)
+	eye := float32(64 + networkOffset)
 	// The first tick reports position and look; standing still then reports only the ground.
 	ts.write(input(mgl32.Vec3{0.5, eye, 0.5}, 30, packet.InputFlagVerticalCollision))
 	first := expect[*java.ClientPlayerPositionLook](ts)
-	if first.X != 0.5 || first.Z != 0.5 || first.Yaw != 30 || !first.OnGround || first.Stance-first.Y != eyeHeight {
+	if first.X != 0.5 || first.Z != 0.5 || first.Yaw != 30 || !first.OnGround || first.Stance-first.Y != eyeHeight || math.Abs(first.Y-64) > 1e-5 {
 		t.Fatalf("first movement = %+v", first)
 	}
 	ts.write(input(mgl32.Vec3{0.5, eye, 0.5}, 30, packet.InputFlagVerticalCollision))
@@ -389,7 +390,7 @@ func TestMovementWaitsForTheClientToReachATeleport(t *testing.T) {
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
 	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
 	expect[*java.ClientPlayerPositionLook](ts)
-	eye := float32(64 + eyeHeight)
+	eye := float32(64 + networkOffset)
 	stale := &packet.PlayerAuthInput{Position: mgl32.Vec3{100, eye, 100}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
 	ts.write(stale)
 	arrived := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, eye, 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}

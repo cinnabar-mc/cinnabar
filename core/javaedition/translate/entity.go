@@ -120,11 +120,17 @@ func placeholderSkin() protocol.Skin {
 	}
 }
 
-// position is an entity's Bedrock position: players are addressed at their eyes.
+// feet is where an entity stands, which is where Bedrock spawns it.
+func (e *entity) feet() mgl32.Vec3 {
+	return mgl32.Vec3{fixed(e.x), fixed(e.y), fixed(e.z)}
+}
+
+// position is an entity's Bedrock movement position: a player's carries the network offset
+// above its feet.
 func (e *entity) position() mgl32.Vec3 {
-	position := mgl32.Vec3{fixed(e.x), fixed(e.y), fixed(e.z)}
+	position := e.feet()
 	if e.player {
-		position[1] += float32(eyeHeight)
+		position[1] = float32(float64(position[1]) + networkOffset)
 	}
 	return position
 }
@@ -151,7 +157,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 			UUID:            id,
 			Username:        pk.Name,
 			EntityRuntimeID: runtimeID(pk.EntityID),
-			Position:        spawned.position(),
+			Position:        spawned.feet(),
 			Pitch:           degrees(pk.Pitch),
 			Yaw:             degrees(pk.Yaw),
 			HeadYaw:         degrees(pk.Yaw),

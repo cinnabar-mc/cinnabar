@@ -175,7 +175,7 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 		}
 		st.teleport = nil
 	}
-	x, feet, z := float64(pk.Position[0]), float64(pk.Position[1])-eyeHeight, float64(pk.Position[2])
+	x, feet, z := float64(pk.Position[0]), float64(pk.Position[1])-networkOffset, float64(pk.Position[2])
 	st.position = [3]float64{x, feet, z}
 	st.yaw, st.pitch = pk.Yaw, pk.Pitch
 	s.publish(x, z)

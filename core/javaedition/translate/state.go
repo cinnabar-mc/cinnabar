@@ -7,9 +7,13 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 )
 
-// eyeHeight is how far the 1.7.10 player position, which both editions send as the eyes,
-// sits above the feet.
+// eyeHeight is how far the 1.7.10 player position sits above the feet.
 const eyeHeight = float64(float32(1.62))
+
+// networkOffset is how far a Bedrock movement position for a standing player sits above the
+// feet. It is a little more than the Java eye height, so a position converted with the wrong
+// one would put the feet inside the ground.
+const networkOffset = float64(float32(1.62001))
 
 // state is everything the translator remembers about the session.
 type state struct {
