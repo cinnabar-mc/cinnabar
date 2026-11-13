@@ -9,6 +9,7 @@ on:
         options:
           - runtime
           - build
+          - stream
         default: runtime
 
 permissions:
@@ -22,6 +23,52 @@ env:
   LINUX_DESKTOP_PACKAGES: libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
 
 jobs:
+  # Experiment branch only: one pass of the flight fixtures per OS and lighting priority.
+  stream:
+    if: inputs.measurement == 'stream'
+    name: Stream fixtures (${{ matrix.os }}, light ${{ matrix.light }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            light: lowered
+          - os: windows-2025
+            light: lowered
+          - os: windows-2025
+            light: normal
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: Run each flight fixture once
+        env:
+          CINNABAR_EXPERIMENT_LIGHT_NORMAL: ${{ matrix.light == 'normal' && '1' || '' }}
+        run: |
+          set -o pipefail
+          cargo bench --locked --profile release --no-default-features -p chunk-pipeline \
+            --features runtime-profile,benchmark-support --bench flight_costs -- --test 2>&1 | tee flight.log
+      - name: Summarize fixture timings
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo '```text'
+            grep -E "HYBRID_JOIN|FLIGHT_PREFLIGHT|EVICTION_PREFLIGHT|CAVE_PREFLIGHT|SETTLE|panicked|failed to settle" flight.log | cut -c1-600 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: flight-${{ matrix.os }}-${{ matrix.light }}
+          path: flight.log
+
   build:
     if: inputs.measurement == 'build'
     name: Linux release (${{ matrix.profile }})

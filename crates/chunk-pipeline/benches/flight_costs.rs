@@ -361,11 +361,16 @@ impl Flight {
         {
             self.frame();
             assert!(
-                started.elapsed() < Duration::from_secs(120),
+                started.elapsed() < Duration::from_secs(1500),
                 "flight fixture failed to settle: {:?}",
                 self.stream.stats()
             );
         }
+        eprintln!(
+            "SETTLE radius={} wall_s={:.2}",
+            self.radius,
+            started.elapsed().as_secs_f64()
+        );
         self.blocks_per_second = speed;
         let stats = self.stream.stats();
         assert_eq!(stats.decode_errors, 0);

@@ -41,6 +41,13 @@ pub(super) fn lower() -> std::io::Result<()> {
     use windows_sys::Win32::System::Threading::{
         GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
     };
+    // Experiment branch only: leave lighting at normal priority when asked.
+    static KEEP_NORMAL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *KEEP_NORMAL.get_or_init(|| {
+        std::env::var_os("CINNABAR_EXPERIMENT_LIGHT_NORMAL").is_some_and(|value| !value.is_empty())
+    }) {
+        return Ok(());
+    }
     // The pseudo-handle is valid for the current worker and must not be closed.
     if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) } == 0 {
         Err(std::io::Error::last_os_error())
