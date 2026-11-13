@@ -47,7 +47,9 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
                     render_scene::end_stage_span::<SUBMISSION>,
                 )
                     .chain()
-                    .after(render_system),
+                    .after(render_system)
+                    // The device poll after these owners may wait for the GPU.
+                    .before(crate::device_poll::FrameSubmissions),
             )
                 .in_set(RenderSystems::Render),
         );
@@ -149,6 +151,38 @@ mod tests {
         assert_eq!(app.world().resource::<Open>().0, [true, true, false]);
         let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
         assert_eq!(snapshot.samples[FRAME].count, 1);
+    }
+
+    /// Owners that run after the frame's submissions, and the device poll behind them, are
+    /// outside the submission span.
+    #[test]
+    fn submission_span_closes_before_frame_submission_owners() {
+        use bevy::prelude::*;
+        use bevy::render::{Render, RenderSystems};
+        #[derive(Resource, Default)]
+        struct OpenAtOwners(Option<bool>);
+        /// Records whether submission is still being timed when a post-submission owner runs.
+        fn probe(spans: Res<RuntimeStageSpans>, mut open: ResMut<OpenAtOwners>) {
+            open.0 = Some(spans.is_open(RuntimeStage::RenderSubmission));
+        }
+        let profiler = RuntimeStageProfiler::new(true);
+        let mut app = App::new();
+        app.add_schedule(Render::base_schedule())
+            .insert_resource(profiler.clone())
+            .init_resource::<OpenAtOwners>();
+        crate::runtime_profile_trace::install_surface_trace(app.main_mut());
+        app.configure_sets(
+            Render,
+            crate::device_poll::FrameSubmissions.in_set(RenderSystems::Render),
+        )
+        .add_systems(Render, probe.in_set(crate::device_poll::FrameSubmissions));
+        app.world_mut().run_schedule(Render);
+        assert_eq!(app.world().resource::<OpenAtOwners>().0, Some(false));
+        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+        assert_eq!(
+            snapshot.samples[RuntimeStage::RenderSubmission as usize].count,
+            1
+        );
     }
 
     /// The graph records, reads back, finishes and submits as separate stages, leaving nothing

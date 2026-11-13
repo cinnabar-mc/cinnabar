@@ -3,6 +3,7 @@
 
 mod draws;
 
+use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hash, Hasher};
@@ -371,7 +372,7 @@ impl ShaderpackGeometry {
             return;
         }
         if let Some(buffer) = &self.draw_origins {
-            queue.write_buffer(
+            queue.profiled_write_buffer(
                 buffer,
                 u64::from(slot) * DRAW_ORIGIN_BYTES,
                 bytemuck::cast_slice(&draw_origin(section, anchor.to_array())),
@@ -400,7 +401,7 @@ impl ShaderpackGeometry {
             entries[resident.slot as usize] = draw_origin(resident.origin, anchor);
         }
         if let Some(buffer) = &self.draw_origins {
-            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&entries));
+            queue.profiled_write_buffer(buffer, 0, bytemuck::cast_slice(&entries));
         }
     }
 

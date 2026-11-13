@@ -39,6 +39,7 @@
 //! The vectors point from a block of this frame to where it was in the previous one, in
 //! display pixels: content moving right by 4 pixels gives (-4, 0).
 
+use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
 use crate::render_counting::CountedPipelines as _;
 use crate::render_counting::CountedShaders as _;
@@ -388,7 +389,7 @@ impl OpticalFlow {
                 transfer_function: 0,
                 min_max_luminance: [0.0, 1.0],
             };
-            queue.write_buffer(buffer, 0, bytemuck::bytes_of(&params));
+            queue.profiled_write_buffer(buffer, 0, bytemuck::bytes_of(&params));
         }
         let frame = &self.frames[(self.resource_frame & 1) as usize];
         let prepare = bind(

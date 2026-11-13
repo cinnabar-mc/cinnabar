@@ -1,5 +1,6 @@
 //! Recording a frame's actor geometry: planning, the skinning dispatches and the draws.
 
+use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -115,7 +116,7 @@ pub(crate) fn prepare(
             actors.scratch.clone_from(&bindings.draws[index].base);
             actors.scratch.resize(block.size as usize, 0);
             patch_block(block, &draw.values.uniforms(), &mut actors.scratch);
-            queue.write_buffer(&slot.uniforms, 0, &actors.scratch);
+            queue.profiled_write_buffer(&slot.uniforms, 0, &actors.scratch);
         }
         let Some(view) = actors.views.get(&draw.texture) else {
             continue;
@@ -197,7 +198,7 @@ fn skin_page(
             storage,
         )?
         .clone();
-    queue.write_buffer(&jobs, 0, bytemuck::cast_slice(&page.jobs));
+    queue.profiled_write_buffer(&jobs, 0, bytemuck::cast_slice(&page.jobs));
     let stride =
         u64::from(device.limits().min_uniform_buffer_offset_alignment).max(SKIN_PARAMS_BYTES);
     let params = buffers
@@ -278,7 +279,7 @@ fn skin_page(
             }
         };
         let offset = stride * index as u64;
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             &params,
             offset,
             bytemuck::bytes_of(&SkinParams { camera, counts }),

@@ -8,6 +8,7 @@
 //! Iris binds the value only for full-screen passes: `deferred`, `composite` and `final` read
 //! this frame's sample, earlier passes the previous one, and geometry programs read 0.
 
+use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
 use shaderpack::{CustomUniforms, ProgramGroup, ScalarType, UniformBlock, ValueType};
 use wgpu::util::DeviceExt;
@@ -177,7 +178,7 @@ impl CenterDepth {
     /// Writes the share of the gap to the new sample that this frame closes: 1 on the
     /// first frame (and after a restart), so smoothing starts from the first sample.
     pub(crate) fn write_share(&self, queue: &Queue, share: f32) {
-        queue.write_buffer(&self.share, 0, bytemuck::bytes_of(&[share, 0.0, 0.0, 0.0]));
+        queue.profiled_write_buffer(&self.share, 0, bytemuck::bytes_of(&[share, 0.0, 0.0, 0.0]));
     }
 
     /// Copies the current value into the uniform blocks of `readers`, overwriting the

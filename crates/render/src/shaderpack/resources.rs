@@ -6,6 +6,7 @@
 use super::pipelines::GpuContext;
 use super::pipelines::{FormatSupport, storage_format, texture_format, texture_sample_type};
 use super::plan::{MAX_COLOR_BUFFERS, color_buffer_of};
+use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
 use raw::RawSpec;
 use shaderpack::{
@@ -380,7 +381,7 @@ impl<'a> ConstantBuilder<'a> {
     }
 
     fn upload(&self, texture: &wgpu::Texture, bytes: &[u8], bytes_per_row: u32, size: [u32; 3]) {
-        self.gpu.queue.write_texture(
+        self.gpu.queue.profiled_write_texture(
             texture.as_image_copy(),
             bytes,
             wgpu::TexelCopyBufferLayout {

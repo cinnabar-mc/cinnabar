@@ -9,6 +9,7 @@
 //! level has a separate dispatch. The caller supplies SDR colour without overlays
 //! and composites the interface separately after interpolation.
 
+use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
 use crate::render_counting::CountedPipelines as _;
 use crate::render_counting::CountedShaders as _;
@@ -428,14 +429,14 @@ impl Interpolation {
             level_size: [0; 2],
             _pad: [0; 2],
         };
-        queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&base));
+        queue.profiled_write_buffer(&self.params, 0, bytemuck::bytes_of(&base));
         let level_params = |buffers: &[wgpu::Buffer], sizes: &[[u32; 2]]| {
             for (buffer, size) in buffers.iter().zip(sizes) {
                 let params = Params {
                     level_size: size.map(|v| v as i32),
                     ..base
                 };
-                queue.write_buffer(buffer, 0, bytemuck::bytes_of(&params));
+                queue.profiled_write_buffer(buffer, 0, bytemuck::bytes_of(&params));
             }
         };
         level_params(&self.game_level_params, &r.game_pyramid.sizes);

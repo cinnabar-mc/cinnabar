@@ -580,7 +580,7 @@ pub(crate) fn prepare(
             }
             let target = masks.targets.get_mut(&key).unwrap();
             let displacement = displacement(mask, &gpu);
-            queue.write_buffer(&target.placement, 0, bytemuck::cast_slice(&displacement));
+            queue.profiled_write_buffer(&target.placement, 0, bytemuck::cast_slice(&displacement));
             if target.dissolve_binding.is_none() {
                 target.dissolve_binding =
                     gpu_allocation::checked(&device, "mask dissolve binding", 0, || {

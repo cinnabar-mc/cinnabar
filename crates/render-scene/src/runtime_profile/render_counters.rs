@@ -1,10 +1,14 @@
-//! Work counted per render frame: fixed atomics while counting, formatted only in reports.
+//! Work counted per render frame: fixed atomics while counting, one lock per frame boundary,
+//! formatted only in reports.
 
 use super::RuntimeStageProfiler;
 use std::{
     cell::Cell,
     fmt::Write,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 /// Work a render frame did, counted where client code asks the GPU API for it. Bevy's own
@@ -88,15 +92,16 @@ impl RenderCounts {
 struct Counters {
     /// Counted since the render frame last closed.
     pending: [AtomicU64; COUNTERS],
-    /// Everything counted by closed render frames.
-    closed: [AtomicU64; COUNTERS],
+    /// Everything counted by closed render frames. One lock publishes a frame's counters
+    /// together, so a reader never sees part of a frame.
+    closed: Mutex<[u64; COUNTERS]>,
 }
 
 impl Counters {
     const fn new() -> Self {
         Self {
             pending: [const { AtomicU64::new(0) }; COUNTERS],
-            closed: [const { AtomicU64::new(0) }; COUNTERS],
+            closed: Mutex::new([0; COUNTERS]),
         }
     }
 
@@ -104,21 +109,30 @@ impl Counters {
         self.pending[counter as usize].fetch_add(amount, Ordering::Relaxed);
     }
 
+    /// Everything counted by the render frames closed so far.
+    fn closed(&self) -> [u64; COUNTERS] {
+        *self.closed.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Ends a render frame: returns its counts, `local` being the closing thread's own.
     fn close_frame(&self, local: [u64; COUNTERS]) -> RenderCounts {
-        RenderCounts(std::array::from_fn(|index| {
-            let frame = self.pending[index].swap(0, Ordering::Relaxed) + local[index];
-            self.closed[index].fetch_add(frame, Ordering::Relaxed);
-            frame
-        }))
+        let frame: [u64; COUNTERS] = std::array::from_fn(|index| {
+            self.pending[index].swap(0, Ordering::Relaxed) + local[index]
+        });
+        let mut closed = self.closed.lock().unwrap_or_else(PoisonError::into_inner);
+        for (total, counted) in closed.iter_mut().zip(frame) {
+            *total = total.wrapping_add(counted);
+        }
+        RenderCounts(frame)
     }
 
     /// Counts of the render frames closed since `window` last read them.
     fn take_window(&self, window: &RenderCountWindow) -> RenderCounts {
-        RenderCounts(std::array::from_fn(|index| {
-            let closed = self.closed[index].load(Ordering::Relaxed);
-            closed.wrapping_sub(window.0[index].swap(closed, Ordering::Relaxed))
-        }))
+        let closed = self.closed();
+        let mut reported = window.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let counts = std::array::from_fn(|index| closed[index].wrapping_sub(reported[index]));
+        *reported = closed;
+        RenderCounts(counts)
     }
 }
 
@@ -126,7 +140,7 @@ static COUNTS: Counters = Counters::new();
 
 /// One profiler's position in the closed render frames, advanced at its main frame boundaries.
 #[derive(Debug)]
-pub(super) struct RenderCountWindow([AtomicU64; COUNTERS]);
+pub(super) struct RenderCountWindow(Mutex<[u64; COUNTERS]>);
 
 impl RenderCountWindow {
     /// Starts after every render frame already closed.
@@ -135,9 +149,7 @@ impl RenderCountWindow {
     }
 
     fn after(counters: &Counters) -> Self {
-        Self(std::array::from_fn(|index| {
-            AtomicU64::new(counters.closed[index].load(Ordering::Relaxed))
-        }))
+        Self(crate::runtime_profile::initialized_mutex(counters.closed()))
     }
 
     /// Counts of the render frames that closed since the previous main frame boundary.
