@@ -147,10 +147,17 @@ impl Expressions {
         let result = if cached.pure.pure() {
             evaluator.run_observed(index, variables, this, budget, None)
         } else {
-            let mut inputs = ObservedInputs::new(variables);
+            // An expression that misses every frame re-records into the storage it already has.
+            let mut inputs = match cached.observed.take() {
+                Some(mut inputs) => {
+                    inputs.reset(variables);
+                    inputs
+                }
+                None => ObservedInputs::new(variables),
+            };
             let capture = variables.begin_effects();
             let result = evaluator.run_observed(index, variables, this, budget, Some(&mut inputs));
-            cached.effects = variables.finish_effects(capture);
+            variables.finish_effects_into(capture, &mut cached.effects);
             cached.observed = Some(inputs);
             result
         };
