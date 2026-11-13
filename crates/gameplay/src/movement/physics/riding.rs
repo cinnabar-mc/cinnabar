@@ -3,7 +3,8 @@
 use sim::{CollisionWorld, MovementInput, PlayerState, Vec3, WorldQueryError};
 
 use crate::movement::ModeIntent;
-use crate::movement::vehicle::{VehicleCorrection, VehiclePrediction};
+use crate::movement::physics::LOCAL_PHYSICS_TICK_SECONDS;
+use crate::movement::vehicle::{CorrectedSeat, VehicleCorrection, VehiclePrediction};
 
 /// Where seating moved the rider this tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,6 +75,16 @@ pub(super) fn before_seat(position: Vec3, seated: Option<Seated>, eased: bool) -
     }
 }
 
+/// How a rider rendered before a boat correction snapped it, which resuming its render
+/// continues from.
+#[derive(Debug, Clone, Copy)]
+pub struct RiderRender {
+    phase_seconds: f64,
+    position: Vec3,
+    previous_position: Vec3,
+    correction: super::visual_correction::VisualCorrection,
+}
+
 impl super::LocalPhysicsController {
     /// The predicted pose of the boat the player steers, for the actor store.
     #[must_use]
@@ -95,10 +106,52 @@ impl super::LocalPhysicsController {
         self.vehicle.reset();
     }
 
-    /// Restarts the steered boat's prediction from a server correction and returns the
-    /// rider's seat feet on it, which the caller snaps the rider to like a teleport.
-    pub fn correct_vehicle(&mut self, correction: &VehicleCorrection) -> Option<[f32; 3]> {
-        self.vehicle.correct(correction)
+    /// Restarts the steered boat's prediction from a server correction, replays the inputs
+    /// recorded since it, and returns the rider's seat feet on the result, which the caller
+    /// snaps the rider to.
+    pub fn correct_vehicle(
+        &mut self,
+        correction: &VehicleCorrection,
+        world: &impl CollisionWorld,
+    ) -> Option<CorrectedSeat> {
+        self.vehicle.correct(correction, world)
+    }
+
+    /// How the rider renders now, to resume after a snap to a corrected boat.
+    #[must_use]
+    pub fn rider_render(&self) -> Option<RiderRender> {
+        Some(RiderRender {
+            phase_seconds: self.accumulated_seconds,
+            position: self.state.as_ref()?.position,
+            previous_position: self.previous_position,
+            correction: self.visual_correction,
+        })
+    }
+
+    /// Resumes the rider's render after a boat correction snapped it to the corrected seat.
+    /// The snap restarts the render clock at the new tick and drops the rider onto the new
+    /// seat; resuming the clock where it was, easing from the seat one tick back, and fading
+    /// the difference from where the rider showed out over the next ticks keeps the eye and
+    /// the boat it rides from jumping.
+    pub fn resume_vehicle_render(&mut self, shown: RiderRender, previous_seat: [f32; 3]) {
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
+        if !previous_seat.into_iter().all(f32::is_finite) {
+            return;
+        }
+        self.previous_position = Vec3::new(
+            f64::from(previous_seat[0]),
+            f64::from(previous_seat[1]),
+            f64::from(previous_seat[2]),
+        );
+        self.accumulated_seconds = shown.phase_seconds.clamp(0.0, LOCAL_PHYSICS_TICK_SECONDS);
+        self.visual_correction = shown.correction;
+        self.visual_correction.correct(
+            shown.position - state.position,
+            shown.previous_position - self.previous_position,
+            Vec3::ZERO,
+        );
     }
 }
 
@@ -285,6 +338,28 @@ mod tests {
         );
         assert!(frame.blocked.is_some());
         assert_eq!(physics.network_position().unwrap()[0], 0.5);
+    }
+
+    /// A snap to a corrected seat resumes the render clock where it was, with the rider easing
+    /// from the seat one tick back, so the eye does not jump to the new seat.
+    #[test]
+    fn resuming_after_a_snap_keeps_the_render_point_between_ticks() {
+        let mut physics = super::super::LocalPhysicsController::default();
+        physics.reanchor_network_position([1.0, protocol::PLAYER_NETWORK_OFFSET, 0.5], 100, true);
+        physics.accumulated_seconds = LOCAL_PHYSICS_TICK_SECONDS * 0.4;
+        let shown = physics.rider_render().unwrap();
+        // The anchor a correction snaps to restarts the render clock at the new seat.
+        physics.reanchor_network_position([2.0, protocol::PLAYER_NETWORK_OFFSET, 0.5], 101, true);
+        assert_eq!(physics.tick_alpha(), 0.0);
+        physics.resume_vehicle_render(shown, [1.5, 0.0, 0.5]);
+        assert!((physics.tick_alpha() - 0.4).abs() < 1.0e-6);
+        // The rider shows where it was before the snap.
+        let eye = physics.render_feet_position().unwrap();
+        assert!((eye[0] - 1.0).abs() < 1.0e-5, "{eye:?}");
+        // Without a rider state, or with a non-finite seat, nothing changes.
+        let shown = physics.rider_render().unwrap();
+        physics.resume_vehicle_render(shown, [f32::NAN, 0.0, 0.0]);
+        assert!((physics.tick_alpha() - 0.4).abs() < 1.0e-6);
     }
 
     /// A frame blocked on unloaded terrain shows the boat at its committed state, where the
