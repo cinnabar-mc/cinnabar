@@ -1,5 +1,5 @@
 use json_ui::{Catalog, Draw};
-use ui_screens::hud_renderers::{JAVA_MOB_EFFECTS_RENDERER, MOB_EFFECTS_RENDERER};
+use ui_screens::hud_renderers::{COLUMN_TOP_PROP, JAVA_MOB_EFFECTS_RENDERER, MOB_EFFECTS_RENDERER};
 
 use super::{HudModel, layer, layer_pack_catalog, render_model, vanilla};
 
@@ -56,6 +56,30 @@ fn server_hud_pack_gets_vanillas_effect_column() {
     };
     let catalog = layer_pack_catalog(&vanilla, &[layer(TOP_BAR)]);
     assert_eq!(effect_renderers(&catalog), [MOB_EFFECTS_RENDERER]);
+}
+
+/// The restored column starts under the top bar, not below vanilla's band over the status rows.
+#[test]
+fn server_hud_column_starts_under_the_top_edge() {
+    let Some(vanilla) = vanilla("server_hud_column_starts_under_the_top_edge") else {
+        return;
+    };
+    let catalog = layer_pack_catalog(&vanilla, &[layer(TOP_BAR)]);
+    let model = HudModel {
+        effects_visible: true,
+        ..Default::default()
+    };
+    let nodes = render_model(&catalog, &model, [480.0, 270.0]).nodes;
+    let top = nodes
+        .iter()
+        .find_map(|node| match &node.draw {
+            Draw::Custom { renderer, data } if renderer == MOB_EFFECTS_RENDERER => data
+                .get(COLUMN_TOP_PROP)
+                .and_then(serde_json::Value::as_f64),
+            _ => None,
+        })
+        .expect("column top");
+    assert!(top > 0.0 && top < 40.0, "column top {top}");
 }
 
 /// The column is restored whichever layer first authors the HUD, and a later layer still
