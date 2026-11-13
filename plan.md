@@ -2106,10 +2106,12 @@ Flathub submission remain incomplete.
   experimental features off. It used to enable every adapter feature, which on recent Adreno
   parts includes ray query, acceleration structures and buffer device addresses; the terrain
   fixtures that pass on Adreno 750 never requested them. Startup logs the adapter, driver and
-  requested features, and each pipeline compile writes its label straight to the session log
-  before and after the driver call, so an exit report names what the driver was compiling.
-  Bevy's cached pipelines are logged from the render thread once their compile is handed to a
-  worker, so several can be open at once. No phone has run this configuration yet.
+  requested features, and each pipeline the renderer creates itself writes its label straight to
+  the session log before and after the driver call, so an exit report names what the driver was
+  compiling. Bevy's cached pipelines are only logged as queued from the render thread once their
+  compile is handed to a worker; several can be open at once, so an unfinished one is a
+  candidate, and naming it exactly needs a hook in the Bevy fork. No phone has run this
+  configuration yet.
   Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.

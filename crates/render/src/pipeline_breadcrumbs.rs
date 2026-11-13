@@ -2,15 +2,18 @@
 //!
 //! A driver that faults inside pipeline creation kills the process from native code, and
 //! queued log output dies with it. The application therefore supplies a writer whose lines
-//! reach the log file before it returns, and every compile writes a `started` line before the
-//! driver call and a `finished` line after it. The last `started` lines without a `finished`
-//! line name what the driver was compiling.
+//! reach the log file before it returns.
 //!
-//! Pipelines the renderer creates itself go through [`CompilePipelines`], which brackets the
-//! driver call on the compiling thread. Bevy's `PipelineCache` compiles on its own workers and
-//! reports nothing, so its pipelines are logged from the render thread: `started` as soon as a
-//! compile has been handed to a worker, and `finished` once its result is collected. Several
-//! of those can be open at once, and each `finished` line may trail its compile by a frame.
+//! Pipelines the renderer creates itself go through [`CompilePipelines`], which writes a
+//! `started` line before the driver call and a `finished` line after it, on the compiling
+//! thread. A `started` line without its `finished` line names a pipeline the driver was
+//! compiling.
+//!
+//! Bevy's `PipelineCache` compiles on its own workers and reports nothing, so its pipelines
+//! are logged from the render thread instead: `queued` when a compile is handed to a worker or
+//! waits for a shader, and `finished` once its result is collected, up to a frame after the
+//! compile. A `queued` line without its `finished` line names a candidate, not a pipeline known
+//! to be in the driver: several can be open at once.
 
 use bevy::{
     prelude::{App, IntoScheduleConfigs, Local, Plugin, ResMut},
@@ -73,6 +76,10 @@ impl Kind {
 
 fn started(kind: Kind, label: &str) -> String {
     format!("Pipeline compile started: {} {label:?}", kind.name())
+}
+
+fn queued(kind: Kind, label: &str) -> String {
+    format!("Pipeline compile queued: {} {label:?}", kind.name())
 }
 
 fn finished(kind: Kind, label: &str) -> String {
@@ -179,18 +186,21 @@ enum Stage {
 /// Follows Bevy's cached pipelines by their index in the cache, which never changes.
 #[derive(Default)]
 struct CachedCompiles {
-    /// Pipelines below this index have had their `started` line.
+    /// Pipelines below this index have been seen.
     next: usize,
-    /// Started pipelines without a result, with their names.
+    /// Queued pipelines without a result, with their names.
     open: Vec<(usize, Kind, String)>,
 }
 
 impl CachedCompiles {
-    /// Writes a `started` line for each pipeline first seen among `count`, then the result of
-    /// every open pipeline that has one. `stage` and `name` read a pipeline by index.
+    /// Writes a `queued` line for each pipeline that is new among `count` or in `waiting`,
+    /// Bevy's compile queue, and not already open; then the result of every open pipeline that
+    /// has one. A pipeline whose shader changes is queued again at its old index, so it gets
+    /// new lines. `stage` and `name` read a pipeline by index.
     fn advance(
         &mut self,
         count: usize,
+        waiting: impl Iterator<Item = usize>,
         stage: impl Fn(usize) -> Stage,
         name: impl Fn(usize) -> (Kind, String),
         mut write: impl FnMut(&str),
@@ -199,9 +209,15 @@ impl CachedCompiles {
             // A rebuilt renderer starts a new cache.
             *self = Self::default();
         }
-        for index in self.next..count {
+        let mut queue: Vec<usize> = waiting
+            .chain(self.next..count)
+            .filter(|index| !self.open.iter().any(|(open, ..)| open == index))
+            .collect();
+        queue.sort_unstable();
+        queue.dedup();
+        for index in queue {
             let (kind, label) = name(index);
-            write(&started(kind, &label));
+            write(&queued(kind, &label));
             self.open.push((index, kind, label));
         }
         self.next = count;
@@ -256,21 +272,32 @@ fn cached_stage(state: &CachedPipelineState) -> Stage {
     }
 }
 
-/// Starts this frame's queued compiles, so their `started` lines are written before the frame
-/// renders, and logs what the cache did. Bevy's own queue pass this frame then finds nothing
-/// new to start.
+/// Logs the cache's queue on both sides of a queue pass run here, before the frame renders.
+/// A pipeline queued again after a shader change is logged before the pass starts its compile;
+/// a new pipeline is only visible once the pass has handed it to a worker. Bevy's own queue
+/// pass this frame then finds nothing new to start.
 fn log_cached_compiles(mut cache: ResMut<PipelineCache>, mut compiles: Local<CachedCompiles>) {
     let Some(writer) = WRITER.get() else {
         return;
     };
+    log_cache(&cache, &mut compiles, *writer);
     cache.process_queue();
+    log_cache(&cache, &mut compiles, *writer);
+}
+
+/// Brings `compiles` up to date with `cache`, writing the lines for what changed.
+fn log_cache(cache: &PipelineCache, compiles: &mut CachedCompiles, writer: BreadcrumbWriter) {
     let count = cache.pipelines().count();
-    if count == compiles.next && compiles.open.is_empty() {
+    if count == compiles.next
+        && compiles.open.is_empty()
+        && cache.waiting_pipelines().next().is_none()
+    {
         return;
     }
     let pipeline = |index| cache.pipelines().nth(index);
     compiles.advance(
         count,
+        cache.waiting_pipelines(),
         |index| pipeline(index).map_or(Stage::Pending, |pipeline| cached_stage(&pipeline.state)),
         |index| {
             pipeline(index).map_or((Kind::Render, "unlabelled".to_owned()), |pipeline| {

@@ -20,10 +20,11 @@ use crate::{
 const FEATURE_TYPES: [&str; 2] = ["Features", "WgpuFeatures"];
 
 /// Keeps the device's feature request and the code that uses features in step. The owner file's
-/// constants list every wgpu feature the client requests, so production code elsewhere may name
-/// only those: a check for any other feature would read one the device never enabled. Each
-/// feature in the owner's `checked` constant must also still be named by production code, so a
-/// feature nothing uses any more leaves the request. Test code may name any feature.
+/// `requested` constant, with the constants its initializer names, lists every wgpu feature the
+/// client requests, so production code elsewhere may name only those: a check for any other
+/// feature would read one the device never enabled. Each feature in the owner's `checked`
+/// constant must also still be named by production code, so a feature nothing uses any more
+/// leaves the request. Test code may name any feature.
 pub(super) fn check_device_features(
     root: &Path,
     policy: &Policy,
@@ -31,7 +32,8 @@ pub(super) fn check_device_features(
     diagnostics: &mut Vec<String>,
 ) -> Result<(), ArchitectureError> {
     let rules = &policy.device_features;
-    let Some(owner) = rules.owner.as_deref() else {
+    let (Some(owner), Some(requested)) = (rules.owner.as_deref(), rules.requested.as_deref())
+    else {
         return Ok(());
     };
     let test_features: BTreeSet<String> = policy
@@ -59,6 +61,7 @@ pub(super) fn check_device_features(
             module_paths: ModulePaths::new(path),
             constant: None,
             names: Vec::new(),
+            references: Vec::new(),
             modules: Vec::new(),
         };
         scan.visit_file(&file);
@@ -91,21 +94,16 @@ pub(super) fn check_device_features(
         diagnostics.push(format!("{owner}: device feature list not found"));
         return Ok(());
     };
-    let owned = |constant: Option<&str>| -> BTreeSet<&str> {
-        owner_scan
-            .names
-            .iter()
-            .filter(|name| {
-                !name.test && constant.is_none_or(|c| name.constant.as_deref() == Some(c))
-            })
-            .map(|name| name.feature.as_str())
-            .collect()
-    };
-    let requested = if production(owner_path, owner_scan) {
-        owned(None)
+    let requested_features = if production(owner_path, owner_scan) {
+        owner_scan.listed(requested)
     } else {
         BTreeSet::new()
     };
+    if requested_features.is_empty() {
+        diagnostics.push(format!(
+            "{owner}: requested device feature list `{requested}` not found"
+        ));
+    }
     let mut used = BTreeSet::new();
     for (path, (relative, scan)) in &scans {
         if relative == owner || !production(path, scan) {
@@ -113,7 +111,7 @@ pub(super) fn check_device_features(
         }
         for name in scan.names.iter().filter(|name| !name.test) {
             used.insert(name.feature.as_str());
-            if !requested.contains(name.feature.as_str()) {
+            if !requested_features.contains(name.feature.as_str()) {
                 diagnostics.push(format!(
                     "{relative}:{}: the device does not request wgpu feature `{}`; code may only use features listed in {owner}",
                     name.line, name.feature
@@ -122,10 +120,15 @@ pub(super) fn check_device_features(
         }
     }
     if let Some(checked) = rules.checked.as_deref() {
-        let listed = owned(Some(checked));
+        let listed = owner_scan.listed(checked);
         if listed.is_empty() {
             diagnostics.push(format!(
                 "{owner}: checked device feature list `{checked}` not found"
+            ));
+        }
+        for feature in listed.difference(&requested_features) {
+            diagnostics.push(format!(
+                "{owner}: `{checked}` lists wgpu feature `{feature}`, which `{requested}` does not request"
             ));
         }
         for feature in listed.difference(&used) {
@@ -195,10 +198,39 @@ struct Scan<'a> {
     module_paths: ModulePaths,
     constant: Option<String>,
     names: Vec<Name>,
+    /// Each `const` item with a constant its initializer names.
+    references: Vec<(String, String)>,
     modules: Vec<(PathBuf, bool)>,
 }
 
 impl Scan<'_> {
+    /// The features the initializer of `constant` names outside tests, following the other
+    /// constants it names. A feature named anywhere else, such as one a function removes from
+    /// the request, is not listed.
+    fn listed(&self, constant: &str) -> BTreeSet<&str> {
+        let mut features = BTreeSet::new();
+        let mut seen = BTreeSet::new();
+        let mut pending = vec![constant];
+        while let Some(constant) = pending.pop() {
+            if !seen.insert(constant) {
+                continue;
+            }
+            features.extend(
+                self.names
+                    .iter()
+                    .filter(|name| !name.test && name.constant.as_deref() == Some(constant))
+                    .map(|name| name.feature.as_str()),
+            );
+            pending.extend(
+                self.references
+                    .iter()
+                    .filter(|(from, _)| from == constant)
+                    .map(|(_, to)| to.as_str()),
+            );
+        }
+        features
+    }
+
     /// Records `feature` when it follows one of the feature type's names.
     fn record(&mut self, ty: &proc_macro2::Ident, feature: &proc_macro2::Ident) {
         let name = feature.to_string();
@@ -290,8 +322,15 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
     fn visit_path(&mut self, path: &'ast syn::Path) {
         let mut segments = path.segments.iter().rev();
-        if let (Some(feature), Some(ty)) = (segments.next(), segments.next()) {
-            self.record(&ty.ident, &feature.ident);
+        match (segments.next(), segments.next()) {
+            (Some(feature), Some(ty)) => self.record(&ty.ident, &feature.ident),
+            (Some(name), None) => {
+                let name = name.ident.to_string();
+                if let Some(constant) = self.constant.as_ref().filter(|_| is_constant(&name)) {
+                    self.references.push((constant.clone(), name));
+                }
+            }
+            _ => {}
         }
         syn::visit::visit_path(self, path);
     }
@@ -306,7 +345,7 @@ mod tests {
     use super::*;
 
     const OWNER: &str = "crates/render/src/device_features.rs";
-    const LISTS: &str = "pub const CHECKED: Features = Features::TIMESTAMP_QUERY.union(Features::PIPELINE_CACHE);\npub const PACKS: Features = Features::SHADER_F64;\n";
+    const LISTS: &str = "pub const CHECKED: Features = Features::TIMESTAMP_QUERY.union(Features::PIPELINE_CACHE);\npub const PACKS: Features = Features::SHADER_F64;\npub const ALL: Features = CHECKED.union(PACKS);\n";
 
     /// Runs the check on a temporary repository holding `sources` beside the owner's lists.
     fn diagnostics(owner: &str, sources: &[(&str, &str)]) -> Vec<String> {
@@ -323,7 +362,7 @@ mod tests {
             })
             .collect();
         let policy = toml::from_str::<Policy>(&format!(
-            "production_rust_max = 1000\nmodule_root_max = 1000\npowershell_max = 1000\ntest_max = 1000\n[device_features]\nowner = '{OWNER}'\nchecked = 'CHECKED'"
+            "production_rust_max = 1000\nmodule_root_max = 1000\npowershell_max = 1000\ntest_max = 1000\n[device_features]\nowner = '{OWNER}'\nrequested = 'ALL'\nchecked = 'CHECKED'"
         ))
         .unwrap();
         let mut diagnostics = Vec::new();
@@ -418,12 +457,51 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_checked_list_is_reported() {
+    fn missing_lists_are_reported() {
         assert_eq!(
-            diagnostics("pub const PACKS: Features = Features::SHADER_F64;\n", &[]),
+            diagnostics("pub const ALL: Features = Features::SHADER_F64;\n", &[]),
             [format!(
                 "{OWNER}: checked device feature list `CHECKED` not found"
             )]
+        );
+        assert_eq!(
+            diagnostics("pub const CHECKED: Features = Features::SHADER_F64;\n", &[]),
+            [
+                format!(
+                    "{OWNER}: `CHECKED` lists wgpu feature `SHADER_F64`, which `ALL` does not request"
+                ),
+                format!(
+                    "{OWNER}: `CHECKED` requests wgpu feature `SHADER_F64`, which no production code names; remove it from the request"
+                ),
+                format!("{OWNER}: requested device feature list `ALL` not found"),
+            ]
+        );
+    }
+
+    /// Only the requested list's initializers request a feature: one the owner merely removes,
+    /// or lists in a constant the request leaves out, is not available to consumers.
+    #[test]
+    fn a_feature_the_owner_names_outside_the_requested_list_is_not_requested() {
+        let owner = format!(
+            "{LISTS}pub const SPARE: Features = Features::SUBGROUP;\npub fn requested(mut f: Features) -> Features {{\n    f.remove(Features::MAPPABLE_PRIMARY_BUFFERS);\n    f\n}}\n"
+        );
+        let consumer = "fn map(f: wgpu::Features) -> bool { f.contains(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS) }\nfn sub(f: wgpu::Features) -> bool { f.contains(wgpu::Features::SUBGROUP) }\n";
+        assert_eq!(
+            diagnostics(
+                &owner,
+                &[
+                    ("crates/render/src/gpu.rs", USES),
+                    ("crates/render/src/map.rs", consumer)
+                ]
+            ),
+            [
+                format!(
+                    "crates/render/src/map.rs:1: the device does not request wgpu feature `MAPPABLE_PRIMARY_BUFFERS`; code may only use features listed in {OWNER}"
+                ),
+                format!(
+                    "crates/render/src/map.rs:2: the device does not request wgpu feature `SUBGROUP`; code may only use features listed in {OWNER}"
+                ),
+            ]
         );
     }
 }

@@ -7,8 +7,8 @@
 //! device addresses, which puts a device address on every memory allocation.
 //!
 //! The architecture gate (`[device_features]` in its policy) keeps this file and its uses in
-//! step: production code may name no feature constant missing from this file, and every
-//! [`RENDERER_FEATURES`] entry must still be named by production code.
+//! step: production code may name no feature constant missing from [`CLIENT_FEATURES`], and
+//! every [`RENDERER_FEATURES`] entry must still be named by production code.
 
 use wgpu::Features;
 

@@ -94,6 +94,9 @@ pub(super) struct DeviceFeatureRules {
     /// The file whose constants name every requested feature.
     #[serde(default)]
     pub(super) owner: Option<String>,
+    /// The owner's constant that unions every requested feature.
+    #[serde(default)]
+    pub(super) requested: Option<String>,
     /// The owner's constant whose features production code must still name.
     #[serde(default)]
     pub(super) checked: Option<String>,

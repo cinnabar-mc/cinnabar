@@ -35,11 +35,17 @@ fn compiles_run_unlogged_without_a_writer_and_unlabelled_pipelines_say_so() {
     );
 }
 
-/// Advances `compiles` over pipelines in the given stages and returns the lines written.
-fn advance(compiles: &mut CachedCompiles, stages: &[fn() -> Stage]) -> Vec<String> {
+/// Advances `compiles` over pipelines in the given stages, with `waiting` in Bevy's compile
+/// queue, and returns the lines written.
+fn advance(
+    compiles: &mut CachedCompiles,
+    stages: &[fn() -> Stage],
+    waiting: &[usize],
+) -> Vec<String> {
     let mut lines = Vec::new();
     compiles.advance(
         stages.len(),
+        waiting.iter().copied(),
         |index| stages[index](),
         |index| {
             let kind = if index == 1 {
@@ -54,44 +60,62 @@ fn advance(compiles: &mut CachedCompiles, stages: &[fn() -> Stage]) -> Vec<Strin
     lines
 }
 
+const PENDING: fn() -> Stage = || Stage::Pending;
+const READY: fn() -> Stage = || Stage::Ready;
+
 #[test]
-fn cached_pipelines_start_once_and_finish_when_their_result_arrives() {
-    let pending: fn() -> Stage = || Stage::Pending;
-    let ready: fn() -> Stage = || Stage::Ready;
+fn cached_pipelines_are_queued_once_and_finish_when_their_result_arrives() {
     let mut compiles = CachedCompiles::default();
     assert_eq!(
-        advance(&mut compiles, &[pending, pending]),
+        advance(&mut compiles, &[PENDING, PENDING], &[1, 0]),
         [
-            "Pipeline compile started: render \"pipeline 0\"",
-            "Pipeline compile started: compute \"pipeline 1\"",
+            "Pipeline compile queued: render \"pipeline 0\"",
+            "Pipeline compile queued: compute \"pipeline 1\"",
         ]
     );
     // Waiting on a worker or a shader writes nothing more.
-    assert!(advance(&mut compiles, &[pending, pending]).is_empty());
+    assert!(advance(&mut compiles, &[PENDING, PENDING], &[0, 1]).is_empty());
     assert_eq!(
-        advance(&mut compiles, &[pending, ready, pending]),
+        advance(&mut compiles, &[PENDING, READY, PENDING], &[0, 2]),
         [
-            "Pipeline compile started: render \"pipeline 2\"",
+            "Pipeline compile queued: render \"pipeline 2\"",
             "Pipeline compile finished: compute \"pipeline 1\"",
         ]
     );
     assert_eq!(
-        advance(&mut compiles, &[ready, ready, ready]),
+        advance(&mut compiles, &[READY, READY, READY], &[]),
         [
             "Pipeline compile finished: render \"pipeline 0\"",
             "Pipeline compile finished: render \"pipeline 2\"",
         ]
     );
-    assert!(advance(&mut compiles, &[ready, ready, ready]).is_empty());
+    assert!(advance(&mut compiles, &[READY, READY, READY], &[]).is_empty());
+}
+
+/// Bevy queues a pipeline again at its old index when one of its shaders changes.
+#[test]
+fn a_pipeline_queued_again_after_a_shader_change_is_logged_again() {
+    let mut compiles = CachedCompiles::default();
+    advance(&mut compiles, &[PENDING, PENDING], &[0, 1]);
+    advance(&mut compiles, &[READY, READY], &[]);
+    assert_eq!(
+        advance(&mut compiles, &[PENDING, READY], &[0]),
+        ["Pipeline compile queued: render \"pipeline 0\""]
+    );
+    assert!(advance(&mut compiles, &[PENDING, READY], &[0]).is_empty());
+    assert_eq!(
+        advance(&mut compiles, &[READY, READY], &[]),
+        ["Pipeline compile finished: render \"pipeline 0\""]
+    );
 }
 
 #[test]
 fn a_pipeline_compiled_within_the_queue_pass_gets_both_lines() {
     let mut compiles = CachedCompiles::default();
     assert_eq!(
-        advance(&mut compiles, &[|| Stage::Ready]),
+        advance(&mut compiles, &[READY], &[]),
         [
-            "Pipeline compile started: render \"pipeline 0\"",
+            "Pipeline compile queued: render \"pipeline 0\"",
             "Pipeline compile finished: render \"pipeline 0\"",
         ]
     );
@@ -102,22 +126,21 @@ fn a_rejected_cached_pipeline_reports_its_error_once() {
     let failed: fn() -> Stage = || Stage::Failed("driver rejected the program".into());
     let mut compiles = CachedCompiles::default();
     assert_eq!(
-        advance(&mut compiles, &[failed]),
+        advance(&mut compiles, &[failed], &[]),
         [
-            "Pipeline compile started: render \"pipeline 0\"",
+            "Pipeline compile queued: render \"pipeline 0\"",
             "Pipeline compile failed: render \"pipeline 0\": driver rejected the program",
         ]
     );
-    assert!(advance(&mut compiles, &[failed]).is_empty());
+    assert!(advance(&mut compiles, &[failed], &[]).is_empty());
 }
 
 #[test]
 fn a_rebuilt_cache_is_followed_from_its_first_pipeline() {
-    let pending: fn() -> Stage = || Stage::Pending;
     let mut compiles = CachedCompiles::default();
-    advance(&mut compiles, &[pending, pending, pending]);
+    advance(&mut compiles, &[PENDING, PENDING, PENDING], &[0, 1, 2]);
     assert_eq!(
-        advance(&mut compiles, &[pending]),
-        ["Pipeline compile started: render \"pipeline 0\""]
+        advance(&mut compiles, &[PENDING], &[0]),
+        ["Pipeline compile queued: render \"pipeline 0\""]
     );
 }
