@@ -244,8 +244,8 @@ fn setup(
             );
         },
     )?;
-    // The game activity's UI thread waits for the game thread until its event loop starts, so
-    // the carriers load here, behind the startup screen, to keep that wait short.
+    // The carriers load here, behind the setup screen, so the game activity has less to do
+    // before its first frame.
     if outcome != Outcome::Quit && !CANCELLATION.flag().load(Ordering::Acquire) {
         cinnabar::lifecycle::preload(outcome == Outcome::Prepared);
     }
