@@ -251,6 +251,8 @@ impl Player {
 
     /// Applies a server position and look: motion stops, the camera sink resets, and the reply
     /// the client sends at once is returned. `y` is the packet's Y, which is the eye height.
+    /// The player keeps each angle's remainder of a full turn, while the reply echoes the
+    /// packet's angles as sent.
     pub fn teleport(
         &mut self,
         x: f64,
@@ -262,8 +264,8 @@ impl Player {
     ) -> Packet {
         self.sink = 0.0;
         self.motion = [0.0; 3];
-        self.yaw = yaw;
-        self.pitch = pitch;
+        self.yaw = yaw % 360.0;
+        self.pitch = pitch % 360.0;
         self.set_position(x, y, z);
         Packet::PositionLook {
             x: self.x,
@@ -276,9 +278,10 @@ impl Player {
         }
     }
 
-    /// Replaces the motion with a server velocity, in blocks per tick.
+    /// Replaces the motion with a server velocity, in blocks per tick. A component that is
+    /// not a number becomes zero: it could never move the player and would never decay.
     pub fn set_velocity(&mut self, x: f64, y: f64, z: f64) {
-        self.motion = [x, y, z];
+        self.motion = [x, y, z].map(|component| if component.is_nan() { 0.0 } else { component });
     }
 
     /// Replaces the motion with the velocity of an entity velocity packet, whose components
