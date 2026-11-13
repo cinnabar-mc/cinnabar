@@ -64,6 +64,37 @@ fn a_velocity_that_is_not_a_number_does_not_move_the_player() {
     );
     let after = player.feet();
     assert_eq!((before[0], before[2]), (after[0], after[2]));
+    assert_eq!(
+        player.motion()[0],
+        0.0,
+        "the motion itself is cleared, not only this tick's move"
+    );
+}
+
+/// The player keeps the remainder of a full turn, as the game's rotation setter does, and
+/// answers with the angles the server sent.
+#[test]
+fn a_teleport_wraps_the_stored_angles_and_echoes_the_sent_ones() {
+    let mut player = grounded();
+    let reply = player.teleport(
+        0.5,
+        64.0 + f64::from(java_sim::player::EYE_OFFSET),
+        0.5,
+        450.0,
+        -370.0,
+        true,
+    );
+    assert_eq!(player.view(), (90.0, -10.0));
+    let java_sim::Packet::PositionLook {
+        yaw,
+        pitch,
+        on_ground,
+        ..
+    } = reply
+    else {
+        panic!("a teleport is answered with position and look");
+    };
+    assert_eq!((yaw, pitch, on_ground), (450.0, -370.0, true));
 }
 
 /// Coordinates beyond the `i32` range reach block arithmetic through the floor function.

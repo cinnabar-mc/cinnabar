@@ -104,13 +104,13 @@ pub(super) fn touches_lava(world: &impl World, bounds: &Aabb) -> bool {
 pub(super) fn any_liquid(world: &impl World, query: &Aabb) -> bool {
     let (mut min, end) = scan_range(query);
     if query.min_x < 0.0 {
-        min[0] -= 1;
+        min[0] = min[0].wrapping_sub(1);
     }
     if query.min_y < 0.0 {
-        min[1] -= 1;
+        min[1] = min[1].wrapping_sub(1);
     }
     if query.min_z < 0.0 {
-        min[2] -= 1;
+        min[2] = min[2].wrapping_sub(1);
     }
     (min[0]..end[0]).any(|x| {
         (min[1]..end[1]).any(|y| (min[2]..end[2]).any(|z| facts(world.block(x, y, z).id).liquid))
