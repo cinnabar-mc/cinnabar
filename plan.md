@@ -1927,7 +1927,6 @@ Incomplete:
 - `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
   solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
   with the bounds last computed for any block of their kind; `java-sim` uses each block's own
-  bounds, and such ladders are left out of the shape comparison.
   bounds, and such ladders are left out of the shape comparison. Metadata the game never
   places (a stair's fourth bit, for one) reaches the client as the block's lowest listed
   metadata and collides as that. Attribute modifiers of one operation combine in Java 8's
