@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"unicode/utf8"
+	"unicode/utf16"
 
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -33,7 +33,7 @@ const (
 // clientStatusRespawn asks the server to respawn the player.
 const clientStatusRespawn = 0
 
-// chatLimit is the longest chat message a 1.7.10 server accepts, in characters.
+// chatLimit is the longest chat message a 1.7.10 server accepts, in UTF-16 units.
 const chatLimit = 100
 
 // teleportReach is how close, in blocks, the client's reported position must come to a
@@ -104,6 +104,11 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 			return nil
 		}
 		s.queue(&packet.ChunkRadiusUpdated{ChunkRadius: st.radius})
+		if st.hasPublisher {
+			// The published area takes the new radius where the player stands.
+			st.hasPublisher = false
+			s.publish(st.position[0], st.position[2])
+		}
 		return s.send(s.clientSettings())
 	case *packet.PlayerAuthInput:
 		return s.authInput(pk)
@@ -150,10 +155,15 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 	return nil
 }
 
-// chat sends a chat message or command, cut to the length a 1.7.10 server accepts.
+// chat sends a chat message or command, cut to the length a 1.7.10 server accepts. The
+// server counts UTF-16 units, so a character outside the basic plane counts twice.
 func (s *Session) chat(message string) error {
-	if utf8.RuneCountInString(message) > chatLimit {
-		message = string([]rune(message)[:chatLimit])
+	units := 0
+	for index, character := range message {
+		if units += utf16.RuneLen(character); units > chatLimit {
+			message = message[:index]
+			break
+		}
 	}
 	if message == "" {
 		return nil
@@ -179,6 +189,17 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 	st.position = [3]float64{x, feet, z}
 	st.yaw, st.pitch = pk.Yaw, pk.Pitch
 	s.publish(x, z)
+	// The 1.7.10 client reports a flight toggle before the tick's movement.
+	if starts, stops := pk.InputData.Load(packet.InputFlagStartFlying), pk.InputData.Load(packet.InputFlagStopFlying); starts != stops {
+		st.abilities.flying = starts
+		abilities := st.abilities
+		if err := s.send(&java.ClientPlayerAbilities{
+			Invulnerable: abilities.invulnerable, Flying: abilities.flying, AllowFlying: abilities.allowFlying,
+			CreativeMode: abilities.creative, FlySpeed: abilities.flySpeed, WalkSpeed: abilities.walkSpeed,
+		}); err != nil {
+			return err
+		}
+	}
 	// Bedrock input has no ground flag: a vertical collision while not rising stands in.
 	onGround := pk.InputData.Load(packet.InputFlagVerticalCollision) && pk.Delta[1] <= 0
 	packets := st.report.next(st.entityID, x, feet, z, pk.Yaw, pk.Pitch, onGround,

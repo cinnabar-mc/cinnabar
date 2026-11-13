@@ -208,11 +208,20 @@ func (p *MapChunkBulk) Inflate() ([][]byte, error) {
 // The data slice is ChunkColumn.InflatedSize bytes long and is reused for the next column,
 // so visit must not keep it. Bytes the stream does not provide read as zero, as in Inflate,
 // which this replaces where holding every column at once is too much: the working memory is
-// one column whatever the column count. Corrupt data, or a column count whose reserved
-// buffer the client could not allocate, is an error.
+// one column whatever the column count. Corrupt data within the columns, or a column count
+// whose reserved buffer the client could not allocate or would overrun, is an error. Unlike
+// Inflate, it does not look for damage after the last column.
 func (p *MapChunkBulk) Each(visit func(column ChunkColumn, data []byte) error) error {
-	if reserved := int32(uint32(chunkBulkColumnBytes) * uint32(len(p.Columns))); reserved < 0 {
+	// The client reserves a fixed amount per column in a 32-bit size that may wrap.
+	reserved := int32(uint32(chunkBulkColumnBytes) * uint32(len(p.Columns)))
+	if reserved < 0 {
 		return fmt.Errorf("%w: %d columns overflow the client's buffer", ErrBadChunkData, len(p.Columns))
+	}
+	total := 0
+	for _, column := range p.Columns {
+		if total += column.InflatedSize(p.SkyLight); total > int(reserved) {
+			return fmt.Errorf("%w: %d columns overflow the client's buffer", ErrBadChunkData, len(p.Columns))
+		}
 	}
 	var stream io.Reader
 	if zr, err := zlib.NewReader(bytes.NewReader(p.Compressed)); err == nil {

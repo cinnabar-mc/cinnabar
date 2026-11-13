@@ -1928,6 +1928,11 @@ Incomplete:
   solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
   with the bounds last computed for any block of their kind; `java-sim` uses each block's own
   bounds, and such ladders are left out of the shape comparison.
+  bounds, and such ladders are left out of the shape comparison. Metadata the game never
+  places (a stair's fourth bit, for one) reaches the client as the block's lowest listed
+  metadata and collides as that. Attribute modifiers of one operation combine in Java 8's
+  hash order, without the tree order of a bucket of eight or more, and a move is limited to
+  100 blocks per axis in a tick, where the game has no limit.
 - Interaction packets follow the Bedrock client's send order, not the 1.7.10 click handler's
   (swing before attack, placement before its swing).
 - Inventory windows other than the player's, window clicks, crafting, creative inventory,
@@ -1943,6 +1948,10 @@ Incomplete:
   orbs, item frames, effects, attributes of the local player beyond health, sounds,
   particles, explosions, block-break progress, scoreboards, teams, titles, maps, statistics,
   tab completion and plugin channels other than the brand are not translated.
+- The death, respawn and dimension-change sequences are translated but have only been
+  checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
+  where Java uses its modified form, which differs for NUL and for characters outside the
+  basic plane.
 - Online-mode joins are tested against scripted services only, not the production ones.
 - Server lists cannot ping Java servers.
 

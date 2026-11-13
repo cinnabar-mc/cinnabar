@@ -27,6 +27,16 @@ func IsJavaTarget(address string) bool {
 	return ok
 }
 
+// ValidJavaTarget reports whether address is a Java target that names a server.
+func ValidJavaTarget(address string) bool {
+	server, ok := cutPrefixFold(strings.TrimSpace(address), JavaTargetPrefix)
+	if !ok {
+		return false
+	}
+	_, err := javaTarget(server)
+	return err == nil
+}
+
 // javaTarget resolves a Java server address. The port is optional: the Java address rules,
 // including the service record lookup, apply when the server is dialled.
 func javaTarget(server string) (*resolvedUpstreamTarget, error) {

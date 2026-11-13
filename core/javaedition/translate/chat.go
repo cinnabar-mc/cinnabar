@@ -46,32 +46,38 @@ type chatComponent struct {
 // component JSON is shown as it is.
 func chatText(raw string) string {
 	var out strings.Builder
-	if !writeChat(&out, json.RawMessage(raw), chatStyle{}) {
+	if _, ok := writeChat(&out, json.RawMessage(raw), chatStyle{}); !ok {
 		return raw
 	}
 	return out.String()
 }
 
-// writeChat appends one component and its children; it reports false when raw is not a
-// chat component.
-func writeChat(out *strings.Builder, raw json.RawMessage, parent chatStyle) bool {
+// writeChat appends one component and its children and returns the component's own style,
+// which a list's later entries inherit. It reports false when raw is not a chat component.
+func writeChat(out *strings.Builder, raw json.RawMessage, parent chatStyle) (chatStyle, bool) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
 		writeStyled(out, text, parent)
-		return true
+		return parent, true
 	}
 	var list []json.RawMessage
 	if json.Unmarshal(raw, &list) == nil {
-		for _, entry := range list {
-			if !writeChat(out, entry, parent) {
-				return false
+		// The first entry is the parent of the rest.
+		style := parent
+		for index, entry := range list {
+			own, ok := writeChat(out, entry, style)
+			if !ok {
+				return parent, false
+			}
+			if index == 0 {
+				style = own
 			}
 		}
-		return true
+		return style, true
 	}
 	var component chatComponent
 	if json.Unmarshal(raw, &component) != nil {
-		return false
+		return parent, false
 	}
 	style := parent
 	if component.Colour != nil {
@@ -91,21 +97,26 @@ func writeChat(out *strings.Builder, raw json.RawMessage, parent chatStyle) bool
 		arguments := make([]any, len(component.With))
 		for i, argument := range component.With {
 			var nested strings.Builder
-			if !writeChat(&nested, argument, style) {
+			if _, ok := writeChat(&nested, argument, style); !ok {
 				nested.WriteString(string(argument))
 			}
+			// After an argument that set a style, the layout's own text returns to the
+			// component's.
 			arguments[i] = nested.String()
+			if strings.Contains(nested.String(), "§") {
+				arguments[i] = nested.String() + styleCodes(style, true)
+			}
 		}
 		writeStyled(out, translateChat(component.Translate, arguments), style)
 	default:
 		writeStyled(out, component.Text, style)
 	}
 	for _, child := range component.Extra {
-		if !writeChat(out, child, style) {
-			return false
+		if _, ok := writeChat(out, child, style); !ok {
+			return style, false
 		}
 	}
-	return true
+	return style, true
 }
 
 // translateChat lays out a translated component. Keys outside chatFormats have no text
@@ -122,29 +133,37 @@ func translateChat(key string, arguments []any) string {
 	return strings.Join(parts, " ")
 }
 
-// writeStyled appends text behind the formatting codes of its style. Every piece resets
-// first, so styles never leak between siblings.
+// styleCodes returns the formatting codes that switch to a style: a reset, then its colour
+// and formats. An unstyled style needs no codes unless reset is forced, which a caller does
+// to end whatever style came before.
+func styleCodes(style chatStyle, reset bool) string {
+	styled := style.hasColour || isSet(style.bold) || isSet(style.italic) || isSet(style.obfuscated)
+	if !styled && !reset {
+		return ""
+	}
+	codes := "§r"
+	if code, ok := chatColours[style.colour]; ok {
+		codes += "§" + string(code)
+	}
+	if isSet(style.obfuscated) {
+		codes += "§k"
+	}
+	if isSet(style.bold) {
+		codes += "§l"
+	}
+	if isSet(style.italic) {
+		codes += "§o"
+	}
+	return codes
+}
+
+// writeStyled appends text behind the formatting codes of its style. Every piece after the
+// first resets, so styles never leak between siblings.
 func writeStyled(out *strings.Builder, text string, style chatStyle) {
 	if text == "" {
 		return
 	}
-	styled := style.hasColour || isSet(style.bold) || isSet(style.italic) || isSet(style.obfuscated)
-	if styled || out.Len() > 0 {
-		out.WriteString("§r")
-	}
-	if code, ok := chatColours[style.colour]; ok {
-		out.WriteString("§")
-		out.WriteByte(code)
-	}
-	if isSet(style.obfuscated) {
-		out.WriteString("§k")
-	}
-	if isSet(style.bold) {
-		out.WriteString("§l")
-	}
-	if isSet(style.italic) {
-		out.WriteString("§o")
-	}
+	out.WriteString(styleCodes(style, out.Len() > 0))
 	out.WriteString(text)
 }
 

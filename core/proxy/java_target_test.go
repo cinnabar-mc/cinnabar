@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,16 +15,23 @@ import (
 )
 
 func TestJavaTargets(t *testing.T) {
-	if !IsJavaTarget("java/play.example.net") || !IsJavaTarget(" JAVA/play.example.net:25565") || IsJavaTarget("play.example.net:19132") {
+	const prefix = JavaTargetPrefix
+	if !IsJavaTarget(prefix+"play.example.net") || !IsJavaTarget(" "+strings.ToUpper(prefix)+"play.example.net:25565") || IsJavaTarget("play.example.net:19132") {
 		t.Fatal("IsJavaTarget misjudged a target")
 	}
-	target, err := resolveUpstreamTarget(context.Background(), "java/play.example.net", nil, nil, nil)
+	target, err := resolveUpstreamTarget(context.Background(), prefix+"play.example.net", nil, nil, nil)
 	if err != nil || !target.java || target.address != "play.example.net" {
 		t.Fatalf("target = %+v, %v", target, err)
 	}
-	for _, invalid := range []string{"java/", "java/two words", "java/a/b"} {
+	if !ValidJavaTarget(prefix + "play.example.net:25565") {
+		t.Error("a Java target with a port is invalid")
+	}
+	for _, invalid := range []string{prefix, prefix + "two words", prefix + "a/b"} {
 		if _, err := resolveUpstreamTarget(context.Background(), invalid, nil, nil, nil); err == nil {
 			t.Errorf("%q resolved", invalid)
+		}
+		if ValidJavaTarget(invalid) {
+			t.Errorf("%q is valid", invalid)
 		}
 	}
 }

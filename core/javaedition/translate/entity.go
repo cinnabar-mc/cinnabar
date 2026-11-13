@@ -151,6 +151,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		} else {
 			id = st.listed[pk.Name]
 		}
+		s.replace(pk.EntityID)
 		spawned := &entity{x: pk.X, y: pk.Y, z: pk.Z, yaw: pk.Yaw, pitch: pk.Pitch, head: pk.Yaw, player: true}
 		st.entities[pk.EntityID] = spawned
 		s.queue(&packet.AddPlayer{
@@ -169,6 +170,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		if !ok {
 			return nil
 		}
+		s.replace(pk.EntityID)
 		st.entities[pk.EntityID] = &entity{x: pk.X, y: pk.Y, z: pk.Z, yaw: pk.Yaw, pitch: pk.Pitch, head: pk.HeadYaw}
 		s.queue(&packet.AddActor{
 			EntityUniqueID:  int64(pk.EntityID),
@@ -183,6 +185,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 			EntityMetadata:  entityMetadata(pk.Metadata),
 		})
 	case *java.SpawnObject:
+		s.replace(pk.EntityID)
 		spawned := &entity{x: pk.X, y: pk.Y, z: pk.Z, yaw: pk.Yaw, pitch: pk.Pitch}
 		if pk.Type == objectItem {
 			spawned.pendingItem = true
@@ -264,6 +267,15 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		s.log.Debug("skipping untranslated server packet", "id", pk.ID())
 	}
 	return nil
+}
+
+// replace removes an entity the server spawns again under an id already in use, as the
+// 1.7.10 client does before adding the new one.
+func (s *Session) replace(id int32) {
+	if _, ok := s.state.entities[id]; ok {
+		delete(s.state.entities, id)
+		s.queue(&packet.RemoveActor{EntityUniqueID: int64(id)})
+	}
 }
 
 // moveEntity applies a movement to a known entity and sends its new absolute position.

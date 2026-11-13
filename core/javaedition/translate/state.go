@@ -39,6 +39,8 @@ type state struct {
 	// position is the player's last known position with Y at the feet.
 	position   [3]float64
 	yaw, pitch float32
+	// respawning is set between a respawn in the same dimension and the position after it.
+	respawning bool
 	// teleport is the eye position of a server teleport the client has not reached yet.
 	teleport *mgl32.Vec3
 	// report decides which movement packet each client tick becomes.

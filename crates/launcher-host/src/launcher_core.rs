@@ -341,10 +341,8 @@ mod tests {
             target_for(&format!("{}2535", bridge::contract::FRIEND_TARGET_PREFIX)),
             ConnectTarget::Friend("2535".into())
         );
-        assert_eq!(
-            target_for("java/play.example.net"),
-            ConnectTarget::RakNet("java/play.example.net".into())
-        );
+        let java = format!("{}play.example.net", bridge::contract::JAVA_TARGET_PREFIX);
+        assert_eq!(target_for(&java), ConnectTarget::RakNet(java.clone()));
         assert_eq!(
             target_for("play.example.net:19133"),
             ConnectTarget::RakNet("play.example.net:19133".into())

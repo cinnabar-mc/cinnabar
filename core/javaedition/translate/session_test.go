@@ -9,8 +9,10 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
@@ -247,7 +249,7 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 
 	serve(&java.TimeUpdate{WorldAge: 100, TimeOfDay: -6000})
 	chat := serve(&java.ChatMessage{Message: `{"translate":"chat.type.text","with":["Alex",{"text":"hi","color":"red"}]}`})
-	if text := chat[0].(*packet.Text); text.Message != "<Alex> §r§chi" {
+	if text := chat[0].(*packet.Text); text.Message != "<Alex> §r§chi§r" {
 		t.Fatalf("chat = %q", text.Message)
 	}
 	serve(&java.UpdateHealth{Health: 15, Food: 18, Saturation: 2.5})
@@ -492,5 +494,100 @@ func TestBulkColumnsArriveOneBatchEach(t *testing.T) {
 		if !ok || len(batch) != 1 || chunk.Position != [2]int32{bulk.Columns[index].ChunkX, bulk.Columns[index].ChunkZ} {
 			t.Fatalf("bulk column %d translated to %+v", index, batch)
 		}
+	}
+}
+
+// A respawn in the same dimension keeps the world the 1.7.10 client keeps; a change of
+// dimension replaces it.
+func TestRespawnKeepsTheWorldUnlessTheDimensionChanges(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	column := newJavaColumn()
+	column.set(0, 0, 0, 1, 0)
+	primary, add, data := column.data()
+	ts.serve(&java.ChunkData{GroundUpContinuous: true, PrimaryBitmask: primary, AddBitmask: add, Compressed: compress(t, data)})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 1 + eyeHeight, Z: 0.5, OnGround: true})
+	ts.serve(&java.SpawnMob{EntityID: 9, Type: 90})
+
+	respawned := ts.serve(&java.Respawn{Dimension: 0, LevelType: "default"})
+	if _, ok := respawned[0].(*packet.SetPlayerGameType); !ok || len(respawned) != 1 {
+		t.Fatalf("a respawn in place translated to %d packets, first %T", len(respawned), respawned[0])
+	}
+	placed := ts.serve(&java.PlayerPositionAndLook{X: 2.5, Y: 1 + eyeHeight, Z: 0.5, OnGround: true})
+	var ready *packet.Respawn
+	for _, pk := range placed {
+		if respawn, ok := pk.(*packet.Respawn); ok {
+			ready = respawn
+		}
+	}
+	if ready == nil || ready.State != packet.RespawnStateReadyToSpawn || ready.Position[0] != 2.5 {
+		t.Fatalf("the position after a respawn translated to %+v", placed)
+	}
+	// The column is still known, so a change inside it reaches the client.
+	if changed := ts.serve(&java.BlockChange{X: 1, Y: 0, Z: 0, BlockID: 1}); changed[0].(*packet.UpdateBlock).Position != (protocol.BlockPos{1, 0, 0}) {
+		t.Fatalf("block change after a respawn in place = %+v", changed[0])
+	}
+	// The mob is still there too: spawning it again replaces it.
+	again := ts.serve(&java.SpawnMob{EntityID: 9, Type: 90})
+	if removed, ok := again[0].(*packet.RemoveActor); !ok || removed.EntityUniqueID != 9 || len(again) != 2 {
+		t.Fatalf("a repeated spawn translated to %+v", again)
+	}
+
+	moved := ts.serve(&java.Respawn{Dimension: -1, LevelType: "default"})
+	var change *packet.ChangeDimension
+	removals := 0
+	for _, pk := range moved {
+		switch pk := pk.(type) {
+		case *packet.ChangeDimension:
+			change = pk
+		case *packet.RemoveActor:
+			removals++
+		}
+	}
+	if change == nil || change.Dimension != bedrockNether || removals != 1 {
+		t.Fatalf("a change of dimension translated to %+v", moved)
+	}
+	// The old world is gone: its columns no longer take changes, so the next batch is the
+	// marker's.
+	if err := ts.server.Write(&java.BlockChange{X: 1, Y: 0, Z: 0, BlockID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if next := ts.serve(&java.ChatMessage{Message: `"marker"`}); len(next) != 1 || next[0].ID() != packet.IDText {
+		t.Fatalf("a change in the forgotten world reached the client: %+v", next)
+	}
+}
+
+func TestClientFlightChatLengthAndRadiusChanges(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerAbilities{AllowFlying: true, CreativeMode: true, FlySpeed: 0.05, WalkSpeed: 0.1})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+
+	// Taking off is reported with the abilities the server granted, before the movement.
+	input := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, float32(64 + networkOffset), 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
+	input.InputData.Set(packet.InputFlagStartFlying)
+	ts.write(input)
+	flying := expect[*java.ClientPlayerAbilities](ts)
+	if !flying.Flying || !flying.AllowFlying || !flying.CreativeMode || flying.FlySpeed != 0.05 {
+		t.Fatalf("flight start = %+v", flying)
+	}
+	expect[*java.ClientPlayerPosition](ts)
+
+	// The server counts UTF-16 units: sixty characters outside the basic plane are 120.
+	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: strings.Repeat("😀", 60)})
+	if chat := expect[*java.ClientChatMessage](ts); chat.Message != strings.Repeat("😀", 50) {
+		t.Fatalf("chat kept %d characters", utf8.RuneCountInString(chat.Message))
+	}
+
+	// A new radius is granted and the published area follows it.
+	for len(ts.session.batches) > 0 {
+		ts.batch()
+	}
+	ts.write(&packet.RequestChunkRadius{ChunkRadius: 4})
+	granted := ts.batch()
+	publisher, ok := granted[1].(*packet.NetworkChunkPublisherUpdate)
+	if radius := granted[0].(*packet.ChunkRadiusUpdated); radius.ChunkRadius != 4 || !ok || publisher.Radius != 64 {
+		t.Fatalf("radius change translated to %+v", granted)
 	}
 }

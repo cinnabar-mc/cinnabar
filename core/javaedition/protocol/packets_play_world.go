@@ -108,8 +108,10 @@ type BlockChangeRecord struct {
 }
 
 // NewMultiBlockChange builds the packet for records, packing each as 1.7.10 does. Block ids
-// are cut to 12 bits and metadata, X and Z to 4.
+// are cut to 12 bits and metadata, X and Z to 4. The count is 16 bits on the wire, so
+// records past 65,535 are left out.
 func NewMultiBlockChange(chunkX, chunkZ int32, records []BlockChangeRecord) *MultiBlockChange {
+	records = records[:min(len(records), math.MaxUint16)]
 	p := &MultiBlockChange{ChunkX: chunkX, ChunkZ: chunkZ, RecordCount: uint16(len(records))}
 	for _, record := range records {
 		p.Data = binary.BigEndian.AppendUint16(p.Data, uint16(record.X&0xf)<<12|uint16(record.Z&0xf)<<8|uint16(record.Y))

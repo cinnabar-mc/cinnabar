@@ -153,23 +153,28 @@ func (s *Session) clientSettings() *java.ClientSettings {
 	return &java.ClientSettings{Locale: "en_US", ViewDistance: int8(min(max(s.state.radius, 2), 16)), ChatColors: true, Difficulty: 2, ShowCape: true}
 }
 
-// respawn handles a death respawn or a change of dimension: the world is forgotten and the
-// client is moved to the new dimension when it differs.
+// respawn handles a death respawn or a change of dimension. The 1.7.10 client replaces its
+// world only when the dimension changes; a respawn in the same dimension keeps the columns
+// and entities it has. Either way the player is a new one, which has reported nothing yet.
 func (s *Session) respawn(pk *java.Respawn) {
 	st := &s.state
 	previous := st.dimension
 	st.dimension, st.gameMode, st.difficulty = int8(pk.Dimension), pk.GameMode, pk.Difficulty
-	st.world = newWorld(st.dimension)
-	st.hasPublisher = false
-	for id := range st.entities {
-		s.queue(&packet.RemoveActor{EntityUniqueID: int64(id)})
-	}
-	st.entities = map[int32]*entity{}
+	st.report, st.breaking = motionReport{}, nil
 	if previous != st.dimension {
+		st.world = newWorld(st.dimension)
+		st.hasPublisher = false
+		for id := range st.entities {
+			s.queue(&packet.RemoveActor{EntityUniqueID: int64(id)})
+		}
+		st.entities = map[int32]*entity{}
 		s.queue(&packet.ChangeDimension{
 			Dimension: layoutOf(st.dimension).bedrock,
 			Position:  mgl32.Vec3{float32(st.position[0]), float32(st.position[1] + networkOffset), float32(st.position[2])},
 		})
+	} else {
+		// The position that follows tells the client where it respawned.
+		st.respawning = true
 	}
 	s.queue(&packet.SetPlayerGameType{GameType: int32(pk.GameMode)})
 }
@@ -184,6 +189,10 @@ func (s *Session) positionAndLook(pk *java.PlayerPositionAndLook) error {
 	eye := mgl32.Vec3{float32(pk.X), float32(feet + networkOffset), float32(pk.Z)}
 	st.teleport = &eye
 	s.publish(pk.X, pk.Z)
+	if st.respawning {
+		st.respawning = false
+		s.queue(&packet.Respawn{Position: eye, State: packet.RespawnStateReadyToSpawn, EntityRuntimeID: runtimeID(st.entityID)})
+	}
 	s.queue(&packet.MovePlayer{
 		EntityRuntimeID: runtimeID(st.entityID),
 		Position:        eye,
