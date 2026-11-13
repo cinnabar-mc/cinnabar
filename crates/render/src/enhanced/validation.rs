@@ -1,5 +1,8 @@
 //! Validate every Enhanced shader and create its pipeline on an available real adapter.
 
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
 use crate::shader_source;
 type Variant = (&'static str, String, &'static str, &'static str, bool);
 
@@ -114,7 +117,7 @@ fn enhanced_pipelines_build_on_native_adapter() {
             bind_group_layouts: &groups.iter().map(Some).collect::<Vec<_>>(),
             immediate_size: 0,
         });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(name),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
@@ -123,7 +126,7 @@ fn enhanced_pipelines_build_on_native_adapter() {
             blend: None,
             write_mask: wgpu::ColorWrites::ALL,
         })];
-        let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let _pipeline = device.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(name),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -173,11 +176,11 @@ import render::lighting::light_colour;
 }",
         &["ENHANCED"],
     );
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("sky exposure"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+    let pipeline = device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: None,
         layout: None,
         module: &module,
@@ -224,7 +227,7 @@ import render::lighting::light_colour;
     let (outputs, lights) = (group(0, &results), group(1, &lightmap));
     let mut encoder = device.create_command_encoder(&Default::default());
     {
-        let mut pass = encoder.begin_compute_pass(&Default::default());
+        let mut pass = encoder.counted_compute_pass(&Default::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &outputs, &[]);
         pass.set_bind_group(1, &lights, &[]);

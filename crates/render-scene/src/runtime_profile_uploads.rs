@@ -65,6 +65,7 @@ pub fn record_at(
     path: UploadPath,
     bytes: u64,
 ) {
+    count_for_render_frame(path, bytes);
     #[cfg(feature = "publication-test-support")]
     if bytes != 0 {
         TEST_WRITES.update(|(calls, total)| (calls.wrapping_add(1), total.wrapping_add(bytes)));
@@ -73,6 +74,22 @@ pub fn record_at(
     enabled::record(site, kind, path, bytes);
     #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
     let _ = (site, kind, path, bytes);
+}
+
+/// Adds a nonempty upload to the render frame's always-on counters.
+#[inline]
+fn count_for_render_frame(path: UploadPath, bytes: u64) {
+    use crate::runtime_profile::render_counters::{RenderCounter, count};
+    if bytes == 0 {
+        return;
+    }
+    match path {
+        UploadPath::Queue => {
+            count(RenderCounter::Writes, 1);
+            count(RenderCounter::WriteBytes, bytes);
+        }
+        UploadPath::Staged => count(RenderCounter::StagedBytes, bytes),
+    }
 }
 
 /// Closes the preceding upload interval and emits Tracy plots when available.

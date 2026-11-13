@@ -7,6 +7,7 @@
 //! camera's output directly.
 use super::target::{NativeUiTarget, UiTarget};
 use super::*;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     camera::{CameraOutputMode, ClearColor, ClearColorConfig},
     core_pipeline::{Core3d, Core3dSystems, upscaling::upscaling},
@@ -736,7 +737,7 @@ fn encode_composite<'c>(
         profile.record_draw(render_scene::RuntimeStage::GpuUiComposite, 0);
     }
     let attachments = [Some(destination)];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("gamma-space UI composite"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,
@@ -942,6 +943,7 @@ pub(crate) fn install_present_node(world: &mut World) {
                 crate::gpu_timing::profiled(
                     ui_present,
                     (!cfg!(target_os = "macos")).then_some(render_scene::RuntimeStage::GpuBlit),
+                    render_scene::RuntimeStage::NodeUi,
                     "UiPresent",
                 )
                 .after(Core3dSystems::PostProcess)
@@ -950,6 +952,7 @@ pub(crate) fn install_present_node(world: &mut World) {
                 crate::gpu_timing::profiled(
                     upscaling,
                     (!cfg!(target_os = "macos")).then_some(render_scene::RuntimeStage::GpuBlit),
+                    render_scene::RuntimeStage::NodePost,
                     "Upscaling",
                 )
                 .after(ui_present)

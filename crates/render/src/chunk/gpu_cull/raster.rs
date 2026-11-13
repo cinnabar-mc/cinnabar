@@ -1,6 +1,9 @@
 //! Experimental current-frame box tests against opaque depth, without a depth pyramid.
 
 use super::{kernels::cull_shader_source, model::group_count, storage::CullStorage};
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
 
 const RASTER_VERTICES: u32 = 6;
 
@@ -53,11 +56,11 @@ impl RasterCull {
         format: wgpu::TextureFormat,
         samples: u32,
     ) -> Self {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("terrain raster occlusion"),
             source: wgpu::ShaderSource::Wgsl(shader_source(workgroup).into()),
         });
-        let prepare = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let prepare = device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("terrain raster reset"),
             layout: None,
             module: &module,
@@ -65,7 +68,7 @@ impl RasterCull {
             compilation_options: Default::default(),
             cache: None,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("terrain raster boxes"),
             layout: None,
             vertex: wgpu::VertexState {
@@ -140,7 +143,7 @@ impl RasterCull {
             return;
         }
         {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("terrain raster reset"),
                 timestamp_writes: timestamps.0,
             });
@@ -148,7 +151,7 @@ impl RasterCull {
             pass.set_bind_group(0, &self.prepare_group, &[]);
             pass.dispatch_workgroups(group_count(slots, self.workgroup), 1, 1);
         }
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = encoder.counted_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("terrain raster occlusion"),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

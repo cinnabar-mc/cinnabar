@@ -1,4 +1,7 @@
 use super::{super::*, array};
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
 
 #[test]
 fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources() {
@@ -86,7 +89,7 @@ fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources(
 
     let shader = device
         .wgpu_device()
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
+        .counted_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("completed authored mip sampling fixture"),
             source: wgpu::ShaderSource::Wgsl(
                 r#"
@@ -122,16 +125,17 @@ fn sample_page(page:u32,layer:i32,mip:i32)->vec4<f32>{
                 .into(),
             ),
         });
-    let pipeline = device
-        .wgpu_device()
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("completed authored mip fixture"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("read_mips"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+    let pipeline =
+        device
+            .wgpu_device()
+            .counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("completed authored mip fixture"),
+                layout: None,
+                module: &shader,
+                entry_point: Some("read_mips"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
     let bytes = 38 * 16;
     let output = device.create_buffer(&BufferDescriptor {
         label: Some("authored mip fixture samples"),
@@ -171,7 +175,7 @@ fn sample_page(page:u32,layer:i32,mip:i32)->vec4<f32>{
         });
     let mut encoder = device.create_command_encoder(&Default::default());
     {
-        let mut pass = encoder.begin_compute_pass(&Default::default());
+        let mut pass = encoder.counted_compute_pass(&Default::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &group, &[]);
         pass.dispatch_workgroups(1, 1, 1);

@@ -405,3 +405,23 @@ fn export_serializes_events_only_as_the_writer_consumes_them() {
         allocations.bytes
     );
 }
+
+/// A render frame's work counters export as one counter event naming every counter.
+#[test]
+fn render_counts_export_as_a_counter_event() {
+    let trace = FrameTrace::build(None, Instant::now(), 4);
+    let mut counts = RenderCounts::default();
+    counts.0[RenderCounter::Passes as usize] = 9;
+    trace.render_counts(3, counts);
+    let snapshot = trace
+        .snapshot(&trace.events.lock().unwrap(), usize::MAX, None)
+        .json();
+    let event = &snapshot["traceEvents"][0];
+    assert_eq!(event["name"], "render_counts");
+    assert_eq!(event["ph"], "C");
+    assert_eq!(event["frame_id"], 3);
+    assert_eq!(event["args"]["passes"], 9);
+    for counter in RenderCounter::ALL {
+        assert!(event["args"][counter.name()].is_u64(), "{}", counter.name());
+    }
+}

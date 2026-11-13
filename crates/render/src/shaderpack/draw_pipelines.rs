@@ -5,6 +5,7 @@ use super::draws::DrawKind;
 use super::effects::EffectSettings;
 use super::geometry::{TerrainLayout, vertex_buffer_layouts};
 use super::pipelines::{blend_state, color_target};
+use crate::render_counting::CountedPipelines as _;
 use shaderpack::{AlphaTest, BufferId, ProgramReflection, ShaderProperties, StageKind};
 use std::borrow::Cow;
 use wgpu::TextureFormat;
@@ -183,7 +184,7 @@ pub(crate) fn draw_pipeline(
         );
         inputs
             .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            .counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(&format!("{label} depth prepass")),
                 layout: Some(inputs.layout),
                 vertex: vertex.clone(),
@@ -212,7 +213,7 @@ pub(crate) fn draw_pipeline(
     .then(|| {
         inputs
             .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            .counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(&format!("{label} behind terrain")),
                 layout: Some(inputs.layout),
                 vertex: vertex.clone(),
@@ -237,7 +238,7 @@ pub(crate) fn draw_pipeline(
     });
     let pipeline = inputs
         .device
-        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        .counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(&label),
             layout: Some(inputs.layout),
             vertex,

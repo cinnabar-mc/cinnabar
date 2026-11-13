@@ -17,6 +17,7 @@ use super::uniforms::{
     DrawUniforms, FAR_PLANE_SCALE, FrameUniforms, GL_NEAR, HostValue, pack_block,
 };
 use crate::gpu_timing::{GpuTimestamps, within_stage};
+use crate::render_counting::CountedPasses as _;
 use bevy::math::{Mat4, Vec3};
 use render_scene::RuntimeStage;
 use shaderpack::{CustomUniforms, ProgramGroup};
@@ -420,7 +421,7 @@ fn pass_with_timestamps<'a>(
     timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
 ) -> wgpu::RenderPass<'a> {
     encoder
-        .begin_render_pass(&wgpu::RenderPassDescriptor {
+        .counted_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(label),
             color_attachments: attachments,
             depth_stencil_attachment: depth,
@@ -873,7 +874,7 @@ fn run_step(
             };
             let groups_count = super::dispatch::groups(dispatch, size);
             let mut compute = encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                .counted_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(&program.name),
                     timestamp_writes: timestamps
                         .and_then(|timestamps| timestamps.shaderpack_compute_pass(stage)),

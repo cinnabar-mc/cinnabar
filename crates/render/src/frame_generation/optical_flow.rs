@@ -39,6 +39,10 @@
 //! The vectors point from a block of this frame to where it was in the previous one, in
 //! display pixels: content moving right by 4 pixels gives (-4, 0).
 
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
+
 /// The size in pixels of the square blocks the flow has one vector for.
 pub const BLOCK_SIZE: u32 = 8;
 /// `OpticalFlowMaxPyramidLevels`: the search's levels.
@@ -176,12 +180,12 @@ fn whole(b: &wgpu::Buffer) -> wgpu::BindingResource<'_> {
 impl OpticalFlow {
     /// For frames of `display` size.
     pub fn new(device: &wgpu::Device, display: [u32; 2]) -> Self {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Optical flow"),
             source: wgpu::ShaderSource::Wgsl(include_str!("optical_flow.wgsl").into()),
         });
         let pipeline = |entry: &str| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
                 module: &module,
@@ -398,7 +402,7 @@ impl OpticalFlow {
         );
         let p = &self.pipelines;
         let [w, h] = self.display;
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Optical flow"),
             timestamp_writes: None,
         });

@@ -2,6 +2,8 @@
 //! overlay depth, presenting, mip downsampling and the `centerDepthSmooth` sampler.
 
 use super::plan::MAX_COLOR_BUFFERS;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
 use wgpu::TextureFormat;
 use wgpu::util::DeviceExt;
 
@@ -71,12 +73,12 @@ pub(super) fn host_pipelines(
     shadow_depth_formats: &[TextureFormat],
     center_depth: Option<super::center_depth::DepthSource>,
 ) -> HostPipelines {
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shader pack host passes"),
         source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
     });
     let pipeline = |entry: &str, targets: &[Option<wgpu::ColorTargetState>], depth: bool| {
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(entry),
             layout: None,
             vertex: wgpu::VertexState {
@@ -158,7 +160,7 @@ pub(super) fn host_pipelines(
             .collect(),
         center_depth: center_depth.map(|source| super::center_depth::DepthPipeline {
             source,
-            pipeline: device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            pipeline: device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(source.entry()),
                 layout: None,
                 module: &module,

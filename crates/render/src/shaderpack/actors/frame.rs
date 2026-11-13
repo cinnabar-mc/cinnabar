@@ -1,5 +1,6 @@
 //! Recording a frame's actor geometry: planning, the skinning dispatches and the draws.
 
+use crate::render_counting::CountedPasses as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -306,7 +307,7 @@ fn skin_page(
         });
         groups.push(Some((source_group, output_group)));
     }
-    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+    let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some("shader-pack actor skinning"),
         timestamp_writes: None,
     });

@@ -10,6 +10,7 @@ use super::pack::SpriteRect;
 use super::plan::AnimationLayout;
 use super::upload::{COLOR_STORAGE_FORMAT, LayerTextures, PBR_FORMAT, UploadedAtlas};
 use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedPasses as _;
 use assets::{Animation, Material, TextureRef};
 use bevy::prelude::Resource;
 use render_scene::{ChunkAnimationClock, select_animation_frames};
@@ -321,7 +322,7 @@ impl AtlasAnimations {
                         },
                     })
             });
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut pass = encoder.counted_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shader-pack animated sprite blend"),
                 color_attachments: &attachments[..self.layers.len()],
                 ..Default::default()

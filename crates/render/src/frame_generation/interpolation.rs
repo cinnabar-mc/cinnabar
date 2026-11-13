@@ -9,6 +9,9 @@
 //! level has a separate dispatch. The caller supplies SDR colour without overlays
 //! and composites the interface separately after interpolation.
 
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
 use glam::Mat4;
 
 /// One real frame's inputs.
@@ -297,12 +300,12 @@ impl Interpolation {
 
     /// For frames of `display` size; the render size may change between dispatches.
     pub fn new(device: &wgpu::Device, display: [u32; 2]) -> Self {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Frame interpolation"),
             source: wgpu::ShaderSource::Wgsl(include_str!("interpolation.wgsl").into()),
         });
         let pipeline = |entry: &str| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
                 module: &module,
@@ -579,7 +582,7 @@ impl Interpolation {
         let groups_for = |size: [u32; 2]| (size[0].div_ceil(8), size[1].div_ceil(8));
         let (rx, ry) = groups_for(inputs.render_size);
         let (dx, dy) = groups_for(self.display);
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Frame interpolation"),
             timestamp_writes: None,
         });

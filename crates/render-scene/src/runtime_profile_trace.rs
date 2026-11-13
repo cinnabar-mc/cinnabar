@@ -1,6 +1,7 @@
 //! Bounded rolling spans and hitch windows; formatting and output happen after unlocking.
 
 use crate::RuntimeStage;
+use crate::runtime_profile::render_counters::{RenderCounter, RenderCounts};
 use crate::runtime_profile_slow::SlowFrameEvent;
 use serde::{
     Serialize, Serializer,
@@ -69,6 +70,7 @@ enum TraceArgs {
         sequence: u64,
         nanos: u64,
     },
+    RenderCounts(RenderCounts),
 }
 
 #[derive(Debug)]
@@ -208,6 +210,18 @@ impl FrameTrace {
             args: TraceArgs::BackgroundSample {
                 nanos: nanos(elapsed),
             },
+        });
+    }
+
+    /// Records what one render frame counted, at the time that frame closed.
+    pub fn render_counts(&self, frame_id: u64, counts: RenderCounts) {
+        self.push(TraceEvent {
+            name: "render_counts",
+            started: self.epoch.elapsed(),
+            elapsed: Duration::ZERO,
+            thread: std::thread::current().id(),
+            frame_id: Some(frame_id),
+            args: TraceArgs::RenderCounts(counts),
         });
     }
 
@@ -558,6 +572,11 @@ impl Serialize for TraceRecords<'_> {
                     args["sample_sequence"] = json!(sequence);
                     args["duration_ns"] = json!(nanos);
                 }
+                TraceArgs::RenderCounts(counts) => {
+                    for counter in RenderCounter::ALL {
+                        args[counter.name()] = json!(counts.get(counter));
+                    }
+                }
             }
             match event.args {
                 TraceArgs::GpuSample { .. } => {
@@ -569,6 +588,10 @@ impl Serialize for TraceRecords<'_> {
                     record["ph"] = json!("C");
                     record["cat"] = json!("background_work");
                     record["timestamp_kind"] = json!("sample_received");
+                }
+                TraceArgs::RenderCounts(_) => {
+                    record["ph"] = json!("C");
+                    record["cat"] = json!("render_counts");
                 }
                 TraceArgs::Span { .. } => {}
                 _ => {

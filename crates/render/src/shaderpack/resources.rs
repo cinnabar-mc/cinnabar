@@ -6,6 +6,7 @@
 use super::pipelines::GpuContext;
 use super::pipelines::{FormatSupport, storage_format, texture_format, texture_sample_type};
 use super::plan::{MAX_COLOR_BUFFERS, color_buffer_of};
+use crate::render_counting::CountedPasses as _;
 use raw::RawSpec;
 use shaderpack::{
     BufferFormat, BufferId, CustomImage, ImageSize, ProgramGroup, ProgramReflection, SampleType,
@@ -714,7 +715,7 @@ impl<'a> ConstantBuilder<'a> {
                         }),
                         stencil_ops: None,
                     });
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    encoder.counted_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("shader pack constant clear"),
                         color_attachments: if *depth { &[] } else { &colour },
                         depth_stencil_attachment: depth_attachment,

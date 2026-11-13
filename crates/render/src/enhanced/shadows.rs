@@ -1,5 +1,6 @@
 //! Own depth-only cascade pass for the vertex-pulled terrain arena.
 
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     prelude::*,
@@ -121,7 +122,7 @@ pub(crate) fn enhanced_shadows(
             _ => "enhanced shadow cascade far",
         };
         let span = diagnostics.time_span(context.command_encoder(), label);
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("enhanced sun shadow cascade"),
             color_attachments: &[],
             depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {

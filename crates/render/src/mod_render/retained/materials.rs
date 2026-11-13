@@ -1,5 +1,7 @@
 //! Native material pipelines are owned and released, rather than retained in Bevy's cache.
 use super::pipeline::Key;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedValidatedShaders as _;
 use bevy::{
     prelude::*,
     render::{
@@ -114,7 +116,7 @@ fn compile(
     let validation = device
         .wgpu_device()
         .push_error_scope(wgpu::ErrorFilter::Validation);
-    let module = device.create_and_validate_shader_module(wgpu::ShaderModuleDescriptor {
+    let module = device.counted_validated_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("mod drawing material"),
         source: wgpu::ShaderSource::Wgsl(shader.into()),
     });
@@ -123,7 +125,7 @@ fn compile(
         bind_group_layouts: &[Some(layout)],
         immediate_size: 0,
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mod drawing material"),
         layout: Some(&layout),
         vertex: wgpu::VertexState {

@@ -3,6 +3,7 @@
 
 mod draws;
 
+use crate::render_counting::CountedPasses as _;
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hash, Hasher};
 
@@ -927,7 +928,7 @@ pub(crate) fn record_geometry_expansion(
         RuntimeStage::GpuShaderpackExpansion,
         context.command_encoder(),
         |encoder| {
-            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+            let mut pass = encoder.counted_compute_pass(&ComputePassDescriptor {
                 label: Some("shader-pack terrain expansion"),
                 ..default()
             });

@@ -1,5 +1,8 @@
 //! Single-sample consumers of the scene retain explicit MSAA resolve boundaries.
 
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
 use bevy::{
     prelude::World,
     render::{
@@ -65,12 +68,12 @@ impl ResolvedDepth {
             })?;
         let view = texture.create_view(&Default::default());
         let gpu = device.wgpu_device();
-        let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = gpu.counted_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("resolved scene depth"),
             source: wgpu::ShaderSource::Wgsl(include_str!("scene_depth.wgsl").into()),
         });
         let multi = depth.texture().sample_count() > 1;
-        let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = gpu.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("resolved scene depth"),
             layout: None,
             vertex: wgpu::VertexState {
@@ -141,7 +144,7 @@ impl ResolvedDepth {
         };
         let mut pass = context
             .command_encoder()
-            .begin_render_pass(&wgpu::RenderPassDescriptor {
+            .counted_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene depth resolve"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

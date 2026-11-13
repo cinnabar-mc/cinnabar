@@ -216,7 +216,7 @@ fn install_stock_passes(world: &mut World) {
             .is_ok_and(|count| count != 0)
         {
             schedule.add_systems(
-                super::profiled(bloom, None, "Bloom")
+                super::profiled(bloom, None, render_scene::RuntimeStage::NodePost, "Bloom")
                     .before(bevy::core_pipeline::tonemapping::tonemapping)
                     .in_set(Core3dSystems::PostProcess),
             );

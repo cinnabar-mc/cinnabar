@@ -1,5 +1,8 @@
 //! Cull and depth-pyramid compute kernels on raw wgpu, so fixture tests drive the production code.
 
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
 use std::{borrow::Cow, num::NonZeroU64};
 
 use super::storage::{CullStorage, OcclusionStorage};
@@ -241,7 +244,7 @@ impl CullKernels {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.count(render_scene::startup_timing::WORLD_SHADER_MODULES, 1);
             }
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            device.counted_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(label),
                 source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
             })
@@ -252,7 +255,7 @@ impl CullKernels {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.count(render_scene::startup_timing::WORLD_COMPUTE_PIPELINES, 1);
             }
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout,
                 module,
@@ -349,7 +352,7 @@ impl CullKernels {
         slots: u32,
         timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain cull"),
             timestamp_writes,
         });
@@ -396,7 +399,7 @@ impl CullKernels {
         if groups == 0 {
             return;
         }
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain occlusion"),
             timestamp_writes: None,
         });
@@ -480,7 +483,7 @@ impl CullKernels {
         bindings: &PyramidBindings,
         timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain hi-z"),
             timestamp_writes,
         });

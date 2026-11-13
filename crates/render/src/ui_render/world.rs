@@ -132,7 +132,7 @@ pub(crate) fn draw_ui_view(
         gpu.world_passes
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let attachments = [Some(scene_target.color_attachment(target, false))];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("retained world-projected UI"),
             color_attachments: &attachments,
             depth_stencil_attachment: depth_write.filter(|_| needs_depth).and_then(|write| {

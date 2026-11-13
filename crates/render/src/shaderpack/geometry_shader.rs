@@ -4,6 +4,8 @@ use super::draws::{DrawKind, GeometryDraw};
 use super::geometry::{CONSTANT_STREAM_WORDS, TerrainLayout, vertex_buffer_layouts};
 use super::passes::ViewState;
 use super::targets::Groups;
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
 use shaderpack::{CompiledStage, GeometryEmulation, ProgramReflection, ScalarType, ValueType};
 use std::borrow::Cow;
 use wgpu::util::StagingBelt;
@@ -282,7 +284,7 @@ pub(crate) fn pipelines(
                 source: wgpu::ShaderSource::Naga(Cow::Owned(stage.module.clone())),
             },
         );
-        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("geometry shader prepass"),
             layout: Some(&pipeline_layout(layout)),
             module: &module,
@@ -508,7 +510,7 @@ impl Scratch {
         .into_iter()
         .enumerate()
         {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("geometry shader expansion"),
                 timestamp_writes: None,
             });

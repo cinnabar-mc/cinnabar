@@ -3,6 +3,7 @@
 use super::passes::{self, FrameUniform};
 use crate::actor_render::masks::{MaskGpu, MaskLabel};
 use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     asset::uuid_handle,
     core_pipeline::{Core3d, Core3dSystems},
@@ -559,7 +560,7 @@ fn fullscreen(
             store: StoreOp::Store,
         },
     })];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("host selection composition"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,

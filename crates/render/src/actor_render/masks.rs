@@ -1,6 +1,7 @@
 //! Bounded owner-only actor coverage, using the scene's exact meshes, poses and cutouts.
 
 use super::*;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::render_resource::BufferInitDescriptor;
 use bevy::{
     camera::MainPassResolutionOverride,
@@ -643,7 +644,7 @@ fn draw(
             },
         })];
         // Clear the union once; each actor's companion gets independent private depth.
-        drop(context.begin_tracked_render_pass(RenderPassDescriptor {
+        drop(context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("clear owner actor coverage"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,
@@ -693,7 +694,7 @@ fn draw(
                         store: wgpu::StoreOp::Store,
                     },
                 })];
-                let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
                     label: Some(if prepass {
                         "private mask dissolve depth"
                     } else {

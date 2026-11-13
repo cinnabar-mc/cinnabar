@@ -1,6 +1,7 @@
 //! Ordered gamma-layer raster replay, optionally restricted to a conservative damage rectangle.
 use super::*;
 use super::{damage::UiDamage, overlay::retained_batch_ranges};
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     camera::Viewport,
     render::{
@@ -136,7 +137,7 @@ pub(super) fn draw_ui_layer(
                 },
             },
         )];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("ordered gamma-space UI/model material layer"),
             color_attachments: &attachments,
             depth_stencil_attachment: needs_depth

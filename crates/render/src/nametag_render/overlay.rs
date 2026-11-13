@@ -1,6 +1,10 @@
 //! Composes world labels in encoded colour after the world's final post-process pass.
 
 use super::*;
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedPipelines as _;
+use crate::render_counting::CountedShaders as _;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
@@ -39,6 +43,7 @@ pub(super) fn install_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     draw,
                     Some(render_scene::RuntimeStage::GpuUi),
+                    render_scene::RuntimeStage::NodeUi,
                     "NametagOverlay",
                 )
                 .in_set(NametagOverlay)
@@ -128,14 +133,14 @@ pub(super) fn prepare(
         let view = layer.create_view(&default());
         let shader = device
             .wgpu_device()
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
+            .counted_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("nametag encoded composite"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("../ui_composite.wgsl").into()),
             });
         let composite =
             device
                 .wgpu_device()
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                .counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("nametag encoded composite"),
                     layout: None,
                     vertex: wgpu::VertexState {
@@ -237,7 +242,7 @@ fn draw(
                 store: StoreOp::Store,
             },
         })];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("nametags after world post-processing"),
             color_attachments: &attachments,
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
@@ -295,7 +300,7 @@ fn draw(
     })];
     let mut pass = context
         .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
+        .counted_render_pass(&RenderPassDescriptor {
             label: Some("nametag encoded composition"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,
