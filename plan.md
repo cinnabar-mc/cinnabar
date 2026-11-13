@@ -2175,6 +2175,9 @@ Flathub submission remain incomplete.
   while the top screen shows a menu; that is not implemented because terrain drawing does not yet
   stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
   unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.
+  Android activities handle every configuration change the pinned platform declares, so a
+  language, font size, bold text, dark mode or SIM change keeps the game running instead of
+  recreating the activity, whose destruction ends the process; phone acceptance remains pending.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Native UI receives display-cutout insets combined with
   keyboard overlap at the window's DPI, while the world surface stays full size.
