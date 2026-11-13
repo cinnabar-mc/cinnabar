@@ -7,6 +7,7 @@ render() {
     sed -e "s|@APPLICATION_ID@|$(pin application_id)|g" -e "s|@CLIENT_LIBRARY@|$client_library|g" \
         -e "s|@PRODUCT_NAME@|$product|g" -e "s|@VERSION_CODE@|$version_code|g" \
         -e "s|@VERSION_NAME@|$version|g" -e "s|@PROFILEABLE@|${profileable:-false}|g" \
+        -e "s|@ADAPTER_RECORD@|$(pin adapter_record)|g" \
         -e "s|@BUILD_COMMIT@|${CINNABAR_BUILD_COMMIT:-unknown}|g" \
         -e "s|@RELEASE_CHANNEL@|${CINNABAR_RELEASE_CHANNEL:-unpublished}|g" "$1" >"$2"
     if grep -q '@[A-Z_]*@' "$2"; then

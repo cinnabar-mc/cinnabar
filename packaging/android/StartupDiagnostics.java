@@ -34,8 +34,11 @@ final class StartupDiagnostics {
     static final int EXIT_HISTORY = 8;
     /** The client's current session log, relative to the app's files directory. */
     static final String CLIENT_LOG = "data/logs/client.log";
-    /** The GPU adapter the renderer last chose, written by the client at startup. */
-    static final String ADAPTER_RECORD = "data/logs/adapter.json";
+    /**
+     * The GPU adapter the renderer last chose, relative to the app's files directory. The
+     * client writes it at startup to the path the packaging manifest names.
+     */
+    static final String ADAPTER_RECORD = "@ADAPTER_RECORD@";
     /** Bounds the adapter record shown in the details; the client writes a few hundred bytes. */
     static final int ADAPTER_RECORD_BYTES = 4096;
     private static final String GENERIC_EXIT = "Android stopped @PRODUCT_NAME@ for an unknown reason.";

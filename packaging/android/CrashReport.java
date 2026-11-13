@@ -103,7 +103,10 @@ final class CrashReport {
         }
     }
 
-    /** Adds the newest {@link #ATTACHMENT_BYTES} of a file; a file that cannot be opened is left out. */
+    /**
+     * Adds the newest {@link #ATTACHMENT_BYTES} of a file, from its first whole line when the
+     * start is cut; a file that cannot be opened is left out.
+     */
     private static void attach(ZipOutputStream zip, File file, byte[] buffer) throws IOException {
         RandomAccessFile source;
         try {
@@ -112,7 +115,11 @@ final class CrashReport {
             return;
         }
         try {
-            source.seek(Math.max(0, source.length() - ATTACHMENT_BYTES));
+            long start = Math.max(0, source.length() - ATTACHMENT_BYTES);
+            source.seek(start);
+            if (start > 0) {
+                for (int value = source.read(); value != -1 && value != '\n'; ) value = source.read();
+            }
             zip.putNextEntry(new ZipEntry(file.getName()));
             for (int count; (count = source.read(buffer)) != -1; ) zip.write(buffer, 0, count);
             zip.closeEntry();

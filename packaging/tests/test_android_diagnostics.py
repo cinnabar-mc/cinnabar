@@ -247,6 +247,19 @@ public final class DiagnosticsFixture {
                 throw new AssertionError("the adapter record is missing from the report");
             if (zip.getNextEntry() != null) throw new AssertionError("an absent attachment was added");
         }
+        byte[] longLog = new byte[(int) CrashReport.ATTACHMENT_BYTES + 100];
+        Arrays.fill(longLog, (byte) 'x');
+        longLog[150] = '\\n';
+        Files.write(log.toPath(), longLog);
+        ByteArrayOutputStream cut = new ByteArrayOutputStream();
+        CrashReport.write(cut, "details", null, false, log);
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(cut.toByteArray()))) {
+            zip.getNextEntry();
+            zip.getNextEntry();
+            zip.getNextEntry();
+            if (read(zip).length != longLog.length - 151)
+                throw new AssertionError("a cut client log did not start on a whole line");
+        }
         try {
             CrashReport.write(new ByteArrayOutputStream(), "bad trace", new InputStream() {
                 public int read() throws IOException { throw new IOException("fixture failure"); }

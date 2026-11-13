@@ -9,7 +9,8 @@ use bevy::{
     render::renderer::RenderAdapterInfo,
 };
 
-/// The record's file name inside the install layout's log directory.
+/// The record's file name inside the install layout's log directory. Android's packaging
+/// manifest names the resulting path for the crash dialog.
 pub(crate) const FILE_NAME: &str = "adapter.json";
 
 /// Writes the record once the renderer has chosen its adapter, before the first frame.
@@ -149,10 +150,10 @@ mod tests {
         assert!(!root.path().join(FILE_NAME).exists());
     }
 
-    /// The crash dialog is Java and cannot share [`FILE_NAME`]: it must read the path this
-    /// record is written to under Android's install layout.
+    /// The crash dialog is Java and reads the record at the path the Android packaging
+    /// manifest names, so the client must write it there.
     #[test]
-    fn android_crash_dialog_reads_the_recorded_path() {
+    fn android_packaging_names_the_recorded_path() {
         let files = Path::new("/files");
         let layout = launcher::install_layout::InstallLayout::android(
             files,
@@ -160,8 +161,11 @@ mod tests {
             PathBuf::from("/lib/worker"),
         );
         let path = layout.log_dir().join(FILE_NAME);
-        let relative = path.strip_prefix(files).unwrap().to_str().unwrap();
-        let dialog = include_str!("../../../packaging/android/StartupDiagnostics.java");
-        assert!(dialog.contains(&format!("\"{relative}\"")), "{relative}");
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../packaging/android/runtime.json")).unwrap();
+        assert_eq!(
+            manifest["adapter_record"].as_str().map(Path::new),
+            path.strip_prefix(files).ok()
+        );
     }
 }
