@@ -1,0 +1,18 @@
+[package]
+name = "cpu-topology"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+tracing.workspace = true
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

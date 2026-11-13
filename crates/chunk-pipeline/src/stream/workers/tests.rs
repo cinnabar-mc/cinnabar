@@ -51,6 +51,25 @@ fn pool_sizing_leaves_frame_cores_and_foreground_threads() {
     }
 }
 
+/// A pool confined to the background CPUs runs no wider than they take, never wider than the
+/// core count allows and never below the minimum pool.
+#[test]
+fn pool_sizing_fits_the_background_cpus_of_a_confined_pool() {
+    // Eight cores with two frame cores reserved and one background CPU left to services.
+    assert_eq!(
+        PoolSize::fitted(8, Some(5)),
+        PoolSize {
+            foreground: 2,
+            background: 3
+        }
+    );
+    assert_eq!(PoolSize::fitted(8, Some(6)), PoolSize::for_cores(8));
+    assert_eq!(PoolSize::fitted(8, Some(7)), PoolSize::for_cores(8));
+    assert_eq!(PoolSize::fitted(4, Some(5)), PoolSize::for_cores(4));
+    assert_eq!(PoolSize::fitted(8, Some(1)).threads(), MIN_WORLD_THREADS);
+    assert_eq!(PoolSize::fitted(8, None), PoolSize::for_cores(8));
+}
+
 /// Saturating every light worker leaves both latency-sensitive lanes available.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
@@ -326,14 +345,13 @@ fn dispatch_batch_publishes_independent_jobs_together() {
 ))]
 #[test]
 fn borrowed_world_cores_run_as_wide_as_the_world_pool_at_normal_priority() {
-    let cores = std::thread::available_parallelism().map_or(1, usize::from);
     let (threads, lowered) = on_idle_world_cores(|| {
         (
             rayon::current_num_threads(),
             rayon::broadcast(|_| priority::is_lowered()),
         )
     });
-    assert_eq!(threads, PoolSize::for_cores(cores).threads());
+    assert_eq!(threads, world_worker_threads());
     // A join compile must not wait behind unrelated background processes.
     assert!(lowered.iter().all(|lowered| !*lowered), "{lowered:?}");
 }
@@ -463,17 +481,6 @@ fn summary_submission_wakes_background_waiters() {
         pool.shared.lock().shutdown = true;
         pool.shared.ready.notify_all();
     });
-}
-
-/// A core cap only ever shrinks the pools; malformed or zero caps keep the machine's count.
-#[test]
-fn core_cap_shrinks_pools_and_ignores_invalid_values() {
-    assert_eq!(capped_cores(12, None), 12);
-    assert_eq!(capped_cores(12, Some("2")), 2);
-    assert_eq!(capped_cores(12, Some(" 4 ")), 4);
-    assert_eq!(capped_cores(4, Some("16")), 4);
-    assert_eq!(capped_cores(12, Some("0")), 12);
-    assert_eq!(capped_cores(12, Some("two")), 12);
 }
 
 /// Idle release uses supplied observations and leaves previously returned geometry intact.
