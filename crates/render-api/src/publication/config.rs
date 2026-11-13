@@ -70,23 +70,19 @@ impl PublicationServiceConfig {
 
     /// Phone and tablet limits. Unified memory moves every uploaded byte about three times
     /// (the CPU write, then the GPU copy's read and write), so a frame at the desktop
-    /// ceiling costs about a frame of memory bandwidth. The average target is unchanged;
-    /// one frame and one burst carry an eighth and a quarter of the desktop amounts, and
-    /// sustained slow render frames halve the service down to a quarter. These values come
-    /// from that model and are not yet tuned on devices.
+    /// ceiling costs about a frame of memory bandwidth. The target rates, the largest
+    /// payload, the urgent reserve and the preparation time are desktop's; one frame and one
+    /// burst carry an eighth and a quarter of the desktop amounts, and sustained slow render
+    /// frames halve the service down to a quarter. These values come from that model and
+    /// are not yet tuned on devices.
     pub const MOBILE: Self = Self {
         minimum_items_per_second: 2_048,
         minimum_bytes_per_second: 32 * MIB,
-        target_items_per_second: 8_192,
-        target_bytes_per_second: 128 * MIB,
         maximum_frame_items: 128,
         maximum_frame_bytes: 8 * MIB,
-        maximum_payload_bytes: Self::DESKTOP.maximum_payload_bytes,
         maximum_burst_items: 2_048,
         maximum_burst_bytes: 32 * MIB,
         maximum_zero_byte_operations_per_frame: 64,
-        urgent_zero_byte_reserve: 16,
-        maximum_frame_preparation_time: Duration::from_millis(1),
         maximum_frame_authored_texture_bytes: 2 * MIB,
         maximum_frame_arena_migration_bytes: 4 * MIB,
         frame_time_pressure: Some(FrameTimePressureConfig {
@@ -94,6 +90,7 @@ impl PublicationServiceConfig {
             minimum_frame_items: 32,
             minimum_frame_bytes: 2 * MIB,
         }),
+        ..Self::DESKTOP
     }
     .validated();
 

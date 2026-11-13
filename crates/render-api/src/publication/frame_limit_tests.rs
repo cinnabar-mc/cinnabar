@@ -39,7 +39,14 @@ fn the_platform_selects_phone_limits_that_stay_within_desktop_limits() {
     assert!(
         MOBILE.maximum_frame_authored_texture_bytes < DESKTOP.maximum_frame_authored_texture_bytes
     );
-    assert!(MOBILE.target_bytes_per_second <= DESKTOP.target_bytes_per_second);
+    assert_eq!(
+        MOBILE.target_bytes_per_second,
+        DESKTOP.target_bytes_per_second
+    );
+    assert_eq!(
+        MOBILE.target_items_per_second,
+        DESKTOP.target_items_per_second
+    );
     assert!(MOBILE.frame_time_pressure.is_some());
     assert_eq!(DESKTOP.frame_time_pressure, None);
 }
