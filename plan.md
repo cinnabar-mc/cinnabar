@@ -1906,12 +1906,6 @@ tick, block collision model for ids 0 to 175 and movement packets. Recorded clie
 including seeded random walks, replay bit for bit, and collision boxes match the recorded
 game for every id and metadata except those listed below.
 
-Incomplete: riding, sleeping, moving-piston collision and boats or other solid entities are
-not modelled. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
-with the bounds last computed for any block of their kind; `java-sim` uses each block's own
-bounds, and such ladders are left out of the shape comparison. Nothing connects `java-sim`
-to a session yet: the protocol, world translation and client wiring are separate work, so no
-Java server can be joined.
 Implemented: the core joins a `java/<host>[:<port>]` target and translates the session to
 Bedrock packets ([`core/javaedition`](core/javaedition/translate/session.go)): login with
 encryption, Java Edition sign-in for online-mode servers, chunks and block changes with
@@ -1931,7 +1925,9 @@ Incomplete:
   ground flag, and the camera sink of sneaking and stepping is missing from the reported
   stance. No join has been run in the client itself; the evidence is the tests above.
 - `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
-  solid entities.
+  solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
+  with the bounds last computed for any block of their kind; `java-sim` uses each block's own
+  bounds, and such ladders are left out of the shape comparison.
 - Interaction packets follow the Bedrock client's send order, not the 1.7.10 click handler's
   (swing before attack, placement before its swing).
 - Inventory windows other than the player's, window clicks, crafting, creative inventory,
