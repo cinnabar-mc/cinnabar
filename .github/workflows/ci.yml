@@ -547,7 +547,8 @@ jobs:
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
       && (needs.changes.outputs.full == 'true'
         || (needs.preflight.result == 'success' && needs.preflight.outputs.ios == 'true'))
-    runs-on: macos-26
+    # The macOS jobs' image, whose cache this restores; any iOS SDK serves a lint.
+    runs-on: macos-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
