@@ -83,7 +83,7 @@ impl FrameBudgets {
     }
 }
 
-/// One completed render-thread frame and the hitch threshold it is judged against.
+/// One completed render-thread frame and the display's hitch threshold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderFrameSample {
     /// Completed render frames so far; a new value means a new sample.
@@ -97,7 +97,7 @@ pub struct RenderFrameSample {
 impl RenderFrameSample {
     /// Whether the render thread alone took longer than a hitch.
     #[must_use]
-    pub fn is_slow(self) -> bool {
+    pub fn over_hitch(self) -> bool {
         self.elapsed > self.hitch
     }
 }

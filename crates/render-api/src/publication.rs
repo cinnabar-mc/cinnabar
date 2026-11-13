@@ -46,8 +46,9 @@ struct PublicationAllowanceState {
     frame_remaining_bytes: u64,
     /// This frame's payload byte cap, at most the configured frame maximum.
     frame_byte_limit: u64,
-    /// Whether a payload was admitted since this frame began.
-    frame_payload_admitted: bool,
+    /// Payload items and bytes admitted since this frame began.
+    frame_admitted_payload_items: usize,
+    frame_admitted_payload_bytes: u64,
     /// The frame in which a payload above the byte cap last asked and had to wait.
     /// Ordinary payloads yield through the following frame so that it can go alone.
     oversized_waiting_since: Option<u64>,
@@ -63,6 +64,12 @@ impl PublicationAllowanceState {
     fn oversized_waiting(&self) -> bool {
         self.oversized_waiting_since
             .is_some_and(|frame| frame.saturating_add(1) >= self.frame_sequence)
+    }
+
+    /// Counts one admitted payload toward this frame's admissions.
+    fn record_frame_admission(&mut self, bytes: u64) {
+        self.frame_admitted_payload_items = self.frame_admitted_payload_items.saturating_add(1);
+        self.frame_admitted_payload_bytes = self.frame_admitted_payload_bytes.saturating_add(bytes);
     }
 }
 
@@ -100,7 +107,8 @@ impl PublicationAllowance {
                 frame_remaining_operations: 0,
                 frame_remaining_bytes: 0,
                 frame_byte_limit: config.maximum_frame_bytes,
-                frame_payload_admitted: false,
+                frame_admitted_payload_items: 0,
+                frame_admitted_payload_bytes: 0,
                 oversized_waiting_since: None,
                 remaining_zero_byte_operations: 0,
                 live_payload_items: 0,
@@ -160,7 +168,8 @@ impl PublicationAllowance {
         state.frame_remaining_operations = state.config.maximum_frame_items.min(frame_item_limit);
         state.frame_byte_limit = state.config.maximum_frame_bytes.min(frame_byte_limit);
         state.frame_remaining_bytes = state.remaining_bytes.min(state.frame_byte_limit);
-        state.frame_payload_admitted = false;
+        state.frame_admitted_payload_items = 0;
+        state.frame_admitted_payload_bytes = 0;
         state.remaining_zero_byte_operations =
             issued_zero_byte_operations.min(state.config.maximum_zero_byte_operations_per_frame);
     }
@@ -198,7 +207,7 @@ impl PublicationAllowance {
         state.remaining_bytes = state.remaining_bytes.checked_sub(bytes)?;
         state.frame_remaining_operations = state.frame_remaining_operations.checked_sub(1)?;
         state.frame_remaining_bytes = state.frame_remaining_bytes.checked_sub(bytes)?;
-        state.frame_payload_admitted = true;
+        state.record_frame_admission(bytes);
         Some(insert_permit(
             &mut state,
             &self.inner,
@@ -284,6 +293,17 @@ impl PublicationAllowance {
     #[must_use]
     pub fn frame_remaining_bytes(&self) -> u64 {
         self.lock().frame_remaining_bytes
+    }
+
+    /// Payload items and bytes admitted since this frame began, whatever became of their
+    /// permits. Zero-byte work is not counted.
+    #[must_use]
+    pub fn frame_admitted_payloads(&self) -> (usize, u64) {
+        let state = self.lock();
+        (
+            state.frame_admitted_payload_items,
+            state.frame_admitted_payload_bytes,
+        )
     }
 
     #[must_use]
@@ -476,7 +496,7 @@ fn try_admit_oversized(
         return None;
     }
     state.oversized_waiting_since = Some(state.frame_sequence);
-    if state.frame_payload_admitted
+    if state.frame_admitted_payload_items != 0
         || state.live_payload_items != 0
         || state.remaining_items == 0
         || state.frame_remaining_operations == 0
@@ -485,7 +505,7 @@ fn try_admit_oversized(
         return None;
     }
     state.oversized_waiting_since = None;
-    state.frame_payload_admitted = true;
+    state.record_frame_admission(bytes);
     state.remaining_items -= 1;
     state.frame_remaining_operations -= 1;
     // Credit stops at zero; the excess is forgiven so one large section cannot stall the rest.

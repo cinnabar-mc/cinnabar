@@ -34,13 +34,27 @@ pub struct PublicationServiceConfig {
 }
 
 /// When slow render frames count as pressure, and the floors their halving stops at.
+///
+/// A render frame is slow when it exceeds both the display's hitch threshold and
+/// `slow_frame_percent` of this device's typical render-frame time. A device that is
+/// steadily slower than its display therefore keeps full service; only frames slow against
+/// its own normal reduce it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameTimePressureConfig {
-    /// Consecutive render frames over the hitch threshold that halve the service once.
+    /// Consecutive slow render frames that halve the service once.
     pub consecutive_slow_frames: u32,
-    /// Lowest per-frame operation cap, so nearby sections keep publishing.
+    /// Render frames in the rolling median that estimates the typical render-frame time.
+    pub baseline_frames: usize,
+    /// Samples the median needs before it is used. Until then no frame counts as slow.
+    pub baseline_warmup_frames: usize,
+    /// Percentage of the typical render-frame time a slow frame must exceed.
+    pub slow_frame_percent: u32,
+    /// Lowest per-frame operation cap, so nearby sections keep publishing. Only frames that
+    /// admitted no more payloads than this feed the typical frame time, so it measures the
+    /// device without the uploads being judged.
     pub minimum_frame_items: usize,
-    /// Lowest per-frame payload byte cap, and the step each recovery restores.
+    /// Lowest per-frame payload byte cap, the step each recovery restores, and the byte
+    /// counterpart of the admission limit on `minimum_frame_items`.
     pub minimum_frame_bytes: u64,
 }
 
@@ -87,6 +101,9 @@ impl PublicationServiceConfig {
         maximum_frame_arena_migration_bytes: 4 * MIB,
         frame_time_pressure: Some(FrameTimePressureConfig {
             consecutive_slow_frames: 3,
+            baseline_frames: 240,
+            baseline_warmup_frames: 30,
+            slow_frame_percent: 150,
             minimum_frame_items: 32,
             minimum_frame_bytes: 2 * MIB,
         }),
@@ -122,6 +139,9 @@ impl PublicationServiceConfig {
         assert!(self.maximum_frame_arena_migration_bytes <= self.maximum_frame_bytes);
         if let Some(pressure) = self.frame_time_pressure {
             assert!(pressure.consecutive_slow_frames > 0);
+            assert!(pressure.baseline_warmup_frames > 0);
+            assert!(pressure.baseline_warmup_frames <= pressure.baseline_frames);
+            assert!(pressure.slow_frame_percent >= 100);
             assert!(pressure.minimum_frame_items > 0);
             assert!(pressure.minimum_frame_items <= self.maximum_frame_items);
             assert!(pressure.minimum_frame_bytes > 0);

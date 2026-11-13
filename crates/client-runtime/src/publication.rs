@@ -11,6 +11,10 @@ use render_scene::{
     RuntimeStageProfiler,
 };
 
+mod frame_time;
+
+use frame_time::{FrameTimeFeedback, FrameTimeSignal};
+
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
 const RECOVERY_STREAK_FRAMES: u32 = 120;
 const RENDER_QUEUE_PRESSURE_ITEMS: usize = 512;
@@ -83,6 +87,8 @@ pub struct PublicationDiagnostics {
     pub under_target_streak: u32,
     pub multiplicative_decreases: u64,
     pub additive_increases: u64,
+    /// This device's typical render-frame time, once frame-time feedback has measured it.
+    pub render_frame_baseline: Option<Duration>,
     pub last_work: PublicationFrameWork,
 }
 
@@ -99,12 +105,10 @@ pub struct PublicationController {
     byte_numerator_remainder: u128,
     pressure_active: bool,
     previous_upload_queue_items: usize,
-    /// Sequence of the newest render frame counted, so a repeated sample adds nothing.
-    observed_render_frame: Option<u64>,
-    /// Consecutive slow render frames ending at the newest sample.
-    slow_render_frames: u32,
-    /// Whether a render frame arrived since the last pressure decision.
-    render_frame_pending: bool,
+    /// Slow-frame detection, present when the configuration reacts to frame time.
+    frame_time: Option<FrameTimeFeedback>,
+    /// The frame whose payload admissions frame-time feedback has already been told.
+    admissions_noted_for: u64,
     diagnostics: PublicationDiagnostics,
 }
 
@@ -140,9 +144,8 @@ impl PublicationController {
             byte_numerator_remainder: 0,
             pressure_active: false,
             previous_upload_queue_items: 0,
-            observed_render_frame: None,
-            slow_render_frames: 0,
-            render_frame_pending: false,
+            frame_time: config.frame_time_pressure.map(FrameTimeFeedback::new),
+            admissions_noted_for: 0,
             diagnostics: PublicationDiagnostics {
                 budget,
                 ..Default::default()
@@ -152,6 +155,7 @@ impl PublicationController {
 
     /// Refills the frame allowance using elapsed time and the previous frame's pressure.
     pub fn begin_frame(&mut self, elapsed: Duration) {
+        self.note_frame_admissions();
         self.diagnostics.frame_sequence = self.diagnostics.frame_sequence.saturating_add(1);
         self.diagnostics.observed_frame_time = elapsed;
         self.update_pressure_state();
@@ -197,20 +201,27 @@ impl PublicationController {
         );
     }
 
-    /// Counts a completed render-thread frame toward the next pressure decision. A sample
-    /// whose sequence was already counted adds nothing, so callers may pass the newest
-    /// sample every frame.
+    /// Counts a completed render-thread frame toward the next pressure decision. Call it
+    /// before [`Self::begin_frame`]. A sample whose sequence was already counted adds
+    /// nothing, so callers may pass the newest sample every frame.
     pub fn observe_render_frame(&mut self, sample: RenderFrameSample) {
-        if self.observed_render_frame == Some(sample.sequence) {
+        self.note_frame_admissions();
+        if let Some(feedback) = &mut self.frame_time {
+            feedback.observe(sample);
+            self.diagnostics.render_frame_baseline = feedback.typical();
+        }
+    }
+
+    /// Tells frame-time feedback, once per frame, what the frame that just ended admitted.
+    fn note_frame_admissions(&mut self) {
+        if self.admissions_noted_for == self.diagnostics.frame_sequence {
             return;
         }
-        self.observed_render_frame = Some(sample.sequence);
-        self.render_frame_pending = true;
-        self.slow_render_frames = if sample.is_slow() {
-            self.slow_render_frames.saturating_add(1)
-        } else {
-            0
-        };
+        self.admissions_noted_for = self.diagnostics.frame_sequence;
+        if let Some(feedback) = &mut self.frame_time {
+            let (items, bytes) = self.allowance.frame_admitted_payloads();
+            feedback.note_admissions(items, bytes);
+        }
     }
 
     /// Retains this frame's work for diagnostics and the next pressure decision.
@@ -259,25 +270,24 @@ impl PublicationController {
     /// Applies frame-time feedback for a render frame counted since the last decision.
     /// Returns whether that frame was slow, which also holds recovery back.
     ///
-    /// Every `consecutive_slow_frames` slow frames in a row halve the geometry rates and
-    /// the per-frame caps toward their floors, so later frames copy less while the device
+    /// Each completed run of consecutive slow frames halves the geometry rates and the
+    /// per-frame caps toward their floors, so later frames copy less while the device
     /// catches up. The floors keep nearby sections publishing however long frames stay slow.
     fn apply_frame_time_pressure(&mut self) -> bool {
-        let fresh = std::mem::take(&mut self.render_frame_pending);
-        let Some(pressure) = self.config.frame_time_pressure else {
+        let (Some(pressure), Some(feedback)) =
+            (self.config.frame_time_pressure, &mut self.frame_time)
+        else {
             return false;
         };
-        if !fresh || self.slow_render_frames == 0 {
-            return false;
+        match feedback.take_signal() {
+            FrameTimeSignal::Healthy => false,
+            FrameTimeSignal::Slow => true,
+            FrameTimeSignal::Sustained => {
+                self.decrease_for_frame_time(pressure);
+                self.diagnostics.under_target_streak = 0;
+                true
+            }
         }
-        if self
-            .slow_render_frames
-            .is_multiple_of(pressure.consecutive_slow_frames)
-        {
-            self.decrease_for_frame_time(pressure);
-            self.diagnostics.under_target_streak = 0;
-        }
-        true
     }
 
     /// Halves the geometry rates and frame caps, stopping at the configured floors and

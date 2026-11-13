@@ -30,7 +30,7 @@ mod tests {
         let first = profiler.latest_render_frame().unwrap();
         assert_eq!(first.elapsed, hitch * 2);
         assert_eq!(first.hitch, hitch);
-        assert!(first.is_slow());
+        assert!(first.over_hitch());
         assert_eq!(profiler.latest_render_frame(), Some(first));
 
         // Other stages are not render frames.
@@ -41,7 +41,7 @@ mod tests {
         let second = profiler.latest_render_frame().unwrap();
         assert_ne!(second.sequence, first.sequence);
         assert_eq!(second.elapsed, hitch);
-        assert!(!second.is_slow());
+        assert!(!second.over_hitch());
 
         assert_eq!(RuntimeStageProfiler::new(true).latest_render_frame(), None);
     }
