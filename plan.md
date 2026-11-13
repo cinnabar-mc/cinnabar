@@ -484,6 +484,20 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   removals retain service. GPU upload preparation also stops admitting after its elapsed
   allowance, allowing one eligible upload to progress and retaining deferred permits and
   priority order. Matched burst-frame, streaming and join qualification remain open.
+  Phones and tablets use their own limits: 8 MiB and 128 operations per frame, 32 MiB
+  bursts and 4 MiB of arena migration per frame, with the 128 MiB/s target unchanged.
+  There, a render frame is slow when it exceeds both the hitch threshold and 1.5 times
+  the device's typical render-frame time, so a phone that is steadily slower than its
+  display keeps full service. The typical time is the median of the last 240 render
+  frames that followed light publication (at most the pressure floors); frames after
+  heavier publication never enter it, so an upload-driven slowdown cannot raise it.
+  Three consecutive slow frames halve the geometry rates and per-frame caps, down to a
+  quarter of normal service, and each streak of healthy frames restores one step. A
+  slowdown that persists at the floors is learned as the new normal. Until 30 eligible
+  frames have arrived no frame is slow, and publication is held to the floors while
+  render frames arrive, so the typical time forms even when streaming starts at once.
+  A payload larger than a frame's byte cap publishes alone in its frame. Desktop limits are unchanged and ignore frame time. The phone values are
+  untuned: device join-time and hitch qualification remains open.
   Eviction skips a second removal for settled air with an
   acknowledged GPU publication; dirty or unfinished sections still publish removals.
   Biome-only heights without section or publication ownership skip withdrawals;

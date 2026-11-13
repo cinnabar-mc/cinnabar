@@ -9,43 +9,11 @@ use std::{
     collections::BTreeMap,
     fmt,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
-/// Elapsed-time geometry service and per-frame publication work limits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublicationServiceConfig {
-    pub minimum_items_per_second: u32,
-    pub minimum_bytes_per_second: u64,
-    /// Geometry payload credits; zero-byte work uses its separate frame allowance.
-    pub target_items_per_second: u32,
-    pub target_bytes_per_second: u64,
-    pub maximum_frame_items: usize,
-    pub maximum_frame_bytes: u64,
-    pub maximum_burst_items: usize,
-    pub maximum_burst_bytes: u64,
-    pub maximum_zero_byte_operations_per_frame: usize,
-    pub urgent_zero_byte_reserve: usize,
-    /// Render-thread time one frame may spend preparing uploads; the first upload always runs.
-    pub maximum_frame_preparation_time: Duration,
-}
+mod config;
 
-impl PublicationServiceConfig {
-    pub const DEFAULT: Self = Self {
-        minimum_items_per_second: 4_096,
-        minimum_bytes_per_second: 64 * 1024 * 1024,
-        target_items_per_second: 8_192,
-        target_bytes_per_second: 128 * 1024 * 1024,
-        maximum_frame_items: 512,
-        maximum_frame_bytes: 64 * 1024 * 1024,
-        maximum_burst_items: 8_192,
-        maximum_burst_bytes: 128 * 1024 * 1024,
-        maximum_zero_byte_operations_per_frame: 256,
-        urgent_zero_byte_reserve: 16,
-        // Half the 240 Hz render-CPU p99 budget, leaving the rest of the frame to cull and draw.
-        maximum_frame_preparation_time: Duration::from_millis(1),
-    };
-}
+pub use config::{FrameTimePressureConfig, PublicationServiceConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicationPermitStage {
@@ -76,11 +44,33 @@ struct PublicationAllowanceState {
     remaining_bytes: u64,
     frame_remaining_operations: usize,
     frame_remaining_bytes: u64,
+    /// This frame's payload byte cap, at most the configured frame maximum.
+    frame_byte_limit: u64,
+    /// Payload items and bytes admitted since this frame began.
+    frame_admitted_payload_items: usize,
+    frame_admitted_payload_bytes: u64,
+    /// The frame in which a payload above the byte cap last asked and had to wait.
+    /// Ordinary payloads yield through the following frame so that it can go alone.
+    oversized_waiting_since: Option<u64>,
     remaining_zero_byte_operations: usize,
     live_payload_items: usize,
     live_payload_bytes: u64,
     live_zero_byte_operations: usize,
     live: BTreeMap<u64, LivePermit>,
+}
+
+impl PublicationAllowanceState {
+    /// Whether a payload above the byte cap asked this frame or the previous one.
+    fn oversized_waiting(&self) -> bool {
+        self.oversized_waiting_since
+            .is_some_and(|frame| frame.saturating_add(1) >= self.frame_sequence)
+    }
+
+    /// Counts one admitted payload toward this frame's admissions.
+    fn record_frame_admission(&mut self, bytes: u64) {
+        self.frame_admitted_payload_items = self.frame_admitted_payload_items.saturating_add(1);
+        self.frame_admitted_payload_bytes = self.frame_admitted_payload_bytes.saturating_add(bytes);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +106,10 @@ impl PublicationAllowance {
                 remaining_bytes: 0,
                 frame_remaining_operations: 0,
                 frame_remaining_bytes: 0,
+                frame_byte_limit: config.maximum_frame_bytes,
+                frame_admitted_payload_items: 0,
+                frame_admitted_payload_bytes: 0,
+                oversized_waiting_since: None,
                 remaining_zero_byte_operations: 0,
                 live_payload_items: 0,
                 live_payload_bytes: 0,
@@ -125,6 +119,8 @@ impl PublicationAllowance {
         }
     }
 
+    /// Adds elapsed-time credits and opens a frame bounded by the item limit and the
+    /// configured frame maxima. Repeated sequences are ignored.
     pub fn begin_frame(
         &self,
         frame_sequence: u64,
@@ -132,6 +128,27 @@ impl PublicationAllowance {
         issued_bytes: u64,
         issued_zero_byte_operations: usize,
         frame_item_limit: usize,
+    ) {
+        self.begin_frame_with_byte_limit(
+            frame_sequence,
+            issued_items,
+            issued_bytes,
+            issued_zero_byte_operations,
+            frame_item_limit,
+            u64::MAX,
+        );
+    }
+
+    /// Like [`Self::begin_frame`], with this frame's payload bytes capped at the lower of
+    /// `frame_byte_limit` and the configured maximum, as frame-time pressure asks.
+    pub fn begin_frame_with_byte_limit(
+        &self,
+        frame_sequence: u64,
+        issued_items: usize,
+        issued_bytes: u64,
+        issued_zero_byte_operations: usize,
+        frame_item_limit: usize,
+        frame_byte_limit: u64,
     ) {
         let mut state = self.lock();
         if frame_sequence <= state.frame_sequence {
@@ -149,18 +166,32 @@ impl PublicationAllowance {
             .unwrap_or(state.config.maximum_burst_bytes)
             .min(state.config.maximum_burst_bytes);
         state.frame_remaining_operations = state.config.maximum_frame_items.min(frame_item_limit);
-        state.frame_remaining_bytes = state.remaining_bytes.min(state.config.maximum_frame_bytes);
+        state.frame_byte_limit = state.config.maximum_frame_bytes.min(frame_byte_limit);
+        state.frame_remaining_bytes = state.remaining_bytes.min(state.frame_byte_limit);
+        state.frame_admitted_payload_items = 0;
+        state.frame_admitted_payload_bytes = 0;
         state.remaining_zero_byte_operations =
             issued_zero_byte_operations.min(state.config.maximum_zero_byte_operations_per_frame);
     }
 
+    /// Admits one geometry payload within the elapsed and frame limits.
+    ///
+    /// A payload larger than this frame's byte cap could never fit, so it is admitted alone:
+    /// once no other payload is live or was admitted this frame and a full frame of byte
+    /// credit has accrued, it takes the whole frame. Ordinary payloads are refused while it
+    /// waits, through the frame after its latest request. Payloads above
+    /// [`PublicationServiceConfig::maximum_payload_bytes`] are never admitted.
     #[must_use]
     pub fn try_admit_payload(&self, bytes: u64) -> Option<PublicationPermit> {
         if bytes == 0 {
             return None;
         }
         let mut state = self.lock();
-        if state.remaining_items == 0
+        if bytes > state.frame_byte_limit {
+            return try_admit_oversized(&mut state, &self.inner, bytes);
+        }
+        if state.oversized_waiting()
+            || state.remaining_items == 0
             || state.frame_remaining_operations == 0
             || bytes > state.remaining_bytes
             || bytes > state.frame_remaining_bytes
@@ -176,6 +207,7 @@ impl PublicationAllowance {
         state.remaining_bytes = state.remaining_bytes.checked_sub(bytes)?;
         state.frame_remaining_operations = state.frame_remaining_operations.checked_sub(1)?;
         state.frame_remaining_bytes = state.frame_remaining_bytes.checked_sub(bytes)?;
+        state.record_frame_admission(bytes);
         Some(insert_permit(
             &mut state,
             &self.inner,
@@ -261,6 +293,17 @@ impl PublicationAllowance {
     #[must_use]
     pub fn frame_remaining_bytes(&self) -> u64 {
         self.lock().frame_remaining_bytes
+    }
+
+    /// Payload items and bytes admitted since this frame began, whatever became of their
+    /// permits. Zero-byte work is not counted.
+    #[must_use]
+    pub fn frame_admitted_payloads(&self) -> (usize, u64) {
+        let state = self.lock();
+        (
+            state.frame_admitted_payload_items,
+            state.frame_admitted_payload_bytes,
+        )
     }
 
     #[must_use]
@@ -442,6 +485,39 @@ impl Drop for PublicationPermit {
     }
 }
 
+/// Admits a payload above the frame byte cap once it can occupy a frame by itself, and
+/// otherwise records that it is waiting.
+fn try_admit_oversized(
+    state: &mut PublicationAllowanceState,
+    inner: &Arc<Mutex<PublicationAllowanceState>>,
+    bytes: u64,
+) -> Option<PublicationPermit> {
+    if bytes > state.config.maximum_payload_bytes {
+        return None;
+    }
+    state.oversized_waiting_since = Some(state.frame_sequence);
+    if state.frame_admitted_payload_items != 0
+        || state.live_payload_items != 0
+        || state.remaining_items == 0
+        || state.frame_remaining_operations == 0
+        || state.remaining_bytes < state.frame_byte_limit
+    {
+        return None;
+    }
+    state.oversized_waiting_since = None;
+    state.record_frame_admission(bytes);
+    state.remaining_items -= 1;
+    state.frame_remaining_operations -= 1;
+    // Credit stops at zero; the excess is forgiven so one large section cannot stall the rest.
+    state.remaining_bytes = state.remaining_bytes.saturating_sub(bytes);
+    state.frame_remaining_bytes = 0;
+    Some(insert_permit(
+        state,
+        inner,
+        PublicationPermitClass::Payload { bytes },
+    ))
+}
+
 /// Records a newly admitted permit and charges its live resource counts.
 fn insert_permit(
     state: &mut PublicationAllowanceState,
@@ -488,6 +564,10 @@ fn remove_live_permit(state: &mut PublicationAllowanceState, id: u64) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+#[path = "publication/frame_limit_tests.rs"]
+mod frame_limit_tests;
 
 #[cfg(test)]
 mod tests {
