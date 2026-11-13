@@ -38,7 +38,9 @@ for file in "$repo_root"/packaging/android/*.java; do
     render "$file" "$out/$(basename "$file")"
 done
 ''', "android-java-test", str(ROOT), str(output),
-        ], text=True, capture_output=True)
+        ], text=True, capture_output=True, env={
+            **os.environ, "CINNABAR_BUILD_COMMIT": "0123abc", "CINNABAR_RELEASE_CHANNEL": "nightly",
+        })
         self.assertEqual(rendered.returncode, 0, rendered.stderr)
         compiled = subprocess.run([
             "javac", "--release", "8", "-nowarn", "-classpath", str(android_jar),
@@ -140,9 +142,74 @@ public final class DiagnosticsFixture {
         Files.write(log.toPath(), "same\\nsame\\nother\\nsame".getBytes(StandardCharsets.UTF_8));
         if (!"same (repeated 2 times)\\nother\\nsame".equals(StartupDiagnostics.logTail(log)))
             throw new AssertionError("untimestamped records or final line lost");
+        String blob = "2026-10-24T10:00:01.000Z  WARN render: CINNABAR_HITCH {"
+                + new String(new char[20000]).replace('\\0', 'j') + "}";
+        String shortened = StartupDiagnostics.shortenLine(blob);
+        if (shortened.length() > 400 || !shortened.endsWith("}") || !shortened.contains("characters omitted")
+                || !shortened.startsWith("2026-10-24T10:00:01.000Z  WARN render: CINNABAR_HITCH {"))
+            throw new AssertionError(shortened);
+        String ordinary = new String(new char[StartupDiagnostics.LOG_LINE_CHARS]).replace('\\0', 'k');
+        if (!ordinary.equals(StartupDiagnostics.shortenLine(ordinary)))
+            throw new AssertionError("an ordinary line was shortened");
+        String pairs = StartupDiagnostics.shortenLine(
+                "a" + new String(new char[3000]).replace("\\0", "\\ud83d\\ude00"));
+        if (!pairs.equals(new String(pairs.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8)))
+            throw new AssertionError("a shortened line split a surrogate pair");
+        StringBuilder noisy = new StringBuilder("2026-10-24T10:00:00.000Z  INFO client: session start\\n");
+        for (int i = 0; i < 40; i++)
+            noisy.append(blob).append(i).append("\\n2026-10-24T10:00:02.000Z ERROR render: real record ")
+                    .append(i).append("\\n");
+        Files.write(log.toPath(), noisy.toString().getBytes(StandardCharsets.UTF_8));
+        context = StartupDiagnostics.logContext(log);
+        for (int i = 0; i < 40; i++) {
+            if (!context.contains("real record " + i + "\\n"))
+                throw new AssertionError("profiler lines pushed out record " + i);
+        }
+        if (!context.contains("session start") || !context.contains("CINNABAR_HITCH {jjj")
+                || context.getBytes(StandardCharsets.UTF_8).length > 2 * StartupDiagnostics.LOG_TAIL_BYTES)
+            throw new AssertionError("profiler lines were not shortened in the details");
+        StringBuilder huge = new StringBuilder("first-record\\n");
+        for (int i = 0; i < 160; i++) huge.append(blob).append("\\nrecord ").append(i).append("\\n");
+        huge.append("last-record");
+        if (huge.length() <= 2 * StartupDiagnostics.LOG_SCAN_BYTES)
+            throw new AssertionError("fixture no longer exceeds both scan windows");
+        Files.write(log.toPath(), huge.toString().getBytes(StandardCharsets.UTF_8));
+        context = StartupDiagnostics.logContext(log);
+        if (!context.startsWith("Client log start") || !context.contains("first-record\\n")
+                || !context.contains("record 0\\n") || !context.contains("record 159\\n")
+                || !context.endsWith("last-record")
+                || context.getBytes(StandardCharsets.UTF_8).length > 2 * StartupDiagnostics.LOG_TAIL_BYTES + 200)
+            throw new AssertionError("a long log lost its start or end records");
+        if (!StartupDiagnostics.logTail(log).endsWith("record 159\\nlast-record"))
+            throw new AssertionError("log tail lost its last records");
         log.delete();
-        if (StartupDiagnostics.logTail(log).isEmpty())
+        if (StartupDiagnostics.logTail(log).isEmpty() || StartupDiagnostics.logContext(log).isEmpty())
             throw new AssertionError("missing log was not explained");
+        String adapter = "{\\n  \\"name\\": \\"Fixture GPU\\",\\n  \\"driver_info\\": \\"build 1\\"\\n}";
+        File record = new File(log.getParentFile(), "adapter.json");
+        Files.write(record.toPath(), (adapter + "\\n").getBytes(StandardCharsets.UTF_8));
+        if (!adapter.equals(StartupDiagnostics.adapterRecord(record))
+                || !StartupDiagnostics.adapterRecord(new File(log.getParentFile(), "absent.json")).isEmpty())
+            throw new AssertionError("adapter record was not read as written");
+        String identity = StartupDiagnostics.header("Maker Model, Android 15 (API 35)",
+                "Vendor Chip (hardware h, board b)", 8L << 30, "arm64-v8a", 16384, adapter);
+        String[] identityLines = identity.split("\\n");
+        if (!"Fixture 0.0.1, build 0123abc (nightly channel)".equals(identityLines[0])
+                || !"Maker Model, Android 15 (API 35)".equals(identityLines[1])
+                || !"SoC: Vendor Chip (hardware h, board b)".equals(identityLines[2])
+                || !"RAM: 8192 MiB, ABI: arm64-v8a, page size: 16384".equals(identityLines[3])
+                || !identity.endsWith(":\\n" + adapter))
+            throw new AssertionError(identity);
+        if (!StartupDiagnostics.header("d", "s", 0, "a", 4096, "").endsWith(
+                "GPU adapter: not recorded; the renderer had not chosen one on this install."))
+            throw new AssertionError("a missing adapter record was not explained");
+        String earlier = StartupDiagnostics.exitLine(0, ApplicationExitInfo.REASON_CRASH_NATIVE, 11, "crash");
+        if (!earlier.contains("1970-01-01T00:00:00Z reason " + ApplicationExitInfo.REASON_CRASH_NATIVE
+                + ", status 11: ") || !earlier.endsWith("native crash. (crash)"))
+            throw new AssertionError(earlier);
+        earlier = StartupDiagnostics.exitLine(0, ApplicationExitInfo.REASON_USER_REQUESTED, 0, null);
+        if (!earlier.endsWith("reason " + ApplicationExitInfo.REASON_USER_REQUESTED + ", status 0"))
+            throw new AssertionError(earlier);
         byte[] trace = new byte[200000];
         for (int i = 0; i < trace.length; i++) trace[i] = (byte) i;
         for (boolean nativeCrash : new boolean[] {true, false}) {
@@ -164,6 +231,21 @@ public final class DiagnosticsFixture {
             zip.getNextEntry();
             if (!"trace-unavailable.txt".equals(zip.getNextEntry().getName()) || read(zip).length == 0)
                 throw new AssertionError("missing OS trace was not explained");
+        }
+        Files.write(log.toPath(), "whole log".getBytes(StandardCharsets.UTF_8));
+        ByteArrayOutputStream attached = new ByteArrayOutputStream();
+        CrashReport.write(attached, "details", null, false, log,
+                new File(log.getParentFile(), "absent.json"), record);
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(attached.toByteArray()))) {
+            zip.getNextEntry();
+            zip.getNextEntry();
+            if (!"client.log".equals(zip.getNextEntry().getName())
+                    || !"whole log".equals(new String(read(zip), StandardCharsets.UTF_8)))
+                throw new AssertionError("the full client log is missing from the report");
+            if (!"adapter.json".equals(zip.getNextEntry().getName())
+                    || !(adapter + "\\n").equals(new String(read(zip), StandardCharsets.UTF_8)))
+                throw new AssertionError("the adapter record is missing from the report");
+            if (zip.getNextEntry() != null) throw new AssertionError("an absent attachment was added");
         }
         try {
             CrashReport.write(new ByteArrayOutputStream(), "bad trace", new InputStream() {

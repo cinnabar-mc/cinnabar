@@ -55,8 +55,8 @@ impl TerminalCause {
             .get_or_insert(cause);
     }
 
-    /// The process failure for an error exit, naming its recorded cause, else the latest panic:
-    /// a panic on the render thread reaches the app only as a bare error exit.
+    /// The process failure for an error exit; see [`terminal_message`]. A panic on the render
+    /// thread reaches the app only as a bare error exit, so the latest panic is consulted too.
     pub(crate) fn exit_message(&self) -> String {
         let cause = self
             .0
@@ -64,11 +64,31 @@ impl TerminalCause {
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         #[cfg(not(target_arch = "wasm32"))]
-        let cause = cause.or_else(launcher_host::lifecycle::crash::last_panic);
-        match cause.as_deref() {
-            Some(cause) => format!("Bevy app exited after a fatal runtime error: {cause}"),
-            None => "Bevy app exited after a fatal runtime error".to_owned(),
+        let panic = launcher_host::lifecycle::crash::last_panic();
+        #[cfg(target_arch = "wasm32")]
+        let panic: Option<String> = None;
+        terminal_message(
+            cause.as_deref(),
+            crate::app::logging::first_gpu_error().as_deref(),
+            panic.as_deref(),
+        )
+    }
+}
+
+/// Describes an error exit from the recorded `cause`, the first GPU error the driver reported
+/// and the latest panic. The cause leads, else the GPU error, else the panic. Once the GPU
+/// failed, a panic is usually its consequence (rendering on a lost device), so it follows the
+/// failure instead of replacing it.
+fn terminal_message(cause: Option<&str>, gpu_error: Option<&str>, panic: Option<&str>) -> String {
+    const EXIT: &str = "Bevy app exited after a fatal runtime error";
+    let gpu_cause = gpu_error.map(gpu_failure_cause);
+    match (cause.or(gpu_cause.as_deref()), panic) {
+        (Some(cause), Some(panic)) if gpu_error.is_some() => {
+            format!("{EXIT}: {cause}\nA panic was also recorded: {panic}")
         }
+        (Some(cause), _) => format!("{EXIT}: {cause}"),
+        (None, Some(panic)) => format!("{EXIT}: {panic}"),
+        (None, None) => EXIT.to_owned(),
     }
 }
 
@@ -418,6 +438,43 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    /// A lost device makes the render thread panic, and that panic alone used to be reported.
+    /// The GPU error must lead whether or not the render error policy recorded it first.
+    #[test]
+    fn first_gpu_error_leads_and_a_later_panic_follows_it() {
+        let lost = "Caught DeviceLost error: Unknown Unexpected error variant";
+        let panic = "Render thread panicked at surface.rs:1:1: Surface is not configured";
+        let unrecorded = terminal_message(None, Some(lost), Some(panic));
+        let (first, second) = unrecorded.split_once('\n').expect("two lines");
+        assert!(
+            first.contains("rendering stopped after a graphics error"),
+            "{first}"
+        );
+        assert!(first.ends_with(lost), "{first}");
+        assert!(second.ends_with(panic), "{second}");
+
+        let recorded = gpu_failure_cause("Unexpected error variant");
+        let message = terminal_message(Some(&recorded), Some(lost), Some(panic));
+        let (first, second) = message.split_once('\n').expect("two lines");
+        assert!(first.ends_with(&recorded), "{first}");
+        assert!(!first.contains("Surface is not configured"), "{first}");
+        assert!(second.ends_with(panic), "{second}");
+    }
+
+    /// Without a GPU error the message keeps its earlier forms: the cause alone, the panic
+    /// alone, or neither.
+    #[test]
+    fn exits_without_a_gpu_error_name_the_cause_or_the_panic() {
+        let cause = terminal_message(Some("truncated framing"), None, Some("a worker panicked"));
+        assert!(cause.ends_with("truncated framing"), "{cause}");
+        assert!(!cause.contains("worker"), "{cause}");
+        let panic = terminal_message(None, None, Some("a worker panicked"));
+        assert!(panic.ends_with("a worker panicked"), "{panic}");
+        let lost = terminal_message(None, Some("device lost"), None);
+        assert!(lost.ends_with("Error details: device lost"), "{lost}");
+        assert!(!terminal_message(None, None, None).contains(':'));
     }
 
     #[test]
