@@ -207,7 +207,11 @@ impl StartupTiming {
         if let Some(offset) = self.first_mark(name, at)
             && LOG_PROGRESS
         {
-            bevy::log::info!("startup milestone {name} at {offset:.1} ms after launch");
+            bevy::log::info!(
+                milestone = name,
+                launch_offset_ms = offset,
+                "startup milestone"
+            );
         }
     }
 
@@ -321,9 +325,10 @@ fn timed<T>(name: &'static str, boundary: bool, work: impl FnOnce() -> T) -> T {
         }
         if LOG_PROGRESS {
             bevy::log::info!(
-                "startup stage {name} took {:.1} ms, ending {:.1} ms after launch",
-                duration.as_secs_f64() * 1000.0,
-                timing.offset_ms(ended),
+                stage = name,
+                duration_ms = duration.as_secs_f64() * 1000.0,
+                launch_offset_ms = timing.offset_ms(ended),
+                "startup stage"
             );
         }
     }
