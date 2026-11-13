@@ -30,6 +30,7 @@ fn findings(source: &str, manifest_extra: &str) -> Vec<String> {
 
 const DECLARE_MACOS: &str = "[package.metadata.cinnabar]\nplatform-specific=['macos']";
 const DECLARE_WINDOWS: &str = "[package.metadata.cinnabar]\nplatform-specific=['windows']";
+const DECLARE_APPLE: &str = "[package.metadata.cinnabar]\nplatform-specific=['macos', 'ios']";
 
 #[test]
 fn undeclared_macos_code_fails() {
@@ -74,6 +75,27 @@ fn undeclared_windows_code_fails() {
         );
         assert!(findings(source, DECLARE_WINDOWS).is_empty(), "{source}");
     }
+}
+
+#[test]
+fn undeclared_ios_code_fails() {
+    let needs_ios = "sample: ios code in src/lib.rs needs `platform-specific = [\"ios\"]` under [package.metadata.cinnabar]";
+    for source in [
+        "#[cfg(target_os = \"ios\")] mod mobile {}",
+        "#[cfg(any(target_os = \"android\", target_os = \"ios\"))] fn mobile() {}",
+        "fn native() -> bool { cfg!(target_os = \"ios\") }",
+        "use objc2_ui_kit::UIView;",
+        "fn native(handle: Handle) { if let Handle::UiKit(view) = handle {} }",
+    ] {
+        assert!(
+            findings(source, "").contains(&needs_ios.to_owned()),
+            "{source}"
+        );
+        assert!(findings(source, DECLARE_APPLE).is_empty(), "{source}");
+    }
+    // Apple code shared with macOS needs only the macOS runner.
+    let apple = findings("#[cfg(target_vendor = \"apple\")] fn native() {}", "");
+    assert!(!apple.contains(&needs_ios.to_owned()), "{apple:?}");
 }
 
 #[test]
@@ -132,7 +154,7 @@ fn stale_and_unknown_declarations_fail() {
             "[package.metadata.cinnabar]\nplatform-specific=['linux']"
         ),
         [
-            "sample: unknown platform-specific value \"linux\"; expected one of [\"macos\", \"windows\"]"
+            "sample: unknown platform-specific value \"linux\"; expected one of [\"macos\", \"windows\", \"ios\"]"
         ]
     );
 }

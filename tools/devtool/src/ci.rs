@@ -1,4 +1,4 @@
-use workspace_declarations::{MACOS, PLATFORMS, WINDOWS, within};
+use workspace_declarations::{IOS, MACOS, PLATFORMS, WINDOWS, within};
 
 use crate::{
     Package, Selection,
@@ -21,6 +21,7 @@ pub struct CiPlan {
     pub selection: Selection,
     pub macos: bool,
     pub windows: bool,
+    pub ios: bool,
 }
 
 /// Plans pull-request checks. A platform runner is needed when a changed crate declares that
@@ -55,6 +56,7 @@ pub fn plan_ci(changed_paths: &[&str], packages: &[Package]) -> CiPlan {
     CiPlan {
         macos: needs(MACOS),
         windows: needs(WINDOWS),
+        ios: needs(IOS),
         selection,
     }
 }
@@ -82,9 +84,10 @@ impl CiPlan {
             filterset(affected.iter().map(|package| package.name.as_str()), false)
         };
         let mut outputs = format!(
-            "scope={scope}\nmacos={}\nwindows={}\nnames={}\ntests={tests}\n",
+            "scope={scope}\nmacos={}\nwindows={}\nios={}\nnames={}\ntests={tests}\n",
             self.macos,
             self.windows,
+            self.ios,
             affected
                 .iter()
                 .map(|package| package.name.as_str())
@@ -146,7 +149,7 @@ mod tests {
             ),
             declares(
                 Package::new("cinnabar", "app", &["render", "launcher"]),
-                &["macos", "windows"],
+                &["macos", "windows", "ios"],
             ),
             Package::new("devtool", "tools/devtool", &[]),
             Package::new("architecture", "tools/architecture", &[]),
@@ -161,7 +164,7 @@ mod tests {
         ] {
             let plan = plan_ci(&[path], &workspace());
             assert_eq!(plan.selection, Selection::Workspace, "{path}");
-            assert!(plan.macos && plan.windows, "{path}");
+            assert!(plan.macos && plan.windows && plan.ios, "{path}");
         }
     }
 
@@ -169,7 +172,7 @@ mod tests {
     fn architecture_gate_changes_check_everything_without_platform_runners() {
         let plan = plan_ci(&["tools/architecture/policy.toml"], &workspace());
         assert_eq!(plan.selection, Selection::Workspace);
-        assert!(!plan.macos && !plan.windows);
+        assert!(!plan.macos && !plan.windows && !plan.ios);
     }
 
     #[test]
@@ -177,7 +180,7 @@ mod tests {
         for path in ["Cargo.lock", "unexpected/input.txt"] {
             let plan = plan_ci(&[path], &workspace());
             assert_eq!(plan.selection, Selection::Workspace, "{path}");
-            assert!(plan.macos && plan.windows, "{path}");
+            assert!(plan.macos && plan.windows && plan.ios, "{path}");
         }
     }
 
@@ -190,15 +193,17 @@ mod tests {
             Selection::Packages(vec!["cinnabar".into(), "render".into(), "world".into()])
         );
         assert!(
-            !leaf.macos && !leaf.windows,
+            !leaf.macos && !leaf.windows && !leaf.ios,
             "declaring reverse dependencies alone need no platform runner"
         );
         let launcher = plan_ci(&["crates/launcher/src/lib.rs"], &packages);
-        assert!(!launcher.macos && launcher.windows);
+        assert!(!launcher.macos && launcher.windows && !launcher.ios);
+        let render = plan_ci(&["crates/render/src/lib.rs"], &packages);
+        assert!(render.macos && render.windows && !render.ios);
         let client = plan_ci(&["app/src/main.rs"], &packages);
-        assert!(client.macos && client.windows);
+        assert!(client.macos && client.windows && client.ios);
         let shader = plan_ci(&["crates/world/shaders/sky.wgsl"], &packages);
-        assert!(shader.macos && shader.windows);
+        assert!(shader.macos && shader.windows && shader.ios);
     }
 
     #[test]
@@ -208,7 +213,7 @@ mod tests {
             &workspace(),
         );
         assert_eq!(plan.selection, Selection::NoPackages);
-        assert!(!plan.macos && !plan.windows);
+        assert!(!plan.macos && !plan.windows && !plan.ios);
         assert!(plan.outputs(&workspace()).contains("scope=none\n"));
     }
 
@@ -218,10 +223,11 @@ mod tests {
         let outputs = plan_ci(&["crates/render/src/lib.rs"], &packages).outputs(&packages);
         assert_eq!(
             outputs,
-            "scope=packages\nmacos=true\nwindows=true\nnames=render cinnabar\n\
+            "scope=packages\nmacos=true\nwindows=true\nios=false\nnames=render cinnabar\n\
              tests=package(=render) | package(=cinnabar)\n\
              macos_tests=package(=render) | (package(=cinnabar) & kind(lib))\n\
-             windows_tests=package(=render) | (package(=cinnabar) & kind(lib))\n"
+             windows_tests=package(=render) | (package(=cinnabar) & kind(lib))\n\
+             ios_tests=(package(=cinnabar) & kind(lib))\n"
         );
         let full = plan_ci(&["Cargo.toml"], &packages).outputs(&packages);
         assert!(full.contains("\ntests=all()\n"), "{full}");
@@ -234,7 +240,7 @@ mod tests {
         let leaf = plan_ci(&["tools/devtool/src/ci.rs"], &packages).outputs(&packages);
         assert!(
             leaf.ends_with(
-                "\nnames=devtool\ntests=package(=devtool)\nmacos_tests=none()\nwindows_tests=none()\n"
+                "\nnames=devtool\ntests=package(=devtool)\nmacos_tests=none()\nwindows_tests=none()\nios_tests=none()\n"
             ),
             "{leaf}"
         );

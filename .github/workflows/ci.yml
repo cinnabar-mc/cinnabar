@@ -3,8 +3,8 @@ name: CI
 # Pull requests run preflight, then Linux checks and a Windows/macOS subset when runtime inputs
 # change. Rust jobs build the whole workspace, so the cache leaves only changed crates and their
 # dependents to compile; preflight's `devtool ci-plan` limits tests to those crates, and the
-# Windows and macOS jobs to changes in crates declaring that platform. Scheduled and manual runs are full: every test, clippy and Go check on
-# all three OSes. `ci-ok` passes when every job succeeded or was intentionally skipped.
+# Windows, macOS and iOS jobs to changes in crates declaring that platform. Scheduled and manual runs are full: every test, clippy and Go check on
+# all three OSes, plus the iOS lint. `ci-ok` passes when every job succeeded or was intentionally skipped.
 on:
   pull_request:
   schedule:
@@ -138,6 +138,7 @@ jobs:
       scope: ${{ steps.affected.outputs.scope }}
       macos: ${{ steps.affected.outputs.macos }}
       windows: ${{ steps.affected.outputs.windows }}
+      ios: ${{ steps.affected.outputs.ios }}
       names: ${{ steps.affected.outputs.names }}
       tests: ${{ steps.affected.outputs.tests }}
       macos_tests: ${{ steps.affected.outputs.macos_tests }}
@@ -537,6 +538,35 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then filter="($PLATFORM) & not ($WINDOWS_SKIP)"; fi
           cargo nextest run --workspace -E "$filter" --locked --no-fail-fast --no-tests=warn
 
+  # The IPA is built only by release packaging, and no desktop runner compiles iOS-only code.
+  ios:
+    name: iOS lint
+    needs: [changes, preflight]
+    if: >-
+      !cancelled() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true'
+        || (needs.preflight.result == 'success' && needs.preflight.outputs.ios == 'true'))
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: aarch64-apple-ios
+          components: clippy
+      # Reuses the macOS job's host build scripts and proc macros.
+      - name: Restore Rust build cache
+        uses: ./.github/actions/build-cache
+      # Linting links nothing, so the Go core archive the IPA links need not exist.
+      - name: Lint the iOS app
+        env:
+          CINNABAR_IOS_CORE_ARCHIVE: ${{ runner.temp }}/libbedrock_core.a
+        run: |
+          IPHONEOS_DEPLOYMENT_TARGET="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["deployment_target"])' packaging/ios/runtime.json)"
+          export IPHONEOS_DEPLOYMENT_TARGET
+          cargo clippy --manifest-path packaging/ios/client/Cargo.toml --target aarch64-apple-ios --locked -- -D warnings
+
   packaging:
     name: Packaging tests
     needs: changes
@@ -603,6 +633,7 @@ jobs:
       - browser
       - go
       - platform
+      - ios
       - packaging
       - macos-physics-bootstrap
       - powershell-harness

@@ -12,9 +12,10 @@ pub const READS: &str = "reads";
 
 pub const MACOS: &str = "macos";
 pub const WINDOWS: &str = "windows";
+pub const IOS: &str = "ios";
 
-/// Platforms a crate may declare; each has its own pull-request runner.
-pub const PLATFORMS: [&str; 2] = [MACOS, WINDOWS];
+/// Platforms a crate may declare; each has its own pull-request job.
+pub const PLATFORMS: [&str; 3] = [MACOS, WINDOWS, IOS];
 
 /// Whether a declared read names `path`: the pattern matches it, or names a directory holding it.
 #[must_use]
