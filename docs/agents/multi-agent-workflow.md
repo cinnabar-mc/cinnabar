@@ -54,6 +54,22 @@ The full three-platform matrix runs on `dev` every six hours and can be requeste
 with `gh workflow run ci.yml --ref <branch>`. `ci-cache.yml` tests `dev` on Linux
 hourly. Fix failing scheduled checks promptly.
 
+### Offloaded checks
+
+When local build hosts are full, a maintainer can run one command from a pushed branch on a
+hosted runner:
+
+```sh
+gh workflow run offload.yml --ref <branch> -f command='cargo nextest run --workspace -E "package(render-scene)" --locked'
+```
+
+`offload.yml` restores `dev`'s CI caches, never saves one, and prints the command's output and
+exit status between `=== offload begin ===` and `=== offload exit N ===` in the job log. `-f os=`
+selects `windows-latest` or `macos-latest`. A run takes a few minutes to start and builds on a
+small runner, so quick rechecks stay local; `--workspace` forms reuse the cache best. The
+command gets a read-only token and no secrets. Offloaded jobs share the hosted-runner limit with
+pull request CI, so keep only a few running.
+
 ### Build caches
 
 CI and packaging use `.github/actions/build-cache`. Rust caches keep workspace
