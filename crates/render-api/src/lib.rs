@@ -22,6 +22,8 @@ pub use held_item::{
     HeldItemPlacement, HeldItemTransform, ItemRenderOffsets,
 };
 pub use pose_generation::PoseGeneration;
+mod safe_graphics;
+pub use safe_graphics::SafeGraphics;
 mod skin;
 pub mod sprite_mask;
 pub mod sub_chunk_requests;

@@ -48,7 +48,9 @@ mod tests {
 
     #[test]
     fn compute_frame_worker_requests_interactive_qos() {
-        let policy = ThreadBudget::task_pool_plugin().task_pool_options.compute;
+        let policy = ThreadBudget::task_pool_plugin(render_api::SafeGraphics::Off)
+            .task_pool_options
+            .compute;
         std::thread::spawn(move || {
             start_at_default_qos();
             if let Some(started) = policy.on_thread_spawn {
@@ -62,7 +64,8 @@ mod tests {
 
     #[test]
     fn background_worker_policies_keep_the_default_class() {
-        let policies = ThreadBudget::task_pool_plugin().task_pool_options;
+        let policies =
+            ThreadBudget::task_pool_plugin(render_api::SafeGraphics::Off).task_pool_options;
         for policy in [policies.io, policies.async_compute] {
             std::thread::spawn(move || {
                 start_at_default_qos();

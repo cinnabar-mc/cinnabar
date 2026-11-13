@@ -264,7 +264,8 @@ fn fxc_on_warp(
     Ok((instance, adapter))
 }
 
-/// A failed saved Graphics API, shown once the menu is on screen.
+/// What the renderer changed at startup, such as a failed saved Graphics API or reduced
+/// graphics, shown once the menu is on screen.
 #[derive(Resource)]
 struct FallbackNotice(String);
 
@@ -278,8 +279,12 @@ fn notice(fallback: &VideoFallback, chosen: Backend, platform: Platform) -> Stri
     )
 }
 
-/// Queues the fallback notice for the menu.
-fn install_notice(app: &mut App, message: String) {
+/// Queues a notice for the menu; a second one joins the first in the same dialog.
+pub(super) fn install_notice(app: &mut App, message: String) {
+    if let Some(mut notice) = app.world_mut().get_resource_mut::<FallbackNotice>() {
+        notice.0 = format!("{}\n\n{message}", notice.0);
+        return;
+    }
     app.insert_resource(FallbackNotice(message)).add_systems(
         Update,
         show_fallback_notice.run_if(resource_exists::<FallbackNotice>),

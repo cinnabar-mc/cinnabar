@@ -188,7 +188,7 @@ pub(crate) fn renderer(root: &Path) -> Option<Attempt> {
 }
 
 /// The game state last published.
-pub(crate) fn game() -> GameState {
+pub fn game() -> GameState {
     lock().game
 }
 

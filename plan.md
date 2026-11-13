@@ -2102,6 +2102,21 @@ Flathub submission remain incomplete.
   shader-module destruction, including each pipeline's temporary stage modules, and
   pipeline-cache creation, reads and destruction. One Snapdragon tester still reports a crash
   just after the menu on the first nightly with the lock; that crash report is still missing.
+  A renderer crash no longer repeats unchanged on every Android launch. A run marker, rewritten
+  only on stage changes, records where the renderer was (startup, menu, world warm-up, joining,
+  in world) and any GPU error or panic the run saw; the next launch combines it with Android's
+  exit reason and, after a run that died in the renderer, steps down a safe graphics ladder:
+  discard the driver pipeline cache, then also compile on one worker, then also open the device
+  as a constrained one (direct terrain draws, CPU culling, compact storage, no culling or unit
+  pipelines) with one coverage sample and optional effects, Enhanced graphics and shader packs
+  off. A menu notice says so, a healthy world session clears the ladder, a relapse at full
+  graphics keeps the level that worked until the next version, and choosing a Graphics API
+  clears it; see [Android](docs/android.md#safe-graphics). Host tests cover the decision, the
+  marker and each consumer. Incomplete: no phone has run the ladder, so whether any level
+  avoids the reported Adreno, Mali or PowerVR faults is unknown; a native fault outside the
+  driver is not told apart from one inside it; the menu's world warm-up is not deferred by the
+  ladder; the levels do not yet restrict requested device features, lower the upload budget or
+  name the failing pipeline; and desktop, where Linux also has one API, keeps backend exclusion.
   Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
