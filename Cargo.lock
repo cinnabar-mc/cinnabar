@@ -5117,6 +5117,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "java-sim"
+version = "0.2.1"
+dependencies = [
+ "flate2",
+ "serde_json",
+]
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

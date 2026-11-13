@@ -1896,6 +1896,20 @@ coverage, supported slot/ownership enforcement, player-preview acceptance and ha
 qualification. Payments and moderation remain incomplete; rollout must respect API/client
 compatibility. Existing catalog content is owned by the API repository.
 
+### Java Edition 1.7.10 servers
+
+Java Edition 1.7.10 (protocol 5) servers are a second server protocol. Its behaviour
+references are the official 1.7.10 client and recordings of that client run headlessly.
+
+Implemented: [`java-sim`](crates/java-sim/README.md) reproduces the 1.7.10 client's player
+tick, block collision model for ids 0 to 175 and movement packets. Recorded client traces,
+including seeded random walks, replay bit for bit, and collision boxes match the game for
+every id and metadata.
+
+Incomplete: riding, sleeping, moving-piston collision and boats or other solid entities are
+not modelled. Nothing connects `java-sim` to a session yet: the protocol, world translation
+and client wiring are separate work, so no Java server can be joined.
+
 ## Phase 7 — Local worlds
 
 All player local worlds use BDS, including Infinite and Flat terrain. Creation and import
