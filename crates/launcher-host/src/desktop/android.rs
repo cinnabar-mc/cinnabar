@@ -86,6 +86,19 @@ pub(super) fn pick_documents(
     result.map_err(|error| pending_exception(&mut env).unwrap_or_else(|| error.to_string()))
 }
 
+/// The Java package holding the app's classes: `application_id` in the packaging manifest. A
+/// build can install under another package name, so the installed name does not locate them.
+fn java_package() -> String {
+    #[derive(serde::Deserialize)]
+    struct Runtime {
+        application_id: String,
+    }
+    let runtime: Runtime =
+        serde_json::from_str(include_str!("../../../../packaging/android/runtime.json"))
+            .expect("the tracked Android runtime manifest parses");
+    runtime.application_id
+}
+
 /// Calls `FilePicker.pick`, loading the class through the app's loader because worker threads
 /// attached from native code only see system classes.
 fn call_picker(
@@ -94,10 +107,7 @@ fn call_picker(
     multiple: bool,
     max_bytes: i64,
 ) -> jni::errors::Result<Option<Vec<PathBuf>>> {
-    let package = env
-        .call_method(application, "getPackageName", "()Ljava/lang/String;", &[])?
-        .l()?;
-    let package: String = env.get_string(&JString::from(package))?.into();
+    let package = java_package();
     let loader = env
         .call_method(
             application,
