@@ -33,6 +33,8 @@ pub struct CameraSettingsAuthority {
     scripted_view: bool,
     view_scale: [f32; 2],
     view_tilt: Option<ViewTilt>,
+    /// This launch's reduction; optional effects read as off while it forbids them.
+    safe_graphics: render_api::SafeGraphics,
 }
 
 /// A packet mod's detached camera pose, presented instead of the body's camera.
@@ -150,6 +152,7 @@ impl Default for CameraSettingsAuthority {
             scripted_view: false,
             view_scale: [1.0, 1.0],
             view_tilt: None,
+            safe_graphics: render_api::SafeGraphics::Off,
         }
     }
 }
@@ -217,14 +220,28 @@ impl CameraSettingsAuthority {
         self.anti_aliasing_samples
     }
 
+    /// Sets this launch's safe graphics level. The saved preferences stay as they are; the
+    /// optional effects only read as off while the level forbids them.
+    pub const fn set_safe_graphics(&mut self, safe_graphics: render_api::SafeGraphics) {
+        self.safe_graphics = safe_graphics;
+    }
+
     /// Returns the optional camera-only motion blur quality.
     pub const fn motion_blur(&self) -> ui::MotionBlurQuality {
-        self.motion_blur
+        if self.safe_graphics.optional_effects() {
+            self.motion_blur
+        } else {
+            ui::MotionBlurQuality::Off
+        }
     }
 
     /// Returns the spatial filter preference independently of device sample counts.
     pub const fn smaa_mode(&self) -> ui::SmaaMode {
-        self.smaa_mode
+        if self.safe_graphics.optional_effects() {
+            self.smaa_mode
+        } else {
+            ui::SmaaMode::Off
+        }
     }
 
     /// The Bedrock FOV setting is vertical for a full-window viewport. The
@@ -460,6 +477,34 @@ mod tests {
             camera.replace(1, &settings).unwrap();
             assert_eq!(camera.horizontal_fov_degrees(), degrees as f32);
         }
+    }
+
+    /// The last safe graphics level turns the optional camera effects off without touching
+    /// the saved preferences, so they return with full graphics.
+    #[test]
+    fn safe_graphics_turns_optional_camera_effects_off_only_at_its_last_level() {
+        use render_api::SafeGraphics;
+        let mut settings = UserSettings::default();
+        settings.video.motion_blur = ui::MotionBlurQuality::High;
+        settings.video.smaa_mode = ui::SmaaMode::Smaa;
+        let mut camera = CameraSettingsAuthority::default();
+        camera.replace(1, &settings).unwrap();
+        for safe in SafeGraphics::ALL {
+            camera.set_safe_graphics(safe);
+            let (blur, smaa) = if safe.optional_effects() {
+                (ui::MotionBlurQuality::High, ui::SmaaMode::Smaa)
+            } else {
+                (ui::MotionBlurQuality::Off, ui::SmaaMode::Off)
+            };
+            assert_eq!(camera.motion_blur(), blur, "{safe:?}");
+            assert_eq!(camera.smaa_mode(), smaa, "{safe:?}");
+        }
+        assert!(!SafeGraphics::MAX.optional_effects());
+        // Later settings updates do not lift the limit.
+        camera.set_safe_graphics(SafeGraphics::MAX);
+        camera.replace(2, &settings).unwrap();
+        assert_eq!(camera.motion_blur(), ui::MotionBlurQuality::Off);
+        assert_eq!(camera.smaa_mode(), ui::SmaaMode::Off);
     }
 
     #[test]

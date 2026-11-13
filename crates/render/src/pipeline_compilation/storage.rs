@@ -24,7 +24,7 @@ impl DriverCache {
         directory: PathBuf,
     ) -> Option<Self> {
         let key = wgpu::util::pipeline_cache_key(info)?;
-        let path = directory.join(format!("{key}.bin"));
+        let path = directory.join(format!("{key}.{CACHE_EXTENSION}"));
         let data = std::fs::read(&path).ok().and_then(decode);
         // SAFETY: Only hash-checked bytes written from PipelineCache::get_data are supplied.
         // wgpu checks its format, adapter and driver identity; fallback discards stale data.
@@ -47,6 +47,25 @@ impl DriverCache {
         };
         if let Err(error) = write(&self.path, &data) {
             bevy::log::debug!(%error, "optional driver cache not saved");
+        }
+    }
+}
+
+/// The extension of a saved driver cache, one file per adapter and driver.
+const CACHE_EXTENSION: &str = "bin";
+
+/// Deletes every saved driver cache in `directory`, and any temporary file a write left.
+/// Other files and a missing directory are left alone.
+pub(super) fn discard(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for path in entries.flatten().map(|entry| entry.path()) {
+        let saved = path
+            .extension()
+            .is_some_and(|extension| extension == CACHE_EXTENSION || extension == "tmp");
+        if saved && let Err(error) = std::fs::remove_file(&path) {
+            bevy::log::warn!(%error, "driver cache not discarded");
         }
     }
 }
@@ -91,6 +110,29 @@ mod tests {
         assert_eq!(decode(bytes.clone()).as_deref(), Some(payload.as_slice()));
         *bytes.last_mut().unwrap() ^= 1;
         assert!(decode(bytes).is_none());
+    }
+
+    #[test]
+    fn discarding_removes_saved_caches_and_nothing_else() {
+        let directory = std::env::temp_dir().join(format!(
+            "cinnabar-pipelines-discard-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        // A missing directory is not an error.
+        discard(&directory);
+        for name in ["adreno.bin", "mali.bin"] {
+            write(&directory.join(name), b"driver data").unwrap();
+        }
+        std::fs::write(directory.join("adreno.12.0.tmp"), b"partial").unwrap();
+        std::fs::write(directory.join("notes.txt"), b"kept").unwrap();
+        discard(&directory);
+        let left: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(left, [std::ffi::OsString::from("notes.txt")]);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

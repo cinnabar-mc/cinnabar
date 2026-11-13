@@ -542,11 +542,21 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.insert_resource(packet_mods);
     app.insert_resource(feedback.clone());
     configure_client_frame_schedule(&mut app);
+    // Held until this function returns, so every return path ends the renderer's run marker.
+    let (safe_graphics, _renderer_run) = render_setup::safe_graphics::start(
+        &renderer_data_root,
+        saved_settings.graphics_api_revision(),
+    );
+    let safe_graphics_level = safe_graphics.level;
+    app.insert_resource(render_scene::safe_graphics::ActiveSafeGraphics(
+        safe_graphics_level,
+    ));
     let renderer = RendererSetup {
         data_root: renderer_data_root,
         pipeline_cache_dir,
         video_override: saved_settings.graphics_api(),
         graphics_api_revision: saved_settings.graphics_api_revision(),
+        safe_graphics,
     };
     let plugins = DefaultPlugins
         .set(WindowPlugin {
@@ -555,7 +565,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         })
         .add_before::<bevy::render::RenderPlugin>(renderer)
         .disable::<bevy::render::RenderPlugin>()
-        .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
+        .set(crate::thread_budget::ThreadBudget::task_pool_plugin(
+            safe_graphics_level,
+        ))
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
         .add_before::<bevy::post_process::PostProcessPlugin>(render::ClientPostProcessPlugin)
@@ -789,8 +801,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::FarTerrainRenderPlugin,
     ));
     app.add_plugins(
-        crate::render_mode::RenderModePlugin::new(args.render_mode, diagnostics_enabled)
-            .with_shader_pack(args.shader_pack.clone()),
+        crate::render_mode::RenderModePlugin::new(
+            crate::render_mode::launch_override(args.render_mode, safe_graphics_level),
+            diagnostics_enabled,
+        )
+        .with_shader_pack(args.shader_pack.clone()),
     );
     app.insert_resource(crate::environment::FixedTime(args.fixed_time));
     app.add_plugins(crate::shader_pack_inputs::ShaderPackInputsPlugin);

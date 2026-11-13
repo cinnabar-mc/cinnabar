@@ -4,6 +4,7 @@ use std::num::NonZeroU32;
 
 mod device;
 mod guarded;
+pub(super) mod safe_graphics;
 mod selection;
 
 use bevy::{
@@ -38,6 +39,8 @@ pub(super) struct RendererSetup {
     pub pipeline_cache_dir: std::path::PathBuf,
     pub graphics_api_revision: u64,
     pub video_override: Option<launcher::graphics_backend::Backend>,
+    /// This launch's safe graphics level and why it was chosen.
+    pub safe_graphics: launcher_host::renderer_startup::safe_mode::SafeStart,
 }
 
 impl bevy::prelude::Plugin for RendererSetup {
@@ -45,6 +48,7 @@ impl bevy::prelude::Plugin for RendererSetup {
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut settings = WgpuSettings::default();
         render::device_settings::configure(&mut settings);
+        render::device_settings::configure_safe_graphics(&mut settings, self.safe_graphics.level);
         let result = guarded::render_plugin(
             app,
             &self.data_root,
@@ -53,8 +57,10 @@ impl bevy::prelude::Plugin for RendererSetup {
             settings,
         );
         install_result(app, result);
+        safe_graphics::install(app, &self.safe_graphics);
         app.add_plugins(render::PipelineCompilationPlugin {
             cache_dir: self.pipeline_cache_dir.clone(),
+            safe_graphics: self.safe_graphics.level,
         });
     }
 }

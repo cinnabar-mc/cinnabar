@@ -26,6 +26,31 @@ pub fn fallback_notice(
         reason
     )
 }
+/// Tells the player that this launch reduced graphics after the renderer failed, what that
+/// changes and how to return to full graphics. `kept` says a healthy session will not clear
+/// the level by itself. `None` at full graphics.
+pub fn safe_graphics_notice(level: render_api::SafeGraphics, kept: bool) -> Option<String> {
+    use render_api::SafeGraphics;
+    let change = match level {
+        SafeGraphics::Off => return None,
+        SafeGraphics::FreshPipelines => "rebuilds its saved shaders. Loading may take longer",
+        SafeGraphics::SerialCompilation => {
+            "rebuilds its saved shaders one at a time. Loading may take longer"
+        }
+        SafeGraphics::Minimal => {
+            "uses reduced graphics: anti-aliasing, visual effects, Enhanced graphics and shader packs are off, and terrain draws more simply"
+        }
+    };
+    let recovery = if kept {
+        "Full graphics failed again after that, so this stays until the next update. To try full graphics anyway"
+    } else {
+        "Full graphics return after a session without a graphics error. To try them sooner"
+    };
+    Some(format!(
+        "{} closed because of a graphics error last time, so this launch {change}. {recovery}, choose a Graphics API in Video settings and restart.",
+        crate::PRODUCT_NAME
+    ))
+}
 // Keep the enum, names and complete registry together so a new API cannot be omitted.
 macro_rules! backends {
     ($($variant:ident => ($name:literal, $label:literal)),+ $(,)?) => {
@@ -95,6 +120,13 @@ impl Platform {
             Self::Linux | Self::Android => &[Backend::Vulkan],
             Self::Macos | Self::Ios => &[Backend::Metal],
         }
+    }
+
+    /// Whether a run that died in the renderer steps the next launch down the safe graphics
+    /// ladder. Android has one graphics API, so excluding the failed one recovers nothing
+    /// there; the other platforms keep their existing recovery unchanged.
+    pub const fn steps_down_graphics(self) -> bool {
+        matches!(self, Self::Android)
     }
 }
 

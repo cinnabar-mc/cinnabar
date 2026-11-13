@@ -122,6 +122,33 @@ runner removes its temporary device files, but remote reservations must be relea
 These diagnostic scenes exercise the production terrain renderer; complete app startup,
 server streaming, shader packs and performance still need their own acceptance runs.
 
+## Safe graphics
+
+Android offers one graphics API, so a launch cannot switch to another after a renderer crash.
+Instead, when the previous run ended in the renderer, the next launch steps one level down a
+ladder of *safe graphics* and says so in a notice on the menu:
+
+1. The saved driver pipeline cache is deleted and not used.
+2. Pipelines also compile on one worker instead of two.
+3. The device is also opened as a constrained one, so terrain takes direct draws, CPU culling
+   and the compact storage layout and compiles no culling or unit pipelines. World cameras
+   keep one coverage sample, and the launch starts with motion blur, SMAA, Enhanced graphics
+   and shader packs off. Saved settings are not changed.
+
+A run ended in the renderer when it stopped on a GPU error such as a lost device, panicked in
+graphics code, or died from a native fault with no panic of the client's own. A swipe-away, a
+low-memory kill, an unresponsive app, a normal exit and a crash outside graphics code do not
+count. Before Android 11, which records no exit reasons, only a run that vanishes before its
+first frame or while world pipelines compile behind the menu counts.
+
+A session that draws a world for two minutes returns the next launch to full graphics. If full graphics then fail again straight away, the level that
+worked stays until the client version changes. Choosing a Graphics API in Video settings
+(choosing Auto again is enough) and restarting clears the ladder at any time. The startup log
+line `Renderer safe graphics level` names the level and the reason, so crash reports carry it.
+`CINNABAR_SAFE_GRAPHICS=0` to `3` forces a level for one launch on any platform and saves
+nothing. Desktop recovery is unchanged. No phone has confirmed the ladder yet; a native fault
+outside the graphics driver also steps it, because the client does not read the crash trace.
+
 ## Controls
 
 The stick moves, dragging elsewhere turns, and separate fingers hold jump, sneak, sprint,

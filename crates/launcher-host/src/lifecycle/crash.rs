@@ -131,6 +131,7 @@ pub fn install(
     std::panic::set_hook(Box::new(move |info| {
         let message = info.to_string();
         record_last_panic(&message);
+        crate::renderer_startup::breadcrumb::panicked(info.location().map(|at| at.file()));
         let backtrace = Backtrace::force_capture().to_string();
         (hooks.log_panic)(&format!("{message}\n{backtrace}\n"));
         previous(info);
