@@ -175,6 +175,11 @@ pub struct PlayerAuthInputSnapshot {
     /// The vehicle the client predicts. The wire then carries its position and delta in
     /// place of the player's, which this snapshot keeps for local consumers.
     pub vehicle: Option<PredictedVehicleInput>,
+    /// The feet position in double precision on a Java Edition session, whose server reads
+    /// positions in double precision. The wire then carries what `position` loses to single
+    /// precision in the delta and camera-orientation fields, which a Java session's
+    /// translator has no other use for; see [`java_position_remainders`].
+    pub java_position: Option<[f64; 3]>,
 }
 
 /// The vehicle a client-predicted input moves.
@@ -187,6 +192,27 @@ pub struct PredictedVehicleInput {
     pub delta: [f32; 3],
     /// Vehicle pitch and yaw in degrees.
     pub rotation: [f32; 2],
+}
+
+/// Splits what a single-precision wire position loses of a Java Edition feet position into
+/// two single-precision remainders per axis. The core's translator restores the position as
+/// `base + (first + second)`, where `base` is the wire position with the network offset
+/// taken off its height. The result is the original double wherever its difference from
+/// `base` is itself a double, which only fails within a millionth of height zero.
+#[must_use]
+pub fn java_position_remainders(feet: [f64; 3], wire: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+    let base = [
+        f64::from(wire[0]),
+        f64::from(wire[1]) - f64::from(crate::PLAYER_NETWORK_OFFSET),
+        f64::from(wire[2]),
+    ];
+    let (mut first, mut second) = ([0.0_f32; 3], [0.0_f32; 3]);
+    for axis in 0..3 {
+        let rest = feet[axis] - base[axis];
+        first[axis] = rest as f32;
+        second[axis] = (rest - f64::from(first[axis])) as f32;
+    }
+    (first, second)
 }
 
 /// Invalid app-owned state that cannot be represented safely on the wire.
@@ -248,10 +274,21 @@ pub fn player_auth_input_with_mining_request(
                 .chain(vehicle.delta)
                 .chain(vehicle.rotation)
         }))
-        .all(f32::is_finite);
+        .all(f32::is_finite)
+        && snapshot
+            .java_position
+            .into_iter()
+            .flatten()
+            .all(f64::is_finite);
     if !finite {
         return Err(PlayerAuthInputError::NonFiniteState);
     }
+    // A predicted vehicle replaces the player's position on the wire, so there is nothing
+    // of the player's to complete.
+    let java_remainders = snapshot
+        .java_position
+        .filter(|_| snapshot.vehicle.is_none())
+        .map(|feet| java_position_remainders(feet, snapshot.position));
     let derived_flag_bits = PlayerInputFlags::PERFORM_ITEM_INTERACTION.bits()
         | PlayerInputFlags::PERFORM_BLOCK_ACTIONS.bits()
         | PlayerInputFlags::PERFORM_ITEM_STACK_REQUEST.bits();
@@ -310,9 +347,15 @@ pub fn player_auth_input_with_mining_request(
         },
         interact_rotation: snapshot.interact_rotation.into(),
         client_tick: PlayerInputTick(tick),
-        pos_delta: snapshot
-            .vehicle
-            .map_or(snapshot.delta, |vehicle| vehicle.delta)
+        pos_delta: java_remainders
+            .map_or_else(
+                || {
+                    snapshot
+                        .vehicle
+                        .map_or(snapshot.delta, |vehicle| vehicle.delta)
+                },
+                |(first, _)| first,
+            )
             .into(),
         item_use_transaction,
         item_stack_request,
@@ -322,7 +365,9 @@ pub fn player_auth_input_with_mining_request(
             .vehicle
             .map(|vehicle| ActorUniqueID(vehicle.unique_id)),
         analog_move_vector: snapshot.analogue_move_vector.into(),
-        camera_orientation: snapshot.camera_orientation.into(),
+        camera_orientation: java_remainders
+            .map_or(snapshot.camera_orientation, |(_, second)| second)
+            .into(),
         raw_move_vector: snapshot.raw_move_vector.into(),
     }))
 }

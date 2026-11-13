@@ -108,6 +108,14 @@ fn a_java_session_moves_the_player_as_java_sim_does() {
                 reference.on_ground(),
                 "tick {tick} reports standing as the vertical collision"
             );
+            assert_eq!(
+                sample
+                    .processed
+                    .java_position
+                    .map(|feet| feet.map(f64::to_bits)),
+                Some(reference.feet().map(f64::to_bits)),
+                "tick {tick} carries the position in double precision"
+            );
             tick += 1;
         }
     }
@@ -131,7 +139,8 @@ fn a_bedrock_session_keeps_bedrock_movement() {
             jumping: true,
             ..MovementInput::default()
         };
-        step(&mut physics, input, ModeIntent::default(), &TranslatedFloor);
+        let sample = step(&mut physics, input, ModeIntent::default(), &TranslatedFloor);
+        assert_eq!(sample.processed.java_position, None);
         let keys = Input {
             forward: true,
             sprint: true,
@@ -142,4 +151,111 @@ fn a_bedrock_session_keeps_bedrock_movement() {
         differed |= feet(&physics).map(f64::to_bits) != reference.feet().map(f64::to_bits);
     }
     assert!(differed, "Bedrock movement matched 1.7.10 movement exactly");
+}
+
+/// A server teleport moves the player the 1.7.10 client already has: it still stands on the
+/// ground, so a held jump leaves the ground on the next tick. A fresh player would start
+/// airborne and jump late.
+#[test]
+fn a_server_teleport_keeps_the_java_player() {
+    let mut physics = grounded_controller();
+    physics.set_java_physics(true);
+    let [x, sunk, z] = feet(&physics);
+    let mut reference = Player::at_feet(x, sunk, z, 0.0, 0.0);
+    reference.lift_onto_surface(&TranslatedFloor, 1.0e-3);
+    for _ in 0..3 {
+        step(
+            &mut physics,
+            MovementInput::default(),
+            ModeIntent::default(),
+            &TranslatedFloor,
+        );
+        reference.tick(
+            &TranslatedFloor,
+            &Input::default(),
+            &Status::default(),
+            &mut Vec::new(),
+        );
+    }
+    assert!(reference.on_ground());
+
+    let tick = physics.state().expect("a simulated player").tick;
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: [5.5, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.5],
+                tick,
+                on_ground: true,
+                velocity: None,
+            },
+            crate::movement::PhysicsCorrectionMode::Snap,
+            None,
+            &TranslatedFloor,
+        )
+        .expect("the teleport snaps");
+    // The frame the teleport arrives in is not simulated.
+    let arrival = physics.advance(super::TICK, MovementInput::default(), &TranslatedFloor);
+    assert!(arrival.samples.is_empty(), "the arrival frame ticked");
+    let [x, sunk, z] = feet(&physics);
+    let eye = sunk + f64::from(java_sim::player::EYE_OFFSET);
+    let _ = reference.teleport(x, eye, z, 0.0, 0.0, false);
+    reference.lift_onto_surface(&TranslatedFloor, 1.0e-3);
+
+    for tick in 0..6 {
+        let input = MovementInput {
+            jumping: true,
+            ..MovementInput::default()
+        };
+        let sample = step(&mut physics, input, ModeIntent::default(), &TranslatedFloor);
+        let keys = Input {
+            jump: true,
+            ..Input::default()
+        };
+        reference.tick(&TranslatedFloor, &keys, &Status::default(), &mut Vec::new());
+        assert_eq!(
+            feet(&physics).map(f64::to_bits),
+            reference.feet().map(f64::to_bits),
+            "tick {tick} after the teleport"
+        );
+        assert_eq!(
+            sample.grounded_after_tick,
+            reference.on_ground(),
+            "tick {tick}"
+        );
+    }
+    let [_, height, _] = reference.feet();
+    assert!(height > 1.5, "the held jump only reached Y {height}");
+}
+
+/// The client decides sprinting and reports it to the server, so the movement follows that
+/// decision: a sprint that ends while forward stays held slows to a walk.
+#[test]
+fn a_sprint_that_ends_with_forward_held_slows_to_a_walk() {
+    let run = |sprint_ticks: usize| {
+        let mut physics = grounded_controller();
+        physics.set_java_physics(true);
+        let mut path = Vec::new();
+        for tick in 0..80 {
+            let input = MovementInput {
+                forward: 1.0,
+                sprinting: tick < sprint_ticks,
+                ..MovementInput::default()
+            };
+            step(&mut physics, input, ModeIntent::default(), &TranslatedFloor);
+            path.push(feet(&physics)[2]);
+        }
+        path
+    };
+    let (stopped, walked) = (run(20), run(0));
+    assert!(
+        stopped[19] > walked[19] + 0.5,
+        "the sprint covered no extra ground"
+    );
+    let step_of = |path: &[f64]| path[79] - path[78];
+    assert!(
+        (step_of(&stopped) - step_of(&walked)).abs() < 1.0e-9,
+        "the player still moves {} a tick, a walk moves {}",
+        step_of(&stopped),
+        step_of(&walked)
+    );
 }

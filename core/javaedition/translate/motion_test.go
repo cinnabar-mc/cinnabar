@@ -8,9 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/go-gl/mathgl/mgl32"
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 // traceTick is one tick of a recorded 1.7.10 client trace, reduced to what decides its
@@ -130,5 +134,70 @@ func TestMotionReportMatchesRecordedClientTraces(t *testing.T) {
 		if ticks == 0 {
 			t.Fatalf("%s holds no ticks", path)
 		}
+	}
+}
+
+// The client completes its single-precision position with two remainders per axis; the
+// fixture is written by the client's own packet builder.
+func TestExactPositionReadsTheClientsRemainders(t *testing.T) {
+	file, err := os.Open("../../../crates/protocol/fixtures/java_positions.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	rows := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) != 12 {
+			t.Fatalf("row %q has %d fields", line, len(fields))
+		}
+		single := func(index int) float32 {
+			bits, err := strconv.ParseUint(fields[index], 16, 32)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return math.Float32frombits(uint32(bits))
+		}
+		var want [3]uint64
+		for axis := range want {
+			if want[axis], err = strconv.ParseUint(fields[axis], 16, 64); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pk := &packet.PlayerAuthInput{
+			Position:          mgl32.Vec3{single(3), single(4), single(5)},
+			Delta:             mgl32.Vec3{single(6), single(7), single(8)},
+			CameraOrientation: mgl32.Vec3{single(9), single(10), single(11)},
+		}
+		x, feet, z := exactPosition(pk)
+		if got := [3]uint64{math.Float64bits(x), math.Float64bits(feet), math.Float64bits(z)}; got != want {
+			t.Fatalf("row %q restored as %v, %v, %v", line, x, feet, z)
+		}
+		rows++
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if rows < 40 {
+		t.Fatalf("the fixture lists only %d positions", rows)
+	}
+}
+
+// A Bedrock client's delta and camera orientation are no remainders: the position is read
+// as the packet gives it.
+func TestExactPositionIgnoresAnOrdinaryDeltaAndOrientation(t *testing.T) {
+	pk := &packet.PlayerAuthInput{
+		Position:          mgl32.Vec3{8.5, 5.62001, -300.25},
+		Delta:             mgl32.Vec3{0.1, -0.0784, 0.2},
+		CameraOrientation: mgl32.Vec3{0.6, 0, 0.8},
+	}
+	x, feet, z := exactPosition(pk)
+	if x != 8.5 || feet != float64(float32(5.62001))-networkOffset || z != -300.25 {
+		t.Fatalf("position read as %v, %v, %v", x, feet, z)
 	}
 }

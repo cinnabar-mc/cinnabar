@@ -162,6 +162,13 @@ impl PlayerState {
         self.climber = previous.climber;
     }
 
+    /// Keeps `previous`'s Java Edition player through a server teleport. The next Java tick
+    /// places that player where this state stands, as the 1.7.10 client applies a teleport
+    /// to the player it has: its ground state, jump cooldown and sprint survive.
+    pub fn keep_java_player(&mut self, previous: &PlayerState) {
+        self.java.clone_from(&previous.java);
+    }
+
     /// Applies an external placement, rebuilding contact faces even at the same
     /// position. Retained climber contact is kept.
     pub fn set_position(&mut self, position: Vec3) {

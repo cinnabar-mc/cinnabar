@@ -286,6 +286,7 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
         input_mode: PlayerInputMode::Mouse,
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
+        java_position: None,
     })
     .expect("valid movement snapshot");
     built.header.from_subclient = 1;
@@ -452,6 +453,7 @@ fn fixture_movement_snapshot() -> PlayerAuthInputSnapshot {
         input_mode: PlayerInputMode::Mouse,
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
+        java_position: None,
     }
 }
 

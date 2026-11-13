@@ -80,6 +80,7 @@ impl LocalPhysicsController {
             if let (Some(state), Some(previous)) = (self.state.as_mut(), previous_state.as_ref()) {
                 state.keep_climber_contact(previous);
                 state.keep_fall_distance(previous);
+                state.keep_java_player(previous);
             }
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;

@@ -94,6 +94,9 @@ pub struct Status {
     pub effects: Effects,
     /// Whether the player is dead or asleep, which blocks movement input.
     pub movement_blocked: bool,
+    /// The sprint state when the caller decides it. `None` leaves sprinting to the game's own
+    /// rules: the sprint key, the double tap and the conditions that end a sprint.
+    pub sprint_override: Option<bool>,
 }
 
 impl Default for Status {
@@ -103,6 +106,7 @@ impl Default for Status {
             food_level: 20,
             effects: Effects::default(),
             movement_blocked: false,
+            sprint_override: None,
         }
     }
 }
@@ -438,31 +442,37 @@ impl Player {
 
         let fed = status.food_level as f32 > 6.0 || self.abilities.allow_flying;
         let forward = self.keys.forward >= SPRINT_FORWARD_THRESHOLD;
-        if self.on_ground
-            && !was_forward
-            && forward
-            && !self.sprinting
-            && fed
-            && !status.using_item
-            && !status.effects.blindness.is_some()
-        {
-            if self.sprint_toggle_timer > 0 || input.sprint {
-                self.set_sprinting(true);
-            } else {
-                self.sprint_toggle_timer = DOUBLE_TAP_TICKS;
+        if let Some(sprinting) = status.sprint_override {
+            if self.sprinting != sprinting {
+                self.set_sprinting(sprinting);
             }
-        }
-        if !self.sprinting
-            && forward
-            && fed
-            && !status.using_item
-            && !status.effects.blindness.is_some()
-            && input.sprint
-        {
-            self.set_sprinting(true);
-        }
-        if self.sprinting && (!forward || self.collided_horizontally || !fed) {
-            self.set_sprinting(false);
+        } else {
+            if self.on_ground
+                && !was_forward
+                && forward
+                && !self.sprinting
+                && fed
+                && !status.using_item
+                && !status.effects.blindness.is_some()
+            {
+                if self.sprint_toggle_timer > 0 || input.sprint {
+                    self.set_sprinting(true);
+                } else {
+                    self.sprint_toggle_timer = DOUBLE_TAP_TICKS;
+                }
+            }
+            if !self.sprinting
+                && forward
+                && fed
+                && !status.using_item
+                && !status.effects.blindness.is_some()
+                && input.sprint
+            {
+                self.set_sprinting(true);
+            }
+            if self.sprinting && (!forward || self.collided_horizontally || !fed) {
+                self.set_sprinting(false);
+            }
         }
         if self.abilities.allow_flying && !was_jumping && self.keys.jump {
             if self.fly_toggle_timer == 0 {

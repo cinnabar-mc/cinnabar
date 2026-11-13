@@ -378,6 +378,11 @@ impl LocalPhysicsController {
                     processed.vehicle = self.vehicle.commit(state.tick);
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
+                    processed.java_position = self.java_physics.then_some([
+                        state.position.x,
+                        state.position.y,
+                        state.position.z,
+                    ]);
                     if input.immobile || input.mode == sim::MovementMode::Riding {
                         // Frozen travel and mount-owned jumping cannot continue a local jump arc.
                         processed.jump_initiated = false;

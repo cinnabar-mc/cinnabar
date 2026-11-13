@@ -60,15 +60,15 @@ struct JavaWorld<'a, W> {
 }
 
 impl<W: CollisionWorld> JavaWorld<'_, W> {
-    /// The network id at a position, or `None` where the column is not loaded.
+    /// The network id at a position, or `None` where the column is not loaded. The first
+    /// query error of any other kind is kept in `failure`.
     fn network_id(&self, x: i32, y: i32, z: i32) -> Option<u32> {
         match self.world.primary_block([x, y, z]) {
             Ok(id) => id,
             Err(WorldQueryError::UnloadedChunk(_)) => None,
             Err(error) => {
-                if self.failure.take().is_none() {
-                    self.failure.set(Some(error));
-                }
+                let first = self.failure.take().unwrap_or(error);
+                self.failure.set(Some(first));
                 None
             }
         }
@@ -109,10 +109,7 @@ impl<W: CollisionWorld> World for JavaWorld<'_, W> {
     }
 
     fn chunk_loaded(&self, chunk_x: i32, chunk_z: i32) -> bool {
-        matches!(
-            self.world.primary_block([chunk_x << 4, 0, chunk_z << 4]),
-            Ok(Some(_))
-        )
+        self.network_id(chunk_x << 4, 0, chunk_z << 4).is_some()
     }
 }
 
@@ -133,8 +130,9 @@ pub(super) fn tick(
         world,
         failure: Cell::new(None),
     };
-    let mut shadow = match state.java.take() {
-        Some(shadow) => *shadow,
+    // The state keeps its own player until the tick succeeds, so a failed one changes nothing.
+    let mut shadow = match state.java.as_deref() {
+        Some(shadow) => shadow.clone(),
         None => {
             let mut player = Player::at_feet(
                 state.position.x,
@@ -162,15 +160,17 @@ pub(super) fn tick(
         shadow
             .player
             .lift_onto_surface(&java_world, PLACEMENT_TOLERANCE);
-    } else if state.velocity != shadow.velocity {
-        // A server velocity: knockback or an explosion.
+    }
+    if state.velocity != shadow.velocity {
+        // A server velocity: knockback, an explosion, or the stop a teleport brings.
         shadow
             .player
             .set_velocity(state.velocity.x, state.velocity.y, state.velocity.z);
     }
 
     let flying = input.mode == MovementMode::Flying;
-    // Flight starts and stops by the client's own rules, so the Java player never toggles it.
+    // Flight and sprinting start and stop by the client's own rules, which also decide what
+    // the server is told, so the Java player never changes either by itself.
     shadow.player.set_abilities(Abilities {
         flying,
         allow_flying: false,
@@ -194,6 +194,7 @@ pub(super) fn tick(
         food_level: FED,
         effects,
         movement_blocked: input.immobile,
+        sprint_override: Some(input.sprinting),
     };
     let keys = Input {
         forward: input.forward > 0.0,

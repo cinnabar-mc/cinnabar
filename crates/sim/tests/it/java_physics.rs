@@ -267,7 +267,9 @@ fn replay(path: &Path, hashes: &HashMap<(u16, u8), u32>) -> Result<Option<usize>
             pitch_degrees: f64::from(float(&keys["pitch"])),
             jumping: flag(&keys["j"]),
             sneaking: flag(&keys["s"]),
-            sprinting: flag(&keys["p"]),
+            // The client's own rules decide sprinting on a Java session; the replay supplies
+            // the state the recorded client held through the tick.
+            sprinting: flag(&tick["out"]["sprint"]),
             java_physics: true,
             ..MovementInput::default()
         };
@@ -308,6 +310,68 @@ fn replay(path: &Path, hashes: &HashMap<(u16, u8), u32>) -> Result<Option<usize>
         ticks += 1;
     }
     Ok(Some(ticks))
+}
+
+/// Whether the read of a block fails, given how many reads came before it.
+type Fails = fn([i32; 3], usize) -> bool;
+
+/// A world whose block reads fail when `fails` says so.
+struct FailingWorld {
+    fails: Fails,
+    reads: std::cell::Cell<usize>,
+}
+
+impl CollisionWorld for FailingWorld {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    fn primary_block(&self, block: [i32; 3]) -> Result<Option<u32>, WorldQueryError> {
+        let read = self.reads.get();
+        self.reads.set(read + 1);
+        if (self.fails)(block, read) {
+            Err(WorldQueryError::CoordinateOutOfRange)
+        } else {
+            Ok(Some(AIR_HASH))
+        }
+    }
+}
+
+/// A tick over a world it cannot read fails and leaves the state as it was, however many
+/// reads failed and whether they were block reads or the loaded-column probe.
+#[test]
+fn a_java_tick_over_an_unreadable_world_fails_without_changing_the_state() {
+    let input = MovementInput {
+        java_physics: true,
+        ..MovementInput::default()
+    };
+    let simulator = Simulator::default();
+    let mut settled = PlayerState::new(Vec3::new(8.5, 64.0, 8.5));
+    let readable = FailingWorld {
+        fails: |_, _| false,
+        reads: std::cell::Cell::new(0),
+    };
+    simulator
+        .tick(&mut settled, input, &readable)
+        .expect("a readable world ticks");
+    let cases: [(&str, Fails); 4] = [
+        ("one failed read", |_, read| read == 0),
+        ("two failed reads", |_, read| read < 2),
+        ("every read fails", |_, _| true),
+        // The player stands at Y 64, so only the loaded-column probe reads Y 0.
+        ("the column probe fails", |block, _| block[1] == 0),
+    ];
+    for (name, fails) in cases {
+        let world = FailingWorld {
+            fails,
+            reads: std::cell::Cell::new(0),
+        };
+        let mut state = settled.clone();
+        let result = simulator.tick(&mut state, input, &world);
+        assert!(result.is_err(), "{name}: the tick succeeded");
+        assert!(world.reads.get() > 0, "{name}: the world was never read");
+        assert_eq!(state, settled, "{name}: the failed tick changed the state");
+    }
 }
 
 /// The recorded client's positions, motion and ground flag come out of the simulator bit for

@@ -158,6 +158,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         input_mode: PlayerInputMode::Mouse,
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
+        java_position: None,
     }
 }
 

@@ -1922,18 +1922,24 @@ edition in the session handoff, and the simulator then runs `java-sim` behind th
 state ([`sim` Java mode](crates/sim/src/simulator/java.rs)), reading each block as the
 1.7.10 block its Bedrock state came from. The recorded client traces replay bit for bit
 through the simulator over the core's translation of their worlds, and the physics
-controller's ticks equal `java-sim`'s for the same keys.
+controller's ticks equal `java-sim`'s for the same keys. The movement input carries what its
+single-precision position loses, so the server receives the simulated position exactly.
 
 Incomplete:
 
-- No join has been run in the client itself; the evidence is the tests named here.
-- Positions reach the server in single precision: the client reports its Java position
-  through the Bedrock movement packet, and server teleports reach it the same way, with the
-  feet lifted onto the ground when rounding sinks them into it. The camera sink of sneaking
-  and stepping is missing from the reported stance.
-- On a Java session the client keeps its own sprint and flight rules and feeds the result to
-  `java-sim` as the sprint key and the flying state, so the 1.7.10 double-tap timers do not
-  decide them. Hunger and attribute snapshots (Speed and Slowness) are not carried to
+- The client has joined only an offline-mode vanilla 1.7.10 server on the same machine:
+  it spawned, loaded its chunks, walked, jumped and chatted without a movement warning from
+  the server. No online-mode server, sign-in with the Java Edition services, server with an
+  anticheat, combat, teleport or inventory use has been exercised in the client.
+- Server positions reach the client in single precision: a teleport or the join position
+  crosses in the Bedrock movement packet, with the feet lifted onto the ground when rounding
+  sinks them into it, so the client stands up to one single-precision step from where the
+  server placed it until it next moves. The client's own positions reach the server in
+  double precision. The camera sink of sneaking and stepping is missing from the reported
+  stance.
+- On a Java session the client keeps its own sprint and flight rules and gives `java-sim`
+  the resulting sprint and flying states, so the 1.7.10 double-tap timers and sprint-ending
+  conditions do not decide them. Hunger and attribute snapshots (Speed and Slowness) are not carried to
   `java-sim`. Bedrock's swimming and crawling poses can still engage. Reach, the pick ray
   and the sneaking eye height are still Bedrock's.
 - `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other

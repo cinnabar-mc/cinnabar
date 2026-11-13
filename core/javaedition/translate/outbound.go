@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"math"
 	"unicode/utf16"
 
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
@@ -185,7 +186,7 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 		}
 		st.teleport = nil
 	}
-	x, feet, z := float64(pk.Position[0]), float64(pk.Position[1])-networkOffset, float64(pk.Position[2])
+	x, feet, z := exactPosition(pk)
 	st.position = [3]float64{x, feet, z}
 	st.yaw, st.pitch = pk.Yaw, pk.Pitch
 	s.publish(x, z)
@@ -219,6 +220,31 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 		return s.useItem(&data)
 	}
 	return nil
+}
+
+// exactPosition returns the feet position a client tick reports. The packet's position is
+// in single precision, and a 1.7.10 server reads doubles: a position rounded into a block
+// by a hair is one the server will not walk the player out of. On a Java session the client
+// therefore sends what the rounding lost in the delta and camera orientation fields, as
+// two remainders per axis that add up to the difference. Remainders larger than rounding
+// can lose are some other client's delta and orientation, and are left out.
+func exactPosition(pk *packet.PlayerAuthInput) (x, feet, z float64) {
+	position := [3]float64{float64(pk.Position[0]), float64(pk.Position[1]) - networkOffset, float64(pk.Position[2])}
+	for axis := range position {
+		rest := float64(pk.Delta[axis]) + float64(pk.CameraOrientation[axis])
+		if math.Abs(rest) <= roundingBound(pk.Position[axis]) {
+			position[axis] += rest
+		}
+	}
+	return position[0], position[1], position[2]
+}
+
+// roundingBound is the most a coordinate sent as value can differ from the double it was
+// rounded from: two steps of single precision at its size, which also covers the height's
+// second rounding when the network offset is added.
+func roundingBound(value float32) float64 {
+	size := float32(math.Abs(float64(value))) + 2
+	return 2 * float64(math.Nextafter32(size, float32(math.Inf(1)))-size)
 }
 
 // blockAction translates a mining step to the digging packet a 1.7.10 client sends.

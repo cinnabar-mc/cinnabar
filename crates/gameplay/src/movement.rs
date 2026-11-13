@@ -492,6 +492,7 @@ impl MovementTicker {
             input_mode: sample.input_mode,
             interaction_model: self.interaction_model(sample.input_mode),
             vehicle: sample.processed.vehicle.map(|vehicle| vehicle.input()),
+            java_position: sample.processed.java_position,
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
