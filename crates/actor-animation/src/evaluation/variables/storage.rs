@@ -59,6 +59,8 @@ pub(super) struct Storage {
     pub strings: Vec<Option<Arc<str>>>,
     pub free_strings: Vec<u32>,
     pub writes: Vec<u64>,
+    /// Cleared bitmap a nested effect recording takes instead of allocating one.
+    pub spare_writes: Vec<u64>,
 }
 
 impl Storage {

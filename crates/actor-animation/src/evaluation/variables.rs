@@ -267,9 +267,11 @@ impl MolangVariables {
 
     /// Nested recording preserves the enclosing authored-write bitmap.
     pub(crate) fn begin_effects(&mut self) -> EffectsCapture {
+        // The nested recording starts from the cleared spare bitmap instead of a new one.
+        let spare = std::mem::take(&mut self.buffers.spare_writes);
         let capture = EffectsCapture {
             enabled: self.capture_writes,
-            writes: std::mem::take(&mut self.buffers.writes),
+            writes: std::mem::replace(&mut self.buffers.writes, spare),
             random_draws: self.random_draws,
             random: self.random,
         };
@@ -279,12 +281,21 @@ impl MolangVariables {
 
     /// Completed events restore their enclosing capture after retaining their effects.
     pub(crate) fn finish_effects(&mut self, capture: EffectsCapture) -> MolangEffects {
-        let mut effects = MolangEffects {
-            random_draws: self.random_draws.wrapping_sub(capture.random_draws),
-            random_start: capture.random,
-            random_end: self.random,
-            ..Default::default()
-        };
+        let mut effects = MolangEffects::default();
+        self.finish_effects_into(capture, &mut effects);
+        effects
+    }
+
+    /// [`Self::finish_effects`] replacing `effects` in place, keeping its storage.
+    pub(crate) fn finish_effects_into(
+        &mut self,
+        capture: EffectsCapture,
+        effects: &mut MolangEffects,
+    ) {
+        effects.writes.clear();
+        effects.random_draws = self.random_draws.wrapping_sub(capture.random_draws);
+        effects.random_start = capture.random;
+        effects.random_end = self.random;
         for (word, &bits) in self.buffers.writes.iter().enumerate() {
             let mut bits = bits;
             while bits != 0 {
@@ -306,9 +317,10 @@ impl MolangVariables {
                 *target |= bits;
             }
         }
-        self.buffers.writes = writes;
+        let mut recorded = std::mem::replace(&mut self.buffers.writes, writes);
+        recorded.clear();
+        self.buffers.spare_writes = recorded;
         self.capture_writes = capture.enabled;
-        effects
     }
 
     /// Records authored assignments after endpoint pre-animation without copying frozen inputs.
@@ -588,6 +600,45 @@ mod tests {
             assert!(variables.buffers.live_temps.is_empty());
             assert!(variables.buffers.strings.iter().all(Option::is_none));
         }
+    }
+
+    /// An expression that misses its frame cache records again every frame. Its reset input
+    /// record, its effect journal and the nested write bitmap must keep their storage.
+    #[test]
+    fn re_recording_keeps_observed_effect_and_write_bitmap_storage() {
+        let layout = VariableLayout {
+            variable_count: 3,
+            temp_count: 1,
+            ..Default::default()
+        };
+        let mut variables = layout.fresh(7);
+        variables
+            .store(Place::Variable(0), MolangValue::Number(1.0))
+            .unwrap();
+        let mut observed = ObservedInputs::new(&variables);
+        let mut effects = MolangEffects::default();
+        let mut record = |observed: &mut ObservedInputs, effects: &mut MolangEffects| {
+            observed.reset(&variables);
+            let capture = variables.begin_effects();
+            observed.variable(0, Place::Variable(0), &variables);
+            observed.query(9, &[MolangValue::Number(2.0)], &MolangValue::Number(3.0));
+            observed.written(1, Place::Variable(1), &variables);
+            variables
+                .store(Place::Variable(1), MolangValue::Number(4.0))
+                .unwrap();
+            variables.finish_effects_into(capture, effects);
+            assert_eq!(observed.weight(), 5);
+            assert_eq!(effects.writes.len(), 1);
+        };
+        // The first recording sizes the storage; the bitmap is the spare from the second on.
+        record(&mut observed, &mut effects);
+        record(&mut observed, &mut effects);
+        let (_, allocations) = test_alloc::count(|| {
+            for _ in 0..3 {
+                record(&mut observed, &mut effects);
+            }
+        });
+        assert_eq!(allocations, 0);
     }
 
     #[test]
