@@ -67,6 +67,7 @@ fn poll<T: Resource>(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_scene::startup_work::WorldGpuStart;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -79,7 +80,7 @@ mod tests {
     fn world_gpu_construction_starts_after_menu_completion_without_a_join() {
         let mut app = SubApp::new();
         app.init_schedule(Render);
-        let admission = WorldWorkAdmission::after_menu();
+        let admission = WorldWorkAdmission::after_menu(WorldGpuStart::AfterMenu);
         app.insert_resource(admission.clone());
         let count = Arc::new(AtomicUsize::new(0));
         let worker = count.clone();

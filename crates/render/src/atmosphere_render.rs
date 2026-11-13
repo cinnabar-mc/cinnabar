@@ -123,7 +123,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
                 prepare_atmosphere_uniform.in_set(RenderSystems::PrepareResources),
                 prepare_atmosphere_textures
                     .in_set(RenderSystems::PrepareResources)
-                    .run_if(render_scene::startup_work::world_work_allowed),
+                    .run_if(render_scene::startup_work::world_uploads_allowed),
                 prepare_atmosphere_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_atmosphere
                     .in_set(crate::world_passes::WorldPassSystems)
