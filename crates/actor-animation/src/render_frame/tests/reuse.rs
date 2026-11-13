@@ -302,3 +302,26 @@ fn unchanged_frames_replay_each_occurrence_of_a_side_effecting_expression() {
     assert_eq!(evaluation::take_expression_work().iter().sum::<usize>(), 0);
     assert_eq!(authored_state(&store), authored);
 }
+
+/// Borrowing readers see the frame's own sampled layers; only the copying accessor allocates
+/// another set.
+#[test]
+fn borrowed_readers_share_the_frames_sampled_layers() {
+    let (store, actor) = fixture();
+    let actors = HashMap::from([(1, actor)]);
+    let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], 0.75);
+    assert!(frame.sampled(1).is_none(), "nothing is sampled yet");
+    let sampled = frame.sample_layers(1).unwrap();
+    assert!(
+        matches!(sampled.render, Cow::Owned(_)),
+        "the fixture's frame-dependent layer makes the sample frame-owned"
+    );
+    let layers = sampled.render.as_ptr();
+    assert_eq!(frame.sample_layers(1).unwrap().render.as_ptr(), layers);
+    let view = frame.sampled(1).unwrap().reborrow();
+    assert!(matches!(view.render, Cow::Borrowed(_)));
+    assert_eq!(view.render.as_ptr(), layers);
+    let copy = frame.layers_with_skin(1).unwrap();
+    assert_ne!(copy.render.as_ptr(), layers);
+    assert_eq!(copy.render, frame.sampled(1).unwrap().render);
+}

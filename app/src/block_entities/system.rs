@@ -616,6 +616,8 @@ pub(crate) fn update_block_entity_scene(
                     && let Some(eye) = occlusion_eye
                     && let Some(cave) = cave.as_deref()
                 {
+                    // Runs per block entity: an ungated span would pay every log layer each time.
+                    #[cfg(any(feature = "tracy", feature = "frame-trace"))]
                     let _zone = bevy::log::info_span!("block_entity.occlusion").entered();
                     hidden = stream.terrain_hides_box(
                         &mut occlusion_budget,
