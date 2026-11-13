@@ -542,7 +542,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.insert_resource(packet_mods);
     app.insert_resource(feedback.clone());
     configure_client_frame_schedule(&mut app);
-    let safe_graphics = render_setup::safe_graphics::start(
+    // Held until this function returns, so every return path ends the renderer's run marker.
+    let (safe_graphics, _renderer_run) = render_setup::safe_graphics::start(
         &renderer_data_root,
         saved_settings.graphics_api_revision(),
     );

@@ -243,6 +243,18 @@ pub fn end(end: RunEnd) {
     update(|breadcrumb| breadcrumb.end(end));
 }
 
+/// Ends the run marker as [`RunEnd::Clean`] when dropped. A launch holds one from the moment
+/// its marker starts until it returns, so every return path ends the marker, including a
+/// startup error raised before the event loop. A cause recorded earlier is stronger and stays.
+#[must_use = "the run ends when this is dropped"]
+pub struct RunScope;
+
+impl Drop for RunScope {
+    fn drop(&mut self) {
+        end(RunEnd::Clean);
+    }
+}
+
 /// Whether a panic has been recorded and not yet outlived; one atomic read, for every frame.
 pub fn panic_recorded() -> bool {
     PANICKED.load(Ordering::Acquire)

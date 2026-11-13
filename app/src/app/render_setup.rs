@@ -56,9 +56,6 @@ impl bevy::prelude::Plugin for RendererSetup {
             self.graphics_api_revision,
             settings,
         );
-        if result.is_err() {
-            safe_graphics::startup_failed();
-        }
         install_result(app, result);
         safe_graphics::install(app, &self.safe_graphics);
         app.add_plugins(render::PipelineCompilationPlugin {
@@ -112,7 +109,6 @@ pub(super) fn finish_prerequisite<T>(
 ) -> anyhow::Result<T> {
     if result.is_err() {
         guarded::cancel_startup(app);
-        safe_graphics::startup_failed();
     }
     result
 }

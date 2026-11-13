@@ -2115,8 +2115,9 @@ Flathub submission remain incomplete.
   marker and each consumer. Incomplete: no phone has run the ladder, so whether any level
   avoids the reported Adreno, Mali or PowerVR faults is unknown; a native fault outside the
   driver is not told apart from one inside it; the menu's world warm-up is not deferred by the
-  ladder; the levels do not yet restrict requested device features, lower the upload budget or
-  name the failing pipeline; and desktop, where Linux also has one API, keeps backend exclusion.
+  ladder; apart from the two indirect-draw features the last level drops, every level still
+  requests all adapter and experimental features; no level lowers the upload budget or names
+  the failing pipeline; and desktop, where Linux also has one API, keeps backend exclusion.
   Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.

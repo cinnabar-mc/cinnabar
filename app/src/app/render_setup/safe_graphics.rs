@@ -13,7 +13,7 @@ use launcher::graphics_backend::Platform;
 use launcher_host::{
     lifecycle::crash::state::SessionPhase,
     renderer_startup::{
-        breadcrumb::{self, RunEnd, RunStage},
+        breadcrumb::{self, RunEnd, RunScope, RunStage},
         exit_record,
         safe_mode::{self, Launch, SafeStart},
     },
@@ -39,7 +39,15 @@ pub(super) const PANIC_SURVIVAL_TIME: Duration = Duration::from_secs(5);
 /// Chooses the level before any plugin is built, logs it with the reason and starts the run
 /// marker. Only platforms whose policy steps down within one graphics API keep a ladder;
 /// [`SafeGraphics::ENV`] forces a level anywhere and saves nothing.
-pub(crate) fn start(data_root: &Path, graphics_api_revision: u64) -> SafeStart {
+///
+/// The caller holds the returned scope until the launch returns: dropping it ends the run
+/// marker, so no return path, such as a failed prerequisite, leaves a run that looks killed.
+pub(crate) fn start(data_root: &Path, graphics_api_revision: u64) -> (SafeStart, RunScope) {
+    (choose(data_root, graphics_api_revision), RunScope)
+}
+
+/// Chooses and logs the level; see [`start`].
+fn choose(data_root: &Path, graphics_api_revision: u64) -> SafeStart {
     let forced = std::env::var(SafeGraphics::ENV)
         .ok()
         .and_then(|value| SafeGraphics::parse(&value));
@@ -90,11 +98,6 @@ pub(super) fn install(app: &mut App, start: &SafeStart) {
         app.add_systems(Update, track_run)
             .add_systems(Last, record_exit.in_set(OnAppExitSystems));
     }
-}
-
-/// Ends the run marker for a startup that failed with a returned error, which is not a crash.
-pub(super) fn startup_failed() {
-    breadcrumb::end(RunEnd::Clean);
 }
 
 /// What one frame shows about the run.

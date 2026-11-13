@@ -38,6 +38,18 @@ fn previous_run(root: &Path, level: SafeGraphics, run: impl FnOnce(&mut Breadcru
     run(&mut breadcrumb);
 }
 
+/// Serializes launches, each of which replaces the process's one run marker, with the test
+/// that reads that marker back.
+static PROCESS_RUN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// [`start`] while no other test holds the process's run marker.
+fn start(root: &Path, launch: Launch<'_>) -> SafeStart {
+    let _run = PROCESS_RUN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    super::start(root, launch)
+}
+
 /// The next launch after a run that Android recorded as `exit`.
 fn launch(root: &Path, exit: Option<ExitRecord>) -> SafeStart {
     start(
@@ -445,4 +457,42 @@ fn a_forced_level_saves_nothing_and_drops_the_previous_marker() {
     let after = launch(dir.path(), exit(NATIVE_CRASH));
     assert_eq!(after.level, SafeGraphics::Off);
     assert!(after.reason.contains("no earlier run"), "{}", after.reason);
+}
+
+#[test]
+fn a_launch_that_returns_ends_its_marker_instead_of_looking_killed_at_startup() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = PROCESS_RUN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let scope = breadcrumb::RunScope;
+    super::start(
+        dir.path(),
+        Launch {
+            version: VERSION,
+            graphics_api_revision: 0,
+            exit: None,
+            now_ms: STARTED_MS,
+        },
+    );
+    let marker = |root: &Path| match breadcrumb::previous(root) {
+        Previous::Marker(marker) => marker,
+        other => panic!("expected a marker, read {other:?}"),
+    };
+    // Left like this, with no exit record, the next process would count a startup death.
+    let unfinished = marker(dir.path());
+    assert_eq!(unfinished.end, None);
+    assert_eq!(
+        outcome(Some(&unfinished), ExitKind::Unknown),
+        Outcome::RendererDeath
+    );
+    // The launch returns, for example because a prerequisite failed before the event loop.
+    drop(scope);
+    let returned = marker(dir.path());
+    drop(run);
+    assert_eq!(returned.end, Some(RunEnd::Clean));
+    assert_eq!(
+        outcome(Some(&returned), ExitKind::Unknown),
+        Outcome::Inconclusive
+    );
 }
