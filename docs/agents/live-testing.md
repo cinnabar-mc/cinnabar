@@ -249,6 +249,7 @@ retained staging. They count client code only, not Bevy's own passes or buffer w
 not draw calls or pipeline creation; the architecture gate keeps client passes and queue writes
 on the counted entry points. Frame traces carry the same values as a `render_counts` counter
 event per render frame.
+
 `input_age` runs from the update's start, where input is sampled, to the end of its render
 extraction. `input_pacing_wait` is the deliberate main-thread delay before the next input sample, until the
 later of its frame-rate cadence slot and the predicted render-thread completion;
