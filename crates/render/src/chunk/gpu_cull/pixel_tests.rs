@@ -8,12 +8,29 @@ use std::sync::Arc;
 
 /// A native renderer with exactly the storage and indirect features under test.
 fn fixture(features: WgpuFeatures, storage: u32) -> Option<(App, Entity, Handle<Image>)> {
+    fixture_profiled(features, storage, None)
+}
+
+/// [`fixture`], with the frame profiler's render stages installed when `profiler` is given.
+fn fixture_profiled(
+    features: WgpuFeatures,
+    storage: u32,
+    profiler: Option<render_scene::RuntimeStageProfiler>,
+) -> Option<(App, Entity, Handle<Image>)> {
     eprintln!("terrain fixture device: storage {storage}, features {features:?}");
     let render =
         render_plugin_with_storage_limit(wgpu::Backends::PRIMARY, features, Some(storage))?;
     eprintln!("terrain fixture installing app");
-    let (mut app, camera) =
-        app_tests::chunk_app_with(render, Msaa::Off, camera_views()[0], |app| {
+    let (mut app, camera) = app_tests::chunk_app_prepared(
+        render,
+        Msaa::Off,
+        camera_views()[0],
+        |app| {
+            if let Some(profiler) = profiler {
+                app.insert_resource(profiler);
+            }
+        },
+        |app| {
             app.insert_resource(render_scene::ChunkTextureAssets::with_revision(
                 Arc::clone(crate::chunk::tests::opaque_runtime_assets()),
                 0,
@@ -25,7 +42,8 @@ fn fixture(features: WgpuFeatures, storage: u32) -> Option<(App, Entity, Handle<
             for (_, image) in images.iter_mut() {
                 image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
             }
-        });
+        },
+    );
     app.world_mut().entity_mut(camera).insert(Tonemapping::None);
     let RenderTarget::Image(image) = app.world().get::<RenderTarget>(camera).unwrap() else {
         panic!("terrain fixture requires an image target");
@@ -240,6 +258,56 @@ fn terrain_pixels_match_across_storage_limits_and_draw_modes() {
             );
         }
     }
+}
+
+/// The frame profiler's render stages time the graph without changing what it draws: with
+/// them installed, completed frames cover the same pixels, and every stage saw those frames.
+#[test]
+fn terrain_pixels_match_with_frame_profiler_stages() {
+    use render_scene::{RuntimeStage, RuntimeStageProfiler};
+    let storage = required_vertex_storage_buffers();
+    let Some((mut reference, camera, image)) = fixture(WgpuFeatures::empty(), storage) else {
+        eprintln!("missing fixture: native GPU for terrain pixel comparisons");
+        return;
+    };
+    let expected = terrain_frames(&mut reference, camera, &image);
+    drop(reference);
+    let profiler = RuntimeStageProfiler::new(true);
+    let Some((mut app, camera, image)) =
+        fixture_profiled(WgpuFeatures::empty(), storage, Some(profiler.clone()))
+    else {
+        eprintln!("missing fixture: native GPU for terrain pixel comparisons");
+        return;
+    };
+    let actual = terrain_frames(&mut app, camera, &image);
+    for (view, (expected, actual)) in expected.iter().zip(&actual).enumerate() {
+        assert_coverage(expected, actual, format_args!("profiled view {view}"));
+    }
+    let samples = profiler.stage_samples().expect("aggregate profiling");
+    for stage in [
+        RuntimeStage::RenderSubmission,
+        RuntimeStage::RenderGraph,
+        RuntimeStage::EncodeFinish,
+        RuntimeStage::QueueSubmit,
+        RuntimeStage::SurfacePresent,
+    ] {
+        assert!(
+            samples[stage as usize].count > 0,
+            "{} never recorded",
+            stage.name()
+        );
+    }
+    let nodes: u64 = [
+        RuntimeStage::NodeUploads,
+        RuntimeStage::NodeCull,
+        RuntimeStage::NodeOpaque,
+        RuntimeStage::NodeTransparent,
+        RuntimeStage::NodePost,
+    ]
+    .iter()
+    .map(|stage| samples[*stage as usize].count)
+    .sum();
+    assert!(nodes > 0, "no graph node recorded its time");
 }
 
 /// Occlusion toggles and repeated uploads cannot leave a previously visible scene blank.

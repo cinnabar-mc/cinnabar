@@ -105,13 +105,18 @@ pub(crate) fn install_graph(world: &mut World) {
     let installed = world
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
-                crate::gpu_timing::profiled(node::entity_shadows, None, "EntityShadowLabel")
-                    .in_set(EntityShadowLabel)
-                    .after(crate::scene_target::ScenePass::Opaque)
-                    .after(crate::chunk::GpuCullLateLabel)
-                    .after(crate::far_terrain::FarTerrainLabel)
-                    .before(crate::scene_target::ScenePass::Transparent)
-                    .in_set(Core3dSystems::MainPass),
+                crate::gpu_timing::profiled(
+                    node::entity_shadows,
+                    None,
+                    render_scene::RuntimeStage::NodeShadows,
+                    "EntityShadowLabel",
+                )
+                .in_set(EntityShadowLabel)
+                .after(crate::scene_target::ScenePass::Opaque)
+                .after(crate::chunk::GpuCullLateLabel)
+                .after(crate::far_terrain::FarTerrainLabel)
+                .before(crate::scene_target::ScenePass::Transparent)
+                .in_set(Core3dSystems::MainPass),
             );
         })
         .is_ok();

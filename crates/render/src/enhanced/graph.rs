@@ -28,6 +28,7 @@ pub(super) fn install_graph(world: &mut World) {
                     profiled(
                         enhanced_shadows,
                         Some(RuntimeStage::GpuShadows),
+                        render_scene::RuntimeStage::NodeShadows,
                         "EnhancedShadowLabel",
                     )
                     .in_set(EnhancedShadowLabel)
@@ -35,6 +36,7 @@ pub(super) fn install_graph(world: &mut World) {
                     profiled(
                         enhanced_snapshot,
                         Some(RuntimeStage::GpuBlit),
+                        render_scene::RuntimeStage::NodePost,
                         "EnhancedSnapshotLabel",
                     )
                     .in_set(EnhancedSnapshotLabel)
@@ -61,12 +63,14 @@ pub(super) fn install_graph(world: &mut World) {
                 profiled(
                     enhanced_post,
                     Some(RuntimeStage::GpuPost),
+                    render_scene::RuntimeStage::NodePost,
                     "EnhancedPostLabel",
                 )
                 .in_set(EnhancedPostLabel),
                 profiled(
                     enhanced_hand_composite,
                     Some(RuntimeStage::GpuHand),
+                    render_scene::RuntimeStage::NodeHand,
                     "EnhancedHandCompositeLabel",
                 )
                 .in_set(EnhancedHandCompositeLabel),

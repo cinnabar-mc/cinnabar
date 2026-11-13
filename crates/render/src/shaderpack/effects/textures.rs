@@ -22,6 +22,7 @@ use super::Effect;
 use super::weather::{RAIN_SHEET_SIZE, rain_sheet};
 use crate::block_entity::BlockEntityGpu;
 use crate::particle_render::ParticleGpu;
+use crate::queue_writes::ProfiledQueue as _;
 use crate::shaderpack::draws::DrawKind;
 use assets::AtmosphereRole;
 use bevy::prelude::*;
@@ -148,7 +149,7 @@ fn write(
     if size[0] == 0 || size[1] == 0 || rgba.len() < (size[0] * size[1] * 4) as usize {
         return;
     }
-    queue.write_texture(
+    queue.profiled_write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,
             mip_level: 0,

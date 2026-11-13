@@ -391,6 +391,7 @@ fn timed_world() -> (World, Arc<AtomicU32>) {
             counter.fetch_add(1, Ordering::Relaxed);
         },
         Some(RuntimeStage::GpuOpaque),
+        RuntimeStage::NodeOpaque,
         "fixture opaque",
     ));
     world.add_schedule(schedule);

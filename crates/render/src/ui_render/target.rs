@@ -2,6 +2,7 @@
 
 use super::upscale::{FsrConstants, UpscalePass, UpscalePipeline, UpscalePipelines};
 use crate::gpu_allocation::{self, FailedRequests};
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     core_pipeline::blit::{BlitPipeline, BlitPipelineKey},
     prelude::*,
@@ -326,7 +327,7 @@ fn encode_blit(
             store: StoreOp::Store,
         },
     })];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some(label),
         color_attachments: &attachments,
         depth_stencil_attachment: None,

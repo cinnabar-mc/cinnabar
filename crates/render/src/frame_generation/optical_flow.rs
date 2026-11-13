@@ -39,6 +39,9 @@
 //! The vectors point from a block of this frame to where it was in the previous one, in
 //! display pixels: content moving right by 4 pixels gives (-4, 0).
 
+use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedPasses as _;
+
 /// The size in pixels of the square blocks the flow has one vector for.
 pub const BLOCK_SIZE: u32 = 8;
 /// `OpticalFlowMaxPyramidLevels`: the search's levels.
@@ -384,7 +387,7 @@ impl OpticalFlow {
                 transfer_function: 0,
                 min_max_luminance: [0.0, 1.0],
             };
-            queue.write_buffer(buffer, 0, bytemuck::bytes_of(&params));
+            queue.profiled_write_buffer(buffer, 0, bytemuck::bytes_of(&params));
         }
         let frame = &self.frames[(self.resource_frame & 1) as usize];
         let prepare = bind(
@@ -398,7 +401,7 @@ impl OpticalFlow {
         );
         let p = &self.pipelines;
         let [w, h] = self.display;
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Optical flow"),
             timestamp_writes: None,
         });

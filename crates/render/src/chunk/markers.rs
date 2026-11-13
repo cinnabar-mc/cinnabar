@@ -7,6 +7,7 @@
 //! vertex buffers, so no device binding limit bounds how many markers draw, and flipbook art
 //! follows the shared terrain animation clock on the GPU.
 
+use crate::queue_writes::ProfiledQueue as _;
 use assets::{
     ANIMATION_FLAG_BLEND, Animation, BlockFace, DIAGNOSTIC_MATERIAL, Material, NetworkIdMode,
     RuntimeAssets, TerrainMarker, TextureRef,
@@ -500,7 +501,7 @@ fn prepare_markers(
         .iter()
         .zip(batch.instances.chunks(CHUNK_INSTANCES))
     {
-        queue.write_buffer(buffer, 0, bytemuck::cast_slice(instances));
+        queue.profiled_write_buffer(buffer, 0, bytemuck::cast_slice(instances));
     }
     let table = |label, contents: &[u8]| {
         device.create_buffer_with_data(&BufferInitDescriptor {

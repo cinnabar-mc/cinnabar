@@ -2,6 +2,7 @@
 //! texture layers in the fragment becomes one layer the pack samples as `gtexture`.
 //! Masked two-texture layers retain cutout alpha; dye and three-texture layers are opaque.
 
+use crate::render_counting::CountedPasses as _;
 use std::num::NonZeroU64;
 
 use bevy::asset::uuid_handle;
@@ -257,7 +258,7 @@ fn dispatch(
         ],
     });
     let size = texture.size();
-    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+    let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some("shader-pack actor layer composition"),
         timestamp_writes: None,
     });

@@ -1,4 +1,5 @@
 use super::{super::*, array};
+use crate::render_counting::CountedPasses as _;
 
 #[test]
 fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources() {
@@ -171,7 +172,7 @@ fn sample_page(page:u32,layer:i32,mip:i32)->vec4<f32>{
         });
     let mut encoder = device.create_command_encoder(&Default::default());
     {
-        let mut pass = encoder.begin_compute_pass(&Default::default());
+        let mut pass = encoder.counted_compute_pass(&Default::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &group, &[]);
         pass.dispatch_workgroups(1, 1, 1);

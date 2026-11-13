@@ -15,6 +15,7 @@ use super::{
     layer::{LayerDrawn, UiLayerDraw, draw_batches, draw_ui_layer},
 };
 use crate::gpu_allocation::checked;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::{
     render_resource::{
         BindGroupLayout, Extent3d, LoadOp, Operations, RenderPassColorAttachment,
@@ -261,7 +262,7 @@ impl Blur<'_> {
                     store: StoreOp::Store,
                 },
             })];
-            let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
                 label: Some("UI element filter downsample"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: None,
@@ -295,7 +296,7 @@ impl Blur<'_> {
                 store: StoreOp::Store,
             },
         })];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("UI element filter composite"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,

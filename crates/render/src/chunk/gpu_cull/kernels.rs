@@ -1,5 +1,6 @@
 //! Cull and depth-pyramid compute kernels on raw wgpu, so fixture tests drive the production code.
 
+use crate::render_counting::CountedPasses as _;
 use std::{borrow::Cow, num::NonZeroU64};
 
 use super::storage::{CullStorage, OcclusionStorage};
@@ -349,7 +350,7 @@ impl CullKernels {
         slots: u32,
         timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain cull"),
             timestamp_writes,
         });
@@ -396,7 +397,7 @@ impl CullKernels {
         if groups == 0 {
             return;
         }
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain occlusion"),
             timestamp_writes: None,
         });
@@ -480,7 +481,7 @@ impl CullKernels {
         bindings: &PyramidBindings,
         timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain hi-z"),
             timestamp_writes,
         });
