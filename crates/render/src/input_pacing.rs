@@ -42,7 +42,9 @@ const MEDIAN: usize = HISTORY / 2;
 /// background windows check less often.
 const SERVICE_SLICE: Duration = Duration::from_millis(1);
 const BACKGROUND_SERVICE_SLICE: Duration = Duration::from_millis(4);
-/// Spin before a focused deadline: starts here, then covers recent sleep overshoot.
+/// Spin before a focused desktop deadline: starts here, then covers recent sleep overshoot.
+/// Phones never spin: their timers already wake within tens of microseconds, and a spinning
+/// big core holds its clock up and heats a device that throttles hard.
 const INITIAL_SPIN: Duration = Duration::from_micros(200);
 const MIN_SPIN: Duration = Duration::from_micros(50);
 const MAX_SPIN: Duration = Duration::from_micros(500);
@@ -61,7 +63,7 @@ use crate::{FrameEnd, FrameStart};
 pub struct FramePacing {
     /// At most one frame samples input per slot of this rate; `None` paces on rendering alone.
     pub rate: Option<FrameRate>,
-    /// Spins briefly before each deadline for precision; only worth a core while focused.
+    /// Wakes close to each deadline, with a brief desktop spin; only worth a core while focused.
     pub precise: bool,
     /// Display-synchronized presentation owns GPU backpressure instead of queue prediction.
     pub display_sync: bool,
@@ -71,11 +73,13 @@ pub struct FramePacing {
 pub(crate) trait PacingClock: Send + Sync + 'static {
     fn now(&self) -> Instant;
     /// Blocks until `deadline` or until `done` returns true; `done` also runs main-thread tasks.
-    /// `precise` permits a short spin so the wake lands on the deadline.
+    /// `precise` wakes in short service slices and, on desktop, permits a short spin so the
+    /// wake lands on the deadline.
     fn wait_until(&self, deadline: Instant, precise: bool, done: &mut dyn FnMut() -> bool);
 }
 
-/// Sleeps on the OS's absolute monotonic timer, then spins the stretch its wakes overshoot by.
+/// Sleeps on the OS's absolute monotonic timer, then on desktop spins the stretch its wakes
+/// overshoot by.
 struct SystemClock {
     spin: Mutex<SpinEstimate>,
 }
@@ -151,31 +155,76 @@ fn nth_largest(samples: &[Duration], skipped: usize) -> Duration {
     largest[skipped]
 }
 
+/// How a wait spends part of the time left before its deadline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WaitStep {
+    /// Sleep this long, then check completion again; `final_sleep` ends where the spin begins.
+    Sleep {
+        duration: Duration,
+        final_sleep: bool,
+    },
+    /// Busy-wait: the deadline is inside the spin window.
+    Spin,
+}
+
+/// Picks the next step for a wait with `remaining` (non-zero) time left on a mobile or desktop
+/// platform. Focused desktop waits spin for `measured_spin` before the deadline; mobile and
+/// background waits never spin. Sleeps are bounded by the service slice so completion and
+/// main-thread tasks are checked regularly.
+fn wait_step(
+    mobile: bool,
+    precise: bool,
+    measured_spin: Duration,
+    remaining: Duration,
+) -> WaitStep {
+    let (spin, slice) = match (precise, mobile) {
+        (true, false) => (measured_spin, SERVICE_SLICE),
+        (true, true) => (Duration::ZERO, SERVICE_SLICE),
+        (false, _) => (Duration::ZERO, BACKGROUND_SERVICE_SLICE),
+    };
+    match remaining.checked_sub(spin).filter(|sleep| !sleep.is_zero()) {
+        Some(sleep) => WaitStep::Sleep {
+            duration: sleep.min(slice),
+            final_sleep: sleep <= slice,
+        },
+        None => WaitStep::Spin,
+    }
+}
+
+/// Whether wake overshoot is measured to size the spin; only spinning waits use it.
+const fn measures_overshoot(mobile: bool, precise: bool) -> bool {
+    precise && !mobile
+}
+
 impl PacingClock for SystemClock {
     fn now(&self) -> Instant {
         Instant::now()
     }
 
     fn wait_until(&self, deadline: Instant, precise: bool, done: &mut dyn FnMut() -> bool) {
-        let (spin, slice) = if precise {
-            (self.spin(), SERVICE_SLICE)
-        } else {
-            (Duration::ZERO, BACKGROUND_SERVICE_SLICE)
-        };
-        let spin_from = deadline.checked_sub(spin).unwrap_or(deadline);
+        let mobile = render_api::MOBILE_PLATFORM;
+        let measure = measures_overshoot(mobile, precise);
+        let measured_spin = if measure { self.spin() } else { Duration::ZERO };
         while !done() {
             let now = Instant::now();
-            if now >= deadline {
+            let Some(remaining) = deadline
+                .checked_duration_since(now)
+                .filter(|remaining| !remaining.is_zero())
+            else {
                 return;
-            }
-            if now < spin_from {
-                let target = spin_from.min(now + slice);
-                wait::sleep_until(target);
-                if precise && target == spin_from {
-                    self.record_overshoot(Instant::now().saturating_duration_since(target));
+            };
+            match wait_step(mobile, precise, measured_spin, remaining) {
+                WaitStep::Sleep {
+                    duration,
+                    final_sleep,
+                } => {
+                    let target = now + duration;
+                    wait::sleep_until(target);
+                    if measure && final_sleep {
+                        self.record_overshoot(Instant::now().saturating_duration_since(target));
+                    }
                 }
-            } else {
-                std::hint::spin_loop();
+                WaitStep::Spin => std::hint::spin_loop(),
             }
         }
     }

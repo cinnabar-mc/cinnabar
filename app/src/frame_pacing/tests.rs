@@ -207,16 +207,20 @@ fn leaving_a_world_caps_menus_and_hidden_runs_keep_the_requested_limit() {
 }
 
 #[test]
-fn unsaved_frame_rate_settings_leave_gameplay_unlimited() {
+fn unsaved_frame_rate_settings_pace_gameplay_at_the_platform_default() {
     let video = launcher::menu::settings_options::SettingsOptions::default()
         .user_settings()
         .video;
-    assert_eq!(video.frame_rate_limit, FrameRateLimit::Unlimited);
+    assert_eq!(video.frame_rate_limit, FrameRateLimit::DEFAULT);
     let (app, _) = pacing_app_with((None, false), video.frame_rate_limit, |settings| {
         settings.vsync = render_api::VsyncMode::Off;
         settings.vrr = render_api::VrrPreference::Off;
     });
-    assert_eq!(pacing(&app).rate, None);
+    let expected = match FrameRateLimit::DEFAULT {
+        FrameRateLimit::Fixed(fps) => hz(u32::from(fps.get())),
+        FrameRateLimit::Unlimited => None,
+    };
+    assert_eq!(pacing(&app).rate, expected);
 }
 
 #[test]

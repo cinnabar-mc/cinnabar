@@ -189,10 +189,7 @@ pub fn frame_rate_target(
         FrameRateLimit::Fixed(fps) => FrameRate::from_hz(u32::from(fps.get())),
     };
     let requested = if context == FrameRateContext::Menus {
-        match (requested, display.refresh) {
-            (Some(requested), Some(refresh)) => Some(requested.min(refresh)),
-            (requested, refresh) => requested.or(refresh),
-        }
+        menu_rate(requested, display.refresh, render_api::MOBILE_PLATFORM)
     } else {
         requested
     };
@@ -207,6 +204,18 @@ pub fn frame_rate_target(
         (Some(requested), Some(ceiling)) => Some(requested.min(ceiling)),
         (requested, ceiling) => requested.or(ceiling),
     }
+}
+
+/// Menus run at the lowest of the player's limit, the display refresh and the mobile or
+/// desktop platform's menu ceiling; `None` when none of them is known.
+fn menu_rate(
+    requested: Option<FrameRate>,
+    refresh: Option<FrameRate>,
+    mobile: bool,
+) -> Option<FrameRate> {
+    let ceiling = FrameRateLimit::platform_menu_ceiling(mobile)
+        .and_then(|fps| FrameRate::from_hz(u32::from(fps.get())));
+    [requested, refresh, ceiling].into_iter().flatten().min()
 }
 
 /// Whether gameplay or menus determine the frame-rate ceiling.

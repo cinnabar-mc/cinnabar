@@ -212,6 +212,20 @@ pub const MIN_FIXED_FRAME_RATE: i32 = 1;
 pub const MAX_FIXED_FRAME_RATE: i32 = 240;
 /// Unlimited follows the numeric caps on the frame-rate slider.
 pub const FRAME_RATE_UNLIMITED: i32 = MAX_FIXED_FRAME_RATE + 1;
+/// The slider stop of this platform's starting limit, `render_api::FrameRateLimit::DEFAULT`.
+pub const DEFAULT_FRAME_RATE: i32 = frame_rate_value(render_api::FrameRateLimit::DEFAULT);
+const _: () = assert!(
+    frame_rate_value(render_api::FrameRateLimit::platform_default(true)) <= MAX_FIXED_FRAME_RATE,
+    "the mobile cap must be a selectable slider stop"
+);
+
+/// The frame-rate slider stop for `limit`: its FPS, or Unlimited past the fixed caps.
+pub const fn frame_rate_value(limit: render_api::FrameRateLimit) -> i32 {
+    match limit {
+        render_api::FrameRateLimit::Fixed(fps) => fps.get() as i32,
+        render_api::FrameRateLimit::Unlimited => FRAME_RATE_UNLIMITED,
+    }
+}
 
 /// Supplies the common persisted fields; the registry adds section and reset membership.
 const fn option(
@@ -392,7 +406,7 @@ settings! {
         [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
     ChunkOcclusionCulling => "chunk_occlusion_culling", toggle("Chunk Occlusion Culling", render_api::DEFAULT_CHUNK_OCCLUSION_CULLING),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
-    MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, FRAME_RATE_UNLIMITED),
+    MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, DEFAULT_FRAME_RATE),
         [(SettingPanel::VideoGraphics, 1)], [SettingsGroup::Video], None, None;
     Msaa => "msaa", slider("options.msaa", ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32, ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32, ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32),
         [(SettingPanel::VideoGraphics, 4)], [SettingsGroup::Video], None, None;

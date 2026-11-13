@@ -140,6 +140,28 @@ fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() 
 }
 
 #[test]
+fn desktop_menus_follow_the_display_and_retain_lower_player_caps() {
+    let refresh = Some(hz(144));
+    for requested in [None, Some(hz(240))] {
+        assert_eq!(menu_rate(requested, refresh, false), refresh);
+    }
+    assert_eq!(menu_rate(Some(hz(30)), refresh, false), Some(hz(30)));
+    assert_eq!(menu_rate(None, None, false), None);
+}
+
+/// Phones keep menus at 60 FPS even on faster panels or with an unlimited player cap.
+#[test]
+fn mobile_menus_never_exceed_sixty_fps() {
+    for refresh in [Some(hz(120)), None] {
+        for requested in [None, Some(hz(90)), Some(hz(240))] {
+            assert_eq!(menu_rate(requested, refresh, true), Some(hz(60)));
+        }
+        assert_eq!(menu_rate(Some(hz(30)), refresh, true), Some(hz(30)));
+    }
+    assert_eq!(menu_rate(None, Some(hz(50)), true), Some(hz(50)));
+}
+
+#[test]
 fn the_vrr_ceiling_applies_in_menus_and_gameplay() {
     let timing = display(144, VrrStatus::Active);
     for intent in [LowLatency, TearFree] {
