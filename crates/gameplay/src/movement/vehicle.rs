@@ -79,11 +79,12 @@ pub struct CorrectedSeat {
     pub previous: [f32; 3],
 }
 
-/// A render-only shift of the boat's pose.
+/// A render-only shift of the boat's pose and of the seat on it.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct PoseShift {
     position: [f32; 3],
     yaw: f32,
+    seat: [f32; 3],
 }
 
 impl PoseShift {
@@ -94,6 +95,9 @@ impl PoseShift {
                 self.position[axis] + (to.position[axis] - self.position[axis]) * alpha
             }),
             yaw: self.yaw + (to.yaw - self.yaw) * alpha,
+            seat: std::array::from_fn(|axis| {
+                self.seat[axis] + (to.seat[axis] - self.seat[axis]) * alpha
+            }),
         }
     }
 }
@@ -116,6 +120,7 @@ impl RenderBlend {
         for (shift, add) in [(&mut self.current, current), (&mut self.previous, previous)] {
             for axis in 0..3 {
                 shift.position[axis] += add.position[axis];
+                shift.seat[axis] += add.seat[axis];
             }
             shift.yaw += add.yaw;
         }
@@ -126,6 +131,7 @@ impl RenderBlend {
         self.previous = self.current;
         let kept = Self::KEPT_PER_TICK;
         self.current.position = self.current.position.map(|axis| axis * kept);
+        self.current.seat = self.current.seat.map(|axis| axis * kept);
         self.current.yaw *= kept;
     }
 
@@ -342,6 +348,14 @@ impl VehiclePrediction {
         Some(session.previous_yaw + turn * alpha + session.blend.at(alpha).yaw)
     }
 
+    /// How far the rider's render is shifted `alpha` of the way through the current tick, so it
+    /// fades out a correction in step with the boat it rides.
+    pub(super) fn seat_shift(&self, alpha: f32) -> [f32; 3] {
+        self.session.as_ref().map_or([0.0; 3], |session| {
+            session.blend.at(alpha.clamp(0.0, 1.0)).seat
+        })
+    }
+
     /// The predicted boat's latest pose for the actor store, and where it renders `alpha` of
     /// the way through the current tick, on the rider's clock.
     pub(super) fn feed(&self, alpha: f32) -> Option<client_world::LocalVehicleFeed> {
@@ -405,11 +419,23 @@ impl VehiclePrediction {
         session.owner.pose_revision = correction.revision.pose;
         session.motion_revision = correction.revision.motion;
         session.stale_through = Some(correction.tick);
+        let seat_at = |session: &Session, position: [f32; 3], yaw: f32| {
+            let pose = BoatState {
+                position,
+                yaw,
+                ..session.state.clone()
+            };
+            seat_feet(&pose, session.seat)
+        };
         let shown = (
             session.state.position,
             session.state.yaw,
             session.previous_position,
             session.previous_yaw,
+        );
+        let shown_seats = (
+            seat_at(session, shown.0, shown.1),
+            seat_at(session, shown.2, shown.3),
         );
         // The tick before the corrected one, as the client predicted it, is what rendering
         // eases from when no replayed tick follows.
@@ -463,25 +489,23 @@ impl VehiclePrediction {
         let wrap = |degrees: f32| (degrees + 180.0).rem_euclid(360.0) - 180.0;
         let moved =
             |from: [f32; 3], to: [f32; 3]| std::array::from_fn(|axis| from[axis] - to[axis]);
+        let corrected = CorrectedSeat {
+            seat: seat_feet(&session.state, session.seat),
+            previous: seat_at(session, session.previous_position, session.previous_yaw),
+        };
         session.blend.add(
             PoseShift {
                 position: moved(shown.0, session.state.position),
                 yaw: wrap(shown.1 - session.state.yaw),
+                seat: moved(shown_seats.0, corrected.seat),
             },
             PoseShift {
                 position: moved(shown.2, session.previous_position),
                 yaw: wrap(shown.3 - session.previous_yaw),
+                seat: moved(shown_seats.1, corrected.previous),
             },
         );
-        let before = BoatState {
-            position: session.previous_position,
-            yaw: session.previous_yaw,
-            ..session.state.clone()
-        };
-        Some(CorrectedSeat {
-            seat: seat_feet(&session.state, session.seat),
-            previous: seat_feet(&before, session.seat),
-        })
+        Some(corrected)
     }
 }
 

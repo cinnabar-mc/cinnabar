@@ -472,9 +472,15 @@ impl LocalPhysicsController {
     pub fn render_feet_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
         let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
+        let seat_shift = self.vehicle.seat_shift(alpha as f32);
         let feet = self.previous_position
             + (state.position - self.previous_position) * alpha
-            + self.visual_correction.offset(alpha as f32);
+            + self.visual_correction.offset(alpha as f32)
+            + Vec3::new(
+                f64::from(seat_shift[0]),
+                f64::from(seat_shift[1]),
+                f64::from(seat_shift[2]),
+            );
         Some([feet.x as f32, feet.y as f32, feet.z as f32])
     }
 

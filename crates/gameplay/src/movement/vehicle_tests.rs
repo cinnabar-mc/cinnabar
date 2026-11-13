@@ -687,9 +687,9 @@ fn the_riders_eye_stays_even_while_the_server_corrects_a_turning_boat() {
     let mut eyes: Vec<[f32; 3]> = Vec::new();
     let mut ticks_seen = 0_u64;
     let mut last_tick = physics.state().map_or(0, |state| state.tick);
-    for _ in 0..600 {
+    for _ in 0..2400 {
         let frame = physics.advance_with_context(
-            std::time::Duration::from_micros(12_500),
+            std::time::Duration::from_micros(3_125),
             input,
             context.clone(),
             &Lake,
@@ -701,7 +701,7 @@ fn the_riders_eye_stays_even_while_the_server_corrects_a_turning_boat() {
             ticks_seen += 1;
         }
         // Mid-tick, the server reports the latest tick a few degrees and a tenth of a block off.
-        if ticks_seen > 20 && ticks_seen % 6 == 0 && physics.tick_alpha() > 0.3 {
+        if ticks_seen > 20 && ticks_seen % 6 == 0 && physics.tick_alpha() > 0.9 {
             ticks_seen += 1;
             let feed = physics.predicted_vehicle_feed().unwrap();
             let shown = physics.rider_render().unwrap();
@@ -738,6 +738,13 @@ fn the_riders_eye_stays_even_while_the_server_corrects_a_turning_boat() {
         }
         if ticks_seen > 20 {
             eyes.push(physics.render_eye_position().unwrap());
+            // The eye stays on the boat it rides, wherever in a tick the frame falls.
+            let boat = physics.predicted_vehicle_feed().unwrap().render_position;
+            let eye = physics.render_feet_position().unwrap();
+            assert!(
+                (eye[0] - boat[0]).abs() < 0.01 && (eye[2] - boat[2]).abs() < 0.01,
+                "the eye left the boat: {eye:?} {boat:?}"
+            );
         }
     }
     let steps: Vec<f32> = eyes

@@ -80,9 +80,6 @@ pub(super) fn before_seat(position: Vec3, seated: Option<Seated>, eased: bool) -
 #[derive(Debug, Clone, Copy)]
 pub struct RiderRender {
     phase_seconds: f64,
-    position: Vec3,
-    previous_position: Vec3,
-    correction: super::visual_correction::VisualCorrection,
 }
 
 impl super::LocalPhysicsController {
@@ -117,28 +114,24 @@ impl super::LocalPhysicsController {
         self.vehicle.correct(correction, world)
     }
 
-    /// How the rider renders now, to resume after a snap to a corrected boat.
+    /// How far the frame sits through its tick now, to resume after a snap to a corrected
+    /// boat.
     #[must_use]
     pub fn rider_render(&self) -> Option<RiderRender> {
+        self.state.as_ref()?;
         Some(RiderRender {
             phase_seconds: self.accumulated_seconds,
-            position: self.state.as_ref()?.position,
-            previous_position: self.previous_position,
-            correction: self.visual_correction,
         })
     }
 
     /// Resumes the rider's render after a boat correction snapped it to the corrected seat.
     /// The snap restarts the render clock at the new tick and drops the rider onto the new
-    /// seat; resuming the clock where it was, easing from the seat one tick back, and fading
-    /// the difference from where the rider showed out over the next ticks keeps the eye and
-    /// the boat it rides from jumping. The frame's own elapsed time still counts: a correction
-    /// is not a teleport, and dropping that time would freeze the frame and slow the boat.
+    /// seat; resuming the clock where it was and easing from the seat one tick back keeps the
+    /// eye and the boat it rides from jumping, with the boat's prediction fading out the
+    /// difference. The frame's own elapsed time still counts: a correction is not a teleport,
+    /// and dropping that time would freeze the frame and slow the boat.
     pub fn resume_vehicle_render(&mut self, shown: RiderRender, previous_seat: [f32; 3]) {
-        let Some(state) = self.state.as_ref() else {
-            return;
-        };
-        if !previous_seat.into_iter().all(f32::is_finite) {
+        if self.state.is_none() || !previous_seat.into_iter().all(f32::is_finite) {
             return;
         }
         self.previous_position = Vec3::new(
@@ -148,12 +141,6 @@ impl super::LocalPhysicsController {
         );
         self.accumulated_seconds = shown.phase_seconds.clamp(0.0, LOCAL_PHYSICS_TICK_SECONDS);
         self.discard_next_elapsed = false;
-        self.visual_correction = shown.correction;
-        self.visual_correction.correct(
-            shown.position - state.position,
-            shown.previous_position - self.previous_position,
-            Vec3::ZERO,
-        );
     }
 }
 
@@ -362,9 +349,9 @@ mod tests {
         assert!((physics.tick_alpha() - 0.4).abs() < 1.0e-6);
         // The frame that follows still advances the clock, since a correction drops no time.
         assert_eq!(physics.ticks_due(std::time::Duration::from_millis(60)), 1);
-        // The rider shows where it was before the snap.
+        // The rider eases from the seat one tick back, at the same point of the tick.
         let eye = physics.render_feet_position().unwrap();
-        assert!((eye[0] - 1.0).abs() < 1.0e-5, "{eye:?}");
+        assert!((eye[0] - 1.7).abs() < 1.0e-5, "{eye:?}");
         // Without a rider state, or with a non-finite seat, nothing changes.
         let shown = physics.rider_render().unwrap();
         physics.resume_vehicle_render(shown, [f32::NAN, 0.0, 0.0]);
