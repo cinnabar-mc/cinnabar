@@ -13,6 +13,10 @@ cinnabar (Rust)  ── local socket ──  bedrock-core (Go, gophertunnel)
 Rust never implements Xbox authentication, encryption, RakNet or NetherNet; the core owns those
 and relays packets over a local stream.
 
+A `java/<host>[:<port>]` target joins a Java Edition 1.7.10 server instead. The core's
+`javaedition` packages speak that protocol over TCP and translate it to and from Bedrock
+packets, so the client receives the same handoff and packet stream as for a Bedrock server.
+
 | Library | Used for |
 | --- | --- |
 | [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
@@ -225,6 +229,11 @@ the SDK for their own host contract; they do not import client runtime authority
 | `catalog`, `launcher`, `control`, `xboxpresence` | Menu data and services: featured servers, Realms, friends and presence. |
 | `localworld` | The launcher's open local world as the core routes it; `proxy` hosts it for Xbox friends. |
 | `packcache` | On-disk cache of server packs. |
+| `javaedition/protocol`, `javaedition/conn` | The Java Edition 1.7.10 packet codec, and its TCP connection with login and encryption. |
+| `javaedition/auth` | Java Edition sign-in with the Microsoft account, and session joins for online-mode servers. |
+| `javaedition/legacy` | Generated tables from 1.7.10 block and item ids to Bedrock states and items. |
+| `javaedition/translate` | A joined Java server presented as a Bedrock upstream session. |
+| `javaedition/javatest` | A scriptable 1.7.10 server for tests. |
 
 Cross-crate re-exports are forbidden: consumers import the owning crate directly.
 Named exports must also have unambiguous ownership across Rust namespaces. Use

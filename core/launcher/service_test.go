@@ -58,6 +58,7 @@ func TestConnectAndSessionTargetMapTargetsToProxySyntax(t *testing.T) {
 		{control.TargetRakNet, " NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9 ", "NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9"},
 		{control.TargetRakNet, "nethernet/http/play.example.net:19132", "nethernet/http/play.example.net:19132"},
 		{control.TargetRakNet, "nethernet/http/[::1]:19132", "nethernet/http/[::1]:19132"},
+		{control.TargetRakNet, "java/play.example.net", "java/play.example.net"},
 		{control.TargetRealm, "12345", "realm_id/12345"},
 		{control.TargetFriend, "2535428000000000", "friend_xuid/2535428000000000"},
 	} {

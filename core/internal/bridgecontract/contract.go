@@ -105,6 +105,8 @@ const (
 	NetherNetSignalingHTTP = "http"
 	// RakNetTargetPrefix: Prefix for a host:port joined over RakNet without probing it for NetherNet.
 	RakNetTargetPrefix = "raknet/"
+	// JavaTargetPrefix: Prefix for a Java Edition 1.7.10 server, given as a host with an optional port.
+	JavaTargetPrefix = "java/"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.

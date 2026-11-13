@@ -271,7 +271,7 @@ func upstreamTarget(kind, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	switch kind {
 	case control.TargetRakNet:
-		if proxy.IsNetherNetTarget(value) {
+		if proxy.IsNetherNetTarget(value) || proxy.IsJavaTarget(value) {
 			return value, nil
 		}
 		host, port, err := net.SplitHostPort(value)

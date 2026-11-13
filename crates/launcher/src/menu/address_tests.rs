@@ -16,6 +16,22 @@ fn raw_nethernet_targets_are_recognised_in_any_case() {
 }
 
 #[test]
+fn java_targets_keep_their_own_address_and_are_not_pinged() {
+    let target = format!("{}play.example.net", bridge::contract::JAVA_TARGET_PREFIX);
+    assert!(is_java_target(&target));
+    assert!(is_java_target(&format!(
+        " {}:25566 ",
+        target.to_ascii_uppercase()
+    )));
+    assert!(!pingable(&target));
+    assert_eq!(split_address(&target), (target.clone(), String::new()));
+    for address in ["play.example.net", "java.example.net:19132", "java", ""] {
+        assert!(!is_java_target(address), "{address}");
+        assert!(address.is_empty() || pingable(address), "{address}");
+    }
+}
+
+#[test]
 fn bare_ipv6_hosts_keep_the_default_port() {
     for host in ["::1", "2001:db8::1234", "::ffff:192.0.2.1"] {
         assert_eq!(split_address(host), (host.into(), DEFAULT_PORT.into()));

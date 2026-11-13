@@ -1912,6 +1912,43 @@ with the bounds last computed for any block of their kind; `java-sim` uses each 
 bounds, and such ladders are left out of the shape comparison. Nothing connects `java-sim`
 to a session yet: the protocol, world translation and client wiring are separate work, so no
 Java server can be joined.
+Implemented: the core joins a `java/<host>[:<port>]` target and translates the session to
+Bedrock packets ([`core/javaedition`](core/javaedition/translate/session.go)): login with
+encryption, Java Edition sign-in for online-mode servers, chunks and block changes with
+fence, pane, wall and stair connections, the player's position, health, hunger, experience,
+abilities, game mode, time and rain, chat, the player list, remote players, mobs and
+objects with their movement, held items and status flags, and the player inventory. From the
+client it translates movement, sprinting and sneaking, mining, block placement and item use,
+attacks and entity interaction, the held slot, chat, commands and respawning. Tests cover a
+scripted server, a vanilla 1.7.10 server when one is supplied, and the client's own packet and
+chunk decoders reading the translation.
+
+Incomplete:
+
+- A saved server whose address is `java/<host>[:<port>]` joins a Java server, but the
+  client still runs Bedrock physics on that session: `java-sim` is not connected. Until it
+  is, positions are sent from the Bedrock simulation's single-precision values with a derived
+  ground flag, and the camera sink of sneaking and stepping is missing from the reported
+  stance. No join has been run in the client itself; the evidence is the tests above.
+- `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
+  solid entities.
+- Interaction packets follow the Bedrock client's send order, not the 1.7.10 click handler's
+  (swing before attack, placement before its swing).
+- Inventory windows other than the player's, window clicks, crafting, creative inventory,
+  enchanting and item NBT (names, enchantments) are not translated. Potions and spawn eggs
+  lose their variant.
+- Block entities (signs, chests, skulls, beds' colour, flower pot contents), redstone wire,
+  fire and tripwire connections, door halves and the upper half of double plants take their
+  table state without their neighbours or tile data. Stair corner states follow the
+  collision model's rule but are not checked against recorded shapes.
+- Biome ids pass through by number, unchecked against the pinned registry. The Bedrock
+  nether is 128 blocks high, so Java nether blocks above that are not shown.
+- Remote player skins and capes, entity armour, most entity metadata, paintings, experience
+  orbs, item frames, effects, attributes of the local player beyond health, sounds,
+  particles, explosions, block-break progress, scoreboards, teams, titles, maps, statistics,
+  tab completion and plugin channels other than the brand are not translated.
+- Online-mode joins are tested against scripted services only, not the production ones.
+- Server lists cannot ping Java servers.
 
 ## Phase 7 — Local worlds
 

@@ -1,0 +1,12 @@
+{
+  "repository": "PrismarineJS/minecraft-data",
+  "commit": "9b995542ab4a17837dee785439954e43d031b33e",
+  "license": "MIT",
+  "files": {
+    "data/pc/common/legacy.json": "0d7aec9a3107a62e322f8839ea2b96d24e2945c461c7aa29c6a77f854609a2e9",
+    "data/pc/1.21.11/blocks.json": "894b926701b73047f1e24ad9650356d8d6f4c1a6d79f65143facbc9c58598a47",
+    "data/bedrock/1.26.30/blocksJ2B.json": "516b880cce503b7ab51c5a7808aa16fa3fff6bf464a309f63ba42471196d4141",
+    "data/bedrock/1.26.60/blockStates.json": "a6acb5c821e1ba543afa5758b91d8c8c69a40f3f9f4e0d624d03a8765311a0bd",
+    "data/bedrock/1.26.60/items.json": "9f9754125015a95a48b97cc82fb7e642f6b1c492fe406c1722a08c6fa541a243"
+  }
+}

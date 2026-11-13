@@ -36,7 +36,7 @@ pub use view::{
     FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
     LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
     MenuRealmCard, MenuServerCard, MenuView, PingInfo, REALM_ADDRESS_PREFIX, SavedServer,
-    ServerDetails, ServerTrustPrompt, is_nethernet_target, joined_realm, pingable,
+    ServerDetails, ServerTrustPrompt, is_java_target, is_nethernet_target, joined_realm, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -255,8 +255,12 @@ pub enum MenuAction {
 /// The default Bedrock server port displayed by launcher address fields.
 pub const DEFAULT_PORT: &str = bridge::contract::DEFAULT_BEDROCK_PORT_TEXT;
 
-/// Host and port of a saved `host:port`; a bare host gets the default port.
+/// Host and port of a saved `host:port`; a bare host gets the default port. A Java target
+/// stays whole, with no port of its own to edit.
 pub fn split_address(address: &str) -> (String, String) {
+    if is_java_target(address) {
+        return (address.to_owned(), String::new());
+    }
     let literal = address
         .strip_prefix('[')
         .and_then(|host| host.strip_suffix(']'))
