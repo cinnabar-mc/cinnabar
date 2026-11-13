@@ -23,7 +23,7 @@ mod mob_effects;
 mod status;
 mod status_motion;
 pub use hunger_animation::HungerAnimation;
-pub use mob_effects::{EffectIcon, MobEffects};
+pub use mob_effects::{COLUMN_TOP_PROP, EffectIcon, MobEffects};
 pub use status::{HEART_COLUMNS, HEART_ROW_PITCH, HeartPaint, HungerPaint};
 
 /// The pack's standalone crosshair art, used ahead of the HUD icons sheet.
@@ -264,7 +264,11 @@ fn paint(
         "horse_heart_renderer" => (&hud.mount_hearts, top_left, PaintKind::Bottom),
         JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]], PaintKind::Effects),
         MOB_EFFECTS_RENDERER => {
-            mob_effects::paint(canvas, &hud.effects, dest, alpha);
+            let column_top = data
+                .get(mob_effects::COLUMN_TOP_PROP)
+                .and_then(Value::as_f64)
+                .map(|top| top as f32);
+            mob_effects::paint(canvas, &hud.effects, dest, column_top, alpha);
             return PaintKind::Effects;
         }
         "hotbar_slots_renderer" => {
