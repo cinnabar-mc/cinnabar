@@ -36,7 +36,8 @@ pub(super) struct SharedOutput {
 pub(super) struct Output {
     pub(super) mixer: Arc<dynamic_mixer::DynamicMixerController<f32>>,
     pub(super) unavailable: Arc<AtomicBool>,
-    pub(super) _release: Sender<()>,
+    /// Ends the owner thread when dropped; a unit sent on it asks for an immediate refresh.
+    pub(super) release: Sender<()>,
 }
 
 impl Output {
@@ -99,6 +100,8 @@ pub(super) struct Route<D, S> {
     failure: StreamFailure,
     failures: FailureStreak,
     unavailable: Arc<AtomicBool>,
+    /// Set by the game thread while the app is off screen; the route then holds no stream.
+    suspended: Arc<AtomicBool>,
 }
 
 /// Counts consecutive failed output checks since startup or the last working stream.
@@ -127,6 +130,17 @@ impl FailureStreak {
 }
 
 impl<D, S> Route<D, S> {
+    /// Closes the output while the app is off screen and reports whether it is. The closed
+    /// stream returns the mixer, whose sources wait unconsumed and resume where they stopped
+    /// once [`Self::refresh`] opens an output again.
+    fn suspend(&mut self) -> bool {
+        let suspended = self.suspended.load(Ordering::Acquire);
+        if suspended {
+            self.stream = None;
+        }
+        suspended
+    }
+
     /// Replaces a changed or failed output after the old callback has returned its mixer.
     fn refresh(
         &mut self,
@@ -181,7 +195,10 @@ impl<D, S> Route<D, S> {
 }
 
 /// Builds one persistent mixer and attempts the initial default output on its owner thread.
-pub(super) fn open_default_output() -> Option<(
+/// The route holds no stream while `suspended` is set.
+pub(super) fn open_default_output(
+    suspended: Arc<AtomicBool>,
+) -> Option<(
     Route<rodio::cpal::Device, rodio::cpal::Stream>,
     SharedOutput,
 )> {
@@ -192,6 +209,7 @@ pub(super) fn open_default_output() -> Option<(
         failure: Arc::new(OnceLock::new()),
         failures: FailureStreak::default(),
         unavailable: Arc::default(),
+        suspended,
     };
     refresh_output(&mut route);
     let shared = SharedOutput {
@@ -203,6 +221,9 @@ pub(super) fn open_default_output() -> Option<(
 
 /// Queries the OS default without enumerating or selecting an alternate output.
 pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, rodio::cpal::Stream>) {
+    if route.suspend() {
+        return;
+    }
     let device = rodio::cpal::default_host().default_output_device();
     let missing = device.is_none();
     let mut failure = None;
@@ -245,7 +266,8 @@ fn same_device(left: &rodio::cpal::Device, right: &rodio::cpal::Device) -> bool 
     matches!((left.name(), right.name()), (Ok(left), Ok(right)) if left == right)
 }
 
-/// Opens and refreshes a stream on one thread until the returned release sender drops.
+/// Opens and refreshes a stream on one thread until the returned release sender drops. A unit
+/// sent on it refreshes at once instead of at the next device check.
 pub(super) fn open_on_owner_thread<S: 'static, H: Send + 'static>(
     open: impl FnOnce() -> Option<(S, H)> + Send + 'static,
     mut refresh: impl FnMut(&mut S) + Send + 'static,
@@ -260,9 +282,9 @@ pub(super) fn open_on_owner_thread<S: 'static, H: Send + 'static>(
             };
             let (release, released) = mpsc::channel::<()>();
             if opened.send(Some((shared, release))).is_ok() {
-                while matches!(
+                while !matches!(
                     released.recv_timeout(DEVICE_CHECK_INTERVAL),
-                    Err(mpsc::RecvTimeoutError::Timeout)
+                    Err(mpsc::RecvTimeoutError::Disconnected)
                 ) {
                     refresh(&mut stream);
                 }

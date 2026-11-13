@@ -164,6 +164,26 @@ public final class CinnabarActivity extends NativeActivity {
         super.onPause();
     }
 
+    /** Reports Android's memory-pressure level; the game releases what it can rebuild. */
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        reportTrimMemory(level);
+    }
+
+    /** The whole device is out of memory, the strongest pressure a visible app receives. */
+    @Override public void onLowMemory() {
+        super.onLowMemory();
+        reportTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL);
+    }
+
+    private void reportTrimMemory(int level) {
+        try {
+            nativeOnTrimMemory(level);
+        } catch (UnsatisfiedLinkError e) {
+            // Ignored if called before native binding
+        }
+    }
+
     /** Native startup reports work on its own thread; only the activity thread owns views. */
     public void startupProgress(String message, long generation) {
         final boolean active = startupActive;
@@ -419,4 +439,5 @@ public final class CinnabarActivity extends NativeActivity {
     private static native void nativeOnMouseScroll(float vscroll, float hscroll);
     private static native void nativeOnMouseCursor(float x, float y);
     private static native void nativeOnPointerCaptureChange(boolean hasCapture);
+    private static native void nativeOnTrimMemory(int level);
 }

@@ -2216,6 +2216,14 @@ Flathub submission remain incomplete.
   Android activities handle every configuration change the pinned platform declares, so a
   language, font size, bold text, dark mode or SIM change keeps the game running instead of
   recreating the activity, whose destruction ends the process; phone acceptance remains pending.
+  Android reports `onTrimMemory` and `onLowMemory` to the client, and leaving the screen counts
+  as the strongest pressure without waiting for a report. Under pressure the client releases
+  decoded sounds, resource-pack read caches and upload staging the pools grew into; when hidden
+  it also abandons queued sound decodes, waits briefly for submitted frames so the storage they
+  retire is freed, purges the allocator and closes the audio output until it returns. Released
+  data is rebuilt on next use. Incomplete: render targets, textures, terrain meshes, chunk data
+  and the network session stay resident while hidden; no device run has measured the released
+  memory or confirmed the audio pause; iOS does not report memory warnings yet.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Native UI receives display-cutout insets combined with
   keyboard overlap at the window's DPI, while the world surface stays full size.
