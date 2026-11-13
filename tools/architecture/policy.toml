@@ -1202,6 +1202,13 @@ reason = "Gameplay input, which every scene's absorbs_input setting governs."
 item = "app/src/ui_runtime/interaction/inventory.rs::drive_world_inventory_keys"
 reason = "Gameplay input, which every scene's absorbs_input setting governs."
 
+# The client's device requests only the wgpu features `owner` lists. Production code may name no
+# other feature, and every feature in the owner's `checked` constant must still be named by
+# production code, so the request cannot drift from its uses.
+[device_features]
+owner = "crates/render/src/device_features.rs"
+checked = "RENDERER_FEATURES"
+
 # Tests wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), never sleep.
 # Each exception names why the file still sleeps; converting it removes the entry.
 # Domain crates take `now` from their caller; only edge code reads the clock.

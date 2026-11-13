@@ -39,6 +39,8 @@
 //! The vectors point from a block of this frame to where it was in the previous one, in
 //! display pixels: content moving right by 4 pixels gives (-4, 0).
 
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
+
 /// The size in pixels of the square blocks the flow has one vector for.
 pub const BLOCK_SIZE: u32 = 8;
 /// `OpticalFlowMaxPyramidLevels`: the search's levels.
@@ -181,7 +183,7 @@ impl OpticalFlow {
             source: wgpu::ShaderSource::Wgsl(include_str!("optical_flow.wgsl").into()),
         });
         let pipeline = |entry: &str| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.compile_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
                 module: &module,

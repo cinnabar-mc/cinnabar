@@ -71,24 +71,43 @@ pub(super) fn log(message: std::fmt::Arguments<'_>) {
     );
 }
 
-/// Applies the existing automatic feature selection and constrained device limits.
+/// What an adapter offers a device request.
+pub(super) struct AdapterOffer {
+    features: wgpu::Features,
+    limits: wgpu::Limits,
+    device_type: wgpu::DeviceType,
+}
+
+impl From<&wgpu::Adapter> for AdapterOffer {
+    /// Reads the offer without opening a device.
+    fn from(adapter: &wgpu::Adapter) -> Self {
+        Self {
+            features: adapter.features(),
+            limits: adapter.limits(),
+            device_type: adapter.get_info().device_type,
+        }
+    }
+}
+
+/// Chooses the device's features and limits. Features come from the renderer's own list
+/// ([`render::device_features`]), never from everything the adapter offers: an unused feature
+/// still enables its driver extensions. Limits stay at the adapter's maxima: they bound wgpu's
+/// own validation, Vulkan device creation takes none of them, and renderer and shader-pack
+/// allocations are sized from them.
 fn device_requirements(
-    adapter: &wgpu::Adapter,
+    offer: &AdapterOffer,
     settings: &WgpuSettings,
 ) -> (wgpu::Features, wgpu::Limits) {
     let mut features = wgpu::Features::empty();
     let mut limits = settings.limits.clone();
     if matches!(settings.priority, WgpuSettingsPriority::Functionality) {
-        features = adapter.features();
-        limits = adapter.limits();
-        if adapter.get_info().device_type == wgpu::DeviceType::DiscreteGpu {
-            features.remove(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
-        }
+        features = render::device_features::requested(offer.features, offer.device_type);
+        limits = offer.limits.clone();
     }
-    use_adapter_texture_limits(&mut limits, &adapter.limits());
+    use_adapter_texture_limits(&mut limits, &offer.limits);
     limits.max_storage_buffers_per_shader_stage = limits
         .max_storage_buffers_per_shader_stage
-        .min(adapter.limits().max_storage_buffers_per_shader_stage);
+        .min(offer.limits.max_storage_buffers_per_shader_stage);
     if let Some(disabled) = settings.disabled_features {
         features.remove(disabled);
     }
@@ -187,19 +206,32 @@ pub(super) fn force_fallback(settings: &WgpuSettings) -> bool {
     })
 }
 
+/// The startup record of the adapter and the features its device is opened with, so a report
+/// of a driver fault names both.
+fn device_request_summary(info: &wgpu::AdapterInfo, features: wgpu::Features) -> String {
+    format!(
+        "Renderer requesting device: adapter {:?}, vendor {:#06x}, device {:#06x}, driver {:?} ({:?}), backend {:?}, features [{features}]",
+        info.name, info.vendor, info.device, info.driver, info.driver_info, info.backend
+    )
+}
+
 /// Opens a device for a candidate that already passed renderer capability checks.
 pub(super) async fn request_device(
     adapter: &wgpu::Adapter,
     settings: &WgpuSettings,
 ) -> Result<(wgpu::Device, wgpu::Queue)> {
-    let (features, limits) = device_requirements(adapter, settings);
+    let (features, limits) = device_requirements(&adapter.into(), settings);
+    log(format_args!(
+        "{}",
+        device_request_summary(&adapter.get_info(), features)
+    ));
     adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: settings.device_label.as_deref(),
             required_features: features,
             required_limits: limits,
-            // SAFETY: These are the same experimental features enabled by Bevy's renderer.
-            experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
+            // No requested feature is experimental, and wgpu then rejects any that is.
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: settings.memory_hints.clone(),
             trace: wgpu::Trace::Off,
         })

@@ -1,5 +1,6 @@
 //! Single-sample consumers of the scene retain explicit MSAA resolve boundaries.
 
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use bevy::{
     prelude::World,
     render::{
@@ -70,7 +71,7 @@ impl ResolvedDepth {
             source: wgpu::ShaderSource::Wgsl(include_str!("scene_depth.wgsl").into()),
         });
         let multi = depth.texture().sample_count() > 1;
-        let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = gpu.compile_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("resolved scene depth"),
             layout: None,
             vertex: wgpu::VertexState {

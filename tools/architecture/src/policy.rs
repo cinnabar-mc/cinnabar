@@ -31,6 +31,8 @@ pub(super) struct Policy {
     #[serde(default)]
     pub(super) input_owner: InputOwnerRules,
     #[serde(default)]
+    pub(super) device_features: DeviceFeatureRules,
+    #[serde(default)]
     pub(super) identifier_literals: IdentifierRules,
     #[serde(default)]
     pub(super) identifier_literal_exceptions: Vec<IdentifierException>,
@@ -83,6 +85,18 @@ pub(super) struct InputOwnerRules {
 pub(super) struct InputOwnerException {
     pub(super) item: String,
     pub(super) reason: String,
+}
+
+/// The one list of wgpu features the client's device requests.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DeviceFeatureRules {
+    /// The file whose constants name every requested feature.
+    #[serde(default)]
+    pub(super) owner: Option<String>,
+    /// The owner's constant whose features production code must still name.
+    #[serde(default)]
+    pub(super) checked: Option<String>,
 }
 
 /// Tests never sleep, and listed crates never read the clock outside tests.

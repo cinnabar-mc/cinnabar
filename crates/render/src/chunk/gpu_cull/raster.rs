@@ -1,6 +1,7 @@
 //! Experimental current-frame box tests against opaque depth, without a depth pyramid.
 
 use super::{kernels::cull_shader_source, model::group_count, storage::CullStorage};
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 
 const RASTER_VERTICES: u32 = 6;
 
@@ -57,7 +58,7 @@ impl RasterCull {
             label: Some("terrain raster occlusion"),
             source: wgpu::ShaderSource::Wgsl(shader_source(workgroup).into()),
         });
-        let prepare = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let prepare = device.compile_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("terrain raster reset"),
             layout: None,
             module: &module,
@@ -65,7 +66,7 @@ impl RasterCull {
             compilation_options: Default::default(),
             cache: None,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.compile_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("terrain raster boxes"),
             layout: None,
             vertex: wgpu::VertexState {
