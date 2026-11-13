@@ -129,12 +129,16 @@ pub(crate) fn ui_invert_blend_state() -> BlendState {
     }
 }
 
+/// Debug label of every retained UI pipeline variant. Menus and the HUD cannot be drawn
+/// without it, so a driver failing to build one stops the client.
+pub(crate) const LABEL: &str = "shared retained UI overlay pipeline";
+
 /// Builds the retained UI shader pipeline before per-view specialization.
 pub(crate) fn ui_pipeline_descriptor(
     bind_group_layout: BindGroupLayoutDescriptor,
 ) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
-        label: Some("shared retained UI overlay pipeline".into()),
+        label: Some(LABEL.into()),
         layout: vec![bind_group_layout],
         vertex: VertexState {
             shader: UI_SHADER_HANDLE,

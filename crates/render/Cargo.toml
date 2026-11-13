@@ -31,6 +31,7 @@ enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render
 [dependencies]
 web-time.workspace = true
 env-compat = { path = "../env-compat" }
+driver-failure = { path = "../driver-failure" }
 render-scene = { path = "../render-scene" }
 block-transform = { path = "../block-transform" }
 tracy-client = { version = "=0.19.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
@@ -78,6 +79,7 @@ objc2-metal = { version = "0.3", default-features = false, features = ["MTLDevic
 [dev-dependencies]
 criterion.workspace = true
 test-alloc = { path = "../test-alloc" }
+driver-failure = { path = "../driver-failure", features = ["test-support"] }
 render-model = { path = "../render-model", features = ["test-support"] }
 render-scene = { path = "../render-scene", features = ["publication-test-support"] }
 test-time = { path = "../test-time" }

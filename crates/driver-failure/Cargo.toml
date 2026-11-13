@@ -1,0 +1,16 @@
+[package]
+name = "driver-failure"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+# Makes the noop backend fail a pipeline on request, for tests of owners that must survive it.
+test-support = []
+
+[dependencies]
+wgpu.workspace = true
+
+[lints]
+workspace = true

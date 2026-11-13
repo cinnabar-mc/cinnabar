@@ -12,6 +12,7 @@ reads = ["assets/panorama/*"]
 [dependencies]
 anyhow.workspace = true
 assets = { path = "../assets" }
+driver-failure = { path = "../driver-failure" }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 gilrs = "0.11.2"
 image.workspace = true
@@ -35,6 +36,7 @@ objc2-io-kit = { version = "0.3.2", default-features = false, features = ["std",
 objc2-game-controller = { version = "0.3.2", default-features = false, features = ["std", "block2", "GCController", "GCDevice", "GCControllerElement", "GCControllerButtonInput", "GCControllerDirectionPad", "GCExtendedGamepad", "GCPhysicalInputProfile", "GCInputNames", "GCMicroGamepad"] }
 
 [dev-dependencies]
+driver-failure = { path = "../driver-failure", features = ["test-support"] }
 tempfile = "3"
 test-time = { path = "../test-time" }
 

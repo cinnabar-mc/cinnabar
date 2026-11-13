@@ -282,10 +282,11 @@ impl DirectOcclusion {
             .filter(|plan| !self.same_frame && plan.view == view)
             .map(|plan| plan.solid.as_slice())
     }
-    fn new(device: &RenderDevice) -> Self {
-        Self {
-            kernels: CullKernels::new(device.wgpu_device()),
-            masks: super::unit_mask::UnitMasks::new(device.wgpu_device()),
+    /// Fails when the driver cannot build the occlusion kernels.
+    fn new(device: &RenderDevice) -> Result<Self, driver_failure::DriverFailure> {
+        Ok(Self {
+            kernels: CullKernels::new(device.wgpu_device())?,
+            masks: super::unit_mask::UnitMasks::new(device.wgpu_device())?,
             same_frame: cfg!(target_os = "macos")
                 && env_compat::var("CINNABAR_TERRAIN_VISIBILITY").as_deref() == Ok("1"),
             adaptive: cfg!(target_os = "macos")
@@ -312,7 +313,7 @@ impl DirectOcclusion {
             last_view: None,
             plan: None,
             stats: DirectOcclusionStats::default(),
-        }
+        })
     }
 
     /// Whether a verdict for `view` could change what it skips; a settled still view needs none.
@@ -924,7 +925,13 @@ fn select_visibility(
 /// Inserts the direct occlusion path's resources, systems and graph node.
 pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
     let worker_device = device.clone();
-    crate::deferred_resource::install(render_app, move || DirectOcclusion::new(&worker_device));
+    // Without its kernels terrain draws directly, unoccluded.
+    crate::deferred_resource::install(render_app, move || {
+        crate::pipeline_failure::unavailable(
+            "terrain direct occlusion",
+            DirectOcclusion::new(&worker_device),
+        )
+    });
     render_app
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, super::prepare::extract_hidden_chunks)

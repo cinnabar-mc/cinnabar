@@ -21,16 +21,20 @@ pub struct UnitMaskBindings {
 
 impl UnitMasks {
     /// Creates the kernel and an all-visible fallback for frames without usable depth.
-    pub fn new(device: &wgpu::Device) -> Self {
+    /// Fails when the driver cannot build the shader module or a kernel.
+    pub fn new(device: &wgpu::Device) -> Result<Self, driver_failure::DriverFailure> {
         let source =
             include_str!("unit_mask.wgsl").replace("MASK_WORKGROUP", &WORKGROUP.to_string());
         if let Some(timing) = render_scene::startup_timing::current() {
             timing.count(render_scene::startup_timing::WORLD_SHADER_MODULES, 1);
         }
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("ordinary terrain visibility mask"),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
+        let module = driver_failure::shader_module(
+            device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("ordinary terrain visibility mask"),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            },
+        )?;
         let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -68,11 +72,11 @@ impl UnitMasks {
             contents: &[0; 4],
             usage: wgpu::BufferUsages::STORAGE,
         });
-        Self {
+        driver_failure::catch(device, || Self {
             pipeline: pipeline("mask_units"),
             clear_pipeline: pipeline("clear_units"),
             clear,
-        }
+        })
     }
 
     /// Retains both page bindings, rebuilding only when a bound buffer changes.
@@ -180,7 +184,7 @@ mod tests {
         let Some(gpu) = Gpu::for_fixture("retained terrain visibility flags") else {
             return;
         };
-        let masks = UnitMasks::new(&gpu.device);
+        let masks = UnitMasks::new(&gpu.device).unwrap();
         let layout = IndexedUnitPage {
             capacity: WORKGROUP as usize + 3,
         };
@@ -264,7 +268,7 @@ mod tests {
     #[test]
     fn unchanged_visibility_mask_buffers_reuse_both_bind_groups() {
         let (device, _queue) = wgpu::Device::noop(&Default::default());
-        let masks = UnitMasks::new(&device);
+        let masks = UnitMasks::new(&device).unwrap();
         let buffer = || {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,

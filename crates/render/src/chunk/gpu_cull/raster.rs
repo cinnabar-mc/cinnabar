@@ -46,55 +46,63 @@ pub(super) struct RasterCull {
 
 impl RasterCull {
     /// Creates matching multisample coverage, preserving depth and every colour attachment.
+    /// Fails when the driver cannot build either pipeline.
     pub(super) fn new(
         device: &wgpu::Device,
         storage: &CullStorage,
         workgroup: u32,
         format: wgpu::TextureFormat,
         samples: u32,
-    ) -> Self {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("terrain raster occlusion"),
-            source: wgpu::ShaderSource::Wgsl(shader_source(workgroup).into()),
-        });
-        let prepare = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("terrain raster reset"),
-            layout: None,
-            module: &module,
-            entry_point: Some("raster_prepare"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("terrain raster boxes"),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("raster_box"),
-                compilation_options: Default::default(),
-                buffers: &[],
+    ) -> Result<Self, driver_failure::DriverFailure> {
+        let module = driver_failure::shader_module(
+            device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("terrain raster occlusion"),
+                source: wgpu::ShaderSource::Wgsl(shader_source(workgroup).into()),
             },
-            fragment: Some(wgpu::FragmentState {
+        )?;
+        // Bind groups come after the check: an invalid pipeline cannot be asked for its layout.
+        let (prepare, pipeline) = driver_failure::catch(device, || {
+            let prepare = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("terrain raster reset"),
+                layout: None,
                 module: &module,
-                entry_point: Some("raster_seen"),
+                entry_point: Some("raster_prepare"),
                 compilation_options: Default::default(),
-                targets: &[],
-            }),
-            primitive: Default::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: samples,
-                ..Default::default()
-            },
-            multiview_mask: None,
-            cache: None,
-        });
+                cache: None,
+            });
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("terrain raster boxes"),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("raster_box"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("raster_seen"),
+                    compilation_options: Default::default(),
+                    targets: &[],
+                }),
+                primitive: Default::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: samples,
+                    ..Default::default()
+                },
+                multiview_mask: None,
+                cache: None,
+            });
+            (prepare, pipeline)
+        })?;
         let group = |layout: &wgpu::BindGroupLayout, bindings: &[(u32, &wgpu::Buffer)]| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("terrain raster bindings"),
@@ -113,7 +121,7 @@ impl RasterCull {
             (1, &storage.records),
             (3, &storage.history),
         ];
-        Self {
+        Ok(Self {
             prepare_group: group(&prepare.get_bind_group_layout(0), &bindings),
             group: group(&pipeline.get_bind_group_layout(0), &bindings),
             prepare,
@@ -121,7 +129,7 @@ impl RasterCull {
             format,
             samples,
             workgroup,
-        }
+        })
     }
 
     /// Resets current-frame results, then sets visibility for any passing depth sample.

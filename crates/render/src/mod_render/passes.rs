@@ -142,8 +142,25 @@ fn compile(
     }
 }
 
-/// Builds a checked pipeline; validation errors are logged rather than reaching the device.
+/// Builds a checked pipeline; validation errors and a driver's failure to build it are logged
+/// rather than reaching the device.
 pub(crate) fn create_pipeline(
+    device: &RenderDevice,
+    layout: &BindGroupLayout,
+    shader: &str,
+    format: TextureFormat,
+) -> Option<RenderPipeline> {
+    driver_failure::catch(device.wgpu_device(), || {
+        validated_pipeline(device, layout, shader, format)
+    })
+    .unwrap_or_else(|failure| {
+        warn!("mod post pass could not be built by the graphics driver: {failure}");
+        None
+    })
+}
+
+/// Builds the pipeline under a validation scope; `None` when the device rejected it.
+fn validated_pipeline(
     device: &RenderDevice,
     layout: &BindGroupLayout,
     shader: &str,

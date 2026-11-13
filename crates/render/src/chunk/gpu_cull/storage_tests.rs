@@ -30,7 +30,7 @@ impl GpuCull {
 fn storage_without_memory_waits_until_it_grows() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
-    let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed);
+    let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed).unwrap();
     {
         let _failure = crate::gpu_allocation::inject(|label, _| label == "terrain cull storage");
         assert!(upload_records(&mut cull, &device, &queue).is_err());
@@ -45,7 +45,7 @@ fn storage_without_memory_waits_until_it_grows() {
 fn failed_growth_keeps_storage_without_publishing_partial_records() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
-    let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed);
+    let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed).unwrap();
     upload_records(&mut cull, &device, &queue).unwrap();
     let capacity = cull.storage.as_ref().expect("initial storage").capacity;
     cull.table.update(

@@ -97,7 +97,8 @@ fn raster_boxes_reset_stale_visibility_and_preserve_depth_at_every_sample_count(
             culler.kernels.workgroup,
             DEPTH_FORMAT,
             samples,
-        );
+        )
+        .expect("raster occlusion pipelines");
         for depth in [0.8, 0.0, 0.8] {
             clear_depth(&gpu, &target, depth);
             culler.set_history(&[model::HISTORY_RASTER_VISIBLE; 3]);
@@ -440,7 +441,8 @@ fn raster_box_keeps_a_distant_cube_when_only_its_sealed_edge_is_visible() {
         culler.kernels.workgroup,
         DEPTH_FORMAT,
         1,
-    );
+    )
+    .expect("raster occlusion pipelines");
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
     boxes.encode(
         &mut encoder,

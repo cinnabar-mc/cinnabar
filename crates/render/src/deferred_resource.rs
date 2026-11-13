@@ -8,21 +8,26 @@ use render_scene::startup_work::{WorldWorkAdmission, world_work_allowed};
 
 #[derive(Resource)]
 struct Pending<T: Resource> {
-    create: Option<Box<dyn FnOnce() -> T + Send + Sync>>,
-    worker: Option<std::thread::JoinHandle<T>>,
+    create: Option<Box<dyn FnOnce() -> Option<T> + Send + Sync>>,
+    worker: Option<std::thread::JoinHandle<Option<T>>>,
 }
 
 /// Keeps direct joins eager and moves menu launches' expensive GPU constructors to a worker.
+///
+/// When `create` returns `None` the resource stays absent; every owner installed here is one
+/// the renderer works without, and its systems and consumers already tolerate that.
 pub(crate) fn install<T: Resource>(
     app: &mut SubApp,
-    create: impl FnOnce() -> T + Send + Sync + 'static,
+    create: impl FnOnce() -> Option<T> + Send + Sync + 'static,
 ) {
     if app
         .world()
         .get_resource::<WorldWorkAdmission>()
         .is_none_or(WorldWorkAdmission::is_admitted)
     {
-        app.insert_resource(create());
+        if let Some(resource) = create() {
+            app.insert_resource(resource);
+        }
     } else {
         crate::pipeline_warmup::register_pending_resource::<Pending<T>>(app);
         app.insert_resource(Pending::<T> {
@@ -51,14 +56,15 @@ fn poll<T: Resource>(world: &mut World) {
         .as_ref()
         .is_some_and(std::thread::JoinHandle::is_finished)
     {
-        world.insert_resource(
-            pending
-                .worker
-                .take()
-                .expect("finished GPU preparation")
-                .join()
-                .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
-        );
+        let created = pending
+            .worker
+            .take()
+            .expect("finished GPU preparation")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        if let Some(resource) = created {
+            world.insert_resource(resource);
+        }
     } else {
         world.insert_resource(pending);
     }
@@ -85,7 +91,7 @@ mod tests {
         let worker = count.clone();
         install(&mut app, move || {
             worker.fetch_add(1, Ordering::Relaxed);
-            Prepared
+            Some(Prepared)
         });
         app.world_mut().run_schedule(Render);
         assert_eq!(count.load(Ordering::Relaxed), 0);
@@ -98,5 +104,27 @@ mod tests {
         assert_eq!(count.load(Ordering::Relaxed), 1);
         app.world_mut().run_schedule(Render);
         assert_eq!(count.load(Ordering::Relaxed), 1);
+    }
+
+    /// An optional owner that cannot be built stays absent and stops holding readiness.
+    #[test]
+    fn an_optional_owner_that_fails_is_never_published() {
+        let mut eager = SubApp::new();
+        eager.init_schedule(Render);
+        install(&mut eager, || None::<Prepared>);
+        assert!(!eager.world().contains_resource::<Prepared>());
+
+        let mut app = SubApp::new();
+        app.init_schedule(Render);
+        let admission = WorldWorkAdmission::after_menu();
+        app.insert_resource(admission.clone());
+        install(&mut app, || None::<Prepared>);
+        assert!(app.world().contains_resource::<Pending<Prepared>>());
+        admission.menu_presented();
+        test_time::eventually("failed GPU preparation retired", || {
+            app.world_mut().run_schedule(Render);
+            !app.world().contains_resource::<Pending<Prepared>>()
+        });
+        assert!(!app.world().contains_resource::<Prepared>());
     }
 }

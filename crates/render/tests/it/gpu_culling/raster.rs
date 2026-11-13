@@ -172,7 +172,8 @@ fn compare_cull_paths(vertex: &str, tolerance: usize, boxes: bool, samples: u32)
                             culler.kernels.workgroup,
                             DEPTH_FORMAT,
                             samples,
-                        );
+                        )
+                        .expect("raster occlusion pipelines");
                         boxes.encode(
                             &mut encoder,
                             &gpu_target.depth.create_view(&Default::default()),
