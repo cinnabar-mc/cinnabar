@@ -23,6 +23,7 @@ client-world = { path = "../client-world" }
 actor-animation = { path = "../actor-animation" }
 crossbeam-queue = "=0.3.13"
 inventory = { path = "../inventory" }
+memory-pressure = { path = "../memory-pressure" }
 particles = { path = "../particles" }
 player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }

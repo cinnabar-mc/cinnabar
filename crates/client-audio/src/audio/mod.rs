@@ -11,6 +11,7 @@ pub mod local;
 pub mod media;
 mod music;
 pub mod predicted;
+pub mod pressure;
 mod route;
 mod server;
 pub mod settings;
