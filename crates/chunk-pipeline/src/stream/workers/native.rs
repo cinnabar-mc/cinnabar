@@ -4,14 +4,6 @@ use super::*;
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// Windows lowers background workers only while they run light or summary jobs. Its thread
-/// priorities are strict, so a lowered worker waits behind every ready normal-priority thread:
-/// decode or mesh on a lowered worker would stall for seconds on a busy machine, and a lowered
-/// queue-lock holder would stall the frame. Linux niceness cannot be raised back without
-/// privilege, so other targets lower background workers for life; their weighting is
-/// proportional, so lowered workers still progress.
-const LOWER_PER_JOB: bool = cfg!(windows);
-
 /// Samples elapsed native time from one fixed process-local origin.
 pub(super) fn now() -> Moment {
     static ORIGIN: LazyLock<std::time::Instant> = LazyLock::new(std::time::Instant::now);
@@ -34,14 +26,16 @@ pub(super) fn start(shared: &Arc<Shared>, size: PoolSize) {
     }
 }
 
-/// Drains finite jobs on a native worker, retaining its scratch and priority policy.
+/// Drains finite jobs on a native worker, retaining its scratch and priority policy. Every
+/// worker stays off the frame cores the process's CPU plan reserves; nothing on the frame
+/// threads waits for a world job.
 fn work(shared: &Shared, name: &str, background: bool) {
-    if background
-        && !LOWER_PER_JOB
-        && let Err(error) = priority::lower()
-    {
-        tracing::warn!("{name}: could not lower worker priority: {error}");
-    }
+    cpu_topology::enter_background_cores();
+    let per_job = background
+        && priority::begin_background().unwrap_or_else(|error| {
+            tracing::warn!("{name}: could not lower worker priority: {error}");
+            false
+        });
     let mut scratch = WorkerScratch::default();
     let mut queues = shared.lock();
     loop {
@@ -57,7 +51,7 @@ fn work(shared: &Shared, name: &str, background: bool) {
             continue;
         };
         drop(queues);
-        LOWERED_FOR_JOB.set(below_frame && LOWER_PER_JOB && priority::lower().is_ok());
+        LOWERED_FOR_JOB.set(below_frame && per_job && priority::lower_for_job().is_ok());
         // Matches rayon's default: a panicking world job aborts rather than losing its permits.
         if catch_unwind(AssertUnwindSafe(|| job(&mut scratch))).is_err() {
             std::process::abort();
