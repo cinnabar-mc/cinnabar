@@ -91,7 +91,7 @@ pub(super) fn attach(
                 } else if local_coverage && runtime_id == local_runtime_id {
                     stream.authority().actor_ui_layers(runtime_id)?.render
                 } else {
-                    render_frame.layers_with_skin(runtime_id)?.render
+                    std::borrow::Cow::Borrowed(&*render_frame.sample_layers(runtime_id)?.render)
                 };
                 Some(crate::presentation::entity_layers::controller_style(
                     body,
@@ -105,12 +105,24 @@ pub(super) fn attach(
     } else {
         Default::default()
     };
+    let uses_frame = |runtime_id| !(local_coverage && runtime_id == local_runtime_id);
+    // Sample each body in submission order first, so the readers below borrow the frame's
+    // results instead of copying their layers.
+    if let Some(render_frame) = render_frame.as_deref_mut() {
+        for body in &batch.submissions {
+            let identity = body.input.identity;
+            if identity.layer == render_model::ACTOR_LAYER_BODY && uses_frame(identity.runtime_id) {
+                render_frame.sample_layers(identity.runtime_id);
+            }
+        }
+    }
+    let render_frame = render_frame.as_deref();
     let mut layers_of = |runtime_id| {
-        let render_frame = render_frame.as_mut()?;
-        let mut layers = if local_coverage && runtime_id == local_runtime_id {
-            stream?.authority().actor_ui_layers(runtime_id)?
+        let render_frame = render_frame?;
+        let mut layers = if uses_frame(runtime_id) {
+            render_frame.sampled(runtime_id)?.reborrow()
         } else {
-            render_frame.layers_with_skin(runtime_id)?
+            stream?.authority().actor_ui_layers(runtime_id)?
         };
         if let Some(pose) = poses.emote(runtime_id) {
             layers.render = std::borrow::Cow::Borrowed(pose.render.as_slice());

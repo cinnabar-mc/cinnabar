@@ -90,8 +90,8 @@ pub(crate) fn admit_frame_bounds(
         return true;
     };
     let layers = match frame {
-        Some(frame) => match frame.layers_with_skin(rig.actor.runtime_id) {
-            Some(layers) => layers.render,
+        Some(frame) => match frame.sample_layers(rig.actor.runtime_id) {
+            Some(layers) => std::borrow::Cow::Borrowed(&*layers.render),
             None => return true,
         },
         None => std::borrow::Cow::Borrowed(rig.render),
