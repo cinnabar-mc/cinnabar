@@ -15,12 +15,14 @@
 #[cfg(target_os = "android")]
 mod android;
 mod category;
+mod first_error;
 pub mod flight;
 mod json;
 #[cfg(test)]
 mod tests;
 
 pub use category::{Category, InvalidDirective};
+pub use first_error::{FirstError, first_error};
 
 use crate::{
     console::{self, Priority, Queued, Stream},
