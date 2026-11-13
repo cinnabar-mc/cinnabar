@@ -21,7 +21,9 @@ page size, and the GPU adapter and driver recorded when the renderer last starte
 exit cause with its numeric reason follows, then earlier exits Android still remembers, then
 the start and end of long client logs, retaining build and startup context. Consecutive
 duplicate log lines appear once with a repeat count, and very long lines, such as profiler
-records, are shortened. Include those details when reporting a crash.
+records, are shortened. The logs list each startup stage with its duration, so a report saved
+after a slow or failed start shows where the time went. Include those details when reporting a
+crash.
 **Save report** writes a ZIP to Downloads with those details, the client log with every line
 whole (its newest 32 MiB), the adapter record and Android's retained crash trace, when
 available. For native crashes on Android 12+, the trace is the original tombstone protobuf;

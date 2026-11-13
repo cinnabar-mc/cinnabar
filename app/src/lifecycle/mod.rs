@@ -99,8 +99,7 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
 
 /// Starts the client session and loads the default startup carriers on the calling thread for
 /// the next [`crate::run`]. Android's setup activity calls this before it starts the game
-/// activity, whose UI thread waits on the game thread until the event loop starts; Android
-/// reports the app as not responding when that wait reaches 5 s. Failures are left for
+/// activity, so the load happens behind the setup screen. Failures are left for
 /// [`before_run`] and [`crate::run`] to report. A retried setup reuses an earlier preload unless
 /// `rewritten` says setup has rewritten the carriers since.
 pub fn preload(rewritten: bool) {
