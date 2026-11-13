@@ -18,7 +18,7 @@ fn cull_storage_retains_old_buffers_on_growth_failure_and_limit_overflow() {
         });
         let device = RenderDevice::from(device);
         let queue = RenderQueue::new(queue);
-        let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed);
+        let mut cull = GpuCull::new(&device, GpuCullSubmission::Fixed).unwrap();
         let mut world = World::new();
         let first = world.spawn_empty().id();
         let overflow = world.spawn_empty().id();

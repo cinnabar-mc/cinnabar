@@ -112,7 +112,7 @@ fn metal_visibility_bindings_allocate_nothing_on_unchanged_frames() {
         return;
     };
     let device = device.wgpu_device();
-    let masks = crate::chunk::gpu_cull::unit_mask::UnitMasks::new(device);
+    let masks = crate::chunk::gpu_cull::unit_mask::UnitMasks::new(device).unwrap();
     let buffer = || {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: None,

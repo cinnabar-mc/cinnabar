@@ -105,8 +105,25 @@ impl Materials {
     }
 }
 
-/// Compiles a host descriptor under a validation scope so invalid device output skips drawing.
+/// Compiles a host descriptor so invalid device output, or a driver's failure to build the
+/// pipeline, skips drawing instead of reaching the device.
 fn compile(
+    device: &RenderDevice,
+    layout: &BindGroupLayout,
+    shader: &str,
+    key: Key,
+) -> Option<RenderPipeline> {
+    driver_failure::catch(device.wgpu_device(), || {
+        validated(device, layout, shader, key)
+    })
+    .unwrap_or_else(|failure| {
+        warn!("mod drawing material could not be built by the graphics driver: {failure}");
+        None
+    })
+}
+
+/// Compiles under a validation scope; `None` when the device rejected the descriptor.
+fn validated(
     device: &RenderDevice,
     layout: &BindGroupLayout,
     shader: &str,

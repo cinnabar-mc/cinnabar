@@ -2083,6 +2083,15 @@ Flathub submission remain incomplete.
   GPU validation and internal errors retain their driver description for the terminal report and
   log the full error source before stopping. Injected handler regressions cover all four GPU error
   categories; these diagnostics do not establish the cause of Android device-loss reports.
+  A pipeline the graphics driver fails to build no longer stops the renderer by itself. The
+  pipeline cache and the owners that create pipelines directly capture the driver's error, so an
+  optional pass is logged with its pipeline's name and stays off. Terrain, UI and view-output
+  pipelines are compiled once more; a second failure stops the client with the pipeline's name
+  and the driver's report. Uncaptured GPU errors still stop rendering. Failures injected into the
+  validation-only backend cover the cache, this policy and the direct-creation helper; the
+  browser build captures none of these errors. Incomplete: no affected Adreno phone has confirmed
+  that its compile failures arrive as these recoverable errors, and a driver that crashes inside
+  the compiler instead of returning an error is not helped.
   Android exit reports retain the beginning and end of long logs so startup build and adapter
   context survives a busy session, and shorten over-long single-line records, such as hitch
   profiles, that used to fill the bounded details; the saved ZIP keeps the whole client log.

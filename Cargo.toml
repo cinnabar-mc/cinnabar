@@ -87,6 +87,7 @@ members = [
     "crates/env-compat",
     "crates/cpu-topology",
     "crates/memory-pressure",
+    "crates/driver-failure",
     "crates/update-manifest",
     "crates/update-installer",
     "tools/architecture",

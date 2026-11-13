@@ -1865,6 +1865,7 @@ dependencies = [
  "anyhow",
  "assets",
  "block2 0.6.2",
+ "driver-failure",
  "fontdue",
  "gilrs",
  "image",
@@ -3793,6 +3794,13 @@ name = "dragonfly-extension-client"
 version = "0.2.1"
 dependencies = [
  "experience-sdk",
+]
+
+[[package]]
+name = "driver-failure"
+version = "0.2.1"
+dependencies = [
+ "wgpu",
 ]
 
 [[package]]
@@ -7848,6 +7856,7 @@ dependencies = [
  "block-transform",
  "bytemuck",
  "criterion",
+ "driver-failure",
  "env-compat",
  "far-terrain",
  "glam",

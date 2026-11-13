@@ -181,11 +181,18 @@ impl FrameGenerator {
         size.validate(&device.limits())?;
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let allocation = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-        let flow = OpticalFlow::new(device, size.display);
-        let mut interpolation = Interpolation::new(device, size.display);
-        interpolation.prepare_inputs(device, size.render);
+        let built = driver_failure::catch(device, || {
+            let flow = OpticalFlow::new(device, size.display);
+            let mut interpolation = Interpolation::new(device, size.display);
+            interpolation.prepare_inputs(device, size.render);
+            (flow, interpolation)
+        });
         let allocation_error = bevy::tasks::block_on(allocation.pop());
         let validation_error = bevy::tasks::block_on(validation.pop());
+        // A pipeline the driver refused also fails the bind groups built from it; report the
+        // driver's failure instead of that validation error.
+        let (flow, interpolation) =
+            built.map_err(|failure| FrameGenerationError::Gpu(failure.to_string()))?;
         if let Some(error) = allocation_error.or(validation_error) {
             return Err(FrameGenerationError::Gpu(error.to_string()));
         }

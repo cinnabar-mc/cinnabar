@@ -6,7 +6,7 @@ fn direct_occlusion_retains_storage_after_failed_growth() {
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let device = RenderDevice::from(device);
     let queue = RenderQueue::new(queue);
-    let mut occlusion = DirectOcclusion::new(&device);
+    let mut occlusion = DirectOcclusion::new(&device).unwrap();
     let mut world = World::new();
     let entity = world.spawn_empty().id();
     let tint = ChunkBiomeTintIdentity::default();

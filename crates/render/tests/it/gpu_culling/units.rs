@@ -84,7 +84,7 @@ fn draw_units(
         entries: &[],
     });
     let mut mask_encoder = gpu.device.create_command_encoder(&Default::default());
-    let masks = super::unit_mask::UnitMasks::new(&gpu.device);
+    let masks = super::unit_mask::UnitMasks::new(&gpu.device).unwrap();
     let pages = shards(
         units.len(),
         page_units * size_of::<VisibleTerrainUnit>() as u64,
@@ -326,7 +326,7 @@ fn same_frame_unit_visibility_preserves_pixels_after_disocclusion() {
         return;
     };
     let terrain = fixture();
-    let kernels = CullKernels::new(&gpu.device);
+    let kernels = CullKernels::new(&gpu.device).unwrap();
     let storage = storage::OcclusionStorage::new(&gpu.device, terrain.records.len() as u32);
     gpu.queue
         .write_buffer(&storage.records, 0, bytemuck::cast_slice(&terrain.records));
