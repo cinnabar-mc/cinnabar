@@ -176,7 +176,11 @@ impl Player {
         if !self.on_ground {
             return AIR_FRICTION;
         }
-        let below = world.block(floor(self.x), floor(self.bounds.min_y) - 1, floor(self.z));
+        let below = world.block(
+            floor(self.x),
+            floor(self.bounds.min_y).wrapping_sub(1),
+            floor(self.z),
+        );
         facts(below.id).slipperiness * AIR_FRICTION
     }
 

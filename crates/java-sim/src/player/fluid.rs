@@ -73,7 +73,7 @@ fn water_current(world: &impl World, query: &Aabb) -> Option<[f64; 3]> {
                 if facts(block.id).material != Material::Water {
                     continue;
                 }
-                let surface = f64::from((y + 1) as f32 - liquid_height(block.meta));
+                let surface = f64::from(y.wrapping_add(1) as f32 - liquid_height(block.meta));
                 if f64::from(end[1]) >= surface {
                     found = true;
                     let flow = flow_vector(world, x, y, z, Material::Water);
@@ -160,14 +160,14 @@ fn flow_vector(world: &impl World, x: i32, y: i32, z: i32, liquid: Material) -> 
     let mut flow = [0.0_f64; 3];
     let level = flow_level(world, x, y, z, liquid).unwrap_or(-1);
     for (offset_x, offset_z) in [(-1, 0), (0, -1), (1, 0), (0, 1)] {
-        let (neighbour_x, neighbour_z) = (x + offset_x, z + offset_z);
+        let (neighbour_x, neighbour_z) = (x.wrapping_add(offset_x), z.wrapping_add(offset_z));
         let weight = match flow_level(world, neighbour_x, y, neighbour_z, liquid) {
             Some(neighbour) => neighbour - level,
             None => {
                 if facts(world.block(neighbour_x, y, neighbour_z).id).blocks_movement {
                     continue;
                 }
-                match flow_level(world, neighbour_x, y - 1, neighbour_z, liquid) {
+                match flow_level(world, neighbour_x, y.wrapping_sub(1), neighbour_z, liquid) {
                     Some(below) => below - (level - 8),
                     None => continue,
                 }
@@ -191,9 +191,9 @@ fn flow_vector(world: &impl World, x: i32, y: i32, z: i32, liquid: Material) -> 
         .any(|(offset_x, offset_y, offset_z)| {
             holds_liquid(
                 world,
-                x + offset_x,
-                y + offset_y,
-                z + offset_z,
+                x.wrapping_add(offset_x),
+                y.wrapping_add(offset_y),
+                z.wrapping_add(offset_z),
                 liquid,
                 false,
             )

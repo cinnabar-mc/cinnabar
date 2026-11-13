@@ -517,27 +517,28 @@ impl Player {
         let (block_x, block_y, block_z) = (floor(x), floor(y), floor(z));
         let offset_x = x - f64::from(block_x);
         let offset_z = z - f64::from(block_z);
+        let above = block_y.wrapping_add(1);
         let normal =
             |x: i32, y: i32, z: i32| crate::block::facts(world.block(x, y, z).id).normal_cube;
-        if !normal(block_x, block_y, block_z) && !normal(block_x, block_y + 1, block_z) {
+        if !normal(block_x, block_y, block_z) && !normal(block_x, above, block_z) {
             return;
         }
-        let free = |x: i32, z: i32| !normal(x, block_y, z) && !normal(x, block_y + 1, z);
+        let free = |x: i32, z: i32| !normal(x, block_y, z) && !normal(x, above, z);
         let mut nearest = 9999.0;
         let mut side = None;
-        if free(block_x - 1, block_z) && offset_x < nearest {
+        if free(block_x.wrapping_sub(1), block_z) && offset_x < nearest {
             nearest = offset_x;
             side = Some(0);
         }
-        if free(block_x + 1, block_z) && 1.0 - offset_x < nearest {
+        if free(block_x.wrapping_add(1), block_z) && 1.0 - offset_x < nearest {
             nearest = 1.0 - offset_x;
             side = Some(1);
         }
-        if free(block_x, block_z - 1) && offset_z < nearest {
+        if free(block_x, block_z.wrapping_sub(1)) && offset_z < nearest {
             nearest = offset_z;
             side = Some(4);
         }
-        if free(block_x, block_z + 1) && 1.0 - offset_z < nearest {
+        if free(block_x, block_z.wrapping_add(1)) && 1.0 - offset_z < nearest {
             side = Some(5);
         }
         match side {

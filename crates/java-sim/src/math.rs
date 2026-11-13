@@ -33,12 +33,14 @@ pub fn cos(radians: f32) -> f32 {
     sin_table()[((radians * SIN_INDEX_SCALE + COS_INDEX_OFFSET) as i32 & 0xFFFF) as usize]
 }
 
-/// Largest integer not above `value`, saturating like a Java `(int)` cast.
+/// Largest integer not above `value`, as the game computes it: the `(int)` cast saturates and
+/// the step down for negative fractions wraps, so values below the `i32` range floor to
+/// `i32::MAX`.
 #[must_use]
 pub fn floor(value: f64) -> i32 {
     let truncated = value as i32;
     if value < f64::from(truncated) {
-        truncated - 1
+        truncated.wrapping_sub(1)
     } else {
         truncated
     }
@@ -256,6 +258,8 @@ mod tests {
         assert_eq!(floor(1.999), 1);
         assert_eq!(floor(f64::NAN), 0);
         assert_eq!(floor(1e300), i32::MAX);
+        assert_eq!(floor(-2_147_483_649.0), i32::MAX);
+        assert_eq!(floor(f64::NEG_INFINITY), i32::MAX);
     }
 
     #[test]

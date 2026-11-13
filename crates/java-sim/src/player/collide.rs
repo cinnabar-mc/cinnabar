@@ -19,6 +19,8 @@ const WEB_VERTICAL_SCALE: f32 = 0.05;
 const SOUL_SAND_SCALE: f64 = 0.4;
 /// Margin entities are searched in around a collision query.
 const ENTITY_QUERY_MARGIN: f64 = 0.25;
+/// Longest move along one axis in a tick, in blocks.
+const MAX_STEP: f64 = 100.0;
 /// Inset of the box when finding the blocks it touches.
 const TOUCH_INSET: f64 = 0.001;
 
@@ -35,7 +37,7 @@ impl Player {
                 if !world.block_exists(x, 64, z) {
                     continue;
                 }
-                for y in (min_y - 1)..max_y {
+                for y in min_y.wrapping_sub(1)..max_y {
                     collision_boxes(world, x, y, z, query, &mut boxes);
                 }
             }
@@ -60,7 +62,7 @@ impl Player {
     /// Moves by `motion` as far as collisions allow, then updates ground and collision flags,
     /// fall distance, and the motion that hit something.
     pub(super) fn move_by(&mut self, world: &impl World, motion: [f64; 3]) {
-        let [mut x, mut y, mut z] = motion;
+        let [mut x, mut y, mut z] = motion.map(bounded_step);
         self.sink *= SINK_DECAY;
         if self.in_web {
             self.in_web = false;
@@ -222,5 +224,16 @@ fn shorten(value: f64) -> f64 {
         value - SNEAK_EDGE_STEP
     } else {
         value + SNEAK_EDGE_STEP
+    }
+}
+
+/// Limits one component of a move to [`MAX_STEP`] and treats a non-number as no movement.
+/// The game has no such limit: a larger move makes it scan every block on the way, and one
+/// too large for the sneak step to shorten never ends. Servers reject moves a tenth this size.
+fn bounded_step(value: f64) -> f64 {
+    if value.is_nan() {
+        0.0
+    } else {
+        value.clamp(-MAX_STEP, MAX_STEP)
     }
 }

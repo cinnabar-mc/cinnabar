@@ -39,12 +39,18 @@ pub struct Modifier {
     pub operation: Operation,
 }
 
+/// Smallest table a Java hash set starts with.
+const INITIAL_BUCKETS: u32 = 16;
+
 /// Movement speed as the client holds it: the server's last snapshot plus the sprint modifier
 /// the client toggles itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MovementSpeed {
     base: f64,
     modifiers: Vec<Modifier>,
+    /// Bucket count of the game's hash set for each operation. A set doubles when it grows
+    /// past three quarters full and never shrinks, so the count depends on its history.
+    buckets: [u32; 3],
 }
 
 impl Default for MovementSpeed {
@@ -52,6 +58,7 @@ impl Default for MovementSpeed {
         Self {
             base: DEFAULT_BASE,
             modifiers: Vec::new(),
+            buckets: [INITIAL_BUCKETS; 3],
         }
     }
 }
@@ -65,7 +72,7 @@ impl MovementSpeed {
         self.modifiers.clear();
         for modifier in modifiers {
             if self.modifiers.iter().all(|held| held.id != modifier.id) {
-                self.modifiers.push(*modifier);
+                self.insert(*modifier);
             }
         }
     }
@@ -75,7 +82,7 @@ impl MovementSpeed {
         self.modifiers
             .retain(|modifier| modifier.id != SPRINT_MODIFIER_ID);
         if sprinting {
-            self.modifiers.push(Modifier {
+            self.insert(Modifier {
                 id: SPRINT_MODIFIER_ID,
                 amount: SPRINT_MODIFIER_AMOUNT,
                 operation: Operation::MultiplyTotal,
@@ -83,9 +90,24 @@ impl MovementSpeed {
         }
     }
 
+    /// Adds a modifier and grows its operation's table as the game's hash set would.
+    fn insert(&mut self, modifier: Modifier) {
+        self.modifiers.push(modifier);
+        let held = self
+            .modifiers
+            .iter()
+            .filter(|held| held.operation == modifier.operation)
+            .count();
+        let buckets = &mut self.buckets[modifier.operation as usize];
+        while held as u64 * 4 > u64::from(*buckets) * 3 && *buckets < 1 << 30 {
+            *buckets *= 2;
+        }
+    }
+
     /// The attribute value: additions, then base multipliers, then total multipliers, clamped to
-    /// be non-negative. Modifiers of one operation combine in the order of the game's hash set,
-    /// which is that of Java 8 and later for the up to twelve modifiers a default table holds.
+    /// be non-negative. Modifiers of one operation combine in the iteration order of the game's
+    /// hash set under Java 8 and later: by bucket, then by insertion. Buckets holding eight or
+    /// more modifiers, which Java reorders into a tree, are not modelled.
     #[must_use]
     pub fn value(&self) -> f64 {
         let mut base = self.base;
@@ -104,23 +126,24 @@ impl MovementSpeed {
 
     /// Modifiers of one operation in hash-bucket order; equal buckets keep insertion order.
     fn ordered(&self, operation: Operation) -> Vec<Modifier> {
+        let buckets = self.buckets[operation as usize];
         let mut selected: Vec<Modifier> = self
             .modifiers
             .iter()
             .copied()
             .filter(|modifier| modifier.operation == operation)
             .collect();
-        selected.sort_by_key(|modifier| hash_bucket(modifier.id));
+        selected.sort_by_key(|modifier| hash_bucket(modifier.id, buckets));
         selected
     }
 }
 
-/// Bucket of a UUID in a 16-slot Java hash table: the UUID's hash folds its four 32-bit words,
-/// and the table mixes the high half into the low half.
-fn hash_bucket(id: u128) -> u32 {
+/// Bucket of a UUID in a Java hash table of `buckets` slots: the UUID's hash folds its four
+/// 32-bit words, and the table mixes the high half into the low half.
+fn hash_bucket(id: u128, buckets: u32) -> u32 {
     let folded = (id >> 64) as u64 ^ id as u64;
     let hash = (folded >> 32) as u32 ^ folded as u32;
-    (hash ^ (hash >> 16)) & 15
+    (hash ^ (hash >> 16)) & (buckets - 1)
 }
 
 #[cfg(test)]
@@ -148,6 +171,28 @@ mod tests {
         speed.set_sprinting(true);
         speed.apply_snapshot(0.1, &[]);
         assert_eq!(speed.value(), 0.1);
+    }
+
+    /// Thirteen additions outgrow a 16-slot table. Ids 0, 16 and 1 share slots 0, 0 and 1
+    /// there but take slots 0, 16 and 1 once the table has doubled, which changes the order
+    /// of a sum that is not associative.
+    #[test]
+    fn a_table_that_grew_orders_modifiers_by_its_new_size() {
+        let add = |id: u128, amount: f64| Modifier {
+            id,
+            amount,
+            operation: Operation::Add,
+        };
+        let mut modifiers = vec![add(0, 1e16), add(16, -1e16), add(1, 1.0)];
+        modifiers.extend((2..12).map(|id| add(id, 0.0)));
+        let mut speed = MovementSpeed::default();
+        speed.apply_snapshot(0.0, &modifiers[..12]);
+        assert_eq!(speed.value(), 1.0, "twelve modifiers fit sixteen slots");
+        speed.apply_snapshot(0.0, &modifiers);
+        assert_eq!(speed.value(), 0.0, "thirteen modifiers double the table");
+        // The table keeps its size when the set empties.
+        speed.apply_snapshot(0.0, &modifiers[..3]);
+        assert_eq!(speed.value(), 0.0);
     }
 
     #[test]

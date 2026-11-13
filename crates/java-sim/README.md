@@ -40,5 +40,8 @@ line per tick: `ev` (events applied before the tick), `in` (keys and view angles
 - Anvils, chests and ladders with metadata outside 2 to 5 collide in the game with whatever
   bounds were last computed for any block of that kind. The crate computes each block's own
   bounds; ladders with other metadata collide as a full cube.
-- Attribute modifiers of one operation combine in Java 8's hash order. Older runtimes may
-  differ in the last bit of the product.
+- Attribute modifiers of one operation combine in Java 8's hash order, without the tree
+  order Java gives a bucket of eight or more. Older runtimes may differ in the last bit of
+  the product.
+- A move is limited to 100 blocks along each axis in a tick, where the game has no limit and
+  would stall.

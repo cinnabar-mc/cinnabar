@@ -100,6 +100,91 @@ fn recorded_packet(value: &Value) -> Option<Packet> {
     })
 }
 
+/// A packet as its kind, flags and floating-point bit patterns, so `-0.0` differs from `0.0`.
+fn packet_bits(packet: &Packet) -> (u8, Vec<u64>) {
+    let single = |value: f32| u64::from(value.to_bits());
+    match *packet {
+        Packet::Action(action) => (0, vec![action as u64]),
+        Packet::Ground { on_ground } => (1, vec![u64::from(on_ground)]),
+        Packet::Position {
+            x,
+            y,
+            stance,
+            z,
+            on_ground,
+        } => (
+            2,
+            vec![
+                x.to_bits(),
+                y.to_bits(),
+                stance.to_bits(),
+                z.to_bits(),
+                u64::from(on_ground),
+            ],
+        ),
+        Packet::Look {
+            yaw,
+            pitch,
+            on_ground,
+        } => (3, vec![single(yaw), single(pitch), u64::from(on_ground)]),
+        Packet::PositionLook {
+            x,
+            y,
+            stance,
+            z,
+            yaw,
+            pitch,
+            on_ground,
+        } => (
+            4,
+            vec![
+                x.to_bits(),
+                y.to_bits(),
+                stance.to_bits(),
+                z.to_bits(),
+                single(yaw),
+                single(pitch),
+                u64::from(on_ground),
+            ],
+        ),
+        Packet::Abilities {
+            invulnerable,
+            flying,
+            allow_flying,
+            creative,
+            fly_speed,
+            walk_speed,
+        } => (
+            5,
+            vec![
+                u64::from(invulnerable),
+                u64::from(flying),
+                u64::from(allow_flying),
+                u64::from(creative),
+                single(fly_speed),
+                single(walk_speed),
+            ],
+        ),
+    }
+}
+
+#[test]
+fn packet_comparison_tells_signed_zeros_apart() {
+    let packet = |x: f64| Packet::Position {
+        x,
+        y: 0.0,
+        stance: 0.0,
+        z: 0.0,
+        on_ground: true,
+    };
+    assert_eq!(
+        packet(0.0),
+        packet(-0.0),
+        "float equality cannot see the sign"
+    );
+    assert_ne!(packet_bits(&packet(0.0)), packet_bits(&packet(-0.0)));
+}
+
 fn recorded_packets(value: &Value) -> Vec<Packet> {
     value
         .as_array()
@@ -298,7 +383,12 @@ fn replay(path: &Path) -> Result<usize, String> {
                 describe(&actual)
             ));
         }
-        if packets != expected_packets {
+        if packets.len() != expected_packets.len()
+            || packets
+                .iter()
+                .zip(&expected_packets)
+                .any(|(sent, recorded)| packet_bits(sent) != packet_bits(recorded))
+        {
             return Err(format!(
                 "{} tick {number}: packets diverged\n  expected {expected_packets:?}\n  actual   {packets:?}",
                 path.display()
