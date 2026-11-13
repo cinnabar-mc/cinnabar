@@ -125,16 +125,10 @@ pub(super) fn prepare(
                     bytes,
                     || device.create_texture(&descriptor),
                 )?;
-                let composite = crate::pipeline_failure::optional(
+                let composite = composite_pipeline(
                     device.wgpu_device(),
-                    "nametag encoded composite",
-                    || {
-                        composite_pipeline(
-                            device.wgpu_device(),
-                            msaa.samples(),
-                            target.main_texture_format(),
-                        )
-                    },
+                    msaa.samples(),
+                    target.main_texture_format(),
                 )?;
                 Some((layer, composite))
             },
@@ -155,44 +149,50 @@ pub(super) fn prepare(
     }
 }
 
-/// Builds the pipeline that composes one view's label layer over its colour target.
+/// Builds the pipeline that composes one view's label layer over its colour target. `None`
+/// when the driver cannot build its shader module or the pipeline; the overlay then stays off.
 fn composite_pipeline(
     device: &wgpu::Device,
     samples: u32,
     format: TextureFormat,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("nametag encoded composite"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../ui_composite.wgsl").into()),
-    });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("nametag encoded composite"),
-        layout: None,
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("composite_vertex"),
-            compilation_options: default(),
-            buffers: &[],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some(if samples > 1 {
-                "nametag_multisample_composite_fragment"
-            } else {
-                "nametag_composite_fragment"
+) -> Option<wgpu::RenderPipeline> {
+    const LABEL: &str = "nametag encoded composite";
+    let shader = crate::pipeline_failure::optional(device, LABEL, || {
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(LABEL),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../ui_composite.wgsl").into()),
+        })
+    })?;
+    crate::pipeline_failure::optional(device, LABEL, || {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(LABEL),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("composite_vertex"),
+                compilation_options: default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some(if samples > 1 {
+                    "nametag_multisample_composite_fragment"
+                } else {
+                    "nametag_composite_fragment"
+                }),
+                compilation_options: default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
             }),
-            compilation_options: default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: ColorWrites::ALL,
-            })],
-        }),
-        primitive: default(),
-        depth_stencil: None,
-        multisample: default(),
-        multiview_mask: None,
-        cache: None,
+            primitive: default(),
+            depth_stencil: None,
+            multisample: default(),
+            multiview_mask: None,
+            cache: None,
+        })
     })
 }
 

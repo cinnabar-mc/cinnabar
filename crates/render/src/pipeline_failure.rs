@@ -76,6 +76,23 @@ pub(crate) fn optional<T>(
     }
 }
 
+/// Turns a direct owner's driver failure into the absent owner, logged with `label`. For
+/// owners built once, or that disable themselves, so the driver is not asked again.
+pub(crate) fn unavailable<T>(
+    label: &str,
+    built: Result<T, driver_failure::DriverFailure>,
+) -> Option<T> {
+    built
+        .inspect_err(|failure| {
+            error!(
+                target: "cinnabar::render",
+                label,
+                "The graphics driver could not build this pipeline; its pass stays off: {failure}"
+            );
+        })
+        .ok()
+}
+
 /// How far the policy has taken one failed pipeline.
 enum Handled {
     /// Logged as an optional pass that stays off.

@@ -67,12 +67,14 @@ impl ResolvedDepth {
         let gpu = device.wgpu_device();
         let multi = depth.texture().sample_count() > 1;
         // The driver may refuse the resolve pipeline; consumers then run without resolved depth.
-        let pipeline = crate::pipeline_failure::optional(gpu, "resolved scene depth", || {
-            let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = crate::pipeline_failure::optional(gpu, "resolved scene depth", || {
+            gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("resolved scene depth"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("scene_depth.wgsl").into()),
-            });
-            let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            })
+        })?;
+        let pipeline = crate::pipeline_failure::optional(gpu, "resolved scene depth", || {
+            gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("resolved scene depth"),
                 layout: None,
                 vertex: wgpu::VertexState {
@@ -98,8 +100,7 @@ impl ResolvedDepth {
                 multisample: Default::default(),
                 multiview_mask: None,
                 cache: None,
-            });
-            pipeline
+            })
         })?;
         let binding = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("resolved scene depth input"),

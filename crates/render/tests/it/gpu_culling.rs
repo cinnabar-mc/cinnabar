@@ -180,7 +180,7 @@ impl<'a> Culler<'a> {
         storage.write_stream_order(&gpu.queue, 1, 0, &order);
         Self {
             gpu,
-            kernels: CullKernels::new(&gpu.device),
+            kernels: CullKernels::new(&gpu.device).unwrap(),
             storage,
             slots: records.len() as u32,
             order,

@@ -207,13 +207,14 @@ pub(in crate::chunk) fn install(app: &mut App) {
     let worker_device = device.clone();
     // Without its kernels the view keeps the CPU-culled path.
     crate::deferred_resource::install(render_app, move || {
-        crate::pipeline_failure::optional(worker_device.wgpu_device(), "terrain cull", || {
-            let mut cull = GpuCull::new(&worker_device, submission);
-            if raster {
-                cull.enable_raster();
-            }
-            cull
-        })
+        let mut cull = crate::pipeline_failure::unavailable(
+            "terrain cull",
+            GpuCull::new(&worker_device, submission),
+        )?;
+        if raster {
+            cull.enable_raster();
+        }
+        Some(cull)
     });
     render_app
         .insert_resource(feedback::GpuCullFeedback::from_env())

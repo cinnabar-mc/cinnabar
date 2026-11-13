@@ -404,11 +404,15 @@ fn pipeline(
     format: wgpu::TextureFormat,
     blend: Option<wgpu::BlendState>,
 ) -> Result<wgpu::RenderPipeline> {
-    driver_failure::catch(device, || {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    let module = driver_failure::shader_module(
+        device,
+        wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
+        },
+    )
+    .context("build a bootstrap window shader")?;
+    driver_failure::catch(device, || {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[Some(layout)],

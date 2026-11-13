@@ -43,9 +43,10 @@ impl std::error::Error for DriverFailure {}
 ///   thread. It may push and pop scopes of its own.
 /// * On `Err`, everything `create` built is dropped, because at least one of those objects is
 ///   invalid. The first failure is the one reported.
-/// * `create` should end with the pipelines it builds. Using a failed object in a later device
-///   call, such as asking a pipeline for its bind group layout, raises a validation error that
-///   is not captured here; build dependents after checking the result.
+/// * `create` should end with the objects it builds. Using a failed object in a later device
+///   call, such as building a pipeline from a module or asking a pipeline for its bind group
+///   layout, raises a validation error that is not captured here; build dependents after
+///   checking the result. [`shader_module`] does this for the module a pipeline needs.
 /// * On wasm32 nothing is captured and the result is always `Ok`: a browser's scope cannot
 ///   settle before this call returns, so the error reaches the uncaptured-error handler.
 pub fn catch<T>(device: &wgpu::Device, create: impl FnOnce() -> T) -> Result<T, DriverFailure> {
@@ -70,6 +71,17 @@ pub fn catch<T>(device: &wgpu::Device, create: impl FnOnce() -> T) -> Result<T, 
             _ => Ok(created),
         }
     }
+}
+
+/// Creates a shader module, returning the driver's failure instead of an invalid module.
+///
+/// Build pipelines only from a module this returned, in a separate [`catch`]: a pipeline made
+/// from an invalid module raises a validation error, which neither call captures.
+pub fn shader_module(
+    device: &wgpu::Device,
+    descriptor: wgpu::ShaderModuleDescriptor<'_>,
+) -> Result<wgpu::ShaderModule, DriverFailure> {
+    catch(device, || device.create_shader_module(descriptor))
 }
 
 /// Makes the noop backend fail pipelines the way a driver does.
@@ -98,7 +110,7 @@ pub mod test_support {
 @compute @workgroup_size(1) fn compute() {}
 ";
 
-    /// Creates a labelled render pipeline from [`SHADER`], as an owner's direct call would.
+    /// Creates a labelled render pipeline from [`SHADER`]; the caller supplies the scope.
     pub fn render_pipeline(device: &wgpu::Device, label: &str) -> wgpu::RenderPipeline {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),

@@ -54,12 +54,15 @@ impl RasterCull {
         format: wgpu::TextureFormat,
         samples: u32,
     ) -> Result<Self, driver_failure::DriverFailure> {
-        // Bind groups come after the check: an invalid pipeline cannot be asked for its layout.
-        let (prepare, pipeline) = driver_failure::catch(device, || {
-            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = driver_failure::shader_module(
+            device,
+            wgpu::ShaderModuleDescriptor {
                 label: Some("terrain raster occlusion"),
                 source: wgpu::ShaderSource::Wgsl(shader_source(workgroup).into()),
-            });
+            },
+        )?;
+        // Bind groups come after the check: an invalid pipeline cannot be asked for its layout.
+        let (prepare, pipeline) = driver_failure::catch(device, || {
             let prepare = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("terrain raster reset"),
                 layout: None,

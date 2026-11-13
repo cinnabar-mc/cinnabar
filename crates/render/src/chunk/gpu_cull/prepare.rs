@@ -88,9 +88,13 @@ pub(in crate::chunk) struct GpuCull {
 }
 
 impl GpuCull {
-    pub(super) fn new(device: &RenderDevice, submission: GpuCullSubmission) -> Self {
-        Self {
-            kernels: CullKernels::new(device.wgpu_device()),
+    /// Fails when the driver cannot build the cull kernels.
+    pub(super) fn new(
+        device: &RenderDevice,
+        submission: GpuCullSubmission,
+    ) -> Result<Self, driver_failure::DriverFailure> {
+        Ok(Self {
+            kernels: CullKernels::new(device.wgpu_device())?,
             submission,
             storage: None,
             ready: false,
@@ -109,7 +113,7 @@ impl GpuCull {
             bind_groups: None,
             bound_pyramid: None,
             prepared_view: None,
-        }
+        })
     }
 
     /// Replaces storage and rewrites every record and draw order into it.
@@ -314,20 +318,11 @@ pub(super) fn prepare_gpu_cull(
                         msaa.samples(),
                     )
                 });
-            cull.raster = match built {
-                Some(Ok(raster)) => Some(raster),
-                Some(Err(failure)) => {
-                    // Not attempted again: the Hi-Z test takes over for the session.
-                    cull.raster_enabled = false;
-                    bevy::log::error!(
-                        target: "cinnabar::render",
-                        label = "terrain raster occlusion",
-                        "The graphics driver could not build this pipeline; its pass stays off: {failure}"
-                    );
-                    None
-                }
-                None => None,
-            };
+            // A driver failure is not attempted again: the Hi-Z test takes over for the session.
+            cull.raster_enabled = !matches!(built, Some(Err(_)));
+            cull.raster = built.and_then(|built| {
+                crate::pipeline_failure::unavailable("terrain raster occlusion", built)
+            });
         }
     } else {
         cull.raster = None;

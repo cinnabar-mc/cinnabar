@@ -42,12 +42,14 @@ impl HandLayer {
         let view = texture.create_view(&Default::default());
         let gpu = device.wgpu_device();
         // The driver may refuse the composite pipeline; the view then keeps no hand layer.
-        let pipeline = crate::pipeline_failure::optional(gpu, "enhanced hand composite", || {
-            let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = crate::pipeline_failure::optional(gpu, "enhanced hand composite", || {
+            gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("enhanced hand composite"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("hand_layer.wgsl").into()),
-            });
-            let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            })
+        })?;
+        let pipeline = crate::pipeline_failure::optional(gpu, "enhanced hand composite", || {
+            gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("enhanced hand composite"),
                 layout: None,
                 vertex: wgpu::VertexState {
@@ -71,8 +73,7 @@ impl HandLayer {
                 multisample: default(),
                 multiview_mask: None,
                 cache: None,
-            });
-            pipeline
+            })
         })?;
         let binding = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("enhanced hand composite input"),
