@@ -117,8 +117,8 @@ impl Hover {
     fn new(view: Retained<AnyObject>, main_thread: MainThreadMarker) -> Self {
         // SAFETY: NSObject init and UIKit's target/action signatures match these types.
         let (target, recognizer, pointer_clicks) = unsafe {
-            let target: Retained<HoverTarget> =
-                msg_send![super(HoverTarget::alloc(main_thread)), init];
+            let target = HoverTarget::alloc(main_thread).set_ivars(());
+            let target: Retained<HoverTarget> = msg_send![super(target), init];
             let recognizer: Allocated<AnyObject> =
                 msg_send![class!(UIHoverGestureRecognizer), alloc];
             let recognizer: Retained<AnyObject> = msg_send![recognizer,
