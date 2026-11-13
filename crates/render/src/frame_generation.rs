@@ -189,11 +189,13 @@ impl FrameGenerator {
         });
         let allocation_error = bevy::tasks::block_on(allocation.pop());
         let validation_error = bevy::tasks::block_on(validation.pop());
+        // A pipeline the driver refused also fails the bind groups built from it; report the
+        // driver's failure instead of that validation error.
+        let (flow, interpolation) =
+            built.map_err(|failure| FrameGenerationError::Gpu(failure.to_string()))?;
         if let Some(error) = allocation_error.or(validation_error) {
             return Err(FrameGenerationError::Gpu(error.to_string()));
         }
-        let (flow, interpolation) =
-            built.map_err(|failure| FrameGenerationError::Gpu(failure.to_string()))?;
         Ok(Self {
             size,
             flow,

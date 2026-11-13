@@ -165,6 +165,61 @@ fn a_view_output_blit_is_required_whatever_its_label() {
     );
 }
 
+/// A view may only show up with the failed pipeline after the failure was first reviewed.
+#[test]
+fn a_failed_pipeline_a_view_adopts_later_is_still_retried() {
+    let (device, _uncaptured, mut cache) = cache(true);
+    fail_next_pipeline(&device);
+    let blit = compile(&mut cache, "blit pipeline");
+    let mut failures = PipelineFailures::default();
+    assert!(failures.review(&cache, |_| false).is_empty());
+    assert_eq!(failures.review(&cache, |id| id == blit.id()), [blit.id()]);
+    assert!(
+        failures.review(&cache, |id| id == blit.id()).is_empty(),
+        "one retry only"
+    );
+}
+
+/// The render system applies the retry itself, and a pipeline that recovered starts over.
+#[test]
+fn the_review_system_requeues_a_required_pipeline_and_forgets_it_once_it_compiles() {
+    let (device, _uncaptured, mut cache) = cache(true);
+    fail_next_pipeline(&device);
+    let terrain = compile(&mut cache, TERRAIN);
+    let mut world = World::new();
+    world.insert_resource(cache);
+    world.init_resource::<PipelineFailures>();
+    world.run_system_once(review_failures).unwrap();
+    assert!(matches!(
+        world
+            .resource::<PipelineCache>()
+            .get_render_pipeline_state(terrain),
+        CachedPipelineState::Queued
+    ));
+    settle(&mut world.resource_mut::<PipelineCache>(), terrain);
+    world.run_system_once(review_failures).unwrap();
+    let cache = world.resource::<PipelineCache>();
+    assert!(cache.get_render_pipeline(terrain).is_some());
+    let failures = world.resource::<PipelineFailures>();
+    assert_eq!(failures.fatal(), None);
+    assert!(failures.handled.is_empty());
+}
+
+/// The UI descriptors carry the labels this policy requires; terrain's descriptor tests check
+/// theirs. Other pipelines, the blit included, are not required by label.
+#[test]
+fn the_ui_descriptors_are_required_pipelines() {
+    use crate::ui_render::{composite, pipeline};
+    let ui = pipeline::ui_pipeline_descriptor(pipeline::ui_bind_group_layout());
+    assert!(required(
+        ui.label.as_deref().expect("a labelled UI pipeline")
+    ));
+    assert!(required(composite::COMPOSITE_LABEL));
+    assert!(required(composite::CLEAR_LABEL));
+    assert!(!required(OPTIONAL));
+    assert!(!required("blit pipeline"));
+}
+
 /// The cache's own worker captures the failure, so it never reaches the uncaptured handler.
 #[test]
 fn a_worker_compile_reports_the_failure_as_a_pipeline_state() {

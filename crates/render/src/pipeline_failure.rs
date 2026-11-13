@@ -23,8 +23,9 @@ use crate::gpu_allocation::DeviceKey;
 
 /// Whether `label` names a cached pipeline the client stops without: the terrain variants and
 /// the retained UI with its composite. Every label is its owner's constant, so a renamed
-/// pipeline cannot leave this policy silently.
-fn required(label: &str) -> bool {
+/// pipeline cannot leave this policy silently, and tests check the descriptors those owners
+/// build against it.
+pub(crate) fn required(label: &str) -> bool {
     crate::chunk::pipeline::layouts::TERRAIN_PIPELINE_LABELS.contains(&label)
         || [
             crate::ui_render::pipeline::LABEL,
@@ -77,10 +78,12 @@ pub(crate) fn optional<T>(
 
 /// How far the policy has taken one failed pipeline.
 enum Handled {
+    /// Logged as an optional pass that stays off.
+    Optional,
     /// A required pipeline is compiling a second time.
     Retried,
-    /// Logged; nothing further happens to it.
-    Settled,
+    /// A required pipeline failed twice and stopped the client.
+    Fatal,
 }
 
 /// The cached pipelines the driver failed to build, and the failure that stops the client.
@@ -98,7 +101,8 @@ impl PipelineFailures {
 
     /// Applies the policy to every cached pipeline that ended in a driver failure and returns
     /// the ones to compile again. `presents` tells whether a pipeline is a view's output blit,
-    /// which is required whatever its label. Each failure is logged once.
+    /// which is required whatever its label. Each failure is logged when its handling changes,
+    /// and a pipeline that compiled after all is forgotten.
     fn review(&mut self, cache: &PipelineCache, presents: impl Fn(usize) -> bool) -> Vec<usize> {
         let mut retry = Vec::new();
         for (id, cached) in cache.pipelines().enumerate() {
@@ -110,9 +114,9 @@ impl PipelineFailures {
             let label = label(&cached.descriptor);
             let report = driver_failure::report(description);
             match self.handled.get(&id) {
-                Some(Handled::Settled) => {}
+                Some(Handled::Fatal) => {}
                 Some(Handled::Retried) => {
-                    self.handled.insert(id, Handled::Settled);
+                    self.handled.insert(id, Handled::Fatal);
                     let message = format!(
                         "the graphics driver could not build the \"{label}\" pipeline, which \
                          the game cannot run without, in two attempts. Driver report: {report}"
@@ -120,23 +124,34 @@ impl PipelineFailures {
                     error!(target: "cinnabar::render", "{message}");
                     self.fatal.get_or_insert(message);
                 }
-                None if required(label) || presents(id) => {
+                // A view may adopt a failed pipeline as its output after it was logged.
+                None | Some(Handled::Optional) if required(label) || presents(id) => {
                     warn!(
                         target: "cinnabar::render",
-                        label, "The graphics driver could not build a required pipeline; trying once more: {report}"
+                        label,
+                        "The graphics driver could not build a required pipeline; trying once more: {report}"
                     );
                     self.handled.insert(id, Handled::Retried);
                     retry.push(id);
                 }
+                Some(Handled::Optional) => {}
                 None => {
                     error!(
                         target: "cinnabar::render",
-                        label, "The graphics driver could not build this pipeline; its pass stays off: {report}"
+                        label,
+                        "The graphics driver could not build this pipeline; its pass stays off: {report}"
                     );
-                    self.handled.insert(id, Handled::Settled);
+                    self.handled.insert(id, Handled::Optional);
                 }
             }
         }
+        // Failures are rare, so this walk is normally empty. A retry in flight keeps its record.
+        self.handled.retain(|&id, _| {
+            cache
+                .pipelines()
+                .nth(id)
+                .is_some_and(|cached| !matches!(cached.state, CachedPipelineState::Ok(_)))
+        });
         retry
     }
 }
