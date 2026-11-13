@@ -28,14 +28,42 @@ use bevy::{
 #[cfg(test)]
 mod tests;
 
-/// Initial surface latency: Windows waits for measured headroom; other delivery paths retain
-/// their platform default until feedback is available.
+/// Initial surface latency: Windows waits for measured headroom and Android always queues two
+/// frames; other delivery paths retain their platform default until feedback is available.
 #[must_use]
 pub fn frame_latency_for_vsync(vsync: bool) -> NonZeroU32 {
-    if cfg!(target_os = "windows") {
-        return NonZeroU32::new(2).expect("two is nonzero");
+    initial_latency(Delivery::PLATFORM, vsync, presentation_holds_a_drawable())
+}
+
+/// How a platform delivers frames, which decides the queue depth it starts with.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Delivery {
+    /// Starts with two queued frames until adaptive feedback measures headroom for one.
+    Windows,
+    /// The swapchain holds one image more than the latency. With one queued frame that is two
+    /// images, and a frame slightly over one refresh period then waits for the next refresh to
+    /// free an image, so the frame rate drops to half the refresh rate.
+    Android,
+    /// Follows the VSync choice and any drawable presentation holds.
+    Other,
+}
+
+impl Delivery {
+    const PLATFORM: Self = if cfg!(target_os = "windows") {
+        Self::Windows
+    } else if cfg!(target_os = "android") {
+        Self::Android
+    } else {
+        Self::Other
+    };
+}
+
+/// The latency `delivery` uses without measured feedback.
+const fn initial_latency(delivery: Delivery, vsync: bool, held_drawable: bool) -> NonZeroU32 {
+    match delivery {
+        Delivery::Windows | Delivery::Android => NonZeroU32::new(2).expect("two is nonzero"),
+        Delivery::Other => frame_latency(vsync, held_drawable),
     }
-    frame_latency(vsync, presentation_holds_a_drawable())
 }
 
 /// Display timing and queue depth exchanged between the window owner and the renderer.
@@ -74,10 +102,8 @@ fn resolve_latency(vsync: bool, held_drawable: bool, measured: u32) -> NonZeroU3
         && let Some(latency) = NonZeroU32::new(measured)
     {
         latency
-    } else if cfg!(target_os = "windows") {
-        NonZeroU32::new(2).expect("two is nonzero")
     } else {
-        frame_latency(vsync, held_drawable)
+        initial_latency(Delivery::PLATFORM, vsync, held_drawable)
     }
 }
 

@@ -354,6 +354,38 @@ fn missing_primary_display_clears_stale_vrr_and_refresh() {
     );
 }
 
+/// Android is asked for the panel's own rate by default, and for a lower cap the player chose.
+#[test]
+fn the_android_display_request_follows_the_display_or_a_lower_player_cap() {
+    use FrameRateLimit::Unlimited;
+
+    for (limit, refresh, expected) in [
+        (Unlimited, 60, 60),
+        (Unlimited, 90, 90),
+        (Unlimited, 120, 120),
+        (Unlimited, 144, 144),
+        (fixed(30), 120, 30),
+        (fixed(60), 120, 60),
+        (fixed(240), 120, 120),
+    ] {
+        let (mut app, _) = pacing_app((None, false), limit);
+        app.world_mut().resource_mut::<DisplayRefresh>().0.refresh = hz(refresh);
+        app.update();
+        let presentation = app.world().resource::<PresentModeRuntime>();
+        assert_eq!(presentation.intent(), PresentationIntent::Synchronized);
+        assert_eq!(
+            display_rate_request(
+                presentation.intent(),
+                presentation.limit(),
+                app.world().resource::<DisplayRefresh>().0,
+                FrameRateContext::Gameplay,
+            ),
+            hz(expected),
+            "{limit:?} on a {refresh} Hz display"
+        );
+    }
+}
+
 /// Native refresh demand follows the same state and cap as frame admission.
 fn display_link_rate(app: &App, window: Entity) -> Option<FrameRate> {
     app.world()
