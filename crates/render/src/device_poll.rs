@@ -52,6 +52,25 @@ impl FramesInFlight {
         };
         device.poll(poll)
     }
+
+    /// Waits up to `timeout` for every frame still in flight, firing their completion callbacks,
+    /// and forgets them once they finish. The last frame before a client leaves the screen calls
+    /// this, because no later poll would free the storage those frames retire.
+    pub(crate) fn finish_outstanding(
+        &mut self,
+        device: &wgpu::Device,
+        timeout: std::time::Duration,
+    ) -> Result<wgpu::PollStatus, wgpu::PollError> {
+        let Some(newest) = self.0.back().cloned() else {
+            return device.poll(PollType::Poll);
+        };
+        let status = device.poll(PollType::Wait {
+            submission_index: Some(newest),
+            timeout: Some(timeout),
+        })?;
+        self.0.clear();
+        Ok(status)
+    }
 }
 
 /// Owners whose systems register completion callbacks or request readbacks after the graph.

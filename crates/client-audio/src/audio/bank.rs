@@ -21,6 +21,7 @@ use tokio::sync::mpsc::{
 };
 
 mod host;
+mod pressure;
 pub use host::{SoundDecodeDriver, SoundDecodeRequest};
 
 use super::{server::ServerSoundPack, voice::Pcm};
@@ -409,6 +410,17 @@ impl SoundBank {
                 merged
             });
         self.server = pack;
+        self.abandon_decodes();
+        self.ready_streams.clear();
+        self.failed.clear();
+        self.cache.clear();
+        self.cache_order.clear();
+        self.cache_bytes = 0;
+    }
+
+    /// Starts a new decode generation: workers skip the jobs queued before it and their results
+    /// are discarded, so a later lookup of the same sound queues it again.
+    fn abandon_decodes(&mut self) {
         self.decode_generation = self.decode_generation.wrapping_add(1);
         if let Some(decoder) = &self.decoder {
             *decoder
@@ -422,11 +434,6 @@ impl SoundBank {
         }
         self.in_flight.clear();
         self.in_flight_bytes = 0;
-        self.ready_streams.clear();
-        self.failed.clear();
-        self.cache.clear();
-        self.cache_order.clear();
-        self.cache_bytes = 0;
     }
 
     /// Definition by name, the server pack winning over the vanilla catalog.
@@ -573,7 +580,15 @@ impl SoundBank {
             self.ready_streams.insert(path.into(), Arc::clone(pcm));
             return;
         }
-        while self.cache_bytes + size > CACHE_BUDGET_BYTES {
+        self.evict_to(CACHE_BUDGET_BYTES - size);
+        self.cache.insert(path.into(), Arc::clone(pcm));
+        self.cache_order.push_back(path.into());
+        self.cache_bytes += size;
+    }
+
+    /// Evicts the oldest cached sounds until at most `budget` bytes stay cached.
+    fn evict_to(&mut self, budget: usize) {
+        while self.cache_bytes > budget {
             let Some(oldest) = self.cache_order.pop_front() else {
                 break;
             };
@@ -581,9 +596,6 @@ impl SoundBank {
                 self.cache_bytes -= evicted.samples.len() * 2;
             }
         }
-        self.cache.insert(path.into(), Arc::clone(pcm));
-        self.cache_order.push_back(path.into());
-        self.cache_bytes += size;
     }
 
     #[cfg(test)]

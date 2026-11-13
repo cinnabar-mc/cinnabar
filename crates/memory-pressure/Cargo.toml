@@ -1,0 +1,12 @@
+[package]
+name = "memory-pressure"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+
+[lints]
+workspace = true

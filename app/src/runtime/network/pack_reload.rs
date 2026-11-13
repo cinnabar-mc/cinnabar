@@ -111,6 +111,17 @@ impl PackReload {
         }
     }
 
+    /// Detaches the inflated reads cached by the current global and server stacks and by the
+    /// stacks kept for a rejoin, for destruction off the frame. Archives stay, and a reload or
+    /// join that needs a file inflates it again.
+    pub(crate) fn take_cached_reads(&self) -> impl Send + 'static + use<> {
+        (
+            self.globals.take_cached_reads(),
+            self.server.take_cached_reads(),
+            self.kept.take_cached_reads(),
+        )
+    }
+
     /// Prepared texture overrides remain owned by the currently accepted pack application.
     pub(crate) fn aim_assist_textures(&self) -> &[Option<Arc<render_scene::AimAssistTexture>>; 2] {
         &self.aim_assist_textures
