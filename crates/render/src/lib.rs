@@ -101,6 +101,7 @@ pub use post_process::ClientPostProcessPlugin;
 mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
+mod render_counting;
 mod render_scale;
 pub use render_scale::{RenderScaleOutput, RenderScaleSharpen, RenderScaleSystems};
 

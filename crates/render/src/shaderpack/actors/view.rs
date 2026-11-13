@@ -1,6 +1,7 @@
 //! A view's actor draws and their planning: skinning jobs, kernel dispatches, texture
 //! views and per-draw slots.
 
+use crate::queue_writes::ProfiledQueue as _;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -187,7 +188,7 @@ impl NeutralTextures {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            queue.write_texture(
+            queue.profiled_write_texture(
                 texture.as_image_copy(),
                 &rgba,
                 wgpu::TexelCopyBufferLayout {

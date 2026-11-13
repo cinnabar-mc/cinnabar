@@ -8,6 +8,7 @@ mod artifacts;
 mod completion_plan;
 mod conditions;
 mod contracts;
+mod counted_gpu;
 mod dependencies;
 mod device_features;
 mod identifiers;
@@ -83,6 +84,7 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     check_markers(root, &policy, &files, &mut diagnostics)?;
     platforms::check_platforms(root, &policy, &files, &mut diagnostics)?;
     reads::check_reads(root, &policy, &files, &mut diagnostics)?;
+    counted_gpu::check_counted_gpu(root, &policy, &files, &mut diagnostics)?;
     check_timing(root, &policy, &files, &mut diagnostics)?;
     input_owner::check_input_owner(root, &policy, &files, &mut diagnostics)?;
     identifiers::check_identifiers(root, &policy, &files, &mut diagnostics)?;

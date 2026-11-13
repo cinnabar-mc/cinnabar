@@ -4,6 +4,7 @@
 //! The opaque backdrop draws after world geometry and before screen UI, so startup
 //! can keep gathering GPU visibility evidence without exposing unfinished terrain.
 use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     camera::{MainPassResolutionOverride, Viewport},
@@ -109,6 +110,7 @@ fn install_pass(world: &mut World) {
                 crate::gpu_timing::profiled(
                     draw_panorama,
                     Some(render_scene::RuntimeStage::GpuPanorama),
+                    render_scene::RuntimeStage::NodeSky,
                     "PanoramaPass",
                 )
                 .after(bevy::core_pipeline::core_3d::main_transparent_pass_3d)
@@ -479,7 +481,7 @@ fn draw_panorama(world: &World, query: ViewQuery<PanoramaQuery>, mut context: Re
     if let Some(ops) = &mut depth.depth_ops {
         ops.load = LoadOp::Clear(0.0);
     }
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("panorama over world geometry"),
         color_attachments: &[Some(color)],
         depth_stencil_attachment: Some(depth),

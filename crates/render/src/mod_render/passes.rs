@@ -3,6 +3,7 @@
 
 use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::Vec4Swizzles;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
@@ -520,11 +521,16 @@ pub(crate) fn install_graph(world: &mut World) {
     let installed = world
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
-                crate::gpu_timing::profiled(mod_passes, None, "ModPassLabel")
-                    .in_set(ModPassLabel)
-                    .after(Core3dSystems::PostProcess)
-                    .before(crate::ui_render::UiOverlayLabel)
-                    .before(crate::ui_render::overlay::UiOverlayPostLabel),
+                crate::gpu_timing::profiled(
+                    mod_passes,
+                    None,
+                    render_scene::RuntimeStage::NodePost,
+                    "ModPassLabel",
+                )
+                .in_set(ModPassLabel)
+                .after(Core3dSystems::PostProcess)
+                .before(crate::ui_render::UiOverlayLabel)
+                .before(crate::ui_render::overlay::UiOverlayPostLabel),
             );
         })
         .is_ok();
@@ -677,7 +683,7 @@ pub(crate) fn mod_passes(
                     store: StoreOp::Store,
                 },
             })];
-            let mut render_pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            let mut render_pass = context.counted_tracked_render_pass(RenderPassDescriptor {
                 label: Some("mod post pass"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: None,

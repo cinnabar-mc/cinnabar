@@ -37,6 +37,12 @@ mod material_shader;
 mod pipeline_warmup;
 #[path = "../src/render_bounds.rs"]
 mod render_bounds;
+#[path = "../src/render_counting.rs"]
+#[allow(
+    dead_code,
+    reason = "the UI fixture uses a subset of the counted GPU entry points"
+)]
+mod render_counting;
 #[path = "../src/render_scale.rs"]
 mod render_scale;
 #[path = "../src/scene_target.rs"]
@@ -108,6 +114,7 @@ mod gpu_timing {
     pub(crate) fn profiled<S, M>(
         system: S,
         _: Option<render_scene::RuntimeStage>,
+        _: render_scene::RuntimeStage,
         _: &'static str,
     ) -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem>
     where

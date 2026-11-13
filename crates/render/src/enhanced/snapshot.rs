@@ -1,4 +1,5 @@
 //! Opaque scene copies keep water sampling separate from active attachments.
+use crate::render_counting::CountedPasses as _;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     prelude::*,
@@ -49,7 +50,7 @@ pub(crate) fn enhanced_snapshot(
     if scene.texture.sample_count() > 1 {
         let _pass = context
             .command_encoder()
-            .begin_render_pass(&wgpu::RenderPassDescriptor {
+            .counted_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("enhanced opaque colour resolve"),
                 color_attachments: &[Some(
                     scene.resolve_attachment(&colour.default_view, wgpu::StoreOp::Store),

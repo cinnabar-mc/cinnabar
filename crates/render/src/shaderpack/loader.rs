@@ -9,6 +9,7 @@
 mod planning;
 
 use crate::pipeline_breadcrumbs::CompilePipelines as _;
+use crate::queue_writes::ProfiledQueue as _;
 use planning::{pack_settings, planned, storage_sizes};
 #[path = "load_diagnostics.rs"]
 mod diagnostics;
@@ -875,7 +876,7 @@ fn build_translation(
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        gpu.queue.write_buffer(&quad, 0, &quad_bytes);
+        gpu.queue.profiled_write_buffer(&quad, 0, &quad_bytes);
         let filtering =
             SamplerClass::ALL.map(|class| gpu.device.create_sampler(&class_sampler(class)));
         let comparison = gpu.device.create_sampler(&wgpu::SamplerDescriptor {

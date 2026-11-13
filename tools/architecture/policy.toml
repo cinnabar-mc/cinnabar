@@ -1213,6 +1213,26 @@ checked = "RENDERER_FEATURES"
 # Tests wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), never sleep.
 # Each exception names why the file still sleeps; converting it removes the entry.
 # Domain crates take `now` from their caller; only edge code reads the clock.
+# Render-frame work counters see only passes begun and queue writes made through the counted
+# entry points. Production code in these crates may not call the raw wgpu or Bevy methods; an
+# exception names a file whose receiver is neither a pass encoder nor the queue.
+[counted_gpu]
+crates = ["crates/render"]
+entry_points = [
+    "crates/render/src/render_counting.rs",
+    "crates/render/src/queue_writes.rs",
+]
+
+[[counted_gpu.exceptions]]
+path = "crates/render/src/chunk/blocks/prepare.rs"
+method = "write_buffer"
+reason = "Bevy uniform buffers upload themselves; the counters cover client queue writes only"
+
+[[counted_gpu.exceptions]]
+path = "crates/render/src/shaderpack/geometry_shader.rs"
+method = "write_buffer"
+reason = "writes into a mapped staging belt, which is not a queue write"
+
 [timing]
 clock_free_crates = [
     "crates/crash-report",

@@ -1,4 +1,6 @@
 use super::{CameraMotionBlur, prepare::BlurView};
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::*,
@@ -51,12 +53,18 @@ pub(super) fn configure_graph(world: &mut World, enabled: bool) {
             if enabled {
                 schedule.add_systems(
                     (
-                        crate::gpu_timing::profiled(motion_blur::<false>, None, "MotionBlurLabel")
-                            .in_set(MotionBlurLabel)
-                            .before(crate::depth_smaa::DepthSmaaLabel),
+                        crate::gpu_timing::profiled(
+                            motion_blur::<false>,
+                            None,
+                            render_scene::RuntimeStage::NodePost,
+                            "MotionBlurLabel",
+                        )
+                        .in_set(MotionBlurLabel)
+                        .before(crate::depth_smaa::DepthSmaaLabel),
                         crate::gpu_timing::profiled(
                             crate::chunk::transparent::gamma_pass::gamma_transparent::<true, false>,
                             None,
+                            render_scene::RuntimeStage::NodeUi,
                             "SharpNametagsLabel",
                         )
                         .in_set(SharpNametagsLabel)
@@ -148,7 +156,7 @@ pub(crate) fn motion_blur<const AFTER_PACK: bool>(
                 },
             })
         });
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("resolve exposure surface"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,
@@ -177,7 +185,7 @@ pub(crate) fn motion_blur<const AFTER_PACK: bool>(
                     store: wgpu::StoreOp::Store,
                 },
             })];
-            let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
                 label: Some("actor motion reduction"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: None,
@@ -206,7 +214,7 @@ pub(crate) fn motion_blur<const AFTER_PACK: bool>(
         )];
         context
             .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
+            .counted_render_pass(&RenderPassDescriptor {
                 label: Some("camera exposure scene resolve"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: None,
@@ -219,7 +227,7 @@ pub(crate) fn motion_blur<const AFTER_PACK: bool>(
             });
     }
     let attachments = [Some(scene.color_attachment(target, false))];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera motion blur"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,

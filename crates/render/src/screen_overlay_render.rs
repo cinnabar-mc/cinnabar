@@ -1,5 +1,6 @@
 //! Draws camera effects after first-person geometry and before the JSON-UI HUD.
 use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::{
@@ -627,7 +628,7 @@ pub(crate) fn draw_before_hud(
         return;
     };
     let attachments = [Some(target.get_unsampled_color_attachment())];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera effects before HUD"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,

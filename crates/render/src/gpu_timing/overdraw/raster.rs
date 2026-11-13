@@ -1,3 +1,4 @@
+use crate::render_counting::CountedTrackedPass as _;
 use std::sync::atomic::Ordering;
 
 use bevy::{
@@ -25,11 +26,16 @@ struct LayerProbeLabel;
 pub(super) fn install_graph(world: &mut World) {
     let _ = world.try_schedule_scope(Core3d, |_, schedule| {
         schedule.add_systems(
-            crate::gpu_timing::profiled(layer_probe, None, "LayerProbeLabel")
-                .in_set(LayerProbeLabel)
-                .after(crate::scene_target::ScenePass::Opaque)
-                .before(crate::scene_target::ScenePass::Transparent)
-                .in_set(Core3dSystems::MainPass),
+            crate::gpu_timing::profiled(
+                layer_probe,
+                None,
+                render_scene::RuntimeStage::NodeOpaque,
+                "LayerProbeLabel",
+            )
+            .in_set(LayerProbeLabel)
+            .after(crate::scene_target::ScenePass::Opaque)
+            .before(crate::scene_target::ScenePass::Transparent)
+            .in_set(Core3dSystems::MainPass),
         );
     });
 }
@@ -63,7 +69,7 @@ fn layer_probe(
                 store: wgpu::StoreOp::Store,
             },
         })];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("opaque layer diagnostic"),
             color_attachments: &colors,
             depth_stencil_attachment: None,

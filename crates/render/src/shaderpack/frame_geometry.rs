@@ -15,6 +15,7 @@ use super::passes::{ViewState, clear_attachment, load_attachment, pass};
 use super::sky::{SkyGeometry, SkyInputs, sky_geometry};
 use super::targets::AtlasViews;
 use crate::gpu_timing::{GpuTimestamps, within_stage};
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::renderer::RenderDevice;
 use render_scene::RuntimeStage;
@@ -567,7 +568,7 @@ pub(crate) fn record_opaque(
     let scene_alt = state.pack.frame.scene_alt;
     let sky = sky_geometry(geometry.sky);
     if let Some(buffer) = &state.targets.sky {
-        queue.write_buffer(buffer, 0, &sky.bytes);
+        queue.profiled_write_buffer(buffer, 0, &sky.bytes);
     }
     let pack = std::sync::Arc::clone(&state.pack);
     prepare_effects(device, queue, &pack, &mut state.effects, &geometry.effects);

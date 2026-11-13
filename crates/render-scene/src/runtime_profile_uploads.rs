@@ -37,7 +37,8 @@ pub fn measure<T>(work: impl FnOnce() -> T) -> (T, (u64, u64)) {
     )
 }
 
-/// Records a nonempty upload at its original call site when diagnostics are compiled in.
+/// Records a nonempty upload at its original call site when diagnostics are compiled in, and
+/// always counts it toward the render frame.
 #[inline]
 #[track_caller]
 pub fn record(kind: UploadKind, path: UploadPath, bytes: u64) {
@@ -54,10 +55,14 @@ pub fn record(kind: UploadKind, path: UploadPath, bytes: u64) {
         feature = "tracy",
         feature = "publication-test-support"
     )))]
-    let _ = (kind, path, bytes);
+    {
+        let _ = kind;
+        count_for_render_frame(path, bytes);
+    }
 }
 
-/// Records an upload whose helper retained the original source location.
+/// Records an upload whose helper retained the original source location, and counts it toward
+/// the render frame.
 #[inline]
 pub fn record_at(
     site: &'static std::panic::Location<'static>,
@@ -65,6 +70,7 @@ pub fn record_at(
     path: UploadPath,
     bytes: u64,
 ) {
+    count_for_render_frame(path, bytes);
     #[cfg(feature = "publication-test-support")]
     if bytes != 0 {
         TEST_WRITES.update(|(calls, total)| (calls.wrapping_add(1), total.wrapping_add(bytes)));
@@ -73,6 +79,22 @@ pub fn record_at(
     enabled::record(site, kind, path, bytes);
     #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
     let _ = (site, kind, path, bytes);
+}
+
+/// Adds a nonempty upload to the render frame's always-on counters.
+#[inline]
+fn count_for_render_frame(path: UploadPath, bytes: u64) {
+    use crate::runtime_profile::render_counters::{RenderCounter, count};
+    if bytes == 0 {
+        return;
+    }
+    match path {
+        UploadPath::Queue => {
+            count(RenderCounter::Writes, 1);
+            count(RenderCounter::WriteBytes, bytes);
+        }
+        UploadPath::Staged => count(RenderCounter::StagedBytes, bytes),
+    }
 }
 
 /// Closes the preceding upload interval and emits Tracy plots when available.
@@ -269,6 +291,25 @@ mod enabled {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        /// Queue and staged uploads reach the render frame's always-on counters by path.
+        #[test]
+        fn uploads_count_toward_the_render_frame_by_path() {
+            use crate::runtime_profile::render_counters::RenderCounter;
+            let profiler = crate::RuntimeStageProfiler::new(false);
+            super::super::record(UploadKind::Texture, UploadPath::Queue, 128);
+            super::super::record_at(
+                Location::caller(),
+                UploadKind::Buffer,
+                UploadPath::Staged,
+                64,
+            );
+            super::super::record(UploadKind::Buffer, UploadPath::Queue, 0);
+            let frame = profiler.finish_render_counters();
+            assert!(frame.get(RenderCounter::Writes) >= 1);
+            assert!(frame.get(RenderCounter::WriteBytes) >= 128);
+            assert!(frame.get(RenderCounter::StagedBytes) >= 64);
+        }
 
         /// Preserves caller and resource labels, splits partial writes and drains each frame.
         #[test]

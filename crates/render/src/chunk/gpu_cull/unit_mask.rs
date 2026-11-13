@@ -1,6 +1,7 @@
 //! Copies current-frame section verdicts and clears retained flags before direct drawing.
 
 use crate::pipeline_breadcrumbs::CompilePipelines as _;
+use crate::render_counting::CountedPasses as _;
 use render_model::terrain_units::IndexedUnitPage;
 use wgpu::util::DeviceExt;
 
@@ -161,7 +162,7 @@ impl UnitMasks {
         } else {
             (&self.clear_pipeline, &bindings.clear)
         };
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("ordinary terrain visibility"),
             timestamp_writes: None,
         });

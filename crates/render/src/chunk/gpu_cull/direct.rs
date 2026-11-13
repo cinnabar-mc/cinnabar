@@ -4,6 +4,7 @@
 //! asynchronous feedback admits work and never authorizes stale visibility after camera motion.
 
 use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedTrackedPass as _;
 use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
 
 use std::sync::{
@@ -708,6 +709,7 @@ pub(crate) fn install_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     terrain_pass,
                     Some(render_scene::RuntimeStage::GpuOpaque),
+                    render_scene::RuntimeStage::NodeOpaque,
                     "TerrainPassLabel",
                 )
                 .in_set(TerrainPassLabel)
@@ -782,7 +784,7 @@ pub(crate) fn terrain_pass(
         vec![Some(scene_target.color_attachment(target, false))]
     };
     {
-        let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = render_context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("terrain solid pass"),
             color_attachments: &color,
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),

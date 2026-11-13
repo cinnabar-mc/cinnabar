@@ -1,6 +1,7 @@
 //! Single-sample consumers of the scene retain explicit MSAA resolve boundaries.
 
 use crate::pipeline_breadcrumbs::CompilePipelines as _;
+use crate::render_counting::CountedPasses as _;
 use bevy::{
     prelude::World,
     render::{
@@ -147,7 +148,7 @@ impl ResolvedDepth {
         };
         let mut pass = context
             .command_encoder()
-            .begin_render_pass(&wgpu::RenderPassDescriptor {
+            .counted_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene depth resolve"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

@@ -1,5 +1,6 @@
 //! Scheduled early and late culling followed by compacted terrain draws.
 
+use crate::render_counting::CountedPasses as _;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
@@ -144,13 +145,23 @@ pub(crate) fn install_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 (
-                    crate::gpu_timing::profiled(early_cull, None, "GpuCullEarlyLabel")
-                        .in_set(GpuCullEarlyLabel)
-                        .before(crate::scene_target::ScenePass::Opaque),
-                    crate::gpu_timing::profiled(late_cull, None, "GpuCullLateLabel")
-                        .in_set(GpuCullLateLabel)
-                        .after(crate::scene_target::ScenePass::Opaque)
-                        .before(crate::scene_target::ScenePass::Transparent),
+                    crate::gpu_timing::profiled(
+                        early_cull,
+                        None,
+                        render_scene::RuntimeStage::NodeCull,
+                        "GpuCullEarlyLabel",
+                    )
+                    .in_set(GpuCullEarlyLabel)
+                    .before(crate::scene_target::ScenePass::Opaque),
+                    crate::gpu_timing::profiled(
+                        late_cull,
+                        None,
+                        render_scene::RuntimeStage::NodeCull,
+                        "GpuCullLateLabel",
+                    )
+                    .in_set(GpuCullLateLabel)
+                    .after(crate::scene_target::ScenePass::Opaque)
+                    .before(crate::scene_target::ScenePass::Transparent),
                 )
                     .in_set(Core3dSystems::MainPass),
             );
@@ -295,7 +306,7 @@ pub(crate) fn late_cull(
         world.resource::<super::feedback::GpuCullFeedback>(),
     );
     within_span(spans[2].as_ref(), encoder, |encoder| {
-        let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+        let pass = encoder.counted_render_pass(&RenderPassDescriptor {
             label: Some("terrain late cull pass"),
             color_attachments: &[Some(colour)],
             depth_stencil_attachment: Some(depth),

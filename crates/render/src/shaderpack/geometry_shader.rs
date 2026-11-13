@@ -5,6 +5,7 @@ use super::geometry::{CONSTANT_STREAM_WORDS, TerrainLayout, vertex_buffer_layout
 use super::passes::ViewState;
 use super::targets::Groups;
 use crate::pipeline_breadcrumbs::CompilePipelines as _;
+use crate::render_counting::CountedPasses as _;
 use shaderpack::{CompiledStage, GeometryEmulation, ProgramReflection, ScalarType, ValueType};
 use std::borrow::Cow;
 use wgpu::util::StagingBelt;
@@ -509,7 +510,7 @@ impl Scratch {
         .into_iter()
         .enumerate()
         {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("geometry shader expansion"),
                 timestamp_writes: None,
             });

@@ -1,6 +1,7 @@
 //! Visible mesh masks and independent, reusable depth for their contents.
 
 use super::{gpu::Gpu, materials::Materials, pipeline};
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::*,
@@ -474,7 +475,7 @@ fn draw(
             let mut attachment = color.clone();
             attachment.ops.load = LoadOp::Load;
             let colors = [Some(attachment)];
-            let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
                 label: Some("mesh clip contents"),
                 color_attachments: &colors,
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
@@ -558,7 +559,7 @@ fn draw(
                     target,
                     !camera.hdr,
                 )];
-                let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
                     label: Some("clipped transparent terrain"),
                     color_attachments: &colors,
                     depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {

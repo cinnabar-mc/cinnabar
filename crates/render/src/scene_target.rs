@@ -7,6 +7,7 @@ pub(crate) mod nodes;
 mod tests;
 
 use crate::gpu_allocation::FailedRequests;
+use crate::render_counting::CountedPasses as _;
 use bevy::{
     camera::CameraMainTextureUsages,
     core_pipeline::{Core3d, Core3dSystems},
@@ -191,7 +192,7 @@ impl SceneTarget {
         let attachments = [Some(self.final_attachment(target.main_texture_view()))];
         context
             .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
+            .counted_render_pass(&RenderPassDescriptor {
                 label: Some("final scene colour resolve"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: None,
@@ -463,12 +464,14 @@ pub(crate) fn install_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     nodes::scene_opaque::<false>,
                     Some(render_scene::RuntimeStage::GpuOpaque),
+                    render_scene::RuntimeStage::NodeOpaque,
                     "MainOpaquePass",
                 )
                 .in_set(ScenePass::Opaque),
                 crate::gpu_timing::profiled(
                     nodes::scene_finish,
                     Some(render_scene::RuntimeStage::GpuBlit),
+                    render_scene::RuntimeStage::NodePost,
                     "EndMainPass",
                 )
                 .in_set(ScenePass::Finish),

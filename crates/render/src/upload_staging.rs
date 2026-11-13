@@ -103,10 +103,15 @@ fn initialize(world: &mut World) {
     let installed = world
         .try_schedule_scope(bevy::render::renderer::RenderGraph, |_, schedule| {
             schedule.add_systems(
-                crate::gpu_timing::profiled(upload_buffers, None, "main/BufferUploads")
-                    .in_set(BufferUploads)
-                    .before(bevy::core_pipeline::schedule::camera_driver)
-                    .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+                crate::gpu_timing::profiled(
+                    upload_buffers,
+                    None,
+                    render_scene::RuntimeStage::NodeUploads,
+                    "main/BufferUploads",
+                )
+                .in_set(BufferUploads)
+                .before(bevy::core_pipeline::schedule::camera_driver)
+                .in_set(bevy::render::renderer::RenderGraphSystems::Render),
             );
         })
         .is_ok();

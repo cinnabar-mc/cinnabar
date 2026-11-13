@@ -2,6 +2,8 @@
 
 use super::*;
 use crate::pipeline_breadcrumbs::CompilePipelines as _;
+use crate::render_counting::CountedPasses as _;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
@@ -40,6 +42,7 @@ pub(super) fn install_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     draw,
                     Some(render_scene::RuntimeStage::GpuUi),
+                    render_scene::RuntimeStage::NodeUi,
                     "NametagOverlay",
                 )
                 .in_set(NametagOverlay)
@@ -258,7 +261,7 @@ fn draw(
                 store: StoreOp::Store,
             },
         })];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("nametags after world post-processing"),
             color_attachments: &attachments,
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
@@ -316,7 +319,7 @@ fn draw(
     })];
     let mut pass = context
         .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
+        .counted_render_pass(&RenderPassDescriptor {
             label: Some("nametag encoded composition"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,

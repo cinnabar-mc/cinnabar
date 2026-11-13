@@ -1,4 +1,5 @@
 use super::SceneTarget;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -86,7 +87,7 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     let diagnostics = context.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let colors = [Some(color)];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("main opaque and cutout scene"),
         color_attachments: &colors,
         depth_stencil_attachment: Some(depth),
