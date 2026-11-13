@@ -165,11 +165,18 @@ impl GpuUploadReservation {
         )
     }
 
+    /// Bounds work that already holds a publication permit. A permitted payload larger
+    /// than the frame ceiling was admitted to go alone, so it takes a frame that has
+    /// reserved nothing else and copied no arena migration slice.
     pub(in crate::chunk) fn try_reserve_permitted(&mut self, incremental_bytes: u64) -> bool {
         let limits = PublicationServiceConfig::DEFAULT;
         self.try_reserve_within(
             limits.maximum_frame_items,
-            limits.maximum_frame_bytes,
+            if self.items == 0 {
+                limits.maximum_frame_bytes.max(incremental_bytes)
+            } else {
+                limits.maximum_frame_bytes
+            },
             incremental_bytes,
         )
     }
@@ -228,7 +235,8 @@ impl GpuUploadReservation {
 
 /// GPU-local arena migration copy allowed per frame. Growth of any legal size
 /// therefore completes in finitely many frames under the literal frame ceiling.
-pub(in crate::chunk) const ARENA_MIGRATION_FRAME_BYTES: u64 = 16 * 1024 * 1024;
+pub(in crate::chunk) const ARENA_MIGRATION_FRAME_BYTES: u64 =
+    PublicationServiceConfig::DEFAULT.maximum_frame_arena_migration_bytes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) enum ArenaStream {

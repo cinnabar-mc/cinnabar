@@ -92,6 +92,27 @@ fn migration_copy_bytes_count_against_the_literal_frame_byte_cap() {
     assert!(reservation.try_reserve(budget, 39));
 }
 
+/// A permitted payload above the frame ceiling prepares alone instead of stranding its permit.
+#[test]
+fn permitted_payload_above_the_frame_ceiling_prepares_alone() {
+    let frame = PublicationServiceConfig::DEFAULT.maximum_frame_bytes;
+    let mut alone = GpuUploadReservation::default();
+    assert!(alone.try_reserve_permitted(frame + 1));
+    assert!(!alone.try_reserve_permitted(1));
+
+    let mut shared = GpuUploadReservation::default();
+    assert!(shared.try_reserve_permitted(1));
+    assert!(!shared.try_reserve_permitted(frame));
+
+    // A frame that already copied a migration slice leaves it for the next one.
+    let mut migrating = GpuUploadReservation {
+        growth_copy_bytes: 1,
+        ..GpuUploadReservation::default()
+    };
+    assert!(!migrating.try_reserve_permitted(frame + 1));
+    assert!(migrating.try_reserve_permitted(frame - 1));
+}
+
 #[test]
 fn migration_allowance_never_exceeds_the_frame_ceiling_or_slice() {
     let frame = PublicationServiceConfig::DEFAULT.maximum_frame_bytes;

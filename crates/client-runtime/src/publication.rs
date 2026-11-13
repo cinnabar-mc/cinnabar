@@ -5,8 +5,11 @@ use bevy::{
     time::Real,
 };
 use client_state::RuntimeFrameSet;
-use render_api::{PublicationAllowance, PublicationServiceConfig};
-use render_scene::{ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadBudget};
+use render_api::{FrameTimePressureConfig, PublicationAllowance, PublicationServiceConfig};
+use render_scene::{
+    ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadBudget, RenderFrameSample,
+    RuntimeStageProfiler,
+};
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
 const RECOVERY_STREAK_FRAMES: u32 = 120;
@@ -90,11 +93,18 @@ pub struct PublicationController {
     byte_rate_per_second: u64,
     zero_byte_operations_per_frame: usize,
     item_operations_per_frame: usize,
+    frame_byte_limit: u64,
     allowance: PublicationAllowance,
     item_numerator_remainder: u128,
     byte_numerator_remainder: u128,
     pressure_active: bool,
     previous_upload_queue_items: usize,
+    /// Sequence of the newest render frame counted, so a repeated sample adds nothing.
+    observed_render_frame: Option<u64>,
+    /// Consecutive slow render frames ending at the newest sample.
+    slow_render_frames: u32,
+    /// Whether a render frame arrived since the last pressure decision.
+    render_frame_pending: bool,
     diagnostics: PublicationDiagnostics,
 }
 
@@ -108,12 +118,7 @@ impl PublicationController {
     #[must_use]
     /// Creates the shared publication allowance from validated service limits.
     pub fn new(config: PublicationServiceConfig) -> Self {
-        assert!(config.minimum_items_per_second > 0);
-        assert!(config.minimum_bytes_per_second > 0);
-        assert!(config.minimum_items_per_second <= config.target_items_per_second);
-        assert!(config.minimum_bytes_per_second <= config.target_bytes_per_second);
-        assert!(config.maximum_frame_items <= config.maximum_burst_items);
-        assert!(config.maximum_frame_bytes <= config.maximum_burst_bytes);
+        let config = config.validated();
         let zero_byte_operations_per_frame = config.maximum_zero_byte_operations_per_frame;
         let item_operations_per_frame = config.maximum_frame_items;
         let budget = frame_budget(
@@ -129,11 +134,15 @@ impl PublicationController {
             byte_rate_per_second: config.target_bytes_per_second,
             zero_byte_operations_per_frame,
             item_operations_per_frame,
+            frame_byte_limit: config.maximum_frame_bytes,
             allowance: PublicationAllowance::new(config),
             item_numerator_remainder: 0,
             byte_numerator_remainder: 0,
             pressure_active: false,
             previous_upload_queue_items: 0,
+            observed_render_frame: None,
+            slow_render_frames: 0,
+            render_frame_pending: false,
             diagnostics: PublicationDiagnostics {
                 budget,
                 ..Default::default()
@@ -171,12 +180,13 @@ impl PublicationController {
             .min(self.config.maximum_burst_bytes);
         self.item_numerator_remainder = item_remainder;
         self.byte_numerator_remainder = byte_remainder;
-        self.allowance.begin_frame(
+        self.allowance.begin_frame_with_byte_limit(
             self.diagnostics.frame_sequence,
             issued_items,
             issued_bytes,
             self.zero_byte_operations_per_frame,
             self.item_operations_per_frame,
+            self.frame_byte_limit,
         );
         self.diagnostics.budget = frame_budget(
             self.config,
@@ -185,6 +195,22 @@ impl PublicationController {
             self.allowance.frame_remaining_bytes(),
             self.zero_byte_operations_per_frame,
         );
+    }
+
+    /// Counts a completed render-thread frame toward the next pressure decision. A sample
+    /// whose sequence was already counted adds nothing, so callers may pass the newest
+    /// sample every frame.
+    pub fn observe_render_frame(&mut self, sample: RenderFrameSample) {
+        if self.observed_render_frame == Some(sample.sequence) {
+            return;
+        }
+        self.observed_render_frame = Some(sample.sequence);
+        self.render_frame_pending = true;
+        self.slow_render_frames = if sample.is_slow() {
+            self.slow_render_frames.saturating_add(1)
+        } else {
+            0
+        };
     }
 
     /// Retains this frame's work for diagnostics and the next pressure decision.
@@ -230,8 +256,66 @@ impl PublicationController {
         self.diagnostics
     }
 
-    /// Reduces stalled backlog caps and gradually restores them after recovery.
+    /// Applies frame-time feedback for a render frame counted since the last decision.
+    /// Returns whether that frame was slow, which also holds recovery back.
+    ///
+    /// Every `consecutive_slow_frames` slow frames in a row halve the geometry rates and
+    /// the per-frame caps toward their floors, so later frames copy less while the device
+    /// catches up. The floors keep nearby sections publishing however long frames stay slow.
+    fn apply_frame_time_pressure(&mut self) -> bool {
+        let fresh = std::mem::take(&mut self.render_frame_pending);
+        let Some(pressure) = self.config.frame_time_pressure else {
+            return false;
+        };
+        if !fresh || self.slow_render_frames == 0 {
+            return false;
+        }
+        if self
+            .slow_render_frames
+            .is_multiple_of(pressure.consecutive_slow_frames)
+        {
+            self.decrease_for_frame_time(pressure);
+            self.diagnostics.under_target_streak = 0;
+        }
+        true
+    }
+
+    /// Halves the geometry rates and frame caps, stopping at the configured floors and
+    /// never raising a cap that backlog pressure already took lower.
+    fn decrease_for_frame_time(&mut self, pressure: FrameTimePressureConfig) {
+        let previous = (
+            self.item_rate_per_second,
+            self.byte_rate_per_second,
+            self.item_operations_per_frame,
+            self.frame_byte_limit,
+        );
+        self.item_rate_per_second =
+            (self.item_rate_per_second / 2).max(self.config.minimum_items_per_second);
+        self.byte_rate_per_second =
+            (self.byte_rate_per_second / 2).max(self.config.minimum_bytes_per_second);
+        self.item_operations_per_frame = (self.item_operations_per_frame / 2)
+            .max(pressure.minimum_frame_items)
+            .min(self.item_operations_per_frame);
+        self.frame_byte_limit = (self.frame_byte_limit / 2)
+            .max(pressure.minimum_frame_bytes)
+            .min(self.frame_byte_limit);
+        if previous
+            != (
+                self.item_rate_per_second,
+                self.byte_rate_per_second,
+                self.item_operations_per_frame,
+                self.frame_byte_limit,
+            )
+        {
+            self.diagnostics.multiplicative_decreases =
+                self.diagnostics.multiplicative_decreases.saturating_add(1);
+        }
+    }
+
+    /// Reduces caps under a stalled backlog or sustained slow render frames, and restores
+    /// them one step per streak of healthy frames.
     fn update_pressure_state(&mut self) {
+        let slow_render = self.apply_frame_time_pressure();
         let work = self.diagnostics.last_work;
         if work.upload_queue_items >= RENDER_QUEUE_PRESSURE_ITEMS
             || work.upload_queue_bytes >= self.config.maximum_frame_bytes
@@ -256,20 +340,14 @@ impl PublicationController {
             let previous_item_cap = self.item_operations_per_frame;
             self.item_rate_per_second = self.config.minimum_items_per_second;
             self.byte_rate_per_second = self.config.minimum_bytes_per_second;
-            if self.zero_byte_operations_per_frame > 0 {
-                self.zero_byte_operations_per_frame = self
-                    .zero_byte_operations_per_frame
-                    .saturating_div(2)
-                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME)
-                    .min(self.config.maximum_zero_byte_operations_per_frame);
-            }
-            if self.item_operations_per_frame > 0 {
-                self.item_operations_per_frame = self
-                    .item_operations_per_frame
-                    .saturating_div(2)
-                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME)
-                    .min(self.config.maximum_frame_items);
-            }
+            self.zero_byte_operations_per_frame = halved_operation_cap(
+                self.zero_byte_operations_per_frame,
+                self.config.maximum_zero_byte_operations_per_frame,
+            );
+            self.item_operations_per_frame = halved_operation_cap(
+                self.item_operations_per_frame,
+                self.config.maximum_frame_items,
+            );
             if self.item_rate_per_second != previous_item_rate
                 || self.byte_rate_per_second != previous_byte_rate
                 || self.zero_byte_operations_per_frame != previous_zero_cap
@@ -281,12 +359,17 @@ impl PublicationController {
             self.diagnostics.under_target_streak = 0;
             return;
         }
+        // A slow frame does not count toward recovery; only sustained ones reset it.
+        if slow_render {
+            return;
+        }
 
         let recovering = self.item_rate_per_second != self.config.target_items_per_second
             || self.byte_rate_per_second != self.config.target_bytes_per_second
             || self.zero_byte_operations_per_frame
                 < self.config.maximum_zero_byte_operations_per_frame
-            || self.item_operations_per_frame < self.config.maximum_frame_items;
+            || self.item_operations_per_frame < self.config.maximum_frame_items
+            || self.frame_byte_limit < self.config.maximum_frame_bytes;
         if !recovering {
             self.diagnostics.under_target_streak = 0;
             return;
@@ -303,8 +386,27 @@ impl PublicationController {
         self.diagnostics.under_target_streak = 0;
         let rates_recovered = self.item_rate_per_second != self.config.target_items_per_second
             || self.byte_rate_per_second != self.config.target_bytes_per_second;
-        self.item_rate_per_second = self.config.target_items_per_second;
-        self.byte_rate_per_second = self.config.target_bytes_per_second;
+        // Additive: each step restores one minimum rate and one minimum frame of bytes. A
+        // target of twice the minimum therefore returns in a single step.
+        self.item_rate_per_second = self
+            .item_rate_per_second
+            .saturating_add(self.config.minimum_items_per_second)
+            .min(self.config.target_items_per_second);
+        self.byte_rate_per_second = self
+            .byte_rate_per_second
+            .saturating_add(self.config.minimum_bytes_per_second)
+            .min(self.config.target_bytes_per_second);
+        let previous_byte_limit = self.frame_byte_limit;
+        self.frame_byte_limit = self
+            .frame_byte_limit
+            .saturating_add(
+                self.config
+                    .frame_time_pressure
+                    .map_or(self.config.maximum_frame_bytes, |pressure| {
+                        pressure.minimum_frame_bytes
+                    }),
+            )
+            .min(self.config.maximum_frame_bytes);
         let previous_zero_cap = self.zero_byte_operations_per_frame;
         self.zero_byte_operations_per_frame = self
             .zero_byte_operations_per_frame
@@ -314,6 +416,7 @@ impl PublicationController {
         self.item_operations_per_frame =
             geometric_item_cap_recovery(previous_item_cap, self.config.maximum_frame_items);
         if rates_recovered
+            || self.frame_byte_limit != previous_byte_limit
             || self.zero_byte_operations_per_frame != previous_zero_cap
             || self.item_operations_per_frame != previous_item_cap
         {
@@ -346,12 +449,17 @@ fn sample_applied_backlog(
     }
 }
 
-/// Refills the runtime allowance and publishes the matching renderer budget.
+/// Refills the runtime allowance and publishes the matching renderer budget, feeding the
+/// controller the newest render-thread frame time when the profiler measures one.
 pub fn begin_publication_frame(
     time: Res<Time<Real>>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
     mut controller: ResMut<PublicationController>,
     mut budget: ResMut<ChunkUploadBudget>,
 ) {
+    if let Some(sample) = profiler.and_then(|profiler| profiler.latest_render_frame()) {
+        controller.observe_render_frame(sample);
+    }
     controller.begin_frame(time.delta());
     *budget = controller.budget();
 }
@@ -413,6 +521,17 @@ fn frame_budget(
     .with_preparation_time(config.maximum_frame_preparation_time)
 }
 
+/// Halves a nonzero operation cap toward the pressure floor without exceeding its maximum.
+fn halved_operation_cap(current: usize, configured_maximum: usize) -> usize {
+    if current == 0 {
+        return 0;
+    }
+    current
+        .saturating_div(2)
+        .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME)
+        .min(configured_maximum)
+}
+
 /// Restores a reduced item cap without exceeding its configured maximum.
 fn geometric_item_cap_recovery(current: usize, configured_maximum: usize) -> usize {
     if current == 0 || current >= configured_maximum {
@@ -447,3 +566,7 @@ fn accrue_tokens(
 #[cfg(test)]
 #[path = "publication/pressure_tests.rs"]
 mod pressure_tests;
+
+#[cfg(test)]
+#[path = "publication/frame_time_tests.rs"]
+mod frame_time_tests;
