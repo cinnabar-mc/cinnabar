@@ -715,6 +715,93 @@ fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
     }
 }
 
+/// Returns the frame-rate limit applied by the loaded settings.
+fn limit(settings: &SettingsOptions) -> render_api::FrameRateLimit {
+    settings.user_settings().video.frame_rate_limit
+}
+
+/// Missing and unsupported FPS values use the default without becoming a one-FPS cap.
+#[test]
+fn frame_rate_missing_and_invalid_values_are_unlimited() {
+    use render_api::FrameRateLimit::Unlimited;
+
+    assert_eq!(limit(&SettingsOptions::default()), Unlimited);
+    for schema in [None, Some(SETTINGS_SCHEMA)] {
+        for value in [None, Some(0), Some(-1), Some(i32::MIN), Some(i32::MAX)] {
+            let mut saved = serde_json::json!({ "values": {} });
+            if let Some(schema) = schema {
+                saved["schema"] = schema.into();
+            }
+            if let Some(value) = value {
+                saved["values"]["max_framerate"] = value.into();
+            }
+            let settings = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
+            assert_eq!(limit(&settings), Unlimited, "{saved}");
+            assert_eq!(
+                settings.value(SettingId::MaxFramerate),
+                FRAME_RATE_UNLIMITED,
+                "{saved}"
+            );
+            let reloaded =
+                SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            assert_eq!(limit(&reloaded), Unlimited, "{saved}");
+        }
+    }
+}
+
+#[test]
+fn choosing_unlimited_survives_saves_and_video_reset_restores_unlimited() {
+    use render_api::FrameRateLimit;
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.set(SettingId::MaxFramerate.index(), FRAME_RATE_UNLIMITED));
+    assert!(settings.set(SettingId::MaxFramerate.index(), MIN_FIXED_FRAME_RATE));
+    assert!(settings.set(SettingId::MaxFramerate.index(), FRAME_RATE_UNLIMITED));
+    assert_eq!(limit(&settings), FrameRateLimit::Unlimited);
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(limit(&loaded), FrameRateLimit::Unlimited);
+    loaded.set(SettingId::MaxFramerate.index(), MIN_FIXED_FRAME_RATE);
+    loaded.reset_group(SettingsGroup::Video);
+    assert_eq!(limit(&loaded), FrameRateLimit::Unlimited);
+}
+
+#[test]
+fn frame_rate_caption_names_caps_and_unlimited() {
+    let translate = |key: &str| format!("<{key}>");
+    assert_eq!(frame_rate_label(144, &translate), "144");
+    for value in [-1, 0, FRAME_RATE_UNLIMITED, i32::MAX] {
+        assert_eq!(
+            frame_rate_label(value, &translate),
+            "<options.framerateLimit.max>"
+        );
+    }
+}
+
+/// Every slider stop applies the selected limit and survives a settings round trip.
+#[test]
+fn frame_rate_slider_stops_cover_every_cap_and_unlimited() {
+    use render_api::FrameRateLimit::{Fixed, Unlimited};
+
+    let index = index("max_framerate");
+    let option = &SETTINGS_OPTIONS[index];
+    assert_eq!(option.min, MIN_FIXED_FRAME_RATE);
+    assert_eq!(frame_rate_limit(option.default), Unlimited);
+    assert_eq!(frame_rate_limit(option.max), Unlimited);
+    for fps in MIN_FIXED_FRAME_RATE..=FRAME_RATE_UNLIMITED {
+        let expected = if fps <= MAX_FIXED_FRAME_RATE {
+            Fixed(u16::try_from(fps).unwrap().try_into().unwrap())
+        } else {
+            Unlimited
+        };
+        let mut settings = SettingsOptions::default();
+        settings.set(index, fps);
+        assert_eq!(limit(&settings), expected);
+        let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(limit(&reloaded), expected);
+        settings.reset_group(SettingsGroup::Video);
+        assert_eq!(limit(&settings), render_api::FrameRateLimit::default());
+    }
+}
+
 /// An unregistered standalone tearing key does not override the VSync choice.
 #[test]
 fn an_unknown_tearing_key_is_ignored() {

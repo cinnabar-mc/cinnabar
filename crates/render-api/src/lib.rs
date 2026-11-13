@@ -9,6 +9,7 @@ mod frame_rate_limit;
 mod held_item;
 mod legacy_combat;
 mod pose_generation;
+mod presentation_defaults;
 pub mod primitive_shapes;
 mod publication;
 pub mod render_state;
@@ -37,8 +38,9 @@ pub use ui_coverage_paint::{UI_STYLE_COVERAGE_PAINT, UiCoveragePaint};
 pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,
 };
-pub use frame_rate_limit::{FrameRateLimit, MOBILE_FRAME_RATE_CAP, MOBILE_PLATFORM};
+pub use frame_rate_limit::FrameRateLimit;
 pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
+pub use presentation_defaults::{MOBILE_PLATFORM, PresentationDefaults};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
     TerrainRemovalKind,

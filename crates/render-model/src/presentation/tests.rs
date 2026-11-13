@@ -140,28 +140,6 @@ fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() 
 }
 
 #[test]
-fn desktop_menus_follow_the_display_and_retain_lower_player_caps() {
-    let refresh = Some(hz(144));
-    for requested in [None, Some(hz(240))] {
-        assert_eq!(menu_rate(requested, refresh, false), refresh);
-    }
-    assert_eq!(menu_rate(Some(hz(30)), refresh, false), Some(hz(30)));
-    assert_eq!(menu_rate(None, None, false), None);
-}
-
-/// Phones keep menus at 60 FPS even on faster panels or with an unlimited player cap.
-#[test]
-fn mobile_menus_never_exceed_sixty_fps() {
-    for refresh in [Some(hz(120)), None] {
-        for requested in [None, Some(hz(90)), Some(hz(240))] {
-            assert_eq!(menu_rate(requested, refresh, true), Some(hz(60)));
-        }
-        assert_eq!(menu_rate(Some(hz(30)), refresh, true), Some(hz(30)));
-    }
-    assert_eq!(menu_rate(None, Some(hz(50)), true), Some(hz(50)));
-}
-
-#[test]
 fn the_vrr_ceiling_applies_in_menus_and_gameplay() {
     let timing = display(144, VrrStatus::Active);
     for intent in [LowLatency, TearFree] {
@@ -284,6 +262,85 @@ fn vrr_preference_preserves_refresh_and_resolves_every_reported_state() {
                         None
                     }
                 );
+            }
+        }
+    }
+}
+
+/// [`platform_frame_rate_target`] for synchronized gameplay, the state phones always run in.
+fn synchronized_gameplay(
+    mobile: bool,
+    limit: FrameRateLimit,
+    timing: DisplayTiming,
+) -> Option<FrameRate> {
+    platform_frame_rate_target(mobile, Synchronized, limit, timing, GAMEPLAY)
+}
+
+/// Phones start synchronized with no cap of their own: the display paces gameplay at whatever
+/// rate the panel has, and that rate, never a fixed 60, is requested from the display.
+#[test]
+fn the_mobile_default_follows_the_panel_refresh_rate() {
+    let defaults = render_api::PresentationDefaults::for_platform(true);
+    assert!(defaults.vsync.enabled());
+    for refresh in [60, 90, 120, 144] {
+        let timing = display(refresh, VrrStatus::Unknown);
+        let target = synchronized_gameplay(true, defaults.frame_rate_limit, timing);
+        assert_eq!(target, None, "{refresh} Hz");
+        assert_eq!(display_refresh_request(target, timing), Some(hz(refresh)));
+    }
+}
+
+/// A cap the player chose below the panel's rate paces gameplay and is the rate requested.
+#[test]
+fn a_lower_player_cap_is_honoured_on_phones_and_requested_from_the_display() {
+    let timing = display(120, VrrStatus::Unknown);
+    for cap in [30, 60, 90] {
+        let target = synchronized_gameplay(true, fixed(cap), timing);
+        assert_eq!(target, Some(hz(u32::from(cap))));
+        assert_eq!(display_refresh_request(target, timing), target);
+    }
+}
+
+/// A phone's limiter never targets a rate its panel cannot show.
+#[test]
+fn a_mobile_cap_at_or_above_the_panel_rate_leaves_pacing_to_the_display() {
+    let timing = display(120, VrrStatus::Unknown);
+    for cap in [120, 144, 240] {
+        let target = synchronized_gameplay(true, fixed(cap), timing);
+        assert_eq!(target, None, "{cap} FPS");
+        assert_eq!(display_refresh_request(target, timing), timing.refresh);
+    }
+    let unknown = DisplayTiming::default();
+    let target = synchronized_gameplay(true, fixed(144), unknown);
+    assert_eq!(target, Some(hz(144)));
+    assert_eq!(display_refresh_request(target, unknown), target);
+    assert_eq!(display_refresh_request(None, unknown), None);
+}
+
+/// Desktop defaults add no cadence, and its explicit limits apply whatever the display reports.
+#[test]
+fn desktop_gameplay_targets_ignore_the_reported_refresh_rate() {
+    let defaults = render_api::PresentationDefaults::for_platform(false);
+    let timing = display(120, VrrStatus::Unknown);
+    for intent in INTENTS {
+        let target = |limit| platform_frame_rate_target(false, intent, limit, timing, GAMEPLAY);
+        assert_eq!(target(defaults.frame_rate_limit), None);
+        for cap in [75, 120, 240] {
+            assert_eq!(target(fixed(cap)), Some(hz(u32::from(cap))));
+        }
+    }
+}
+
+#[test]
+fn menus_use_the_same_target_on_phones_and_desktop() {
+    for timing in [display(120, VrrStatus::Unknown), DisplayTiming::default()] {
+        for intent in INTENTS {
+            for limit in [Unlimited, fixed(30), fixed(240)] {
+                let target = |mobile| {
+                    let menus = FrameRateContext::Menus;
+                    platform_frame_rate_target(mobile, intent, limit, timing, menus)
+                };
+                assert_eq!(target(true), target(false));
             }
         }
     }

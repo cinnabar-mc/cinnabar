@@ -29,8 +29,11 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Desktop VSync defaults to Off, preferring Immediate, then Mailbox, then FIFO, the same
    order as the `--no-vsync` session lock; Off (no tearing) prefers Mailbox, then Immediate,
    then FIFO. Mailbox can be bounded at refresh × frame latency on some Windows setups.
-   Android defaults to On.
-   Menus use a display-refresh ceiling, and Android and iOS also cap them at 60 FPS. In-game frame-rate limits default to Unlimited on desktop and 60 FPS on Android and iOS; fixed player caps remain authoritative, and VSync or Variable Refresh Rate may lower the rate.
+   Android and iOS default to On, and their hosts keep it on.
+   Menus use a display-refresh ceiling. In-game frame-rate limits default to Unlimited; fixed player caps remain authoritative, and VSync or Variable Refresh Rate may lower the rate.
+   Phones therefore run at their panel's refresh rate by default, with no fixed cap: there a
+   limit at or above the panel's rate adds no limiter, and Android queues two frames so a frame
+   slightly over one refresh period does not halve the rate.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
    Metal GPU admission uses a frame's recorded submission time once available, while
@@ -2171,11 +2174,12 @@ Flathub submission remain incomplete.
   Android and iOS start with one coverage sample, as Bedrock does on its Mobile platform type, and
   read physical memory so the render-distance levels and resource-pack memory tiers use the
   device's RAM. Android raises the main, render and frame-worker threads, starts threads they spawn
-  at normal priority and lowers lighting workers. To limit thermal throttling, Android and iOS
-  start with a 60 FPS in-game cap (a choice the player saved still applies), cap menus at 60 FPS,
-  never spin the frame pacer before a deadline, and the APK declares the game app category.
-  Vanilla Bedrock's mobile frame-rate default is unverified, and the effect on sustained clocks
-  and frame times on phones is unmeasured. On Mobile, Bedrock halves the rendered distance
+  at normal priority and lowers lighting workers. Android reads the panel's highest refresh rate
+  and asks the system to run the display at it, or at a lower frame-rate limit the player chose,
+  so the 60 Hz default that Android 15 and later apply to the game category does not hold the
+  client back; the system can still choose a lower rate, for example in battery saver. The frame
+  pacer sleeps to its deadlines on Android and iOS instead of spinning. Displayed cadence,
+  temperatures and clocks at 90 to 144 Hz are unmeasured on phones. On Mobile, Bedrock halves the rendered distance
   while the top screen shows a menu; that is not implemented because terrain drawing does not yet
   stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
   unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.

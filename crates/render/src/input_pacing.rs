@@ -43,8 +43,8 @@ const MEDIAN: usize = HISTORY / 2;
 const SERVICE_SLICE: Duration = Duration::from_millis(1);
 const BACKGROUND_SERVICE_SLICE: Duration = Duration::from_millis(4);
 /// Spin before a focused desktop deadline: starts here, then covers recent sleep overshoot.
-/// Phones never spin: their timers already wake within tens of microseconds, and a spinning
-/// big core holds its clock up and heats a device that throttles hard.
+/// Phones never spin: a spinning big core holds its clock up and heats a device that
+/// throttles hard, to save at most one timer wake of lateness.
 const INITIAL_SPIN: Duration = Duration::from_micros(200);
 const MIN_SPIN: Duration = Duration::from_micros(50);
 const MAX_SPIN: Duration = Duration::from_micros(500);

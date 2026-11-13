@@ -207,20 +207,16 @@ fn leaving_a_world_caps_menus_and_hidden_runs_keep_the_requested_limit() {
 }
 
 #[test]
-fn unsaved_frame_rate_settings_pace_gameplay_at_the_platform_default() {
+fn unsaved_frame_rate_settings_leave_gameplay_unlimited() {
     let video = launcher::menu::settings_options::SettingsOptions::default()
         .user_settings()
         .video;
-    assert_eq!(video.frame_rate_limit, FrameRateLimit::DEFAULT);
+    assert_eq!(video.frame_rate_limit, FrameRateLimit::Unlimited);
     let (app, _) = pacing_app_with((None, false), video.frame_rate_limit, |settings| {
         settings.vsync = render_api::VsyncMode::Off;
         settings.vrr = render_api::VrrPreference::Off;
     });
-    let expected = match FrameRateLimit::DEFAULT {
-        FrameRateLimit::Fixed(fps) => hz(u32::from(fps.get())),
-        FrameRateLimit::Unlimited => None,
-    };
-    assert_eq!(pacing(&app).rate, expected);
+    assert_eq!(pacing(&app).rate, None);
 }
 
 #[test]
@@ -356,6 +352,38 @@ fn missing_primary_display_clears_stale_vrr_and_refresh() {
         app.world().resource::<DisplayRefresh>().0,
         DisplayTiming::default()
     );
+}
+
+/// Android is asked for the panel's own rate by default, and for a lower cap the player chose.
+#[test]
+fn the_android_display_request_follows_the_display_or_a_lower_player_cap() {
+    use FrameRateLimit::Unlimited;
+
+    for (limit, refresh, expected) in [
+        (Unlimited, 60, 60),
+        (Unlimited, 90, 90),
+        (Unlimited, 120, 120),
+        (Unlimited, 144, 144),
+        (fixed(30), 120, 30),
+        (fixed(60), 120, 60),
+        (fixed(240), 120, 120),
+    ] {
+        let (mut app, _) = pacing_app((None, false), limit);
+        app.world_mut().resource_mut::<DisplayRefresh>().0.refresh = hz(refresh);
+        app.update();
+        let presentation = app.world().resource::<PresentModeRuntime>();
+        assert_eq!(presentation.intent(), PresentationIntent::Synchronized);
+        assert_eq!(
+            display_rate_request(
+                presentation.intent(),
+                presentation.limit(),
+                app.world().resource::<DisplayRefresh>().0,
+                FrameRateContext::Gameplay,
+            ),
+            hz(expected),
+            "{limit:?} on a {refresh} Hz display"
+        );
+    }
 }
 
 /// Native refresh demand follows the same state and cap as frame admission.
