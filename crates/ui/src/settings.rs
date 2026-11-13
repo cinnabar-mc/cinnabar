@@ -16,10 +16,9 @@ pub const DEFAULT_FOV_DEGREES: i32 = 60;
 pub const MIN_FOV_DEGREES: i32 = 30;
 pub const MAX_FOV_DEGREES: i32 = 130;
 
-/// Whether this build runs on a platform Bedrock classifies as Mobile.
-const MOBILE_PLATFORM: bool = cfg!(any(target_os = "android", target_os = "ios"));
 /// Coverage samples per pixel this platform starts with.
-pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = default_anti_aliasing_samples(MOBILE_PLATFORM);
+pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 =
+    default_anti_aliasing_samples(render_api::MOBILE_PLATFORM);
 
 /// Bedrock's starting coverage samples: one (off) on Mobile platforms, two on desktop and
 /// console platforms.
@@ -387,7 +386,7 @@ mod antialiasing_tests {
         assert_eq!(default_anti_aliasing_samples(false), 2);
         assert_eq!(
             UserSettings::default().video.anti_aliasing_samples,
-            default_anti_aliasing_samples(MOBILE_PLATFORM)
+            default_anti_aliasing_samples(render_api::MOBILE_PLATFORM)
         );
     }
 

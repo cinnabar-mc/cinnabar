@@ -99,10 +99,29 @@ fn vsync_reserves_a_slot_only_for_a_drawable_held_by_presentation() {
     assert_eq!(frame_latency(false, true).get(), 2);
 }
 
-/// Windows starts with overlap until headroom is measured; other platforms retain their default.
+/// Android keeps two queued frames with VSync, like Windows, so its swapchain has a third image
+/// and a frame slightly over one refresh period does not halve the frame rate.
+#[test]
+fn android_and_windows_queue_two_frames_whatever_vsync_says() {
+    for vsync in [true, false] {
+        for held_drawable in [true, false] {
+            for delivery in [Delivery::Android, Delivery::Windows] {
+                assert_eq!(initial_latency(delivery, vsync, held_drawable).get(), 2);
+            }
+            assert_eq!(
+                initial_latency(Delivery::Other, vsync, held_drawable),
+                frame_latency(vsync, held_drawable)
+            );
+        }
+    }
+}
+
+/// Windows and Android start with overlap; other platforms retain their default.
 #[test]
 fn vsync_latency_follows_the_backend_delivery_path() {
-    let expected = if cfg!(target_os = "windows") || presentation_holds_a_drawable() {
+    let expected = if cfg!(any(target_os = "windows", target_os = "android"))
+        || presentation_holds_a_drawable()
+    {
         2
     } else {
         1

@@ -9,6 +9,7 @@ mod frame_rate_limit;
 mod held_item;
 mod legacy_combat;
 mod pose_generation;
+mod presentation_defaults;
 pub mod primitive_shapes;
 mod publication;
 pub mod render_state;
@@ -39,6 +40,7 @@ pub use actor_lighting::{
 };
 pub use frame_rate_limit::FrameRateLimit;
 pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
+pub use presentation_defaults::{MOBILE_PLATFORM, PresentationDefaults};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
     TerrainRemovalKind,

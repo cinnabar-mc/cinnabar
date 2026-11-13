@@ -9,12 +9,25 @@ pub(super) fn window_display_timing(window: &winit::window::Window) -> DisplayTi
         return timing;
     }
     DisplayTiming {
-        refresh: window
-            .current_monitor()
-            .and_then(|monitor| monitor.refresh_rate_millihertz())
-            .and_then(FrameRate::from_millihertz),
+        refresh: crate::platform_display::host_refresh_rate()
+            .and_then(refresh_from_hertz)
+            .or_else(|| {
+                window
+                    .current_monitor()
+                    .and_then(|monitor| monitor.refresh_rate_millihertz())
+                    .and_then(FrameRate::from_millihertz)
+            }),
         vrr: VrrStatus::Unknown,
     }
+}
+
+/// Converts a host's refresh rate in hertz; a zero, negative or non-finite report is unknown.
+fn refresh_from_hertz(hertz: f32) -> Option<FrameRate> {
+    let millihertz = (f64::from(hertz) * 1_000.0).round();
+    if !(1.0..=f64::from(u32::MAX)).contains(&millihertz) {
+        return None;
+    }
+    FrameRate::from_millihertz(millihertz as u32)
 }
 
 /// Reads the supported refresh ceiling; an adaptive range does not prove VRR is active.
@@ -93,6 +106,27 @@ mod tests {
                 ),
                 FrameRate::from_hz(116),
             );
+        }
+    }
+
+    /// Android reports rates such as 119.99999 and 60.000004 Hz for 120 and 60 Hz modes.
+    #[test]
+    fn host_refresh_rates_round_to_millihertz_and_reject_unusable_reports() {
+        for (hertz, expected) in [
+            (60.000_004, 60_000),
+            (90.0, 90_000),
+            (119.999_99, 120_000),
+            (144.0, 144_000),
+            (59.94, 59_940),
+        ] {
+            assert_eq!(
+                refresh_from_hertz(hertz),
+                FrameRate::from_millihertz(expected),
+                "{hertz} Hz"
+            );
+        }
+        for unusable in [0.0, -60.0, f32::NAN, f32::INFINITY, f32::MAX] {
+            assert_eq!(refresh_from_hertz(unusable), None, "{unusable} Hz");
         }
     }
 

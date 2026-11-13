@@ -108,6 +108,7 @@ fn run_client() -> Result<()> {
     configure_android(layout(&files_dir, &native_library_dir(app)?))?;
     cinnabar::startup_feedback::observe(startup_progress, startup_generation);
     cinnabar::platform_devices::ingress::set_capture_driver(set_pointer_capture_enabled);
+    cinnabar::platform_display::set_refresh_rate_source(highest_refresh_rate);
     if cinnabar::lifecycle::before_run(false)? {
         cinnabar::run(cinnabar::args::ClientArgs {
             force_vsync: true,
@@ -179,6 +180,29 @@ fn startup_generation() -> u64 {
             .j()? as u64)
     })();
     read.unwrap_or_default()
+}
+
+/// Reads the highest refresh rate in hertz that the display offers at its current resolution.
+fn highest_refresh_rate() -> Option<f32> {
+    let read = (|| -> Result<f32> {
+        let app = ANDROID_APP
+            .get()
+            .context("Android activity is unavailable")?;
+        let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }?;
+        let mut env = vm.attach_current_thread()?;
+        let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+        Ok(env
+            .call_method(&activity, "highestRefreshRate", "()F", &[])?
+            .f()?)
+    })();
+    match read {
+        Ok(hertz) => Some(hertz),
+        Err(error) => {
+            static WARNING: std::sync::Once = std::sync::Once::new();
+            WARNING.call_once(|| bevy::log::warn!("display refresh rate unavailable: {error:#}"));
+            None
+        }
+    }
 }
 
 /// Requests or releases native Android pointer capture via CinnabarActivity.

@@ -6,6 +6,7 @@ import android.graphics.Rect;
 import android.hardware.input.InputManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.Display;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
@@ -211,6 +212,27 @@ public final class CinnabarActivity extends NativeActivity {
     /** Returns a left, top, right, bottom snapshot in physical surface pixels. */
     public int[] safeAreaInsetsPixels() {
         return safeAreaInsets;
+    }
+
+    /**
+     * Returns the highest refresh rate in hertz that the display offers at its current
+     * resolution, or 0 when it cannot be read. Called from the native thread.
+     */
+    public float highestRefreshRate() {
+        try {
+            Display display = getWindowManager().getDefaultDisplay();
+            Display.Mode current = display.getMode();
+            float highest = current.getRefreshRate();
+            for (Display.Mode mode : display.getSupportedModes()) {
+                if (mode.getPhysicalWidth() == current.getPhysicalWidth()
+                        && mode.getPhysicalHeight() == current.getPhysicalHeight()) {
+                    highest = Math.max(highest, mode.getRefreshRate());
+                }
+            }
+            return highest;
+        } catch (RuntimeException unavailable) {
+            return 0.0f;
+        }
     }
 
     @Override protected void onDestroy() {
