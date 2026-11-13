@@ -1,5 +1,6 @@
 //! Native material pipelines are owned and released, rather than retained in Bevy's cache.
 use super::pipeline::Key;
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use bevy::{
     prelude::*,
     render::{
@@ -123,7 +124,7 @@ fn compile(
         bind_group_layouts: &[Some(layout)],
         immediate_size: 0,
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.compile_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mod drawing material"),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
