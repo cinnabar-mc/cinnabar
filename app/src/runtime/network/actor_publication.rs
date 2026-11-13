@@ -398,6 +398,8 @@ pub(crate) fn prepare_actor_render_frame(
         },
         swing_progress,
         |stream, view, low, high| {
+            // Runs per actor: an ungated span would pay every log layer for each body.
+            #[cfg(any(feature = "tracy", feature = "frame-trace"))]
             let _zone = bevy::log::info_span!("actor.occlusion").entered();
             let camera = view.camera_position.to_array();
             cave.as_deref().is_some_and(|cave| {
