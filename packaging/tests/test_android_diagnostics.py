@@ -49,6 +49,28 @@ done
         self.assertEqual(compiled.returncode, 0, compiled.stderr)
         return classes, android_jar
 
+    def test_build_identity_renders_literally(self):
+        """Characters sed interprets in a replacement reach the rendered source unchanged."""
+        with tempfile.TemporaryDirectory() as directory:
+            template = Path(directory) / "identity.txt"
+            template.write_text("@BUILD_COMMIT@ @RELEASE_CHANNEL@\n")
+            rendered = subprocess.run([
+                "bash", "-euc", '''
+repo_root="$1"
+pin() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$repo_root/packaging/android/runtime.json" "$1"; }
+client_library=fixture_client
+product=Fixture
+version_code=1
+version=0.0.1
+source "$repo_root/packaging/android/render-template.sh"
+render "$2" "$2.out"
+''', "android-render-test", str(ROOT), str(template),
+            ], text=True, capture_output=True, env={
+                **os.environ, "CINNABAR_BUILD_COMMIT": "a&b", "CINNABAR_RELEASE_CHANNEL": "night|ly\\x",
+            })
+            self.assertEqual(rendered.returncode, 0, rendered.stderr)
+            self.assertEqual(Path(f"{template}.out").read_text(), "a&b night|ly\\x\n")
+
     def test_activities_compile(self):
         """Production activities must compile together, including their lifecycle overrides."""
         with tempfile.TemporaryDirectory() as directory:
@@ -246,6 +268,20 @@ public final class DiagnosticsFixture {
                     || !(adapter + "\\n").equals(new String(read(zip), StandardCharsets.UTF_8)))
                 throw new AssertionError("the adapter record is missing from the report");
             if (zip.getNextEntry() != null) throw new AssertionError("an absent attachment was added");
+        }
+        Files.write(log.toPath(), "ab\\ncd\\nef".getBytes(StandardCharsets.UTF_8));
+        try (java.io.RandomAccessFile source = new java.io.RandomAccessFile(log, "r")) {
+            // A cut after a newline keeps its line; a cut inside the last line keeps the rest of it.
+            long[][] cuts = {{0, 0}, {1, 3}, {3, 3}, {4, 6}, {6, 6}, {7, 7}};
+            for (long[] cut : cuts) {
+                if (CrashReport.wholeLineStart(source, cut[0], new byte[2]) != cut[1])
+                    throw new AssertionError("cut " + cut[0] + " did not start on a whole line");
+            }
+        }
+        Files.write(log.toPath(), "ab\\ncd\\n".getBytes(StandardCharsets.UTF_8));
+        try (java.io.RandomAccessFile source = new java.io.RandomAccessFile(log, "r")) {
+            if (CrashReport.wholeLineStart(source, 4, new byte[2]) != 4)
+                throw new AssertionError("a cut inside the only remaining line dropped it");
         }
         byte[] longLog = new byte[(int) CrashReport.ATTACHMENT_BYTES + 100];
         Arrays.fill(longLog, (byte) 'x');

@@ -115,16 +115,31 @@ final class CrashReport {
             return;
         }
         try {
-            long start = Math.max(0, source.length() - ATTACHMENT_BYTES);
-            source.seek(start);
-            if (start > 0) {
-                for (int value = source.read(); value != -1 && value != '\n'; ) value = source.read();
-            }
+            source.seek(wholeLineStart(source, Math.max(0, source.length() - ATTACHMENT_BYTES), buffer));
             zip.putNextEntry(new ZipEntry(file.getName()));
             for (int count; (count = source.read(buffer)) != -1; ) zip.write(buffer, 0, count);
             zip.closeEntry();
         } finally {
             source.close();
         }
+    }
+
+    /**
+     * The first line start at or after `cut`, so a file cut there begins with a whole line.
+     * A final line that itself starts before `cut` is kept from `cut`.
+     */
+    static long wholeLineStart(RandomAccessFile source, long cut, byte[] buffer) throws IOException {
+        if (cut == 0) return 0;
+        // A newline just before the cut means the cut already falls on a line start.
+        long offset = cut - 1;
+        source.seek(offset);
+        for (int count; (count = source.read(buffer)) != -1; offset += count) {
+            for (int index = 0; index < count; index++) {
+                if (buffer[index] != '\n') continue;
+                long line = offset + index + 1;
+                return line < source.length() ? line : cut;
+            }
+        }
+        return cut;
     }
 }
