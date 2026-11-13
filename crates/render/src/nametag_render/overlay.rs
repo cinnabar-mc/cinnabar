@@ -113,57 +113,36 @@ pub(super) fn prepare(
         };
         let size = target.main_texture().size();
         let bytes = u64::from(size.width) * u64::from(size.height) * 4 * u64::from(msaa.samples());
-        let Some(layer) = failed.attempt(
+        // The pipeline shares the allocation's retry gate: a driver that cannot build it leaves
+        // the view without an overlay instead of recreating the layer every frame.
+        let Some((layer, composite)) = failed.attempt(
             entity,
             (size, target.main_texture_format(), msaa.samples()),
             || {
-                crate::gpu_allocation::checked(&device, "nametag encoded overlay", bytes, || {
-                    device.create_texture(&descriptor)
-                })
+                let layer = crate::gpu_allocation::checked(
+                    &device,
+                    "nametag encoded overlay",
+                    bytes,
+                    || device.create_texture(&descriptor),
+                )?;
+                let composite = crate::pipeline_failure::optional(
+                    device.wgpu_device(),
+                    "nametag encoded composite",
+                    || {
+                        composite_pipeline(
+                            device.wgpu_device(),
+                            msaa.samples(),
+                            target.main_texture_format(),
+                        )
+                    },
+                )?;
+                Some((layer, composite))
             },
         ) else {
             commands.entity(entity).remove::<Overlay>();
             continue;
         };
         let view = layer.create_view(&default());
-        let shader = device
-            .wgpu_device()
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("nametag encoded composite"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../ui_composite.wgsl").into()),
-            });
-        let composite =
-            device
-                .wgpu_device()
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("nametag encoded composite"),
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("composite_vertex"),
-                        compilation_options: default(),
-                        buffers: &[],
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some(if msaa.samples() > 1 {
-                            "nametag_multisample_composite_fragment"
-                        } else {
-                            "nametag_composite_fragment"
-                        }),
-                        compilation_options: default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: target.main_texture_format(),
-                            blend: None,
-                            write_mask: ColorWrites::ALL,
-                        })],
-                    }),
-                    primitive: default(),
-                    depth_stencil: None,
-                    multisample: default(),
-                    multiview_mask: None,
-                    cache: None,
-                });
         commands.entity(entity).insert(Overlay {
             layer,
             view,
@@ -174,6 +153,47 @@ pub(super) fn prepare(
             format: target.main_texture_format(),
         });
     }
+}
+
+/// Builds the pipeline that composes one view's label layer over its colour target.
+fn composite_pipeline(
+    device: &wgpu::Device,
+    samples: u32,
+    format: TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("nametag encoded composite"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../ui_composite.wgsl").into()),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("nametag encoded composite"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("composite_vertex"),
+            compilation_options: default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some(if samples > 1 {
+                "nametag_multisample_composite_fragment"
+            } else {
+                "nametag_composite_fragment"
+            }),
+            compilation_options: default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+        }),
+        primitive: default(),
+        depth_stencil: None,
+        multisample: default(),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 type OverlayQuery = (

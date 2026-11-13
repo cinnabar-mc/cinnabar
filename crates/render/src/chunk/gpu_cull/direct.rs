@@ -924,7 +924,14 @@ fn select_visibility(
 /// Inserts the direct occlusion path's resources, systems and graph node.
 pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
     let worker_device = device.clone();
-    crate::deferred_resource::install(render_app, move || DirectOcclusion::new(&worker_device));
+    // Without its kernels terrain draws directly, unoccluded.
+    crate::deferred_resource::install(render_app, move || {
+        crate::pipeline_failure::optional(
+            worker_device.wgpu_device(),
+            "terrain direct occlusion",
+            || DirectOcclusion::new(&worker_device),
+        )
+    });
     render_app
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, super::prepare::extract_hidden_chunks)

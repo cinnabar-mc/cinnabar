@@ -20,7 +20,7 @@ pub(crate) struct HandLayer {
 
 impl HandLayer {
     /// Retains the composite pipeline and binding until the viewport format or extent changes.
-    /// `None` when the device is out of memory.
+    /// `None` when the device is out of memory or its driver cannot build the composite pipeline.
     pub(crate) fn new(device: &RenderDevice, target: &ViewTarget) -> Option<Self> {
         let size = target.main_texture().size();
         let bytes = u64::from(size.width) * u64::from(size.height) * 8;
@@ -41,35 +41,39 @@ impl HandLayer {
             })?;
         let view = texture.create_view(&Default::default());
         let gpu = device.wgpu_device();
-        let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("enhanced hand composite"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("hand_layer.wgsl").into()),
-        });
-        let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("enhanced hand composite"),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vertex"),
-                compilation_options: default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fragment"),
-                compilation_options: default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: texture.format(),
-                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: default(),
-            depth_stencil: None,
-            multisample: default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        // The driver may refuse the composite pipeline; the view then keeps no hand layer.
+        let pipeline = crate::pipeline_failure::optional(gpu, "enhanced hand composite", || {
+            let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("enhanced hand composite"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("hand_layer.wgsl").into()),
+            });
+            let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("enhanced hand composite"),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vertex"),
+                    compilation_options: default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fragment"),
+                    compilation_options: default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: texture.format(),
+                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: default(),
+                depth_stencil: None,
+                multisample: default(),
+                multiview_mask: None,
+                cache: None,
+            });
+            pipeline
+        })?;
         let binding = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("enhanced hand composite input"),
             layout: &pipeline.get_bind_group_layout(0),

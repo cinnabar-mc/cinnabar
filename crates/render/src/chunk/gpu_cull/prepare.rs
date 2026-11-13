@@ -304,7 +304,7 @@ pub(super) fn prepare_gpu_cull(
             .as_ref()
             .is_none_or(|raster| raster.format != format || raster.samples != msaa.samples())
         {
-            cull.raster =
+            let built =
                 crate::gpu_allocation::checked(&device, "terrain raster occlusion", 0, || {
                     super::raster::RasterCull::new(
                         device.wgpu_device(),
@@ -314,6 +314,20 @@ pub(super) fn prepare_gpu_cull(
                         msaa.samples(),
                     )
                 });
+            cull.raster = match built {
+                Some(Ok(raster)) => Some(raster),
+                Some(Err(failure)) => {
+                    // Not attempted again: the Hi-Z test takes over for the session.
+                    cull.raster_enabled = false;
+                    bevy::log::error!(
+                        target: "cinnabar::render",
+                        label = "terrain raster occlusion",
+                        "The graphics driver could not build this pipeline; its pass stays off: {failure}"
+                    );
+                    None
+                }
+                None => None,
+            };
         }
     } else {
         cull.raster = None;

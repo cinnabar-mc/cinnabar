@@ -435,7 +435,7 @@ test_support_features = ["publication-test-support"]
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "shaderpack", "tracy-client", "world", "test-time"]
+allowed_dependencies = ["env-compat", "driver-failure", "render-scene", "assets", "block-transform", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "shaderpack", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -1405,7 +1405,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "
 [[crates]]
 name = "bootstrap-ui"
 path = "crates/bootstrap-ui"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time", "block2", "objc2", "objc2-core-foundation", "objc2-game-controller", "objc2-io-kit"]
+allowed_dependencies = ["assets", "driver-failure", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time", "block2", "objc2", "objc2-core-foundation", "objc2-game-controller", "objc2-io-kit"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.
@@ -1414,6 +1414,15 @@ name = "crash-monitor"
 path = "crates/crash-monitor"
 allowed_dependencies = ["bootstrap-ui", "crash-report", "diagnostics", "launcher", "launcher-host", "render-model", "test-time", "ui", "gilrs"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
+
+# Captures a driver's failure to build a shader module or pipeline; wgpu is its only dependency.
+[[crates]]
+name = "driver-failure"
+path = "crates/driver-failure"
+test_support_features = ["test-support"]
+allowed_dependencies = []
+forbidden_dependencies = ["bevy"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*"]
 
 # Environment reads accepting the pre-rename `RUST_MCBE_` spellings for one release.
 [[crates]]

@@ -129,7 +129,7 @@ impl Gpu {
             ("panorama_vertex", "panorama_fragment"),
             config.format,
             None,
-        );
+        )?;
         let overlay_layout = bind_group_layout(&device, false);
         let overlay_pipeline = pipeline(
             &device,
@@ -138,7 +138,7 @@ impl Gpu {
             ("overlay_vertex", "overlay_fragment"),
             config.format,
             Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-        );
+        )?;
         Ok(Self {
             surface,
             instance,
@@ -394,6 +394,8 @@ fn bind_group_layout(device: &wgpu::Device, panorama: bool) -> wgpu::BindGroupLa
     })
 }
 
+/// Builds one of the window's pipelines. A driver that cannot build it fails the window like a
+/// missing adapter does, instead of reaching wgpu's default handler, which panics.
 fn pipeline(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -401,41 +403,44 @@ fn pipeline(
     (vertex, fragment): (&str, &str),
     format: wgpu::TextureFormat,
     blend: Option<wgpu::BlendState>,
-) -> wgpu::RenderPipeline {
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::Wgsl(source.into()),
-    });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: None,
-        bind_group_layouts: &[Some(layout)],
-        immediate_size: 0,
-    });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: None,
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some(vertex),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some(fragment),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
+) -> Result<wgpu::RenderPipeline> {
+    driver_failure::catch(device, || {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(layout)],
+            immediate_size: 0,
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some(vertex),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some(fragment),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
     })
+    .context("build a bootstrap window pipeline")
 }
 
 /// Skips unavailable frames and requests surface recreation only after a lost surface.
@@ -460,6 +465,32 @@ fn acquire_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The device keeps wgpu's default handler, so an uncaptured failure would panic here.
+    #[test]
+    fn a_pipeline_the_driver_cannot_build_fails_the_window_without_panicking() {
+        let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let layout = bind_group_layout(&device, false);
+        let build = || {
+            pipeline(
+                &device,
+                &layout,
+                OVERLAY_WGSL,
+                ("overlay_vertex", "overlay_fragment"),
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                None,
+            )
+        };
+        driver_failure::test_support::fail_next_pipeline(&device);
+        let error = build().expect_err("the injected driver failure must be returned");
+        let report = format!("{error:#}");
+        assert!(report.contains("bootstrap window pipeline"), "{report}");
+        assert!(
+            report.contains(driver_failure::test_support::DRIVER_MESSAGE),
+            "{report}"
+        );
+        assert!(build().is_ok());
+    }
 
     #[test]
     fn bootstrap_avoids_initializing_unused_windows_vulkan_drivers() {

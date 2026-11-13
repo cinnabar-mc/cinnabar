@@ -40,7 +40,7 @@ pub(crate) struct ResolvedDepth {
 
 impl ResolvedDepth {
     /// Samples depth instead of copying it and attributes the pass to its consumer.
-    /// `None` when the device is out of memory.
+    /// `None` when the device is out of memory or its driver cannot build the resolve pipeline.
     pub(crate) fn new(
         device: &RenderDevice,
         depth: &ViewDepthStencilTexture,
@@ -65,38 +65,42 @@ impl ResolvedDepth {
             })?;
         let view = texture.create_view(&Default::default());
         let gpu = device.wgpu_device();
-        let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("resolved scene depth"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("scene_depth.wgsl").into()),
-        });
         let multi = depth.texture().sample_count() > 1;
-        let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("resolved scene depth"),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vertex"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some(if multi { "multisampled" } else { "single" }),
-                compilation_options: Default::default(),
-                targets: &[],
-            }),
-            primitive: Default::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        // The driver may refuse the resolve pipeline; consumers then run without resolved depth.
+        let pipeline = crate::pipeline_failure::optional(gpu, "resolved scene depth", || {
+            let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("resolved scene depth"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("scene_depth.wgsl").into()),
+            });
+            let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("resolved scene depth"),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vertex"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(if multi { "multisampled" } else { "single" }),
+                    compilation_options: Default::default(),
+                    targets: &[],
+                }),
+                primitive: Default::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+            pipeline
+        })?;
         let binding = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("resolved scene depth input"),
             layout: &pipeline.get_bind_group_layout(0),
