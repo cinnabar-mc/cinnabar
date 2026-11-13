@@ -90,10 +90,11 @@ pub(super) fn check_counted_gpu(
         }
     }
     // A file is production code when a production file declares it outside test scope. Roots are
-    // the files no module declaration names. Integration tests also include some production
-    // files by path; that does not make them test code.
+    // the files no production file declares. Integration tests also include production files by
+    // path, crate roots among them; that neither makes them test code nor stops a root being one.
     let declared: BTreeSet<&PathBuf> = scans
         .values()
+        .filter(|(_, scan)| !scan.file_test)
         .flat_map(|(_, scan)| scan.modules.iter().map(|(module, _)| module))
         .collect();
     let production_files = reachable_production_files(
@@ -251,6 +252,30 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         }
     }
 
+    /// Applies test scope to an attributed `let`.
+    fn visit_local(&mut self, local: &'ast syn::Local) {
+        self.scoped(&local.attrs, |scan| syn::visit::visit_local(scan, local));
+    }
+
+    /// Applies test scope to an attributed block, such as `#[cfg(test)] { .. }`.
+    fn visit_expr_block(&mut self, block: &'ast syn::ExprBlock) {
+        self.scoped(&block.attrs, |scan| {
+            syn::visit::visit_expr_block(scan, block);
+        });
+    }
+
+    /// Applies test scope to an attributed `if`.
+    fn visit_expr_if(&mut self, branch: &'ast syn::ExprIf) {
+        self.scoped(&branch.attrs, |scan| {
+            syn::visit::visit_expr_if(scan, branch);
+        });
+    }
+
+    /// Applies test scope to an attributed match arm.
+    fn visit_arm(&mut self, arm: &'ast syn::Arm) {
+        self.scoped(&arm.attrs, |scan| syn::visit::visit_arm(scan, arm));
+    }
+
     /// Scans macro arguments, which the parser leaves as tokens.
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         self.scan_macro_tokens(mac.tokens.clone());
@@ -258,19 +283,23 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
     /// Records `receiver.method(..)`.
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-        self.record(&call.method.to_string(), call.method.span());
-        syn::visit::visit_expr_method_call(self, call);
+        self.scoped(&call.attrs, |scan| {
+            scan.record(&call.method.to_string(), call.method.span());
+            syn::visit::visit_expr_method_call(scan, call);
+        });
     }
 
     /// Records `Type::method(receiver, ..)`.
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(function) = &*call.func
-            && function.path.segments.len() > 1
-            && let Some(last) = function.path.segments.last()
-        {
-            self.record(&last.ident.to_string(), call.span());
-        }
-        syn::visit::visit_expr_call(self, call);
+        self.scoped(&call.attrs, |scan| {
+            if let syn::Expr::Path(function) = &*call.func
+                && function.path.segments.len() > 1
+                && let Some(last) = function.path.segments.last()
+            {
+                scan.record(&last.ident.to_string(), call.span());
+            }
+            syn::visit::visit_expr_call(scan, call);
+        });
     }
 }
 
@@ -388,6 +417,46 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(
             found[0].starts_with("crates/a/src/draw.rs:1: "),
+            "{found:?}"
+        );
+    }
+
+    /// A crate root that an integration test includes by path is still the crate's root.
+    #[test]
+    fn a_crate_root_included_by_tests_keeps_its_crate_covered() {
+        let found = diagnostics(
+            &[
+                (
+                    "crates/a/src/draw.rs",
+                    "fn draw(queue: &Queue) { queue.write_buffer(&buffer, 0, &[]); }\n",
+                ),
+                (
+                    "crates/a/tests/it/main.rs",
+                    "#[path = \"../../src/lib.rs\"]\nmod library;\n",
+                ),
+            ],
+            "",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].starts_with("crates/a/src/draw.rs:1: "),
+            "{found:?}"
+        );
+    }
+
+    /// Test-only statements inside a production function are test code; their neighbours are not.
+    #[test]
+    fn test_only_statements_in_production_functions_may_call_the_raw_methods() {
+        let found = diagnostics(
+            &[(
+                "crates/a/src/draw.rs",
+                "fn draw(encoder: &mut Encoder, queue: &Queue) {\n    #[cfg(test)]\n    {\n        queue.write_buffer(&buffer, 0, &[]);\n    }\n    #[cfg(test)]\n    let pass = encoder.begin_render_pass(&desc());\n    #[cfg(test)]\n    queue.write_texture(texture, &[], layout, size);\n    queue.write_buffer(&buffer, 0, &[]);\n}\n",
+            )],
+            "",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].starts_with("crates/a/src/draw.rs:10: "),
             "{found:?}"
         );
     }

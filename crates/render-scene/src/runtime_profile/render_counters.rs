@@ -10,41 +10,44 @@ use std::{
     },
 };
 
-/// Work a render frame did, counted on any thread where client code asks the GPU API for it.
-/// Bevy's own passes and buffer writes are not counted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(usize)]
-pub enum RenderCounter {
+/// Declares [`RenderCounter`], its `ALL` table and its report names from one list, so a counter
+/// cannot be added to one and missed in another.
+macro_rules! render_counters {
+    ($($(#[$doc:meta])* $variant:ident => $name:literal,)+) => {
+        /// Work a render frame did, counted on any thread where client code asks the GPU API
+        /// for it. Bevy's own passes and buffer writes are not counted.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[repr(usize)]
+        pub enum RenderCounter {
+            $($(#[$doc])* $variant,)+
+        }
+
+        impl RenderCounter {
+            /// Every counter, in discriminant order.
+            pub const ALL: [Self; [$($name),+].len()] = [$(Self::$variant),+];
+
+            #[must_use]
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+        }
+    };
+}
+
+render_counters! {
     /// Render and compute passes begun.
-    Passes,
+    Passes => "passes",
     /// `Queue::write_buffer` and `write_texture` calls.
-    Writes,
+    Writes => "writes",
     /// Bytes those queue writes carried.
-    WriteBytes,
+    WriteBytes => "write_bytes",
     /// Bytes copied through retained staging buffers instead of the queue.
-    StagedBytes,
+    StagedBytes => "staged_bytes",
 }
 
 const COUNTERS: usize = RenderCounter::ALL.len();
-
-impl RenderCounter {
-    pub const ALL: [Self; 4] = [
-        Self::Passes,
-        Self::Writes,
-        Self::WriteBytes,
-        Self::StagedBytes,
-    ];
-
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Passes => "passes",
-            Self::Writes => "writes",
-            Self::WriteBytes => "write_bytes",
-            Self::StagedBytes => "staged_bytes",
-        }
-    }
-}
 
 /// One counter per [`RenderCounter`], in [`RenderCounter::ALL`] order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
