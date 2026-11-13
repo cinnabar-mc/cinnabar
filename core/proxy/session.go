@@ -494,6 +494,11 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 		}
 		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), bridgecontract.GameVersion)}
 	}
+	if IsJavaTarget(clientData.ServerAddress) {
+		// The client claims the target it joins. A Java target is no Bedrock server address,
+		// and the Bedrock login that would carry the claim is never sent.
+		clientData.ServerAddress = ""
+	}
 	if err := clientData.Validate(); err != nil {
 		return nil, &sessionRefusedError{key: clientDataRefusalKey(clientData), err: fmt.Errorf("%w: client data: %v", errMalformedSession, err)}
 	}

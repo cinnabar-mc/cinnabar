@@ -2417,6 +2417,7 @@ dependencies = [
 name = "cinnabar-mcp"
 version = "0.2.1"
 dependencies = [
+ "bridge",
  "developer-control",
  "diagnostics",
  "image",

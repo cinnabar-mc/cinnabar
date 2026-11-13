@@ -78,7 +78,17 @@ func TestSessionServerJoinsAJavaServer(t *testing.T) {
 		joined <- client
 	}()
 
-	client, frames := dialTestSession(t, dir, testSessionConnect(t))
+	// The client claims the target it joins as its login server address.
+	request := testSessionConnect(t)
+	var claims map[string]any
+	if err := json.Unmarshal(request.ClientData, &claims); err != nil {
+		t.Fatal(err)
+	}
+	claims["ServerAddress"] = JavaTargetPrefix + server.Addr()
+	if request.ClientData, err = json.Marshal(claims); err != nil {
+		t.Fatal(err)
+	}
+	client, frames := dialTestSession(t, dir, request)
 	handoffFrame := <-frames
 	if handoffFrame[0] != bridgecontract.SessionKindHandoff {
 		t.Fatalf("first frame kind %d", handoffFrame[0])

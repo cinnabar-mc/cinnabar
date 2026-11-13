@@ -195,8 +195,12 @@ pub fn command(
     })
 }
 
-/// Whether `address` names this machine; remote joins need an explicit opt-in.
+/// Whether `address` names this machine; remote joins need an explicit opt-in. A Java
+/// target is judged by the server address behind its prefix.
 pub fn is_loopback(address: &str) -> bool {
+    let address = address
+        .strip_prefix(bridge::contract::JAVA_TARGET_PREFIX)
+        .unwrap_or(address);
     let host = match address.rsplit_once(':') {
         Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
         _ => address,

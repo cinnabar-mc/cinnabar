@@ -83,3 +83,20 @@ fn translated_java_startup_builds_game_data() {
         admitted.entries.len()
     );
 }
+
+/// The core places the player with its own copy of Bedrock's network offset. The scripted
+/// server stands the player with its feet on Y 1, so a copy that drifts from the client's
+/// offset shows here.
+#[test]
+fn translated_player_positions_carry_the_network_offset() {
+    const SCRIPTED_FEET: f32 = 1.0;
+    let session = decode(SESSION);
+    let placed = session
+        .iter()
+        .find_map(|packet| match &*packet.data {
+            packets::Packet::MovePlayer(placed) => Some(placed.position.y),
+            _ => None,
+        })
+        .expect("the stream places the player");
+    assert_eq!(placed, SCRIPTED_FEET + protocol::PLAYER_NETWORK_OFFSET);
+}
