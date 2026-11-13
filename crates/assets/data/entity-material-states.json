@@ -10,6 +10,7 @@
   "bee": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "blaze_body": {"alpha_test":false,"cull":true,"blend":false,"depth_write":true,"emissive":true},
   "blaze_head": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true,"emissive":true},
+  "boat_water_mask": {"alpha_test":false,"cull":true,"blend":false,"depth_write":true,"disable_color_write":true},
   "bogged": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "bogged_clothes": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "breeze": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
