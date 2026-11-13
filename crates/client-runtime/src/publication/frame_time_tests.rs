@@ -77,6 +77,14 @@ impl Frames {
         self.heavy = false;
     }
 
+    /// Opens the next frame without a new render frame: the renderer has not finished one.
+    fn begin_without_render_frame(&mut self) {
+        self.controller
+            .finish_frame(PublicationFrameWork::default());
+        self.controller.begin_frame(FRAME);
+        self.heavy = false;
+    }
+
     /// Runs frames that publish nothing.
     fn idle(&mut self, frames: usize, render: Duration) {
         for _ in 0..frames {
@@ -221,6 +229,63 @@ fn streaming_from_the_first_frame_still_learns_a_baseline_and_backs_off() {
         frames.decreases() >= 1,
         "slow frames after warm-up went unnoticed"
     );
+}
+
+/// A renderer that finishes a frame only every other main frame still gets a baseline:
+/// the hold bridges the frames between its samples, so no heavy frame slips in and keeps
+/// them ineligible.
+#[test]
+fn a_renderer_slower_than_the_main_loop_still_learns_a_baseline() {
+    let mut frames = Frames::new(MOBILE);
+    for _ in 0..PRESSURE.baseline_warmup_frames - 1 {
+        frames.begin(TYPICAL, FRAME);
+        assert!(frames.publish_open_frame() <= FLOOR.1);
+        frames.begin_without_render_frame();
+        assert!(frames.publish_open_frame() <= FLOOR.1);
+    }
+    assert_eq!(frames.baseline(), None);
+
+    frames.begin(TYPICAL, FRAME);
+    assert_eq!(frames.baseline(), Some(TYPICAL));
+    assert_eq!(frames.caps(), FULL);
+}
+
+/// Sections larger than the floors publish one per frame during warm-up. They cannot keep
+/// the baseline from forming and so extend the hold without end.
+#[test]
+fn payloads_larger_than_the_floors_cannot_extend_the_warm_up_hold() {
+    let mut frames = Frames::new(MOBILE);
+    let section = FLOOR.1 + PAYLOAD;
+    for frame in 0..PRESSURE.baseline_warmup_frames {
+        assert_eq!(frames.baseline(), None, "frame {frame}");
+        frames.begin(TYPICAL, FRAME);
+        let permit = frames.controller.allowance().try_admit_payload(section);
+        assert!(
+            permit.is_some_and(|permit| permit.retire()),
+            "frame {frame}"
+        );
+    }
+    assert_eq!(frames.baseline(), Some(TYPICAL));
+    assert_eq!(frames.caps(), FULL);
+}
+
+/// A renderer that stops reporting during warm-up ends the hold after a bounded number of
+/// frames, so publication is not left at the floors waiting for a baseline.
+#[test]
+fn the_warm_up_hold_ends_when_render_frames_stop_arriving() {
+    let mut frames = Frames::new(MOBILE);
+    frames.publish(5, TYPICAL);
+    assert_eq!(frames.baseline(), None);
+
+    let held = (0..100)
+        .take_while(|_| {
+            frames.begin_without_render_frame();
+            frames.caps() == FLOOR
+        })
+        .count();
+    assert!((1..=10).contains(&held), "held for {held} frames");
+    assert_eq!(frames.caps(), FULL);
+    assert_eq!(frames.baseline(), None);
 }
 
 /// Without render-frame samples there is nothing to learn from, so publication is not held
