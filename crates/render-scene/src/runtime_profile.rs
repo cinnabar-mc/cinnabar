@@ -7,6 +7,7 @@ use std::{
 };
 use web_time::Instant;
 
+mod render_frame;
 mod samples;
 mod thread_cpu;
 use samples::StageSampleAccumulator;
