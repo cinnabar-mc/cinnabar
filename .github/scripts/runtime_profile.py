@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+import platform
 import shlex
 import shutil
 import subprocess
@@ -21,6 +22,19 @@ VARIANTS = {
     "all": {"lto": "fat", "rustflags": "-C target-cpu=x86-64-v2", "mimalloc": True},
     "baseline-repeat": {},
 }
+# Experiment branch only: measure a subset of variants on any runner OS.
+if selected := os.environ.get("RUNTIME_PROFILE_VARIANTS"):
+    VARIANTS = {name: VARIANTS[name] for name in selected.split(",")}
+
+
+def cpu_identity() -> dict:
+    """Report the CPU in lscpu's JSON shape, synthesizing it where lscpu is unavailable."""
+    if shutil.which("lscpu"):
+        return json.loads(subprocess.check_output(["lscpu", "--json"], text=True))
+    name = platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER", "unknown")
+    return {"lscpu": [{"field": "Model name:", "data": name}]}
+
+
 BENCHES = {
     "chunk-pipeline": ("chunk_costs", "flight_costs"),
     "meshing": ("chunk_costs", "entity_occlusion"),
@@ -125,9 +139,9 @@ def run(variant: str, root: Path) -> None:
         "variant": variant,
         "head_sha": env["GITHUB_SHA"],
         "sample_size": SAMPLE_SIZE,
-        "host": os.uname().nodename,
+        "host": platform.node(),
         "rustc": subprocess.check_output(["rustc", "--version", "--verbose"], text=True),
-        "cpu": json.loads(subprocess.check_output(["lscpu", "--json"], text=True)),
+        "cpu": cpu_identity(),
         "completed_benches": [],
         "failed_benches": {},
     }
