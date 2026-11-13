@@ -1,0 +1,74 @@
+name: Offload
+
+# Runs one build or test command from a maintainer's branch on a hosted runner, for when local
+# build hosts are full. It restores dev's CI caches and never saves one. Only people with write
+# access can dispatch it; the token is read-only and the command gets no secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Shell command to run from the repository root, such as `go test ./core/...`
+        required: true
+        type: string
+      os:
+        description: Runner to use
+        type: choice
+        options: [ubuntu-latest, windows-latest, macos-latest]
+        default: ubuntu-latest
+
+run-name: "Offload: ${{ inputs.command }}"
+
+# Must match ci.yml so its compiler outputs can be reused.
+env:
+  # The build cache saves target/, so CI keeps intermediates there instead of the shared build-dir.
+  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  run:
+    name: Run command
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: rustfmt, clippy
+      - name: Restore Rust build cache
+        uses: ./.github/actions/build-cache
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      - name: Restore Go build cache
+        uses: ./.github/actions/build-cache
+        with:
+          language: go
+      - name: Install Linux desktop development libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev spirv-tools
+      # Tools that dispatch this workflow read the command's output and exit status between
+      # these two marker lines of the job log.
+      - name: Run the command
+        shell: bash
+        env:
+          OFFLOAD_COMMAND: ${{ inputs.command }}
+        run: |
+          echo "=== offload begin ==="
+          status=0
+          bash -eo pipefail -c "$OFFLOAD_COMMAND" || status=$?
+          echo "=== offload exit $status ==="
+          exit "$status"
