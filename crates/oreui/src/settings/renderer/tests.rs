@@ -565,3 +565,17 @@ fn storage_loading_keeps_rows_readable_and_disables_deletion() {
         )
     )));
 }
+
+/// General offers the diagnostic report row only where the host can save a report.
+#[test]
+fn general_offers_a_diagnostic_report_only_when_the_host_can_save_one() {
+    use launcher::menu::settings_support::{SAVE_REPORT_TITLE, SupportAction};
+    let mut view = settings_view(SettingSection::General.definition().name);
+    let save = MenuAction::SettingsSupport(SupportAction::SaveReport);
+    for saves in [false, true] {
+        view.saves_diagnostic_report = saves;
+        let (actions, labels) = controls(&view);
+        assert_eq!(actions.contains(&save), saves);
+        assert_eq!(labels.iter().any(|label| label == SAVE_REPORT_TITLE), saves);
+    }
+}

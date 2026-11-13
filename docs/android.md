@@ -28,6 +28,13 @@ available. For native crashes on Android 12+, the trace is the original tombston
 attach the ZIP to the crash report. The client log can name servers you joined and players you
 met. Nothing is uploaded automatically.
 
+To report a session that did not crash, such as one that was slow, open Settings > General and
+choose **Save diagnostic report** (Android 10+). It writes `Cinnabar-report-<time>.zip` to
+Downloads with the same header, Android's free memory when it was saved, the exits Android
+still remembers, the client log so far and the adapter record. A message at the bottom of the
+screen says whether the save worked. Save it before closing the app: the next launch starts a
+new client log.
+
 When the graphics driver fails, the error shown names the first GPU error the driver reported;
 a panic that followed is listed after it.
 

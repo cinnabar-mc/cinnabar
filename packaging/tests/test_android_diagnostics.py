@@ -232,6 +232,20 @@ public final class DiagnosticsFixture {
         earlier = StartupDiagnostics.exitLine(0, ApplicationExitInfo.REASON_USER_REQUESTED, 0, null);
         if (!earlier.endsWith("reason " + ApplicationExitInfo.REASON_USER_REQUESTED + ", status 0"))
             throw new AssertionError(earlier);
+        String memory = StartupDiagnostics.memoryLine(1024L << 20, 256L << 20, false);
+        if (!("Memory when saved: 1024 MiB available, low-memory threshold 256 MiB, "
+                + "Android reports low memory: no").equals(memory)
+                || !StartupDiagnostics.memoryLine(0, 0, true).endsWith("low memory: yes"))
+            throw new AssertionError(memory);
+        String session = StartupDiagnostics.sessionDetails(identity, 0, memory, earlier + "\\n", "the log");
+        if (!session.equals(identity
+                + "\\n\\nSaved on request at 1970-01-01T00:00:00Z from a running session; "
+                + "no exit is being reported.\\n" + memory + "\\nRecent exits, newest first:\\n"
+                + earlier + "\\n\\nthe log"))
+            throw new AssertionError(session);
+        session = StartupDiagnostics.sessionDetails(identity, 0, memory, "", "the log");
+        if (session.contains("Recent exits") || !session.endsWith(memory + "\\n\\nthe log"))
+            throw new AssertionError("a session without retained exits listed some");
         byte[] trace = new byte[200000];
         for (int i = 0; i < trace.length; i++) trace[i] = (byte) i;
         for (boolean nativeCrash : new boolean[] {true, false}) {
@@ -268,6 +282,21 @@ public final class DiagnosticsFixture {
                     || !(adapter + "\\n").equals(new String(read(zip), StandardCharsets.UTF_8)))
                 throw new AssertionError("the adapter record is missing from the report");
             if (zip.getNextEntry() != null) throw new AssertionError("an absent attachment was added");
+        }
+        ByteArrayOutputStream requested = new ByteArrayOutputStream();
+        CrashReport.writeSession(requested, "session details", log,
+                new File(log.getParentFile(), "absent.json"), record);
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(requested.toByteArray()))) {
+            if (!"details.txt".equals(zip.getNextEntry().getName())
+                    || !"session details".equals(new String(read(zip), StandardCharsets.UTF_8)))
+                throw new AssertionError("session details missing");
+            if (!"client.log".equals(zip.getNextEntry().getName())
+                    || !"whole log".equals(new String(read(zip), StandardCharsets.UTF_8)))
+                throw new AssertionError("a session report has no client log, or a trace entry before it");
+            if (!"adapter.json".equals(zip.getNextEntry().getName())
+                    || !(adapter + "\\n").equals(new String(read(zip), StandardCharsets.UTF_8)))
+                throw new AssertionError("the adapter record is missing from the session report");
+            if (zip.getNextEntry() != null) throw new AssertionError("unexpected session report contents");
         }
         Files.write(log.toPath(), "ab\\ncd\\nef".getBytes(StandardCharsets.UTF_8));
         try (java.io.RandomAccessFile source = new java.io.RandomAccessFile(log, "r")) {

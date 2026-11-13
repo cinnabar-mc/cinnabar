@@ -466,6 +466,8 @@ pub struct MenuView {
     pub touch_input: bool,
     /// Touch hardware remains available when a mouse or controller becomes active.
     pub touch_available: bool,
+    /// The host can save a diagnostic report, so General settings offers the row for it.
+    pub saves_diagnostic_report: bool,
     /// The touch-control draft owns this settings surface.
     pub touch_editor_open: bool,
     pub server_tab: MenuServerTab,
@@ -763,6 +765,7 @@ impl MenuView {
             gamepad_input: false,
             touch_input: false,
             touch_available: crate::TOUCH_PRIMARY,
+            saves_diagnostic_report: false,
             touch_editor_open: false,
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),

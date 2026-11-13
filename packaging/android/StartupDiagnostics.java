@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.app.ApplicationExitInfo;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.Context;
 import android.os.Build;
 import android.widget.Toast;
 import java.io.File;
@@ -51,34 +52,23 @@ final class StartupDiagnostics {
         if (Build.VERSION.SDK_INT < 30) return false;
         try {
             ActivityManager manager = activity.getSystemService(ActivityManager.class);
-            String process = activity.getApplicationInfo().processName;
-            List<ApplicationExitInfo> exits = new ArrayList<>();
-            for (ApplicationExitInfo record : manager.getHistoricalProcessExitReasons(
-                    activity.getPackageName(), 0, EXIT_HISTORY)) {
-                if (process.equals(record.getProcessName())) exits.add(record);
-            }
+            List<ApplicationExitInfo> exits = mainProcessExits(activity, manager);
             if (exits.isEmpty()) return false;
             ApplicationExitInfo exit = exits.get(0);
             if (!unexpected(exit.getReason(), exit.getStatus())) return false;
             android.content.SharedPreferences preferences = activity.getPreferences(0);
             if (exit.getTimestamp() <= preferences.getLong("reported-exit", 0)) return false;
             preferences.edit().putLong("reported-exit", exit.getTimestamp()).apply();
-            StringBuilder earlier = new StringBuilder();
-            for (ApplicationExitInfo record : exits.subList(1, exits.size())) {
-                earlier.append(exitLine(record.getTimestamp(), record.getReason(),
-                        record.getStatus(), record.getDescription())).append('\n');
-            }
+            String earlier = exitLines(exits.subList(1, exits.size()));
             File files = activity.getFilesDir();
-            String details = header(deviceLine(), socLine(), totalMemory(manager),
-                            String.join(", ", Build.SUPPORTED_ABIS), pageSize(),
-                            adapterRecord(new File(files, ADAPTER_RECORD)))
+            String details = deviceHeader(manager, files)
                     + "\n\nExit reason: " + exit.getReason() + ", status: " + exit.getStatus()
                     + "\n" + exitCause(exit.getReason(), exit.getStatus())
                     + "\n" + exit.getDescription() + "\n"
                     + "Process: " + exit.getProcessName() + " (" + exit.getPid() + ")\n"
                     + "Exit timestamp: " + exit.getTimestamp() + " ("
                     + java.time.Instant.ofEpochMilli(exit.getTimestamp()) + ")\n"
-                    + (earlier.length() == 0 ? "" : "Earlier exits, newest first:\n" + earlier)
+                    + (earlier.isEmpty() ? "" : "Earlier exits, newest first:\n" + earlier)
                     + "\n" + logContext(new File(files, CLIENT_LOG));
             AlertDialog dialog = new AlertDialog.Builder(activity)
                     .setTitle("@PRODUCT_NAME@ stopped unexpectedly")
@@ -103,6 +93,77 @@ final class StartupDiagnostics {
             android.util.Log.w("@PRODUCT_NAME@", "Cannot read previous process exit", error);
             return false;
         }
+    }
+
+    /**
+     * Details for a report saved on request from a running session: the same header as an exit
+     * report, Android's view of memory when it was saved, the recent exits Android retained and
+     * the client log so far. Needs only an application context.
+     */
+    static String sessionDetails(Context context, long savedAtMillis) {
+        ActivityManager manager = context.getSystemService(ActivityManager.class);
+        ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
+        manager.getMemoryInfo(memory);
+        String exits = "";
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                exits = exitLines(mainProcessExits(context, manager));
+            } catch (RuntimeException error) {
+                android.util.Log.w("@PRODUCT_NAME@", "Cannot read previous process exits", error);
+            }
+        }
+        File files = context.getFilesDir();
+        return sessionDetails(deviceHeader(manager, files), savedAtMillis,
+                memoryLine(memory.availMem, memory.threshold, memory.lowMemory), exits,
+                logContext(new File(files, CLIENT_LOG)));
+    }
+
+    /**
+     * Lays out a session report's details: `header`, when and why it was saved, the `memory`
+     * line, the `exits` lines when Android retained any, then the `log` context.
+     */
+    static String sessionDetails(String header, long savedAtMillis, String memory, String exits,
+            String log) {
+        return header
+                + "\n\nSaved on request at " + java.time.Instant.ofEpochMilli(savedAtMillis)
+                + " from a running session; no exit is being reported.\n"
+                + memory + "\n"
+                + (exits.isEmpty() ? "" : "Recent exits, newest first:\n" + exits)
+                + "\n" + log;
+    }
+
+    /** Android's own view of free memory, which it compares with its low-memory threshold. */
+    static String memoryLine(long availableBytes, long thresholdBytes, boolean low) {
+        return "Memory when saved: " + (availableBytes >> 20) + " MiB available, low-memory threshold "
+                + (thresholdBytes >> 20) + " MiB, Android reports low memory: " + (low ? "yes" : "no");
+    }
+
+    /** The header for this device and the adapter record under the app's `files` directory. */
+    private static String deviceHeader(ActivityManager manager, File files) {
+        return header(deviceLine(), socLine(), totalMemory(manager),
+                String.join(", ", Build.SUPPORTED_ABIS), pageSize(),
+                adapterRecord(new File(files, ADAPTER_RECORD)));
+    }
+
+    /** The main process's recent exits that Android retained, newest first. Needs API 30. */
+    private static List<ApplicationExitInfo> mainProcessExits(Context context, ActivityManager manager) {
+        String process = context.getApplicationInfo().processName;
+        List<ApplicationExitInfo> exits = new ArrayList<>();
+        for (ApplicationExitInfo record : manager.getHistoricalProcessExitReasons(
+                context.getPackageName(), 0, EXIT_HISTORY)) {
+            if (process.equals(record.getProcessName())) exits.add(record);
+        }
+        return exits;
+    }
+
+    /** One {@link #exitLine} for each exit, each ending its line. */
+    private static String exitLines(List<ApplicationExitInfo> exits) {
+        StringBuilder lines = new StringBuilder();
+        for (ApplicationExitInfo record : exits) {
+            lines.append(exitLine(record.getTimestamp(), record.getReason(),
+                    record.getStatus(), record.getDescription())).append('\n');
+        }
+        return lines.toString();
     }
 
     /**

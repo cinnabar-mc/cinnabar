@@ -2081,7 +2081,9 @@ Flathub submission remain incomplete.
   profiles, that used to fill the bounded details; the saved ZIP keeps the whole client log.
   The report header names the build commit and release channel, the SoC, RAM, ABI and page
   size, and the GPU adapter and driver the client records when the renderer starts, and lists
-  earlier process exits. A terminal report leads with the first GPU error the driver reported
+  earlier process exits. Settings > General saves the same ZIP on request from a running
+  session on Android 10+, without a trace, so a tester can send the log of a session that did
+  not crash. A terminal report leads with the first GPU error the driver reported
   and lists a later panic after it, including when a render-thread panic stopped the client
   before the error policy ran. Host tests cover these; the Java and the report on a phone
   still need device acceptance. Reports still lack the failing pipeline's label and raw

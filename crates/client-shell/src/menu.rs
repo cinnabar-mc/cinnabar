@@ -102,6 +102,8 @@ pub struct MenuRuntime {
     pressed: Option<MenuAction>,
     pointer_down: bool,
     touch_available: bool,
+    /// Whether the host can save a diagnostic report, read once when the menu is built.
+    saves_diagnostic_report: bool,
     touch_editor_open: bool,
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
