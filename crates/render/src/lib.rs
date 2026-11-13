@@ -32,6 +32,7 @@ mod chunk;
 
 mod cloud_render;
 mod deferred_resource;
+pub mod device_features;
 mod device_poll;
 pub mod device_settings;
 
@@ -82,6 +83,8 @@ mod pack_skybox;
 mod panorama_render;
 mod particle_render;
 
+mod pipeline_breadcrumbs;
+pub use pipeline_breadcrumbs::{BreadcrumbWriter, PipelineBreadcrumbPlugin};
 #[cfg(not(target_arch = "wasm32"))]
 mod pipeline_compilation;
 mod pipeline_warmup;

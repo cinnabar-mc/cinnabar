@@ -351,7 +351,6 @@ async fn create_renderer(
     settings: &WgpuSettings,
 ) -> Result<RenderCreation> {
     let info = adapter.get_info();
-    log(format_args!("Renderer creating device: {info:?}"));
     let started = std::time::Instant::now();
     let (device, queue) = request_device(&adapter, settings).await?;
     if let Some(timing) = render_scene::startup_timing::current() {

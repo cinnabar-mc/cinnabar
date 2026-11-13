@@ -9,6 +9,7 @@ mod completion_plan;
 mod conditions;
 mod contracts;
 mod dependencies;
+mod device_features;
 mod identifiers;
 mod input_owner;
 mod markers;
@@ -85,6 +86,7 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     check_timing(root, &policy, &files, &mut diagnostics)?;
     input_owner::check_input_owner(root, &policy, &files, &mut diagnostics)?;
     identifiers::check_identifiers(root, &policy, &files, &mut diagnostics)?;
+    device_features::check_device_features(root, &policy, &files, &mut diagnostics)?;
     diagnostics.sort();
     diagnostics.dedup();
     Ok(diagnostics)

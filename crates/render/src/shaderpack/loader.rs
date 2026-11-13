@@ -8,6 +8,7 @@
 
 mod planning;
 
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use planning::{pack_settings, planned, storage_sizes};
 #[path = "load_diagnostics.rs"]
 mod diagnostics;
@@ -693,7 +694,7 @@ fn build_translation(
                     let Some(module) = module(StageKind::Compute) else {
                         return Err(format!("{} has no compute stage", program.program.name));
                     };
-                    ProgramPipeline::Compute(gpu.device.create_compute_pipeline(
+                    ProgramPipeline::Compute(gpu.device.compile_compute_pipeline(
                         &wgpu::ComputePipelineDescriptor {
                             label: Some(&program.program.name),
                             layout: Some(&pipeline_layout),
@@ -720,7 +721,7 @@ fn build_translation(
                         let attributes = quad_attributes(reflection);
                         let pipeline =
                             gpu.device
-                                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                                .compile_render_pipeline(&wgpu::RenderPipelineDescriptor {
                                     label: Some(&program.program.name),
                                     layout: Some(&pipeline_layout),
                                     vertex: wgpu::VertexState {
