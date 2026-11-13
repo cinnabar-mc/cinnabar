@@ -8,6 +8,17 @@ use crate::topology::{BackgroundPlacement, CpuTopology};
 /// Background CPUs left to threads that work beside confined pools without being confined
 /// themselves, such as the world-stream service the frame waits on.
 const SERVICE_CPUS: usize = 1;
+/// Where Linux and Android describe their CPUs.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const SYSFS_CPU_ROOT: &str = "/sys/devices/system/cpu";
+
+/// The logical processors of a machine whose kernel reports `online` CPUs, seen from a thread
+/// whose affinity mask admits `allowed` of them: the online count when it is readable, and
+/// never fewer than the thread already has.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn machine_cores(allowed: usize, online: Option<usize>) -> usize {
+    online.map_or(allowed, |online| online.max(allowed))
+}
 
 /// Whether the core topology shapes thread pools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,16 +99,23 @@ impl CpuPlan {
     /// Reads the machine: the logical-processor count, the overrides, and the topology.
     ///
     /// Linux plans with the CPUs the calling thread may run on, so a container's share is the
-    /// machine. Android plans with every CPU: it moves the app between cpusets, so the mask at
-    /// startup says little about the cores the app gets in the foreground, and an affinity
-    /// request naming a CPU outside the current cpuset still applies to the rest.
+    /// machine. Android plans with every CPU, for the count as well as the topology: it moves
+    /// the app between cpusets, so the mask at startup says little about the cores the app
+    /// gets in the foreground, and an affinity request naming a CPU outside the current cpuset
+    /// still applies to the rest. The plan is decided once, so a count taken from a narrow
+    /// startup mask would undersize every pool for the life of the process.
     pub(crate) fn detect() -> Self {
         let available = std::thread::available_parallelism().map_or(1, usize::from);
+        #[cfg(target_os = "android")]
+        let available = machine_cores(
+            available,
+            crate::topology::online_cpus(std::path::Path::new(SYSFS_CPU_ROOT)),
+        );
         let logical =
             overrides::capped_cores(available, overrides::value(overrides::CORES_ENV).as_deref());
         let mode = TopologyMode::parse(overrides::value(overrides::TOPOLOGY_ENV).as_deref());
         #[cfg(any(target_os = "linux", target_os = "android"))]
-        let topology = CpuTopology::read(std::path::Path::new("/sys/devices/system/cpu"));
+        let topology = CpuTopology::read(std::path::Path::new(SYSFS_CPU_ROOT));
         #[cfg(target_os = "linux")]
         let topology = topology.and_then(|all| match crate::affinity::current_cpus() {
             Some(allowed) => all.restricted_to(&allowed),

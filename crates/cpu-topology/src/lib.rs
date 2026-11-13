@@ -21,7 +21,8 @@ pub use topology::{BackgroundPlacement, CpuTopology, SpeedSource};
 /// Cores left to the frame: the main and render threads.
 pub const FRAME_CORES: usize = 2;
 
-/// The process's plan, detected once from the first caller's affinity, sysfs and overrides.
+/// The process's plan, detected once on first use from sysfs, the overrides and, off Android,
+/// the first caller's affinity.
 pub fn plan() -> &'static CpuPlan {
     static PLAN: std::sync::LazyLock<CpuPlan> = std::sync::LazyLock::new(CpuPlan::detect);
     &PLAN

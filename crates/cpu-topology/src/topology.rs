@@ -193,6 +193,19 @@ impl fmt::Display for CpuTopology {
     }
 }
 
+/// How many CPUs the kernel has online, from the `online` list below `root`, such as `0-7` or
+/// `0-3,6-7`; `None` if the file is missing, empty or malformed. Unlike a thread's affinity
+/// mask, the list does not depend on the caller or its cpuset.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn online_cpus(root: &Path) -> Option<usize> {
+    let list = std::fs::read_to_string(root.join("online")).ok()?;
+    list.trim().split(',').try_fold(0_usize, |count, range| {
+        let (first, last) = range.split_once('-').unwrap_or((range, range));
+        let (first, last) = (first.parse::<usize>().ok()?, last.parse::<usize>().ok()?);
+        count.checked_add(last.checked_sub(first)?.checked_add(1)?)
+    })
+}
+
 /// The `N` of every `cpuN` entry below `root`, ascending; `None` if `root` cannot be listed.
 fn cpu_numbers(root: &Path) -> Option<Vec<usize>> {
     let mut cpus: Vec<usize> = std::fs::read_dir(root)

@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use crate::overrides::{CORES_ENV, TOPOLOGY_ENV, android_property, capped_cores};
+use crate::plan::machine_cores;
+use crate::topology::online_cpus;
 use crate::{BackgroundPlacement, CpuPlan, CpuTopology, SpeedSource, TopologyMode};
 
 /// Writes a fake `/sys/devices/system/cpu` tree: one `(capacity, max_freq)` pair per CPU, where
@@ -226,6 +228,44 @@ fn desktop_and_off_ignore_the_topology() {
     let forced = plan(&TWO_PLUS_SIX, TopologyMode::On, false);
     assert_eq!(forced.shared_pool_cores(), 5);
     assert!(forced.placement().is_some());
+}
+
+/// The online list counts every online CPU, whatever mask the reading thread has.
+#[test]
+fn online_list_counts_ranges_and_single_cpus() {
+    let root = tempfile::tempdir().unwrap();
+    let online = |list: &str| {
+        std::fs::write(root.path().join("online"), list).unwrap();
+        online_cpus(root.path())
+    };
+    assert_eq!(online("0-7\n"), Some(8));
+    assert_eq!(online("0-3,6-7\n"), Some(6));
+    assert_eq!(online("0\n"), Some(1));
+    assert_eq!(online("0,2,4-5"), Some(4));
+    for malformed in ["", "\n", "0-", "3-1", "a-b", "0-3,", "0--3"] {
+        assert_eq!(online(malformed), None, "{malformed:?}");
+    }
+    assert_eq!(online_cpus(Path::new("/nonexistent/cpu")), None);
+    // The fake tree the topology tests read carries a list too.
+    assert_eq!(online_cpus(capacities(&ONE_THREE_FOUR).path()), Some(8));
+}
+
+/// A phone whose first planning thread starts in a cpuset narrower than the machine still
+/// plans for every online CPU, instead of undersizing every pool for the life of the process.
+#[test]
+fn android_counts_online_cpus_instead_of_the_startup_mask() {
+    assert_eq!(machine_cores(4, Some(8)), 8);
+    // An unreadable list keeps the mask's count, and the list never lowers it.
+    assert_eq!(machine_cores(4, None), 4);
+    assert_eq!(machine_cores(8, Some(6)), 8);
+    let plan = |logical| {
+        let topology = read(&capacities(&ONE_THREE_FOUR));
+        CpuPlan::new(logical, Some(topology), TopologyMode::Auto, true)
+    };
+    let narrow = plan(4);
+    assert_eq!((narrow.logical(), narrow.shared_pool_cores()), (4, 4));
+    let whole = plan(machine_cores(4, Some(8)));
+    assert_eq!((whole.logical(), whole.shared_pool_cores()), (8, 5));
 }
 
 #[test]
