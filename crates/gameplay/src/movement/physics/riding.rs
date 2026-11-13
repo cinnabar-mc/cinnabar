@@ -132,7 +132,8 @@ impl super::LocalPhysicsController {
     /// The snap restarts the render clock at the new tick and drops the rider onto the new
     /// seat; resuming the clock where it was, easing from the seat one tick back, and fading
     /// the difference from where the rider showed out over the next ticks keeps the eye and
-    /// the boat it rides from jumping.
+    /// the boat it rides from jumping. The frame's own elapsed time still counts: a correction
+    /// is not a teleport, and dropping that time would freeze the frame and slow the boat.
     pub fn resume_vehicle_render(&mut self, shown: RiderRender, previous_seat: [f32; 3]) {
         let Some(state) = self.state.as_ref() else {
             return;
@@ -146,6 +147,7 @@ impl super::LocalPhysicsController {
             f64::from(previous_seat[2]),
         );
         self.accumulated_seconds = shown.phase_seconds.clamp(0.0, LOCAL_PHYSICS_TICK_SECONDS);
+        self.discard_next_elapsed = false;
         self.visual_correction = shown.correction;
         self.visual_correction.correct(
             shown.position - state.position,
@@ -349,10 +351,17 @@ mod tests {
         physics.accumulated_seconds = LOCAL_PHYSICS_TICK_SECONDS * 0.4;
         let shown = physics.rider_render().unwrap();
         // The anchor a correction snaps to restarts the render clock at the new seat.
-        physics.reanchor_network_position([2.0, protocol::PLAYER_NETWORK_OFFSET, 0.5], 101, true);
+        physics.reanchor_network_position_before_advance(
+            [2.0, protocol::PLAYER_NETWORK_OFFSET, 0.5],
+            101,
+            true,
+        );
         assert_eq!(physics.tick_alpha(), 0.0);
+        assert_eq!(physics.ticks_due(std::time::Duration::from_millis(60)), 0);
         physics.resume_vehicle_render(shown, [1.5, 0.0, 0.5]);
         assert!((physics.tick_alpha() - 0.4).abs() < 1.0e-6);
+        // The frame that follows still advances the clock, since a correction drops no time.
+        assert_eq!(physics.ticks_due(std::time::Duration::from_millis(60)), 1);
         // The rider shows where it was before the snap.
         let eye = physics.render_feet_position().unwrap();
         assert!((eye[0] - 1.0).abs() < 1.0e-5, "{eye:?}");
