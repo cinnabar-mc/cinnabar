@@ -10,6 +10,10 @@ use render_scene::RenderFrameSample;
 /// that carries its uploads, and one more for uploads the renderer deferred.
 const UPLOAD_SETTLE_FRAMES: u32 = 3;
 
+/// Main frames the warm-up hold outlasts the newest render frame. It bridges render frames
+/// that span several main frames, and ends the hold once the renderer stops reporting.
+const LEARNING_HOLD_FRAMES: u32 = 8;
+
 /// What the newest render frame says about publication pressure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FrameTimeSignal {
@@ -28,7 +32,8 @@ pub(super) enum FrameTimeSignal {
 /// publication never enter it, so a long upload burst cannot raise the typical time and
 /// hide itself, however long it lasts. Once back-off has reduced publication to the floors,
 /// frames feed the median again; a slowdown that back-off does not cure is then learned as
-/// the new normal and service recovers. Until the median exists no frame is slow.
+/// the new normal and service recovers. Until the median exists no frame is slow, and
+/// every render frame feeds it, so it always forms within the warm-up count.
 #[derive(Debug, Clone)]
 pub(super) struct FrameTimeFeedback {
     config: FrameTimePressureConfig,
@@ -46,6 +51,8 @@ pub(super) struct FrameTimeFeedback {
     pending: bool,
     /// Render frames still to keep out of the typical time after heavy publication.
     upload_settle_frames: u32,
+    /// Main frames that ended since the newest render frame was observed.
+    frames_since_render_frame: u32,
 }
 
 impl FrameTimeFeedback {
@@ -60,6 +67,7 @@ impl FrameTimeFeedback {
             slow_render_frames: 0,
             pending: false,
             upload_settle_frames: 0,
+            frames_since_render_frame: 0,
         }
     }
 
@@ -70,15 +78,22 @@ impl FrameTimeFeedback {
 
     /// Whether the typical time is still unknown while render frames are arriving. The
     /// caller then holds publication to the pressure floors, so those frames are eligible
-    /// and the typical time forms within the warm-up count. Without arriving render frames
-    /// there is nothing to learn from, and publication is not held back.
+    /// and the typical time forms within the warm-up count of render frames.
+    ///
+    /// The hold lasts through [`LEARNING_HOLD_FRAMES`] main frames without a new render
+    /// frame, so a renderer slower than the main loop still learns. Once the renderer stops
+    /// reporting, or before it ever has, there is nothing to learn from and publication is
+    /// not held back.
     pub(super) fn is_learning(&self) -> bool {
-        self.typical.is_none() && self.pending
+        self.typical.is_none()
+            && self.observed_render_frame.is_some()
+            && self.frames_since_render_frame <= LEARNING_HOLD_FRAMES
     }
 
     /// Records the payloads one finished main frame admitted. Call it once per main frame,
     /// before observing the render frame that follows.
     pub(super) fn note_admissions(&mut self, items: usize, bytes: u64) {
+        self.frames_since_render_frame = self.frames_since_render_frame.saturating_add(1);
         self.upload_settle_frames =
             if items > self.config.minimum_frame_items || bytes > self.config.minimum_frame_bytes {
                 UPLOAD_SETTLE_FRAMES
@@ -94,6 +109,7 @@ impl FrameTimeFeedback {
             return;
         }
         self.observed_render_frame = Some(sample.sequence);
+        self.frames_since_render_frame = 0;
         self.pending = true;
         // Judged against the normal before this frame, so a spike cannot vouch for itself.
         self.slow_render_frames = if self.is_slow(sample) {
@@ -101,7 +117,9 @@ impl FrameTimeFeedback {
         } else {
             0
         };
-        if self.upload_settle_frames == 0 {
+        // While learning, every frame counts: publication is held to the floors, and one
+        // payload larger than them must not keep the typical time from ever forming.
+        if self.upload_settle_frames == 0 || self.typical.is_none() {
             self.record_typical(sample.elapsed);
         }
     }
@@ -202,17 +220,13 @@ mod tests {
     fn a_frame_is_slow_only_above_the_hitch_and_the_margin_over_typical() {
         let mut feedback = FrameTimeFeedback::new(CONFIG);
         let mut sequence = 0;
-        // Before a typical time exists, no frame is slow, and arriving frames mean learning.
-        assert!(!feedback.is_learning(), "no render frame has arrived");
+        // Before a typical time exists, no frame is slow.
         observe(&mut feedback, &mut sequence, &[400]);
-        assert!(feedback.is_learning());
         assert_eq!(feedback.take_signal(), FrameTimeSignal::Healthy);
-        assert!(!feedback.is_learning(), "the arrived frame was consumed");
 
         observe(&mut feedback, &mut sequence, &[22; 8]);
         assert_eq!(feedback.take_signal(), FrameTimeSignal::Healthy);
         assert_eq!(feedback.typical(), Some(Duration::from_millis(22)));
-        assert!(!feedback.is_learning());
         // 33 ms is exactly 150% of typical: not slow. 34 ms is.
         observe(&mut feedback, &mut sequence, &[33]);
         assert_eq!(feedback.take_signal(), FrameTimeSignal::Healthy);
@@ -223,6 +237,51 @@ mod tests {
         let mut fast = FrameTimeFeedback::new(CONFIG);
         observe(&mut fast, &mut sequence, &[2, 2, 2, 12]);
         assert_eq!(fast.take_signal(), FrameTimeSignal::Healthy);
+    }
+
+    /// Learning lasts while the typical time is unknown and render frames keep arriving,
+    /// bridging a bounded gap between them.
+    #[test]
+    fn learning_bridges_gaps_between_render_frames_and_ends_when_they_stop() {
+        let mut feedback = FrameTimeFeedback::new(CONFIG);
+        let mut sequence = 0;
+        feedback.note_admissions(0, 0);
+        assert!(!feedback.is_learning(), "no render frame has arrived");
+
+        observe(&mut feedback, &mut sequence, &[22]);
+        assert!(feedback.is_learning());
+        for _ in 0..LEARNING_HOLD_FRAMES {
+            feedback.note_admissions(0, 0);
+            assert!(feedback.is_learning(), "a short gap ended the hold");
+        }
+        feedback.note_admissions(0, 0);
+        assert!(!feedback.is_learning(), "the hold outlived the renderer");
+
+        observe(&mut feedback, &mut sequence, &[22]);
+        assert!(
+            feedback.is_learning(),
+            "a new render frame resumes learning"
+        );
+        observe(&mut feedback, &mut sequence, &[22]);
+        assert_eq!(feedback.typical(), Some(Duration::from_millis(22)));
+        assert!(!feedback.is_learning(), "the typical time is known");
+    }
+
+    /// Until the typical time exists, frames after heavy publication feed it too, so
+    /// payloads larger than the floors cannot keep it from forming.
+    #[test]
+    fn every_render_frame_feeds_the_typical_time_until_it_exists() {
+        let mut feedback = FrameTimeFeedback::new(CONFIG);
+        for sequence in 1..=CONFIG.baseline_warmup_frames as u64 {
+            assert_eq!(feedback.typical(), None);
+            feedback.note_admissions(1, CONFIG.minimum_frame_bytes + 1);
+            feedback.observe(RenderFrameSample {
+                sequence,
+                elapsed: Duration::from_millis(22),
+                hitch: HITCH,
+            });
+        }
+        assert_eq!(feedback.typical(), Some(Duration::from_millis(22)));
     }
 
     /// Every run of consecutive slow frames reports pressure once, and a signal is taken once.
