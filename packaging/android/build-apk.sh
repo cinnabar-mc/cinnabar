@@ -8,6 +8,9 @@
 # target, cargo-ndk, Go, a JDK, zip and librsvg or ImageMagick for the launcher icon.
 # CINNABAR_ANDROID_PROFILE picks the Cargo profile (release).
 # CINNABAR_ANDROID_PROFILEABLE=true permits shell profiling and retains native debug symbols.
+# CINNABAR_ANDROID_APPLICATION_ID installs the APK under another application ID, so it sits next
+# to the regular app with its own data; the Java classes and JNI names keep runtime.json's package.
+# CINNABAR_ANDROID_APP_LABEL names that install in the launcher, its dialogs and its crash reports.
 # Signing uses CINNABAR_ANDROID_KEYSTORE and CINNABAR_ANDROID_KEY_ALIAS with passwords in
 # CINNABAR_ANDROID_STORE_PASSWORD and CINNABAR_ANDROID_KEY_PASSWORD, else a generated test key.
 set -euo pipefail
@@ -40,6 +43,14 @@ version="$(version_of)"
 IFS=. read -r major minor patch <<<"$version"
 version_code=$((major * 1000000 + minor * 1000 + patch))
 [[ -n "$product" ]] || { echo 'cannot read the launcher product name' >&2; exit 1; }
+# The installed identity. The Java package, and with it every class and JNI name, stays
+# runtime.json's application_id; only the manifest's package is renamed at link time.
+application_id="${CINNABAR_ANDROID_APPLICATION_ID:-$(pin application_id)}"
+app_label="${CINNABAR_ANDROID_APP_LABEL:-$product}"
+[[ "$application_id" =~ ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$ ]] ||
+    { echo 'CINNABAR_ANDROID_APPLICATION_ID must be a dotted lowercase Android application ID' >&2; exit 1; }
+[[ "$app_label" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._-]*$ ]] ||
+    { echo 'CINNABAR_ANDROID_APP_LABEL may hold letters, digits, spaces, dots, underscores and hyphens' >&2; exit 1; }
 
 out="$repo_root/target/android"
 stage="$out/stage"
@@ -107,7 +118,7 @@ if [[ -z "${CINNABAR_ANDROID_KEYSTORE:-}" ]]; then
 fi
 apk_variant=""
 [[ "$profileable" != true ]] || apk_variant=-profileable
-apk="$out/$product-$version$apk_variant-$abi.apk"
+apk="$out/${app_label// /-}-$version$apk_variant-$abi.apk"
 "$build_tools/apksigner" sign --ks "$keystore" --ks-key-alias "$key_alias" \
     --ks-pass env:CINNABAR_ANDROID_STORE_PASSWORD --key-pass env:CINNABAR_ANDROID_KEY_PASSWORD \
     --out "$apk" "$out/aligned.apk"

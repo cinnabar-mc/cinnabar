@@ -1,8 +1,9 @@
 name: Android
 
-# Builds the experimental arm64 APK for Android packaging/release workflow changes, on CI's schedule and on
-# demand, so the Android target keeps compiling. The APK is signed with a throwaway key per run;
-# installing a later build means uninstalling first.
+# TEST BRANCH ONLY (integration/android-test-20261113, never merged): builds the optimized,
+# profileable arm64 APK as a separate "Cinnabar Test" app (application ID with `.test` appended)
+# that installs next to the regular app and shares none of its data. Every run on this branch
+# signs with one test key kept in the Actions cache, so a later test build updates the test app.
 on:
   pull_request:
     paths:
@@ -25,10 +26,14 @@ jobs:
   apk:
     name: Build arm64 APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
-      # Parallel codegen without LTO keeps this build affordable; releases use `release`.
-      CINNABAR_ANDROID_PROFILE: play
+      # The profile releases ship, with shell profiling and native symbols for simpleperf.
+      CINNABAR_ANDROID_PROFILE: release
+      CINNABAR_ANDROID_PROFILEABLE: "true"
+      # Installed identity of the test app; Java classes keep the regular package.
+      CINNABAR_ANDROID_APPLICATION_ID: app.cinnabar.client.test
+      CINNABAR_ANDROID_APP_LABEL: Cinnabar Test
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v6
@@ -57,11 +62,56 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends librsvg2-bin cmake ninja-build gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+      # build-apk.sh signs with target/android/test.keystore and creates it when missing.
+      - name: Restore this branch's test signing key
+        id: test-key
+        uses: actions/cache/restore@v5
+        with:
+          path: target/android/test.keystore
+          key: android-test-keystore-integration-20261113
       - name: Build the APK
         run: bash packaging/android/build-apk.sh
+      - name: Keep the test signing key for later runs on this branch
+        if: steps.test-key.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: target/android/test.keystore
+          key: android-test-keystore-integration-20261113
+      - name: Check and describe the test APK
+        env:
+          KEY_RESTORED: ${{ steps.test-key.outputs.cache-hit == 'true' }}
+        run: |
+          set -euo pipefail
+          pin() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' packaging/android/runtime.json "$1"; }
+          tools="$ANDROID_HOME/build-tools/$(pin build_tools)"
+          apk="$(ls target/android/*-arm64-v8a.apk)"
+          badging="$("$tools/aapt2" dump badging "$apk")"
+          manifest="$("$tools/aapt2" dump xmltree --file AndroidManifest.xml "$apk")"
+          certificates="$("$tools/apksigner" verify --print-certs "$apk")"
+          # Components that could collide with the regular app's: none are expected.
+          shared="$(grep -E -A2 'E: (provider|permission|permission-group|data)\b|authorities|taskAffinity|sharedUserId' <<<"$manifest" || true)"
+          {
+            echo '### Test APK'
+            echo '```'
+            echo "file: $(basename "$apk")"
+            echo "sha256: $(sha256sum "$apk" | cut -d' ' -f1)"
+            echo "commit: $GITHUB_SHA"
+            echo "signing key restored from cache: $KEY_RESTORED"
+            grep -E '^(package:|application-label:|launchable-activity:|minSdkVersion|targetSdkVersion)' <<<"$badging"
+            grep -A1 'E: profileable' <<<"$manifest"
+            echo "providers, declared permissions, URL schemes, task affinity, shared user: ${shared:-none}"
+            grep -E 'certificate (DN|SHA-256)' <<<"$certificates"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$CINNABAR_ANDROID_APPLICATION_ID" != "$(pin application_id)" ]] || fail 'the test build uses the regular application ID'
+          grep -q "^package: name='$CINNABAR_ANDROID_APPLICATION_ID' " <<<"$badging" || fail 'the APK is not the test application ID'
+          grep -q "^application-label:'$CINNABAR_ANDROID_APP_LABEL'\$" <<<"$badging" || fail 'the APK does not carry the test label'
+          [[ -z "$shared" ]] || fail 'the manifest declares a component that may collide with the regular app; audit it'
+          grep -A1 'E: profileable' <<<"$manifest" | grep -q 'shell.*=true' || fail 'the APK is not profileable from the shell'
       - uses: actions/upload-artifact@v7
         with:
-          name: cinnabar-android-arm64
+          name: cinnabar-android-test-sidebyside-arm64
           path: target/android/*-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14
