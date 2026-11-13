@@ -17,14 +17,15 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
+use cpu_topology::CpuPlan;
+use cpu_topology::FRAME_CORES;
 use crossbeam_channel::Sender;
 pub(in crate::stream) use mailbox::{Mailbox, MailboxSender, result_mailbox};
 
 #[cfg(not(feature = "tracy"))]
 type QueueGuard<'a> = MutexGuard<'a, Queues>;
 
-/// Cores left to the frame (main and render threads).
-const FRAME_CORES: usize = 2;
 const MIN_WORLD_THREADS: usize = 3;
 /// A lower lane's oldest job jumps the priority order after waiting this long, so
 /// sustained mesh load cannot starve the decode and light work that mesh depends on.
@@ -57,8 +58,25 @@ pub(super) struct PoolSize {
 
 impl PoolSize {
     /// Splits the native pool while reserving frame cores and the minimum light width.
+    #[cfg(any(test, target_arch = "wasm32"))]
     pub(super) fn for_cores(cores: usize) -> Self {
-        let threads = cores.saturating_sub(FRAME_CORES).max(MIN_WORLD_THREADS);
+        Self::fitted(cores, None)
+    }
+
+    /// The split for `plan`'s machine: when the plan confines background threads, no wider
+    /// than its background CPUs take.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn for_plan(plan: &CpuPlan) -> Self {
+        Self::fitted(plan.logical(), plan.background_width())
+    }
+
+    /// Splits a pool for `cores` logical processors, reserving frame cores and the minimum
+    /// light width, with at most `width` threads when given and never below the minimum pool.
+    fn fitted(cores: usize, width: Option<usize>) -> Self {
+        let threads = cores.saturating_sub(FRAME_CORES);
+        let threads = width
+            .map_or(threads, |width| threads.min(width))
+            .max(MIN_WORLD_THREADS);
         let background = (threads * 2 / 3).max(super::MIN_EFFECTIVE_LIGHT_JOB_CAP);
         Self {
             foreground: threads - background,
@@ -243,38 +261,20 @@ pub(super) struct WorldPool {
     size: PoolSize,
 }
 
-/// Threads the world pool runs on a machine with `cores` logical processors.
-pub fn world_worker_threads(cores: usize) -> usize {
-    PoolSize::for_cores(cores).threads()
-}
-
-/// Diagnostic cap on the logical processors every thread pool sizes itself for.
-const CORES_ENV: &str = "CINNABAR_CPU_CORES";
-
-/// Logical processors the client's pools are sized for: the machine's count, or fewer when
-/// [`CORES_ENV`] asks for a smaller machine.
+/// Threads the process's world pool runs, without starting it.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn logical_cores() -> usize {
-    let available = std::thread::available_parallelism().map_or(1, usize::from);
-    capped_cores(available, std::env::var(CORES_ENV).ok().as_deref())
+pub fn world_worker_threads() -> usize {
+    PoolSize::for_plan(cpu_topology::plan()).threads()
 }
 
-/// Applies a positive integer cap below `available`; anything else keeps `available`.
-#[cfg(any(test, not(target_arch = "wasm32")))]
-fn capped_cores(available: usize, requested: Option<&str>) -> usize {
-    requested
-        .and_then(|value| value.trim().parse::<usize>().ok())
-        .filter(|&cores| cores > 0)
-        .map_or(available, |cores| cores.min(available))
-}
-
-/// Runs pre-stream work on a temporary normal-priority pool sized like the world pool.
-/// Falls back to the caller pool if worker threads cannot start.
+/// Runs pre-stream work on a temporary normal-priority pool as wide as the world pool, which
+/// is idle then. Its threads keep the caller's CPU affinity instead of joining the background
+/// CPUs: the player is waiting for this work, usually behind a loading screen, so it may use
+/// the frame cores. Falls back to the caller pool if worker threads cannot start.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
-    let cores = logical_cores();
     match rayon::ThreadPoolBuilder::new()
-        .num_threads(world_worker_threads(cores))
+        .num_threads(world_worker_threads())
         .thread_name(|index| format!("world-borrowed-{index}"))
         .build()
     {
@@ -285,10 +285,10 @@ pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 
 pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
     #[cfg(not(target_arch = "wasm32"))]
-    let cores = logical_cores();
+    let size = PoolSize::for_plan(cpu_topology::plan());
     #[cfg(target_arch = "wasm32")]
-    let cores = 1;
-    WorldPool::new(PoolSize::for_cores(cores))
+    let size = PoolSize::for_cores(1);
+    WorldPool::new(size)
 });
 
 impl WorldPool {

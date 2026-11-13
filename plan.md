@@ -2171,7 +2171,11 @@ Flathub submission remain incomplete.
   Android and iOS start with one coverage sample, as Bedrock does on its Mobile platform type, and
   read physical memory so the render-distance levels and resource-pack memory tiers use the
   device's RAM. Android raises the main, render and frame-worker threads, starts threads they spawn
-  at normal priority and lowers lighting workers. On Mobile, Bedrock halves the rendered distance
+  at normal priority and lowers background workers to background priority only while they run
+  lighting or summary jobs. On phones whose cores fall into clear speed tiers it keeps world
+  workers and io threads off the one or two fastest cores and sizes pools for the remaining
+  cores; no phone has measured either policy. On Mobile, Bedrock halves the
+  rendered distance
   while the top screen shows a menu; that is not implemented because terrain drawing does not yet
   stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
   unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.
