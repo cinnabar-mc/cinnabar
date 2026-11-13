@@ -3,7 +3,7 @@
 use bevy::prelude::Resource;
 use serde::Serialize;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, btree_map::Entry},
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -20,6 +20,10 @@ pub const WORLD_SHADER_MODULES: &str = "world_shader_modules";
 pub const WORLD_COMPUTE_PIPELINES: &str = "world_compute_pipelines";
 const MAX_FRAMES: usize = 8;
 const MAX_PIPELINES: usize = 256;
+/// Whether stages and milestones are also logged as they complete. Android keeps the client
+/// log in its crash reports, so a start that hangs or dies before the menu report still shows
+/// where its time went.
+const LOG_PROGRESS: bool = cfg!(target_os = "android");
 static LAUNCH: OnceLock<StartupTiming> = OnceLock::new();
 
 /// Launch measurements stop recording once their presentation report is sealed.
@@ -200,15 +204,28 @@ impl StartupTiming {
 
     /// Records a milestone observed after the fact, such as a GPU completion callback.
     pub fn mark_at(&self, name: &str, at: Instant) {
-        if self.is_recording() {
-            let offset = self.offset_ms(at);
-            self.0
-                .report
-                .lock()
-                .expect("startup timing lock")
-                .milestones_ms
-                .entry(name.to_owned())
-                .or_insert(offset);
+        if let Some(offset) = self.first_mark(name, at)
+            && LOG_PROGRESS
+        {
+            bevy::log::info!(
+                milestone = name,
+                launch_offset_ms = offset,
+                "startup milestone"
+            );
+        }
+    }
+
+    /// Records a milestone and returns its launch offset, or `None` when it was already
+    /// reached or recording has stopped.
+    fn first_mark(&self, name: &str, at: Instant) -> Option<f64> {
+        if !self.is_recording() {
+            return None;
+        }
+        let offset = self.offset_ms(at);
+        let mut report = self.0.report.lock().expect("startup timing lock");
+        match report.milestones_ms.entry(name.to_owned()) {
+            Entry::Vacant(entry) => Some(*entry.insert(offset)),
+            Entry::Occupied(_) => None,
         }
     }
 
@@ -299,9 +316,21 @@ fn timed<T>(name: &'static str, boundary: bool, work: impl FnOnce() -> T) -> T {
     let _span = bevy::log::info_span!("startup.stage", stage = name).entered();
     let started = Instant::now();
     let result = work();
-    timing.record(name, started.elapsed());
-    if boundary && std::thread::current().id() == timing.0.main_thread {
-        timing.mark(name);
+    let ended = Instant::now();
+    let duration = ended.saturating_duration_since(started);
+    timing.record(name, duration);
+    if boundary {
+        if std::thread::current().id() == timing.0.main_thread {
+            timing.first_mark(name, ended);
+        }
+        if LOG_PROGRESS {
+            bevy::log::info!(
+                stage = name,
+                duration_ms = duration.as_secs_f64() * 1000.0,
+                launch_offset_ms = timing.offset_ms(ended),
+                "startup stage"
+            );
+        }
     }
     result
 }
@@ -390,8 +419,14 @@ mod tests {
     fn milestones_keep_their_first_time_and_pipelines_their_first_usable_frame() {
         let launched = Instant::now();
         let timing = StartupTiming::new(launched);
-        timing.mark_at("first_update_start", launched + Duration::from_millis(4));
-        timing.mark_at("first_update_start", launched + Duration::from_millis(9));
+        let first_update = launched + Duration::from_millis(4);
+        assert_eq!(
+            timing.first_mark("first_update_start", first_update),
+            Some(4.0)
+        );
+        let repeated = launched + Duration::from_millis(9);
+        assert_eq!(timing.first_mark("first_update_start", repeated), None);
+        timing.mark_at("first_update_start", repeated);
         timing.observe_pipeline(0, "blit", false);
         timing.observe_pipeline(1, "ui", false);
         timing.observe_pipeline(1, "ui", true);
@@ -406,6 +441,7 @@ mod tests {
         assert_eq!(report["pipelines"][1]["ready_ms"], ready.unwrap());
         assert!(report["pipelines"][0]["ready_ms"].is_null());
         timing.mark("late");
+        assert_eq!(timing.first_mark("later", launched), None);
         timing.observe_pipeline(0, "blit", true);
         assert!(
             !timing

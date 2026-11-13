@@ -256,8 +256,7 @@ checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
 [[package]]
 name = "android-activity"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
+source = "git+https://github.com/cinnabar-mc/android-activity?rev=07587797903a8c607eb9240ca67e8d5fbdebd1c6#07587797903a8c607eb9240ca67e8d5fbdebd1c6"
 dependencies = [
  "android-properties",
  "bitflags 2.13.0",
