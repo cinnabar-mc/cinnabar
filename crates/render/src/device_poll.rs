@@ -54,8 +54,9 @@ impl FramesInFlight {
     }
 
     /// Waits up to `timeout` for every frame still in flight, firing their completion callbacks,
-    /// and forgets them once they finish. The last frame before a client leaves the screen calls
-    /// this, because no later poll would free the storage those frames retire.
+    /// and forgets them once they finish; frames still running after a timeout stay counted.
+    /// The last frame before a client leaves the screen calls this, because no later poll
+    /// would free the storage those frames retire.
     pub(crate) fn finish_outstanding(
         &mut self,
         device: &wgpu::Device,
@@ -68,7 +69,9 @@ impl FramesInFlight {
             submission_index: Some(newest),
             timeout: Some(timeout),
         })?;
-        self.0.clear();
+        if status.wait_finished() {
+            self.0.clear();
+        }
         Ok(status)
     }
 }
