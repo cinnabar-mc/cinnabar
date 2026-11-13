@@ -1903,12 +1903,15 @@ references are the official 1.7.10 client and recordings of that client run head
 
 Implemented: [`java-sim`](crates/java-sim/README.md) reproduces the 1.7.10 client's player
 tick, block collision model for ids 0 to 175 and movement packets. Recorded client traces,
-including seeded random walks, replay bit for bit, and collision boxes match the game for
-every id and metadata.
+including seeded random walks, replay bit for bit, and collision boxes match the recorded
+game for every id and metadata except those listed below.
 
 Incomplete: riding, sleeping, moving-piston collision and boats or other solid entities are
-not modelled. Nothing connects `java-sim` to a session yet: the protocol, world translation
-and client wiring are separate work, so no Java server can be joined.
+not modelled. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
+with the bounds last computed for any block of their kind; `java-sim` uses each block's own
+bounds, and such ladders are left out of the shape comparison. Nothing connects `java-sim`
+to a session yet: the protocol, world translation and client wiring are separate work, so no
+Java server can be joined.
 
 ## Phase 7 — Local worlds
 
