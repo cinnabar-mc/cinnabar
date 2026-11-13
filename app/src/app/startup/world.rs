@@ -6,7 +6,7 @@ use bevy::{
     prelude::{App, IntoScheduleConfigs, Last, Resource, World},
 };
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use render_scene::startup_work::WorldWorkAdmission;
+use render_scene::startup_work::{WorldGpuStart, WorldWorkAdmission};
 
 /// The world-only carriers, kept separate from menu fonts and interface data.
 pub(in crate::app) struct WorldCarriers {
@@ -61,6 +61,7 @@ impl WorldPreparation {
     }
 
     /// Installs complete direct resources or a deferred worker behind first-menu admission.
+    /// The platform's [`WorldGpuStart`] decides when the world's shader work follows.
     pub(in crate::app) fn install(self, app: &mut App) {
         match self {
             Self::Ready(mut queue) => {
@@ -68,7 +69,7 @@ impl WorldPreparation {
                 queue.apply(app.world_mut());
             }
             Self::Deferred(prepare) => {
-                app.insert_resource(WorldWorkAdmission::after_menu())
+                app.insert_resource(WorldWorkAdmission::after_menu(WorldGpuStart::PLATFORM))
                     .insert_resource(PendingWorld {
                         input: Some(prepare),
                         worker: None,
@@ -286,7 +287,7 @@ mod tests {
     #[test]
     fn world_preparation_never_starts_before_menu_completion_and_publishes_once() {
         let mut world = World::new();
-        let admission = WorldWorkAdmission::after_menu();
+        let admission = WorldWorkAdmission::after_menu(WorldGpuStart::AfterMenu);
         world.insert_resource(admission.clone());
         let count = Arc::new(AtomicUsize::new(0));
         let loading = count.clone();

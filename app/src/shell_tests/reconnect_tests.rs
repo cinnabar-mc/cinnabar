@@ -1,8 +1,10 @@
 use client_shell::menu::MenuRuntime;
 use client_shell::menu::test_support as menu_fixture;
 use launcher::menu::{MenuAction, MenuScreen};
-#[test]
-fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
+
+/// A launcher menu with a requested join that cannot reach a core, and the session systems
+/// that act on it. Also returns the previous session's control channel.
+fn joining_app() -> (bevy::prelude::App, tokio::sync::mpsc::Sender<impl Sized>) {
     use crate::runtime::{network::resource_packs::PackApplication, world::ClientWorld};
     use crate::session::{SessionController, drive_session};
     use bevy::prelude::{App, AppExit, Update};
@@ -40,6 +42,15 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
+    (app, old_controls)
+}
+
+#[test]
+fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
+    use crate::runtime::world::ClientWorld;
+    use client_shell::ui_resources::UiRuntimeResource;
+
+    let (mut app, old_controls) = joining_app();
     for attempt in 0..2 {
         let previous = app.world().resource::<UiRuntimeResource>().session_id();
         app.update();
@@ -61,5 +72,22 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
                 .resource_mut::<MenuRuntime>()
                 .activate_focused();
         }
+    }
+}
+
+/// Platforms that keep world shaders out of the menu start compiling them when a join starts,
+/// even one that then fails to reach a core.
+#[test]
+fn a_join_request_admits_world_shader_work_that_waited_for_it() {
+    use render_scene::startup_work::{WorldGpuStart, WorldWorkAdmission};
+
+    for start in [WorldGpuStart::OnJoin, WorldGpuStart::AfterMenu] {
+        let admission = WorldWorkAdmission::after_menu(start);
+        admission.menu_presented();
+        assert_eq!(admission.is_admitted(), start == WorldGpuStart::AfterMenu);
+        let (mut app, _old_controls) = joining_app();
+        app.insert_resource(admission.clone());
+        app.update();
+        assert!(admission.is_admitted());
     }
 }
