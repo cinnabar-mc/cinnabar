@@ -148,6 +148,7 @@ fn near(bytes: u64, expected: u64) -> bool {
 #[test]
 fn the_phone_configuration_caps_each_frame_of_a_banked_burst() {
     let mut frames = Frames::new(MOBILE);
+    frames.idle(PRESSURE.baseline_warmup_frames, FAST);
     frames.begin(FAST, Duration::from_secs(10));
     assert_eq!(frames.caps(), FULL);
     assert_eq!(
@@ -186,16 +187,52 @@ fn steady_frames_slower_than_the_display_keep_full_service() {
     assert_eq!(frames.baseline(), Some(TYPICAL));
 }
 
-/// Until enough lightly loaded frames have shown the device's normal, no frame is slow.
+/// Until enough lightly loaded frames have shown the device's normal, no frame is slow and
+/// publication is held to the floors so that the arriving frames can show it.
 #[test]
 fn no_frame_is_slow_before_the_device_has_a_baseline() {
     let mut frames = Frames::new(MOBILE);
     frames.idle(PRESSURE.baseline_warmup_frames - 1, SPIKE);
     assert_eq!(frames.baseline(), None);
+    assert_eq!(frames.caps(), FLOOR);
     assert_eq!(frames.decreases(), 0);
 
     frames.idle(1, SPIKE);
     assert_eq!(frames.baseline(), Some(SPIKE));
+    assert_eq!(frames.caps(), FULL);
+    assert_eq!(frames.decreases(), 0);
+}
+
+/// Streaming that starts with the controller's first frame cannot keep the baseline from
+/// forming: publication stays at the floors until it has, and upload-driven slow frames
+/// then back off as usual.
+#[test]
+fn streaming_from_the_first_frame_still_learns_a_baseline_and_backs_off() {
+    let mut frames = Frames::new(MOBILE);
+    let warmup = PRESSURE.baseline_warmup_frames;
+
+    let learning = frames.publish_upload_bound(warmup - 1, Duration::from_millis(45));
+    assert!(learning.iter().all(|bytes| (1..=FLOOR.1).contains(bytes)));
+    assert_eq!(frames.baseline(), None);
+
+    frames.publish_upload_bound(warmup, Duration::from_millis(45));
+    assert_eq!(frames.baseline(), Some(TYPICAL));
+    assert!(
+        frames.decreases() >= 1,
+        "slow frames after warm-up went unnoticed"
+    );
+}
+
+/// Without render-frame samples there is nothing to learn from, so publication is not held
+/// to the floors while waiting for a baseline that cannot form.
+#[test]
+fn publication_is_not_held_back_when_no_render_frames_arrive() {
+    let mut controller = PublicationController::new(MOBILE);
+    for _ in 0..3 {
+        controller.begin_frame(Duration::from_secs(10));
+        let budget = controller.budget();
+        assert_eq!((budget.max_per_frame, budget.max_bytes_per_frame), FULL);
+    }
 }
 
 /// Frames well over the device's normal are pressure: each run of them halves the caps

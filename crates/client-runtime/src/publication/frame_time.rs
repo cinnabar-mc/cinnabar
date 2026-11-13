@@ -28,7 +28,7 @@ pub(super) enum FrameTimeSignal {
 /// publication never enter it, so a long upload burst cannot raise the typical time and
 /// hide itself, however long it lasts. Once back-off has reduced publication to the floors,
 /// frames feed the median again; a slowdown that back-off does not cure is then learned as
-/// the new normal and service recovers.
+/// the new normal and service recovers. Until the median exists no frame is slow.
 #[derive(Debug, Clone)]
 pub(super) struct FrameTimeFeedback {
     config: FrameTimePressureConfig,
@@ -66,6 +66,14 @@ impl FrameTimeFeedback {
     /// The typical render-frame time, or `None` until enough eligible frames arrived.
     pub(super) fn typical(&self) -> Option<Duration> {
         self.typical
+    }
+
+    /// Whether the typical time is still unknown while render frames are arriving. The
+    /// caller then holds publication to the pressure floors, so those frames are eligible
+    /// and the typical time forms within the warm-up count. Without arriving render frames
+    /// there is nothing to learn from, and publication is not held back.
+    pub(super) fn is_learning(&self) -> bool {
+        self.typical.is_none() && self.pending
     }
 
     /// Records the payloads one finished main frame admitted. Call it once per main frame,
@@ -194,13 +202,17 @@ mod tests {
     fn a_frame_is_slow_only_above_the_hitch_and_the_margin_over_typical() {
         let mut feedback = FrameTimeFeedback::new(CONFIG);
         let mut sequence = 0;
-        // Before a typical time exists, no frame is slow.
+        // Before a typical time exists, no frame is slow, and arriving frames mean learning.
+        assert!(!feedback.is_learning(), "no render frame has arrived");
         observe(&mut feedback, &mut sequence, &[400]);
+        assert!(feedback.is_learning());
         assert_eq!(feedback.take_signal(), FrameTimeSignal::Healthy);
+        assert!(!feedback.is_learning(), "the arrived frame was consumed");
 
         observe(&mut feedback, &mut sequence, &[22; 8]);
         assert_eq!(feedback.take_signal(), FrameTimeSignal::Healthy);
         assert_eq!(feedback.typical(), Some(Duration::from_millis(22)));
+        assert!(!feedback.is_learning());
         // 33 ms is exactly 150% of typical: not slow. 34 ms is.
         observe(&mut feedback, &mut sequence, &[33]);
         assert_eq!(feedback.take_signal(), FrameTimeSignal::Healthy);

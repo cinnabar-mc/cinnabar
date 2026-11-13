@@ -158,6 +158,11 @@ impl PublicationController {
         self.note_frame_admissions();
         self.diagnostics.frame_sequence = self.diagnostics.frame_sequence.saturating_add(1);
         self.diagnostics.observed_frame_time = elapsed;
+        // Read before the pressure decision consumes the newest render frame.
+        let learning = self
+            .frame_time
+            .as_ref()
+            .is_some_and(FrameTimeFeedback::is_learning);
         self.update_pressure_state();
         // Frames without a world must not repeat the retired session's backlog.
         self.diagnostics.last_work = PublicationFrameWork::default();
@@ -184,17 +189,18 @@ impl PublicationController {
             .min(self.config.maximum_burst_bytes);
         self.item_numerator_remainder = item_remainder;
         self.byte_numerator_remainder = byte_remainder;
+        let (frame_items, frame_bytes) = self.frame_limits(learning);
         self.allowance.begin_frame_with_byte_limit(
             self.diagnostics.frame_sequence,
             issued_items,
             issued_bytes,
             self.zero_byte_operations_per_frame,
-            self.item_operations_per_frame,
-            self.frame_byte_limit,
+            frame_items,
+            frame_bytes,
         );
         self.diagnostics.budget = frame_budget(
             self.config,
-            self.item_operations_per_frame,
+            frame_items,
             self.allowance.frame_remaining_items(),
             self.allowance.frame_remaining_bytes(),
             self.zero_byte_operations_per_frame,
@@ -209,6 +215,21 @@ impl PublicationController {
         if let Some(feedback) = &mut self.frame_time {
             feedback.observe(sample);
             self.diagnostics.render_frame_baseline = feedback.typical();
+        }
+    }
+
+    /// The operation and byte caps for the frame about to open: the current caps, or the
+    /// pressure floors while frame-time feedback is still learning this device's normal.
+    /// Holding publication to the floors lets the arriving render frames show that normal
+    /// even when streaming starts with the first frame.
+    fn frame_limits(&self, learning: bool) -> (usize, u64) {
+        let caps = (self.item_operations_per_frame, self.frame_byte_limit);
+        match self.config.frame_time_pressure {
+            Some(pressure) if learning => (
+                caps.0.min(pressure.minimum_frame_items),
+                caps.1.min(pressure.minimum_frame_bytes),
+            ),
+            _ => caps,
         }
     }
 

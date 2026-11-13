@@ -45,7 +45,8 @@ pub struct FrameTimePressureConfig {
     pub consecutive_slow_frames: u32,
     /// Render frames in the rolling median that estimates the typical render-frame time.
     pub baseline_frames: usize,
-    /// Samples the median needs before it is used. Until then no frame counts as slow.
+    /// Samples the median needs before it is used. Until then no frame counts as slow, and
+    /// publication is held to the floors while render frames arrive, so they can supply it.
     pub baseline_warmup_frames: usize,
     /// Percentage of the typical render-frame time a slow frame must exceed.
     pub slow_frame_percent: u32,
