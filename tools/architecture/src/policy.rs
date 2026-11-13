@@ -27,6 +27,8 @@ pub(super) struct Policy {
     #[serde(default)]
     pub(super) reexport_allowances: Vec<ReexportAllowance>,
     #[serde(default)]
+    pub(super) counted_gpu: CountedGpuRules,
+    #[serde(default)]
     pub(super) timing: TimingRules,
     #[serde(default)]
     pub(super) input_owner: InputOwnerRules,
@@ -82,6 +84,29 @@ pub(super) struct InputOwnerRules {
 #[serde(deny_unknown_fields)]
 pub(super) struct InputOwnerException {
     pub(super) item: String,
+    pub(super) reason: String,
+}
+
+/// Crates whose passes and queue writes go through the counted entry points.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CountedGpuRules {
+    /// Crate directories whose production `src/` is covered.
+    #[serde(default)]
+    pub(super) crates: Vec<String>,
+    /// Files that own the counted entry points and may make the raw requests.
+    #[serde(default)]
+    pub(super) entry_points: Vec<String>,
+    #[serde(default)]
+    pub(super) exceptions: Vec<RawGpuCallException>,
+}
+
+/// A file calling a raw request's method name on a receiver the counters do not cover.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawGpuCallException {
+    pub(super) path: String,
+    pub(super) method: String,
     pub(super) reason: String,
 }
 

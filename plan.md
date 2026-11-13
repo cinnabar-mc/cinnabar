@@ -2730,9 +2730,9 @@ spans, trace exports and developer-control state on supported desktop and Androi
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
 Slow-frame lines and frame traces split render submission and the main update into named
-stages and carry per-render-frame counts of passes, render-thread pipeline and shader
-creations and upload bytes from client code. Draw calls and Bevy's own passes are not
-counted, and phone captures using the breakdown are still outstanding.
+stages and carry per-render-frame counts of passes and upload bytes from client code. Draw
+calls, pipeline and shader creation and Bevy's own passes are not counted, and phone captures
+using the breakdown are still outstanding.
 Android packaging has an opt-in optimized profileable mode with Rust line tables and
 matching ELF build IDs in the diagnostic APK. Normal release settings stay unchanged;
 full APK and physical-device profiler acceptance remain incomplete.

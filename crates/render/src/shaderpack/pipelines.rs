@@ -8,7 +8,6 @@
 //! fails its load instead of raising a device error.
 
 use super::plan::{MAX_COLOR_BUFFERS, color_buffer_of};
-use crate::render_counting::CountedShaders as _;
 use shaderpack::{
     BlendFactor as PackFactor, BlendMode, BlendRule, BufferFormat, ProgramGroup, ProgramReflection,
     SampleType, SamplerBinding, SamplerClass, ScalarType, StageKind, StageMask,
@@ -754,7 +753,7 @@ pub(crate) fn pack_shader_module(
     device: &Device,
     desc: wgpu::ShaderModuleDescriptor<'_>,
 ) -> wgpu::ShaderModule {
-    device.counted_shader_module(desc)
+    device.create_shader_module(desc)
 }
 
 /// Captures the validation and internal errors the device raises between [`Self::push`] and

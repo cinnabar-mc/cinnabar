@@ -3,7 +3,6 @@
 
 use super::RuntimeStageProfiler;
 use std::{
-    cell::Cell,
     fmt::Write,
     sync::{
         Mutex, PoisonError,
@@ -11,18 +10,14 @@ use std::{
     },
 };
 
-/// Work a render frame did, counted where client code asks the GPU API for it. Bevy's own
-/// passes, pipeline cache and buffer writes are not counted.
+/// Work a render frame did, counted on any thread where client code asks the GPU API for it.
+/// Bevy's own passes and buffer writes are not counted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 pub enum RenderCounter {
-    /// Render and compute passes begun, on any thread.
+    /// Render and compute passes begun.
     Passes,
-    /// Render and compute pipelines created on the render thread itself.
-    Pipelines,
-    /// Shader modules created on the render thread itself.
-    Shaders,
-    /// `Queue::write_buffer` and `write_texture` calls, on any thread.
+    /// `Queue::write_buffer` and `write_texture` calls.
     Writes,
     /// Bytes those queue writes carried.
     WriteBytes,
@@ -33,10 +28,8 @@ pub enum RenderCounter {
 const COUNTERS: usize = RenderCounter::ALL.len();
 
 impl RenderCounter {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 4] = [
         Self::Passes,
-        Self::Pipelines,
-        Self::Shaders,
         Self::Writes,
         Self::WriteBytes,
         Self::StagedBytes,
@@ -46,18 +39,10 @@ impl RenderCounter {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Passes => "passes",
-            Self::Pipelines => "pipelines",
-            Self::Shaders => "shaders",
             Self::Writes => "writes",
             Self::WriteBytes => "write_bytes",
             Self::StagedBytes => "staged_bytes",
         }
-    }
-
-    /// Whether only the render thread's own work counts. A pipeline compiled on a worker does
-    /// not stall the frame; one compiled by the thread that records the frame does.
-    const fn render_thread_only(self) -> bool {
-        matches!(self, Self::Pipelines | Self::Shaders)
     }
 }
 
@@ -114,11 +99,10 @@ impl Counters {
         *self.closed.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Ends a render frame: returns its counts, `local` being the closing thread's own.
-    fn close_frame(&self, local: [u64; COUNTERS]) -> RenderCounts {
-        let frame: [u64; COUNTERS] = std::array::from_fn(|index| {
-            self.pending[index].swap(0, Ordering::Relaxed) + local[index]
-        });
+    /// Ends a render frame and returns its counts.
+    fn close_frame(&self) -> RenderCounts {
+        let frame: [u64; COUNTERS] =
+            std::array::from_fn(|index| self.pending[index].swap(0, Ordering::Relaxed));
         let mut closed = self.closed.lock().unwrap_or_else(PoisonError::into_inner);
         for (total, counted) in closed.iter_mut().zip(frame) {
             *total = total.wrapping_add(counted);
@@ -158,31 +142,18 @@ impl RenderCountWindow {
     }
 }
 
-thread_local! {
-    /// Render-thread-only counters of the calling thread; only the render thread drains its own.
-    static LOCAL: Cell<[u64; COUNTERS]> = const { Cell::new([0; COUNTERS]) };
-}
-
-/// Adds `amount` to `counter` for the render frame in progress. Costs one relaxed atomic add or
-/// a thread-local store, and never allocates.
+/// Adds `amount` to `counter` for the render frame in progress, from any thread. Costs one
+/// relaxed atomic add and never allocates.
 #[inline]
 pub fn count(counter: RenderCounter, amount: u64) {
-    if counter.render_thread_only() {
-        LOCAL.with(|local| {
-            let mut counts = local.get();
-            counts[counter as usize] += amount;
-            local.set(counts);
-        });
-    } else {
-        COUNTS.add(counter, amount);
-    }
+    COUNTS.add(counter, amount);
 }
 
 impl RuntimeStageProfiler {
     /// Closes the render frame's counters on the render thread and marks them in the frame
     /// trace. Returns what the frame counted.
     pub fn finish_render_counters(&self) -> RenderCounts {
-        let counts = COUNTS.close_frame(LOCAL.take());
+        let counts = COUNTS.close_frame();
         if !counts.is_empty()
             && let Some(trace) = &self.state.trace
         {
@@ -204,16 +175,14 @@ mod tests {
         counters.add(RenderCounter::Passes, 3);
         counters.add(RenderCounter::WriteBytes, 64);
         assert!(counters.take_window(&window).is_empty(), "frame still open");
-        let mut local = [0; COUNTERS];
-        local[RenderCounter::Pipelines as usize] = 1;
-        let frame = counters.close_frame(local);
+        let frame = counters.close_frame();
         assert_eq!(frame.get(RenderCounter::Passes), 3);
-        assert_eq!(frame.get(RenderCounter::Pipelines), 1);
+        assert_eq!(frame.get(RenderCounter::WriteBytes), 64);
         counters.add(RenderCounter::Passes, 2);
         assert_eq!(counters.take_window(&window), frame);
         assert!(counters.take_window(&window).is_empty());
-        counters.close_frame([0; COUNTERS]);
-        counters.close_frame([0; COUNTERS]);
+        counters.close_frame();
+        counters.close_frame();
         assert_eq!(counters.take_window(&window).get(RenderCounter::Passes), 2);
         let late = RenderCountWindow::after(&counters);
         assert!(counters.take_window(&late).is_empty(), "earlier frames");
@@ -228,17 +197,6 @@ mod tests {
             }
         });
         assert_eq!(allocations, 0);
-    }
-
-    /// Pipelines compiled on another thread are not charged to the thread closing the frame.
-    #[test]
-    fn creations_count_only_on_the_closing_thread() {
-        std::thread::spawn(|| count(RenderCounter::Pipelines, 5))
-            .join()
-            .unwrap();
-        let before = LOCAL.get()[RenderCounter::Pipelines as usize];
-        count(RenderCounter::Pipelines, 2);
-        assert_eq!(LOCAL.get()[RenderCounter::Pipelines as usize], before + 2);
     }
 
     #[test]

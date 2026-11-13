@@ -1,7 +1,5 @@
 //! Keeps the hand outside grading without copying the graded scene into MSAA.
 use crate::render_counting::CountedPasses as _;
-use crate::render_counting::CountedPipelines as _;
-use crate::render_counting::CountedShaders as _;
 use crate::scene_target::SceneTarget;
 use bevy::{
     prelude::*,
@@ -44,11 +42,11 @@ impl HandLayer {
             })?;
         let view = texture.create_view(&Default::default());
         let gpu = device.wgpu_device();
-        let shader = gpu.counted_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("enhanced hand composite"),
             source: wgpu::ShaderSource::Wgsl(include_str!("hand_layer.wgsl").into()),
         });
-        let pipeline = gpu.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("enhanced hand composite"),
             layout: None,
             vertex: wgpu::VertexState {

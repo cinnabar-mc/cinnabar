@@ -2,8 +2,6 @@
 
 use super::{kernels::cull_shader_source, model::group_count, storage::CullStorage};
 use crate::render_counting::CountedPasses as _;
-use crate::render_counting::CountedPipelines as _;
-use crate::render_counting::CountedShaders as _;
 
 const RASTER_VERTICES: u32 = 6;
 
@@ -56,11 +54,11 @@ impl RasterCull {
         format: wgpu::TextureFormat,
         samples: u32,
     ) -> Self {
-        let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("terrain raster occlusion"),
             source: wgpu::ShaderSource::Wgsl(shader_source(workgroup).into()),
         });
-        let prepare = device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let prepare = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("terrain raster reset"),
             layout: None,
             module: &module,
@@ -68,7 +66,7 @@ impl RasterCull {
             compilation_options: Default::default(),
             cache: None,
         });
-        let pipeline = device.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("terrain raster boxes"),
             layout: None,
             vertex: wgpu::VertexState {

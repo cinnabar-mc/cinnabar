@@ -79,7 +79,6 @@ mod tests {
         let stages = [
             RuntimeStage::RenderGraph,
             RuntimeStage::NodeOpaque,
-            RuntimeStage::RenderReadback,
             RuntimeStage::EncodeFinish,
             RuntimeStage::QueueSubmit,
             RuntimeStage::SurfacePresent,
@@ -93,7 +92,6 @@ mod tests {
             profiler.record(stage, Instant::now(), Duration::from_millis(2));
         }
         count(RenderCounter::Passes, 3);
-        count(RenderCounter::Pipelines, 1);
         count(RenderCounter::WriteBytes, 4096);
         let frame = profiler.finish_render_counters();
         assert!(frame.get(RenderCounter::Passes) >= 3);
@@ -122,7 +120,6 @@ mod tests {
                 .unwrap_or_else(|| panic!("no {} in {counts}", counter.name()))
         };
         assert!(reported(RenderCounter::Passes) >= 3, "{counts}");
-        assert!(reported(RenderCounter::Pipelines) >= 1, "{counts}");
         assert!(reported(RenderCounter::WriteBytes) >= 4096, "{counts}");
     }
 

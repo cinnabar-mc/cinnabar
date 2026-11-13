@@ -11,8 +11,6 @@
 
 use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
-use crate::render_counting::CountedPipelines as _;
-use crate::render_counting::CountedShaders as _;
 use glam::Mat4;
 
 /// One real frame's inputs.
@@ -301,12 +299,12 @@ impl Interpolation {
 
     /// For frames of `display` size; the render size may change between dispatches.
     pub fn new(device: &wgpu::Device, display: [u32; 2]) -> Self {
-        let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Frame interpolation"),
             source: wgpu::ShaderSource::Wgsl(include_str!("interpolation.wgsl").into()),
         });
         let pipeline = |entry: &str| {
-            device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
                 module: &module,

@@ -81,9 +81,9 @@ pub enum RuntimeStage {
     PostTransforms,
     /// Bounds, frusta and visibility checks after transform propagation.
     PostVisibility,
-    /// `RenderSubmission` split in execution order: every graph system recording its passes.
-    /// The `Node*` stages are groups of those systems; passes finished on worker tasks cost
-    /// their recording here and their encoding in `EncodeFinish`.
+    /// `RenderSubmission` split in execution order: every graph system recording its passes,
+    /// up to the graph's submission. The `Node*` stages are groups of those systems; passes
+    /// finished on worker tasks cost their recording here and their encoding in `EncodeFinish`.
     RenderGraph,
     /// Staged buffer upload copies.
     NodeUploads,
@@ -100,13 +100,14 @@ pub enum RuntimeStage {
     NodePost,
     /// World and overlay UI, nametag overlays and UI presentation.
     NodeUi,
-    /// Graph work after the last node: timing readback, screenshot and readback copies.
-    RenderReadback,
-    /// Finishing the frame's command encoders, including waiting for worker-finished passes.
+    /// Finishing the encoders the graph's nodes recorded, including waiting for
+    /// worker-finished passes.
     EncodeFinish,
-    /// Handing the finished command buffers to the queue.
+    /// The rest of the graph's submission: uncovered swap-chain clears, screenshot and readback
+    /// copies, and handing the command buffers to the queue.
     QueueSubmit,
-    /// Presentation, with screenshot collection and any submission the graph left pending.
+    /// Presentation and screenshot collection, with any submission left to the renderer after
+    /// the graph.
     SurfacePresent,
     /// First to last sampled GPU timestamp; on Metal, the graph submission's marker span.
     GpuFrame,
@@ -176,7 +177,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 116] = [
+    pub const ALL: [Self; 115] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -240,7 +241,6 @@ impl RuntimeStage {
         Self::NodeHand,
         Self::NodePost,
         Self::NodeUi,
-        Self::RenderReadback,
         Self::EncodeFinish,
         Self::QueueSubmit,
         Self::SurfacePresent,
@@ -447,7 +447,6 @@ impl RuntimeStage {
             Self::NodeHand => "node_hand",
             Self::NodePost => "node_post",
             Self::NodeUi => "node_ui",
-            Self::RenderReadback => "render_readback",
             Self::EncodeFinish => "encode_finish",
             Self::QueueSubmit => "queue_submit",
             Self::SurfacePresent => "surface_present",

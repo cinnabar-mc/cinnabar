@@ -1,8 +1,6 @@
 //! Copies current-frame section verdicts and clears retained flags before direct drawing.
 
 use crate::render_counting::CountedPasses as _;
-use crate::render_counting::CountedPipelines as _;
-use crate::render_counting::CountedShaders as _;
 use render_model::terrain_units::IndexedUnitPage;
 use wgpu::util::DeviceExt;
 
@@ -30,7 +28,7 @@ impl UnitMasks {
         if let Some(timing) = render_scene::startup_timing::current() {
             timing.count(render_scene::startup_timing::WORLD_SHADER_MODULES, 1);
         }
-        let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ordinary terrain visibility mask"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
@@ -57,7 +55,7 @@ impl UnitMasks {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.count(render_scene::startup_timing::WORLD_COMPUTE_PIPELINES, 1);
             }
-            device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("ordinary terrain visibility mask"),
                 layout: Some(&layout),
                 module: &module,

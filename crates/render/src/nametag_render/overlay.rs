@@ -2,8 +2,6 @@
 
 use super::*;
 use crate::render_counting::CountedPasses as _;
-use crate::render_counting::CountedPipelines as _;
-use crate::render_counting::CountedShaders as _;
 use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -133,14 +131,14 @@ pub(super) fn prepare(
         let view = layer.create_view(&default());
         let shader = device
             .wgpu_device()
-            .counted_shader_module(wgpu::ShaderModuleDescriptor {
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("nametag encoded composite"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("../ui_composite.wgsl").into()),
             });
         let composite =
             device
                 .wgpu_device()
-                .counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("nametag encoded composite"),
                     layout: None,
                     vertex: wgpu::VertexState {

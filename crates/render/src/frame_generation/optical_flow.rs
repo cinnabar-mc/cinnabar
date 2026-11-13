@@ -41,8 +41,6 @@
 
 use crate::queue_writes::ProfiledQueue as _;
 use crate::render_counting::CountedPasses as _;
-use crate::render_counting::CountedPipelines as _;
-use crate::render_counting::CountedShaders as _;
 
 /// The size in pixels of the square blocks the flow has one vector for.
 pub const BLOCK_SIZE: u32 = 8;
@@ -181,12 +179,12 @@ fn whole(b: &wgpu::Buffer) -> wgpu::BindingResource<'_> {
 impl OpticalFlow {
     /// For frames of `display` size.
     pub fn new(device: &wgpu::Device, display: [u32; 2]) -> Self {
-        let module = device.counted_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Optical flow"),
             source: wgpu::ShaderSource::Wgsl(include_str!("optical_flow.wgsl").into()),
         });
         let pipeline = |entry: &str| {
-            device.counted_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
                 module: &module,

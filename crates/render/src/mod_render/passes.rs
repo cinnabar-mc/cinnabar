@@ -2,9 +2,7 @@
 //! after post-processing and before the HUD, timed per pass slot.
 
 use crate::queue_writes::ProfiledQueue as _;
-use crate::render_counting::CountedPipelines as _;
 use crate::render_counting::CountedTrackedPass as _;
-use crate::render_counting::CountedValidatedShaders as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::Vec4Swizzles;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
@@ -154,7 +152,7 @@ pub(crate) fn create_pipeline(
 ) -> Option<RenderPipeline> {
     let wgpu_device = device.wgpu_device();
     let validation = wgpu_device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let module = device.counted_validated_shader_module(wgpu::ShaderModuleDescriptor {
+    let module = device.create_and_validate_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("mod post pass"),
         source: wgpu::ShaderSource::Wgsl(shader.into()),
     });
@@ -163,7 +161,7 @@ pub(crate) fn create_pipeline(
         bind_group_layouts: &[Some(layout)],
         immediate_size: 0,
     });
-    let pipeline = device.counted_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mod post pass"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
