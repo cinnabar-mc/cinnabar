@@ -117,7 +117,7 @@ mod tests {
 
         let mut app = SubApp::new();
         app.init_schedule(Render);
-        let admission = WorldWorkAdmission::after_menu();
+        let admission = WorldWorkAdmission::after_menu(WorldGpuStart::AfterMenu);
         app.insert_resource(admission.clone());
         install(&mut app, || None::<Prepared>);
         assert!(app.world().contains_resource::<Pending<Prepared>>());
