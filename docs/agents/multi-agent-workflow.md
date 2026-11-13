@@ -42,12 +42,14 @@ them under `[package.metadata.cinnabar]` as `reads = ["crates/<crate>/data/*"]`,
 one selects the reader too; the architecture gate rejects undeclared and stale reads. Go
 sources still run every test.
 
-Crates with macOS or Windows code declare it in `Cargo.toml` as
-`[package.metadata.cinnabar] platform-specific = ["macos", "windows"]`; the architecture
-gate rejects missing and stale declarations. A Windows or macOS job runs when a changed
-crate declares that platform, a shader or workflow changes, or every test runs. It tests
-the affected crates that declare the platform, with only the client's library tests. Full
-runs catch platform-only breakage reached through another crate's API. Packaging,
+Crates with macOS, Windows or iOS code declare it in `Cargo.toml` as
+`[package.metadata.cinnabar] platform-specific = ["macos", "windows", "ios"]`; iOS code
+also counts as macOS code. The architecture gate rejects missing and stale declarations. A
+Windows, macOS or iOS job runs when a changed crate declares that platform, a shader or
+workflow changes, or every test runs. The Windows and macOS jobs test the affected crates
+that declare the platform, with only the client's library tests; the iOS job lints the iOS
+app for `aarch64-apple-ios`, which no other job compiles. Full runs catch platform-only
+breakage reached through another crate's API. Packaging,
 physics-bootstrap, and PowerShell-harness jobs run when their inputs change.
 
 The full three-platform matrix runs on `dev` every six hours and can be requested
