@@ -36,6 +36,10 @@ type Options struct {
 	Logger *slog.Logger
 }
 
+// writeTimeout bounds a flush to the server. A server that stops reading would otherwise
+// block the translation of its own packets, which answers keep-alives as it reads them.
+const writeTimeout = 30 * time.Second
+
 // outbound is one Bedrock packet queued for the client, kept decoded for observers.
 type outbound struct {
 	packet packet.Packet
@@ -49,8 +53,10 @@ type Session struct {
 	log  *slog.Logger
 
 	// batches carries translated packets to ReadBatchRaw. pending is the batch being built by
-	// whichever direction is translating; pendingMu guards it.
+	// whichever direction is translating; pendingMu guards it. flushMu is held from taking a
+	// batch until it is enqueued, so batches reach the client in the order they were built.
 	batches   chan []outbound
+	flushMu   sync.Mutex
 	pendingMu sync.Mutex
 	pending   []outbound
 
@@ -73,10 +79,11 @@ func Dial(ctx context.Context, address string, options Options) (*Session, error
 		logger = slog.New(slog.DiscardHandler)
 	}
 	connection, err := conn.Dial(ctx, address, conn.Options{
-		Username:    options.Username,
-		JoinSession: options.JoinSession,
-		Dialer:      options.Dialer,
-		Resolver:    options.Resolver,
+		Username:     options.Username,
+		JoinSession:  options.JoinSession,
+		Dialer:       options.Dialer,
+		Resolver:     options.Resolver,
+		WriteTimeout: writeTimeout,
 	})
 	if err != nil {
 		return nil, err
@@ -100,9 +107,14 @@ func (s *Session) read() {
 			s.fail(err)
 			return
 		}
-		s.mu.Lock()
-		err = s.handleJava(pk)
-		s.mu.Unlock()
+		if bulk, ok := pk.(*java.MapChunkBulk); ok {
+			// Columns are flushed one by one; see mapChunkBulk.
+			err = s.mapChunkBulk(bulk)
+		} else {
+			s.mu.Lock()
+			err = s.handleJava(pk)
+			s.mu.Unlock()
+		}
 		if err != nil {
 			s.fail(err)
 			return
@@ -125,6 +137,8 @@ func (s *Session) queue(packets ...packet.Packet) {
 // flushPending hands the current batch to the reader; it reports false once the session
 // has closed.
 func (s *Session) flushPending() bool {
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
 	s.pendingMu.Lock()
 	batch := s.pending
 	s.pending = nil

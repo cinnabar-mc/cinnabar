@@ -194,3 +194,42 @@ func TestExplosionAffectedBlocks(t *testing.T) {
 		t.Fatalf("AffectedBlocks = %+v, want %+v", got, want)
 	}
 }
+
+// Each hands over the same bytes as Inflate, one column at a time in a reused buffer, and
+// zero-fills columns the stream does not reach.
+func TestMapChunkBulkEachMatchesInflate(t *testing.T) {
+	columns := []ChunkColumn{{ChunkX: 1, PrimaryBitmask: 0b1}, {ChunkX: 2, PrimaryBitmask: 0b11, AddBitmask: 0b1}, {ChunkX: 3, PrimaryBitmask: 0b1}}
+	var data []byte
+	for index, column := range columns[:2] {
+		for i := 0; i < column.InflatedSize(true); i++ {
+			data = append(data, byte(i*7+index))
+		}
+	}
+	// The third column is cut short after ten bytes.
+	data = append(data, bytes.Repeat([]byte{0xAB}, 10)...)
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	_, _ = writer.Write(data)
+	_ = writer.Close()
+	bulk := &MapChunkBulk{SkyLight: true, Compressed: compressed.Bytes(), Columns: columns}
+	want, err := bulk.Inflate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := 0
+	err = bulk.Each(func(column ChunkColumn, got []byte) error {
+		if column != columns[index] || !bytes.Equal(got, want[index]) {
+			t.Errorf("column %d differs from Inflate", index)
+		}
+		index++
+		return nil
+	})
+	if err != nil || index != len(columns) {
+		t.Fatalf("Each visited %d columns: %v", index, err)
+	}
+	// A column count the client could not allocate for is refused before any work.
+	huge := &MapChunkBulk{Columns: make([]ChunkColumn, 20000)}
+	if err := huge.Each(func(ChunkColumn, []byte) error { t.Fatal("visited"); return nil }); !errors.Is(err, ErrBadChunkData) {
+		t.Fatalf("err = %v", err)
+	}
+}

@@ -33,8 +33,6 @@ func (s *Session) handleJava(pk java.Packet) error {
 		return s.positionAndLook(pk)
 	case *java.ChunkData:
 		return s.chunkData(pk)
-	case *java.MapChunkBulk:
-		return s.mapChunkBulk(pk)
 	case *java.BlockChange:
 		s.blockChange(pk.X, int32(pk.Y), pk.Z, block{id: uint16(pk.BlockID), meta: pk.Metadata})
 	case *java.MultiBlockChange:
@@ -231,7 +229,7 @@ func floor(value float64) int64 {
 func (s *Session) chunkData(pk *java.ChunkData) error {
 	pos := chunkPos{pk.ChunkX, pk.ChunkZ}
 	if pk.GroundUpContinuous && pk.PrimaryBitmask == 0 {
-		s.state.world.unload(pos)
+		s.unload(pos)
 		return nil
 	}
 	data, err := pk.Inflate()
@@ -241,18 +239,40 @@ func (s *Session) chunkData(pk *java.ChunkData) error {
 	return s.column(pos, data, pk.PrimaryBitmask, pk.AddBitmask, pk.GroundUpContinuous)
 }
 
-// mapChunkBulk applies several whole columns.
+// mapChunkBulk applies several whole columns, one at a time: each is handed to the client
+// before the next is inflated, so a packet of many columns never sits in memory whole. It
+// takes the state lock per column rather than across the hand-over, which waits for the
+// client when its queue is full.
 func (s *Session) mapChunkBulk(pk *java.MapChunkBulk) error {
-	columns, err := pk.Inflate()
+	err := pk.Each(func(column java.ChunkColumn, data []byte) error {
+		s.mu.Lock()
+		err := s.column(chunkPos{column.ChunkX, column.ChunkZ}, data, column.PrimaryBitmask, column.AddBitmask, true)
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		if !s.flushPending() {
+			return s.err()
+		}
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("chunk bulk: %w", err)
 	}
-	for index, column := range pk.Columns {
-		if err := s.column(chunkPos{column.ChunkX, column.ChunkZ}, columns[index], column.PrimaryBitmask, column.AddBitmask, true); err != nil {
-			return err
-		}
-	}
 	return nil
+}
+
+// unload forgets a column the server unloaded and empties it for the client, which has no
+// unload of its own inside the published radius.
+func (s *Session) unload(pos chunkPos) {
+	w := s.state.world
+	if w.columns[pos] == nil {
+		return
+	}
+	w.columns[pos] = &column{}
+	s.queue(w.levelChunk(pos, s.state.dimension))
+	w.unload(pos)
+	s.refreshEdges(pos)
 }
 
 // column stores a column and sends it to the client, then refreshes the neighbour-dependent
@@ -263,12 +283,20 @@ func (s *Session) column(pos chunkPos, data []byte, primary, add uint16, whole b
 		return fmt.Errorf("chunk %d,%d: %w", pos.x, pos.z, err)
 	}
 	s.queue(w.levelChunk(pos, s.state.dimension))
+	s.refreshEdges(pos)
+	w.evict(chunkPos{int32(floor(s.state.position[0])) >> 4, int32(floor(s.state.position[2])) >> 4}, pos)
+	return nil
+}
+
+// refreshEdges resends the neighbour-dependent blocks on the edges that face a column which
+// was loaded, replaced or unloaded: their connections may have changed.
+func (s *Session) refreshEdges(pos chunkPos) {
+	w := s.state.world
 	for _, side := range horizontal {
 		neighbour := chunkPos{pos.x + side.dx, pos.z + side.dz}
 		if w.columns[neighbour] == nil {
 			continue
 		}
-		// The neighbour's edge that faces the new column.
 		for offset := int32(0); offset < 16; offset++ {
 			x, z := neighbour.x<<4+offset, neighbour.z<<4+offset
 			switch {
@@ -288,7 +316,6 @@ func (s *Session) column(pos chunkPos, data []byte, primary, add uint16, whole b
 			}
 		}
 	}
-	return nil
 }
 
 // blockChange stores a block and updates the client, along with neighbours whose

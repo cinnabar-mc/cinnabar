@@ -204,6 +204,42 @@ func (p *MapChunkBulk) Inflate() ([][]byte, error) {
 	return columns, nil
 }
 
+// Each inflates the columns one at a time and passes each to visit, in the packet's order.
+// The data slice is ChunkColumn.InflatedSize bytes long and is reused for the next column,
+// so visit must not keep it. Bytes the stream does not provide read as zero, as in Inflate,
+// which this replaces where holding every column at once is too much: the working memory is
+// one column whatever the column count. Corrupt data, or a column count whose reserved
+// buffer the client could not allocate, is an error.
+func (p *MapChunkBulk) Each(visit func(column ChunkColumn, data []byte) error) error {
+	if reserved := int32(uint32(chunkBulkColumnBytes) * uint32(len(p.Columns))); reserved < 0 {
+		return fmt.Errorf("%w: %d columns overflow the client's buffer", ErrBadChunkData, len(p.Columns))
+	}
+	var stream io.Reader
+	if zr, err := zlib.NewReader(bytes.NewReader(p.Compressed)); err == nil {
+		stream = zr
+	} else if len(p.Compressed) >= 2 {
+		return fmt.Errorf("%w: %v", ErrBadChunkData, err)
+	}
+	buffer := make([]byte, chunkBulkColumnBytes)
+	for _, column := range p.Columns {
+		data := buffer[:column.InflatedSize(p.SkyLight)]
+		clear(data)
+		if stream != nil {
+			if _, err := io.ReadFull(stream, data); err != nil {
+				if !endsEarly(err) {
+					return fmt.Errorf("%w: %v", ErrBadChunkData, err)
+				}
+				// The stream is spent: this column keeps what it got and the rest are zero.
+				stream = nil
+			}
+		}
+		if err := visit(column, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // inflateChunk mirrors the client's one inflate call into a buffer of reserved bytes and
 // returns the first keep bytes of output, fewer when the stream ends sooner. Output past
 // reserved is never looked at. A stream that merely ends early is not an error; corrupt data

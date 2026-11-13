@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/javatest"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/legacy"
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
@@ -404,5 +405,91 @@ func TestServerDisconnectReachesTheClient(t *testing.T) {
 	kicked := ts.serve(&java.Disconnect{Reason: `{"text":"Kicked","color":"red"}`})
 	if disconnect := kicked[0].(*packet.Disconnect); disconnect.Message != "§r§cKicked" {
 		t.Fatalf("disconnect = %+v", disconnect)
+	}
+}
+
+// Both directions flush translated packets. A batch taken first must reach the client first
+// even when the client is slow: a chunk overtaken by a later block change would undo it.
+func TestConcurrentFlushesKeepTheirOrder(t *testing.T) {
+	session := &Session{batches: make(chan []outbound, 1), closed: make(chan struct{})}
+	text := func(message string) *packet.Text { return &packet.Text{TextType: packet.TextTypeRaw, Message: message} }
+	session.queue(text("first"))
+	session.flushPending() // fills the queue, so the next flush has to wait
+
+	done := make(chan struct{}, 2)
+	session.queue(text("second"))
+	go func() { session.flushPending(); done <- struct{}{} }()
+	// The second flush holds the order lock while it waits for room.
+	testwait.Eventually(t, 5*time.Second, "the second flush to take its batch", func() bool {
+		session.pendingMu.Lock()
+		defer session.pendingMu.Unlock()
+		return len(session.pending) == 0
+	})
+	session.queue(text("third"))
+	go func() { session.flushPending(); done <- struct{}{} }()
+
+	for _, want := range []string{"first", "second", "third"} {
+		batch, err := session.ReadBatchRaw(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := decodeServerPacket(t, batch[0].Data).(*packet.Text).Message; got != want {
+			t.Fatalf("read %q, want %q", got, want)
+		}
+	}
+	<-done
+	<-done
+}
+
+// A column the server unloads is emptied for the client, and connections into it let go.
+func TestUnloadedColumnsAreClearedForTheClient(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	send := func(x int32, column *javaColumn) []packet.Packet {
+		primary, add, data := column.data()
+		return ts.serve(&java.ChunkData{ChunkX: x, GroundUpContinuous: true, PrimaryBitmask: primary, AddBitmask: add, Compressed: compress(t, data)})
+	}
+	// A fence on the east edge of column 0 joins stone on the west edge of column 1.
+	west := newJavaColumn()
+	west.set(15, 1, 3, blockFence, 0)
+	send(0, west)
+	east := newJavaColumn()
+	east.set(0, 1, 3, 1, 0)
+	joined := send(1, east)
+	connected := joined[len(joined)-1].(*packet.UpdateBlock)
+	if connected.Position != (protocol.BlockPos{15, 1, 3}) || connected.NewBlockRuntimeID == legacy.BlockHash(blockFence, 0) {
+		t.Fatalf("loading the neighbour sent %+v", connected)
+	}
+
+	unloaded := ts.serve(&java.ChunkData{ChunkX: 1, GroundUpContinuous: true})
+	cleared, ok := unloaded[0].(*packet.LevelChunk)
+	if !ok || cleared.Position != (protocol.ChunkPos{1, 0}) || cleared.SubChunkCount != 4 {
+		t.Fatalf("unload translated to %+v", unloaded[0])
+	}
+	released := unloaded[len(unloaded)-1].(*packet.UpdateBlock)
+	if released.Position != (protocol.BlockPos{15, 1, 3}) || released.NewBlockRuntimeID != legacy.BlockHash(blockFence, 0) {
+		t.Fatalf("the fence beside the unloaded column became %+v", released)
+	}
+	// Changes inside an unloaded column are ignored, as the 1.7.10 client ignores them.
+	ts.serve(&java.ChatMessage{Message: `"marker"`})
+}
+
+func TestBulkColumnsArriveOneBatchEach(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	column := newJavaColumn()
+	column.set(0, 0, 0, 1, 0)
+	primary, add, data := column.data()
+	bulk := &java.MapChunkBulk{SkyLight: true, Compressed: compress(t, append(append([]byte{}, data...), data...)), Columns: []java.ChunkColumn{
+		{ChunkX: 0, ChunkZ: 0, PrimaryBitmask: primary, AddBitmask: add},
+		{ChunkX: 5, ChunkZ: -2, PrimaryBitmask: primary, AddBitmask: add},
+	}}
+	first := ts.serve(bulk)
+	second := ts.batch()
+	for index, batch := range [][]packet.Packet{first, second} {
+		chunk, ok := batch[0].(*packet.LevelChunk)
+		if !ok || len(batch) != 1 || chunk.Position != [2]int32{bulk.Columns[index].ChunkX, bulk.Columns[index].ChunkZ} {
+			t.Fatalf("bulk column %d translated to %+v", index, batch)
+		}
 	}
 }

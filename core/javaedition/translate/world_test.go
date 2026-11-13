@@ -381,3 +381,22 @@ func TestConnectedStatesGolden(t *testing.T) {
 		t.Fatalf("%s is stale; rerun with %s=1 (%v)", path, updateFixturesEnv, err)
 	}
 }
+
+// A server that keeps sending new columns cannot grow the store: the farthest are dropped.
+func TestStoreKeepsTheNearestColumns(t *testing.T) {
+	w := newWorld(dimensionOverworld)
+	for x := int32(0); x < maxColumns+50; x++ {
+		pos := chunkPos{x, 0}
+		w.columns[pos] = &column{}
+		w.evict(chunkPos{}, pos)
+	}
+	if len(w.columns) != maxColumns {
+		t.Fatalf("store holds %d columns", len(w.columns))
+	}
+	if w.columns[chunkPos{0, 0}] == nil || w.columns[chunkPos{maxColumns + 49, 0}] == nil {
+		t.Fatal("the nearest column or the one just stored was dropped")
+	}
+	if w.columns[chunkPos{maxColumns + 40, 0}] != nil {
+		t.Fatal("a far column outlived nearer ones")
+	}
+}

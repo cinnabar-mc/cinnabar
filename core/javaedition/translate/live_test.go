@@ -46,25 +46,46 @@ func decodeServerPacket(t *testing.T, data []byte) packet.Packet {
 	return pk
 }
 
-// readUntil reads translated batches until match accepts a packet, failing at the deadline.
-func readUntil(t *testing.T, session *Session, deadline time.Time, match func(packet.Packet) bool) []packet.Packet {
+// drain reads translated batches on its own goroutine, as the session relay does, and
+// delivers the decoded packets in order. The channel closes when the session ends.
+func drain(t *testing.T, session *Session) <-chan packet.Packet {
 	t.Helper()
-	var seen []packet.Packet
-	for time.Now().Before(deadline) {
-		batch, err := session.ReadBatchRaw(nil)
-		if err != nil {
-			t.Fatalf("read batch after %d packets: %v", len(seen), err)
+	packets := make(chan packet.Packet, 4096)
+	go func() {
+		defer close(packets)
+		for {
+			batch, err := session.ReadBatchRaw(nil)
+			if err != nil {
+				return
+			}
+			for _, raw := range batch {
+				packets <- decodeServerPacket(t, raw.Data)
+			}
 		}
-		for _, raw := range batch {
-			pk := decodeServerPacket(t, raw.Data)
+	}()
+	return packets
+}
+
+// readUntil takes packets until match accepts one, failing after timeout.
+func readUntil(t *testing.T, packets <-chan packet.Packet, timeout time.Duration, match func(packet.Packet) bool) []packet.Packet {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	var seen []packet.Packet
+	for {
+		select {
+		case pk, ok := <-packets:
+			if !ok {
+				t.Fatalf("the session ended after %d packets", len(seen))
+			}
 			seen = append(seen, pk)
 			if match(pk) {
 				return seen
 			}
+		case <-deadline.C:
+			t.Fatalf("no matching packet among %d within %s", len(seen), timeout)
 		}
 	}
-	t.Fatalf("deadline passed after %d packets", len(seen))
-	return nil
 }
 
 // The translator joins a real 1.7.10 server, receives its world, walks and chats.
@@ -80,15 +101,16 @@ func TestLiveVanillaServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	deadline := time.Now().Add(20 * time.Second)
-	first := readUntil(t, session, deadline, func(packet.Packet) bool { return true })
+	packets := drain(t, session)
+	const patience = 20 * time.Second
+	first := readUntil(t, packets, patience, func(packet.Packet) bool { return true })
 	if _, ok := first[0].(*packet.StartGame); !ok {
 		t.Fatalf("first packet is %T, want StartGame", first[0])
 	}
 	if err := session.WritePacket(&packet.RequestChunkRadius{ChunkRadius: 6}); err != nil {
 		t.Fatal(err)
 	}
-	startup := readUntil(t, session, deadline, func(pk packet.Packet) bool {
+	startup := readUntil(t, packets, patience, func(pk packet.Packet) bool {
 		status, ok := pk.(*packet.PlayStatus)
 		return ok && status.Status == packet.PlayStatusPlayerSpawn
 	})
@@ -104,7 +126,7 @@ func TestLiveVanillaServer(t *testing.T) {
 	// The server streams the columns around the player after placing it.
 	home := protocol.ChunkPos{int32(floor(float64(spawn.Position[0]))) >> 4, int32(floor(float64(spawn.Position[2]))) >> 4}
 	var floorBlocks int
-	world := readUntil(t, session, deadline, func(pk packet.Packet) bool {
+	world := readUntil(t, packets, patience, func(pk packet.Packet) bool {
 		chunk, ok := pk.(*packet.LevelChunk)
 		if ok && chunk.Position == home {
 			floorBlocks = len(chunk.RawPayload)
@@ -136,7 +158,7 @@ func TestLiveVanillaServer(t *testing.T) {
 	if err := session.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	after := readUntil(t, session, time.Now().Add(10*time.Second), func(pk packet.Packet) bool {
+	after := readUntil(t, packets, patience, func(pk packet.Packet) bool {
 		text, ok := pk.(*packet.Text)
 		return ok && strings.Contains(text.Message, "hello from cinnabar")
 	})

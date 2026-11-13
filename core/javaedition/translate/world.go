@@ -163,6 +163,29 @@ func (w *world) unload(pos chunkPos) {
 	delete(w.columns, pos)
 }
 
+// maxColumns bounds the columns kept: a 40 by 40 column area, more than any view distance a
+// 1.7.10 server sends. The client keeps no more than its published radius either.
+const maxColumns = 1600
+
+// evict drops the column farthest from centre while more than maxColumns are held, never
+// the one just stored. A server that sends columns without end cannot grow the store.
+func (w *world) evict(centre, stored chunkPos) {
+	for len(w.columns) > maxColumns {
+		var farthest chunkPos
+		distance := int64(-1)
+		for pos := range w.columns {
+			if pos == stored {
+				continue
+			}
+			dx, dz := int64(pos.x)-int64(centre.x), int64(pos.z)-int64(centre.z)
+			if d := max(max(dx, -dx), max(dz, -dz)); d > distance {
+				farthest, distance = pos, d
+			}
+		}
+		delete(w.columns, farthest)
+	}
+}
+
 // loaded reports whether the column holding block (x, z) is known.
 func (w *world) loaded(x, z int32) bool {
 	return w.columns[chunkPos{x >> 4, z >> 4}] != nil
