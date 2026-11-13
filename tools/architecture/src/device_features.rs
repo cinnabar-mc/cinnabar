@@ -62,6 +62,7 @@ pub(super) fn check_device_features(
             constant: None,
             names: Vec::new(),
             references: Vec::new(),
+            opaque: Vec::new(),
             modules: Vec::new(),
         };
         scan.visit_file(&file);
@@ -99,6 +100,20 @@ pub(super) fn check_device_features(
     } else {
         BTreeSet::new()
     };
+    let lists = rules
+        .checked
+        .as_deref()
+        .into_iter()
+        .chain([requested])
+        .flat_map(|list| owner_scan.constants(list))
+        .collect::<BTreeSet<_>>();
+    for (constant, line) in &owner_scan.opaque {
+        if lists.contains(constant.as_str()) {
+            diagnostics.push(format!(
+                "{owner}:{line}: device feature list `{constant}` may only union features and other lists"
+            ));
+        }
+    }
     if requested_features.is_empty() {
         diagnostics.push(format!(
             "{owner}: requested device feature list `{requested}` not found"
@@ -159,6 +174,27 @@ struct Name {
     constant: Option<String>,
 }
 
+/// Whether `expression` only unions constants, the one form whose features can be read off
+/// its names: a `difference` or `!` would name features the list leaves out.
+fn unions_only(expression: &syn::Expr) -> bool {
+    match expression {
+        syn::Expr::Path(_) => true,
+        syn::Expr::Paren(inner) => unions_only(&inner.expr),
+        syn::Expr::Group(inner) => unions_only(&inner.expr),
+        syn::Expr::MethodCall(call) => {
+            call.method == "union"
+                && unions_only(&call.receiver)
+                && call.args.iter().all(unions_only)
+        }
+        syn::Expr::Binary(binary) => {
+            matches!(binary.op, syn::BinOp::BitOr(_))
+                && unions_only(&binary.left)
+                && unions_only(&binary.right)
+        }
+        _ => false,
+    }
+}
+
 /// Whether `name` is written like a feature constant, not a method or type.
 fn is_constant(name: &str) -> bool {
     name.bytes().any(|byte| byte.is_ascii_uppercase())
@@ -200,35 +236,45 @@ struct Scan<'a> {
     names: Vec<Name>,
     /// Each `const` item with a constant its initializer names.
     references: Vec<(String, String)>,
+    /// `const` items whose initializer does more than union constants, with their lines.
+    opaque: Vec<(String, usize)>,
     modules: Vec<(PathBuf, bool)>,
 }
 
 impl Scan<'_> {
-    /// The features the initializer of `constant` names outside tests, following the other
-    /// constants it names. A feature named anywhere else, such as one a function removes from
-    /// the request, is not listed.
-    fn listed(&self, constant: &str) -> BTreeSet<&str> {
-        let mut features = BTreeSet::new();
+    /// `constant` and the constants its initializer names, transitively, outside tests.
+    fn constants<'a>(&'a self, constant: &'a str) -> BTreeSet<&'a str> {
         let mut seen = BTreeSet::new();
         let mut pending = vec![constant];
         while let Some(constant) = pending.pop() {
-            if !seen.insert(constant) {
-                continue;
+            if seen.insert(constant) {
+                pending.extend(
+                    self.references
+                        .iter()
+                        .filter(|(from, _)| from == constant)
+                        .map(|(_, to)| to.as_str()),
+                );
             }
-            features.extend(
-                self.names
-                    .iter()
-                    .filter(|name| !name.test && name.constant.as_deref() == Some(constant))
-                    .map(|name| name.feature.as_str()),
-            );
-            pending.extend(
-                self.references
-                    .iter()
-                    .filter(|(from, _)| from == constant)
-                    .map(|(_, to)| to.as_str()),
-            );
         }
-        features
+        seen
+    }
+
+    /// The features the initializer of `constant` names outside tests, following the other
+    /// constants it names. A feature named anywhere else, such as one a function removes from
+    /// the request, is not listed.
+    fn listed<'a>(&'a self, constant: &'a str) -> BTreeSet<&'a str> {
+        let constants = self.constants(constant);
+        self.names
+            .iter()
+            .filter(|name| {
+                !name.test
+                    && name
+                        .constant
+                        .as_deref()
+                        .is_some_and(|constant| constants.contains(constant))
+            })
+            .map(|name| name.feature.as_str())
+            .collect()
     }
 
     /// Records `feature` when it follows one of the feature type's names.
@@ -291,6 +337,14 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     }
 
     fn visit_item_const(&mut self, item: &'ast syn::ItemConst) {
+        // A test's constant of the same name is not part of the request.
+        if self.in_test {
+            return syn::visit::visit_item_const(self, item);
+        }
+        if !unions_only(&item.expr) {
+            self.opaque
+                .push((item.ident.to_string(), item.ident.span().start().line));
+        }
         let previous = self.constant.replace(item.ident.to_string());
         syn::visit::visit_item_const(self, item);
         self.constant = previous;
@@ -415,6 +469,41 @@ mod tests {
                 ]
             ),
             Vec::<String>::new()
+        );
+    }
+
+    /// The check reads a list's features off the names in its initializer, so an initializer
+    /// that takes features away must fail instead of counting them as requested.
+    #[test]
+    fn a_list_that_removes_features_is_rejected() {
+        let owner = "pub const CHECKED: Features = Features::TIMESTAMP_QUERY.union(Features::PIPELINE_CACHE);\npub const PACKS: Features = Features::SHADER_F64;\npub const ALL: Features = CHECKED.union(PACKS).difference(Features::PIPELINE_CACHE);\npub const OTHER: u32 = 1 + 2;\n";
+        assert_eq!(
+            diagnostics(owner, &[("crates/render/src/gpu.rs", USES)]),
+            [format!(
+                "{OWNER}:3: device feature list `ALL` may only union features and other lists"
+            )]
+        );
+    }
+
+    /// A test in the owner may declare a constant named like the requested list.
+    #[test]
+    fn a_test_constant_adds_nothing_to_the_request() {
+        let owner = format!(
+            "{LISTS}pub const SPARE: Features = Features::SUBGROUP;\n#[cfg(test)]\nmod tests {{\n    const ALL: Features = SPARE;\n}}\n"
+        );
+        let consumer =
+            "fn sub(f: wgpu::Features) -> bool { f.contains(wgpu::Features::SUBGROUP) }\n";
+        assert_eq!(
+            diagnostics(
+                &owner,
+                &[
+                    ("crates/render/src/gpu.rs", USES),
+                    ("crates/render/src/sub.rs", consumer)
+                ]
+            ),
+            [format!(
+                "crates/render/src/sub.rs:1: the device does not request wgpu feature `SUBGROUP`; code may only use features listed in {OWNER}"
+            )]
         );
     }
 
