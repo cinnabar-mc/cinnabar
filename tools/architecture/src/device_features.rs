@@ -376,9 +376,13 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
     fn visit_path(&mut self, path: &'ast syn::Path) {
         let mut segments = path.segments.iter().rev();
-        match (segments.next(), segments.next()) {
-            (Some(feature), Some(ty)) => self.record(&ty.ident, &feature.ident),
-            (Some(name), None) => {
+        let (name, qualifier) = (segments.next(), segments.next());
+        match (name, qualifier) {
+            (Some(feature), Some(ty)) if self.types.contains(&ty.ident.to_string()) => {
+                self.record(&ty.ident, &feature.ident);
+            }
+            // Another list, written bare or through a path such as `self::`.
+            (Some(name), _) => {
                 let name = name.ident.to_string();
                 if let Some(constant) = self.constant.as_ref().filter(|_| is_constant(&name)) {
                     self.references.push((constant.clone(), name));
@@ -482,6 +486,23 @@ mod tests {
             [format!(
                 "{OWNER}:3: device feature list `ALL` may only union features and other lists"
             )]
+        );
+    }
+
+    #[test]
+    fn lists_may_name_each_other_through_a_path() {
+        let owner = "pub const CHECKED: Features = Features::TIMESTAMP_QUERY.union(Features::PIPELINE_CACHE);\npub const PACKS: Features = Features::SHADER_F64;\npub const ALL: Features = self::CHECKED.union(crate::device_features::PACKS);\n";
+        let packs =
+            "fn doubles(f: wgpu::Features) -> bool { f.contains(wgpu::Features::SHADER_F64) }\n";
+        assert_eq!(
+            diagnostics(
+                owner,
+                &[
+                    ("crates/render/src/gpu.rs", USES),
+                    ("crates/render/src/packs.rs", packs)
+                ]
+            ),
+            Vec::<String>::new()
         );
     }
 
