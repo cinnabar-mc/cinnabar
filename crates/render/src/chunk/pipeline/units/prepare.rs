@@ -53,6 +53,7 @@ pub(in crate::chunk) fn prepare_units(
                 && let Some(order) = early
             {
                 stats.phase_items += u64::from(!order.is_empty());
+                batch.near_eye = None;
                 batch
                     .scratch
                     .extend(order.iter().map(|&(entity, _)| entity));
@@ -79,6 +80,7 @@ pub(in crate::chunk) fn prepare_units(
                             .filter(|&section| !skips(section)),
                     );
                 } else {
+                    batch.near_eye = None;
                     batch.scratch.extend(
                         sections
                             .iter()

@@ -521,14 +521,56 @@ fn prepared_solid_sections_are_submitted_nearest_first() {
         "{:?}",
         selected.iter().map(distance).collect::<Vec<_>>()
     );
-    // The source lists keep hash order, so this ordering comes from preparation.
-    let source = view.sources.streams[0]
+}
+
+#[test]
+fn nearest_first_order_includes_sections_published_while_it_was_unused() {
+    let (mut app, camera) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Off,
+        camera_transform(),
+    );
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<gpu_cull::DirectOcclusionSupport>()
+        .0 = false;
+    insert_meshes(&mut app, &KEYS[..1]);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    // An orthographic view has no culling camera, so its streams keep source order.
+    app.world_mut()
+        .entity_mut(camera)
+        .insert(bevy::camera::Projection::Orthographic(
+            bevy::camera::OrthographicProjection::default_3d(),
+        ));
+    for _ in 0..2 {
+        frame(&mut app);
+    }
+    insert_meshes(&mut app, &KEYS[1..]);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    // Back in the same eye block, the order must cover the section published meanwhile.
+    app.world_mut()
+        .entity_mut(camera)
+        .insert(bevy::camera::Projection::default());
+    for _ in 0..2 {
+        frame(&mut app);
+    }
+    let batches = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<TerrainUnitBatches>();
+    let view = batches.views.values().next().unwrap();
+    assert!(view.camera.is_some());
+    let mut published = view.sources.streams[0]
         .iter()
         .map(|section| section.entity)
         .collect::<Vec<_>>();
-    assert!(
-        !source
-            .windows(2)
-            .all(|pair| distance(&pair[0]) <= distance(&pair[1]))
-    );
+    assert_eq!(published.len(), KEYS.len());
+    let mut selected = view.streams[0].selected.clone();
+    published.sort();
+    selected.sort();
+    assert_eq!(selected, published);
 }

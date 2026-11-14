@@ -63,7 +63,8 @@ struct UnitStream {
     fallback: Vec<VisibleTerrainUnit>,
     pages: Vec<UnitPage>,
     padded_quads: u64,
-    /// Solid and cutout sections nearest first, and the eye block they were ordered for.
+    /// Solid and cutout sections nearest first, and the eye block they were ordered for. A frame
+    /// that does not use the order clears `near_eye`, so source changes it missed rebuild it.
     near: Vec<Entity>,
     near_eye: Option<[i64; 3]>,
 }
