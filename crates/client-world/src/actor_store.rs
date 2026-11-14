@@ -172,6 +172,21 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
+    /// The synced name tag, `InteractText` and `Actions` an NPC dialogue falls
+    /// back to; a missing or non-string entry reads as `None`.
+    #[must_use]
+    pub fn npc_dialogue(&self) -> protocol::NpcActorDialogue<'_> {
+        let text = |key: ActorDataKey| match self.metadata.get(&key.wire_value()) {
+            Some(ActorMetadataValue::String(text)) => Some(text.as_ref()),
+            _ => None,
+        };
+        protocol::NpcActorDialogue {
+            name: text(ActorDataKey::Name),
+            interact_text: text(ActorDataKey::InteractText),
+            actions_json: text(ActorDataKey::Actions),
+        }
+    }
+
     /// Reads the server's packed spell RGB color as an opaque particle tint.
     #[must_use]
     pub fn spell_color(&self) -> [f32; 4] {

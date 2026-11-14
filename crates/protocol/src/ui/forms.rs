@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 pub use custom::{CustomForm, CustomFormElement, FormControlLock, FormNumber};
 pub use npc::{
-    NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind, npc_request_packet,
-    server_settings_request_packet,
+    NPC_DIALOGUE_FORM_ID, NpcActorDialogue, NpcButton, NpcDialogueForm, NpcRequestKind,
+    npc_request_packet, server_settings_request_packet,
 };
 pub(crate) use npc::{normalize_npc_dialogue, normalize_server_settings};
 

@@ -94,6 +94,51 @@ pub(crate) fn normalize_npc_dialogue(packet: NpcDialogue) -> Result<UiEvent, UiP
     }))
 }
 
+/// The NPC actor's synced dialogue data: its name tag, `InteractText` and
+/// `Actions` list. Vanilla servers keep an NPC's dialogue there and may open the
+/// screen with an `NpcDialogue` packet whose own fields are empty.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NpcActorDialogue<'a> {
+    pub name: Option<&'a str>,
+    pub interact_text: Option<&'a str>,
+    pub actions_json: Option<&'a str>,
+}
+
+impl FormRequestEvent {
+    /// Fills an opening NPC dialogue's empty name, text and action list from
+    /// `actor`, as the vanilla screen does; fields the packet supplied win.
+    /// Oversized or malformed actor data leaves that field empty.
+    pub fn fill_npc_dialogue_from_actor(&mut self, actor: NpcActorDialogue<'_>) {
+        let ServerFormModel::NpcDialogue(npc) = &mut self.model else {
+            return;
+        };
+        if !npc.open {
+            return;
+        }
+        let usable = |text: &&str| !text.trim().is_empty() && text.len() <= MAX_UI_TEXT_BYTES;
+        if npc.npc_name.trim().is_empty()
+            && let Some(name) = actor.name.filter(usable)
+        {
+            npc.npc_name = Arc::from(name);
+            self.title = Some(Arc::clone(&npc.npc_name));
+        }
+        if npc.dialogue.trim().is_empty()
+            && let Some(text) = actor.interact_text.filter(usable)
+        {
+            npc.dialogue = Arc::from(text);
+        }
+        if self.json.trim().is_empty()
+            && let Some(json) = actor
+                .actions_json
+                .filter(|json| !json.trim().is_empty() && json.len() <= MAX_FORM_JSON_BYTES)
+            && let Ok(buttons) = buttons(json)
+        {
+            npc.buttons = buttons.into();
+            self.json = Arc::from(json);
+        }
+    }
+}
+
 /// Button-mode actions from the action list; an empty list is no buttons.
 fn buttons(json: &str) -> Result<Vec<NpcButton>, UnsupportedForm> {
     if json.trim().is_empty() {
@@ -175,6 +220,78 @@ pub fn server_settings_request_packet() -> crate::Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn opened(packet: NpcDialogue) -> FormRequestEvent {
+        match normalize_npc_dialogue(packet).unwrap() {
+            UiEvent::Form(form) => form,
+            other => panic!("expected a form, got {other:?}"),
+        }
+    }
+
+    fn npc(form: &FormRequestEvent) -> &NpcDialogueForm {
+        match &form.model {
+            ServerFormModel::NpcDialogue(npc) => npc,
+            other => panic!("expected an NPC dialogue, got {other:?}"),
+        }
+    }
+
+    const ACTOR: NpcActorDialogue<'static> = NpcActorDialogue {
+        name: Some("NPC"),
+        interact_text: Some("Welcome!"),
+        actions_json: Some(r#"[{"button_name":"Shop","mode":0,"type":1}]"#),
+    };
+
+    #[test]
+    fn empty_dialogue_packet_falls_back_to_actor_data() {
+        // BDS and Realms open a talked-to NPC with every text field empty.
+        let mut form = opened(NpcDialogue::default());
+        form.fill_npc_dialogue_from_actor(ACTOR);
+        let npc = npc(&form);
+        assert_eq!(npc.npc_name.as_ref(), "NPC");
+        assert_eq!(form.title.as_deref(), Some("NPC"));
+        assert_eq!(npc.dialogue.as_ref(), "Welcome!");
+        assert_eq!(npc.buttons.len(), 1);
+        assert_eq!(npc.buttons[0].text.as_ref(), "Shop");
+        assert_eq!(npc.buttons[0].action_index, 0);
+        assert_eq!(Some(form.json.as_ref()), ACTOR.actions_json);
+    }
+
+    #[test]
+    fn packet_dialogue_fields_win_over_actor_data() {
+        let mut form = opened(NpcDialogue {
+            npc_name: "Guide".into(),
+            dialogue: "Packet text".into(),
+            action_json: r#"[{"button_name":"Quest"}]"#.into(),
+            ..NpcDialogue::default()
+        });
+        form.fill_npc_dialogue_from_actor(ACTOR);
+        let npc = npc(&form);
+        assert_eq!(npc.npc_name.as_ref(), "Guide");
+        assert_eq!(npc.dialogue.as_ref(), "Packet text");
+        assert_eq!(npc.buttons[0].text.as_ref(), "Quest");
+    }
+
+    #[test]
+    fn malformed_actor_actions_leave_the_dialogue_without_buttons() {
+        let mut form = opened(NpcDialogue::default());
+        form.fill_npc_dialogue_from_actor(NpcActorDialogue {
+            actions_json: Some("{}"),
+            ..ACTOR
+        });
+        assert!(npc(&form).buttons.is_empty());
+        assert!(form.json.is_empty());
+        assert_eq!(npc(&form).dialogue.as_ref(), "Welcome!");
+    }
+
+    #[test]
+    fn closing_dialogue_ignores_actor_data() {
+        let mut form = opened(NpcDialogue {
+            npc_dialogue_action_type: NpcDialogueActionType::Close,
+            ..NpcDialogue::default()
+        });
+        form.fill_npc_dialogue_from_actor(ACTOR);
+        assert!(npc(&form).dialogue.is_empty());
+    }
 
     #[test]
     fn action_buttons_preserve_their_label_kind() {
