@@ -9,7 +9,8 @@ mod tests;
 use crate::gpu_allocation::FailedRequests;
 use crate::render_counting::CountedPasses as _;
 use bevy::{
-    camera::CameraMainTextureUsages,
+    anti_alias::smaa::Smaa,
+    camera::{CameraMainTextureUsages, ClearColorConfig},
     core_pipeline::{Core3d, Core3dSystems},
     prelude::*,
     render::{
@@ -29,6 +30,7 @@ pub(crate) struct SceneTarget {
     encoded: TextureView,
     linear: TextureView,
     format: TextureFormat,
+    shares_view_target: bool,
     resolved: AtomicBool,
 }
 
@@ -75,15 +77,47 @@ impl SceneTarget {
             encoded,
             linear,
             format,
+            shares_view_target: false,
             resolved: AtomicBool::new(false),
         })
     }
 
-    /// Reuses the attachment until its dimensions, colour format or sample count changes.
-    fn matches(&self, size: Extent3d, format: TextureFormat, samples: u32) -> bool {
+    /// Shares an admitted view's current image; Bevy permits its compatible encoded view.
+    /// A failed view allocation leaves the camera unavailable until its bounded retry.
+    fn shared(device: &RenderDevice, target: &ViewTarget) -> Option<Self> {
+        let texture = target.main_texture().clone();
+        let format = target.main_texture_format();
+        let encoded =
+            crate::gpu_allocation::checked(device, "shared scene colour view", 0, || {
+                texture.create_view(&TextureViewDescriptor {
+                    format: Some(format.remove_srgb_suffix()),
+                    usage: Some(TextureUsages::RENDER_ATTACHMENT),
+                    ..default()
+                })
+            })?;
+        Some(Self {
+            texture,
+            encoded,
+            linear: target.main_texture_view().clone(),
+            format,
+            shares_view_target: true,
+            resolved: AtomicBool::new(false),
+        })
+    }
+
+    /// Reuses owned samples or the same current shared image, including after ping-pong flips.
+    fn matches(
+        &self,
+        size: Extent3d,
+        format: TextureFormat,
+        samples: u32,
+        shared: Option<TextureId>,
+    ) -> bool {
         self.texture.size() == size
             && self.format == format
             && self.texture.sample_count() == samples
+            && self.shares_view_target == shared.is_some()
+            && shared.is_none_or(|id| self.texture.id() == id)
     }
 
     /// The linear view's format, which pipelines writing `color_view(false)` target.
@@ -178,6 +212,10 @@ impl SceneTarget {
     /// Makes the completed scene available to single-sample post-processing without a draw.
     pub(crate) fn finish(&self, context: &mut RenderContext, world: &World, target: &ViewTarget) {
         if self.resolved.load(Ordering::Relaxed) {
+            return;
+        }
+        if self.texture.id() == target.main_texture().id() {
+            self.resolved.store(true, Ordering::Relaxed);
             return;
         }
         if self.texture.sample_count() == 1 {
@@ -364,6 +402,10 @@ type SceneTargetView<'a> = (
     Option<&'a ExtractedCamera>,
     &'a Msaa,
     Option<&'a SceneTarget>,
+    Has<render_scene::CameraMotionBlur>,
+    Has<render_scene::EnhancedRendering>,
+    Has<render_scene::shaderpack::ShaderPackRendering>,
+    Has<Smaa>,
 );
 
 /// Keeps one bounded colour allocation per camera and drops stale camera resources.
@@ -372,24 +414,56 @@ pub(crate) fn prepare_scene_targets(
     device: Res<RenderDevice>,
     mut fallback: ResMut<MultisampleFallback>,
     views: Query<SceneTargetView, With<Camera3d>>,
+    targets: Query<&ViewTarget>,
     removed: Query<Entity, (With<SceneTarget>, Without<ViewTarget>)>,
-    mut failed: Local<FailedRequests<(Extent3d, TextureFormat, u32)>>,
+    mut failed: Local<FailedRequests<(Extent3d, TextureFormat, u32, Option<[TextureId; 2]>)>>,
 ) {
     for entity in &removed {
         commands.entity(entity).remove::<SceneTarget>();
     }
     failed.retain(|view| views.contains(view));
-    for (entity, target, camera, msaa, previous) in &views {
+    for (entity, target, camera, msaa, previous, blur, enhanced, pack, smaa) in &views {
         let size = target.main_texture().size();
         let format = target.main_texture_format();
         let samples = msaa.samples();
-        if previous.is_some_and(|scene| scene.matches(size, format, samples)) {
+        // Effect markers are extracted before preparation; readiness may change later this frame.
+        // Shared camera targets can also flip their common postprocess image between views.
+        let shared = (samples == 1
+            && format == render_scene::SCENE_COLOR_FORMAT
+            && target.main_texture().format() == format
+            && target.main_texture().sample_count() == 1
+            && target
+                .main_texture()
+                .usage()
+                .contains(TextureUsages::RENDER_ATTACHMENT)
+            && camera.is_some_and(|camera| {
+                !camera.hdr && !matches!(camera.clear_color, ClearColorConfig::None)
+            })
+            && !(blur || enhanced || pack || smaa)
+            && targets
+                .iter()
+                .filter(|other| other.main_texture().id() == target.main_texture().id())
+                .take(2)
+                .count()
+                == 1)
+            .then(|| target.main_texture().id());
+        if previous.is_some_and(|scene| scene.matches(size, format, samples, shared)) {
             previous.unwrap().begin_frame();
             continue;
         }
         let mut view = commands.entity(entity);
-        match failed.attempt(entity, (size, format, samples), || {
-            SceneTarget::new(&device, size, format, samples)
+        // Failure throttling follows the pair, even when later postprocessing keeps flipping it.
+        let shared_pair = shared.map(|current| {
+            let mut pair = [current, target.main_texture_other().id()];
+            pair.sort_unstable();
+            pair
+        });
+        match failed.attempt(entity, (size, format, samples, shared_pair), || {
+            if shared.is_some() {
+                SceneTarget::shared(&device, target)
+            } else {
+                SceneTarget::new(&device, size, format, samples)
+            }
         }) {
             Some(scene) => {
                 view.insert(scene).remove::<SceneTargetUnavailable>();

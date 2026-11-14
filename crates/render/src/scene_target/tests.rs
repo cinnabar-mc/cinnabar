@@ -1,6 +1,9 @@
 use super::*;
 use bevy::ecs::schedule::ScheduleLabel;
 
+#[path = "single_sample.rs"]
+mod single_sample;
+
 /// Requests a headless adapter and initializes the render task pool.
 fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
@@ -81,10 +84,10 @@ fn shared_colour_retains_samples_until_one_discarding_resolve() {
                     | TextureUsages::COPY_DST
             );
         }
-        assert!(scene.matches(size(), format, samples));
-        assert!(!scene.matches(size(), format, if samples == 1 { 4 } else { 1 }));
-        assert!(!scene.matches(size(), TextureFormat::Rgba16Float, samples));
-        assert!(!scene.matches(Extent3d { width: 4, ..size() }, format, samples));
+        assert!(scene.matches(size(), format, samples, None));
+        assert!(!scene.matches(size(), format, if samples == 1 { 4 } else { 1 }, None));
+        assert!(!scene.matches(size(), TextureFormat::Rgba16Float, samples, None));
+        assert!(!scene.matches(Extent3d { width: 4, ..size() }, format, samples, None));
     }
 }
 
@@ -133,9 +136,19 @@ fn pipeline(
 fn read_pixel(
     device: &RenderDevice,
     queue: &wgpu::Queue,
-    mut context: wgpu::CommandEncoder,
+    context: wgpu::CommandEncoder,
     texture: &Texture,
 ) -> [u8; 4] {
+    read_pixels(device, queue, context, texture)[0]
+}
+
+/// Reads every fixture texel so colour, alpha and partial coverage are compared together.
+fn read_pixels(
+    device: &RenderDevice,
+    queue: &wgpu::Queue,
+    mut context: wgpu::CommandEncoder,
+    texture: &Texture,
+) -> [[u8; 4]; 4] {
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("shared scene coverage readback"),
         size: 512,
@@ -159,12 +172,11 @@ fn read_pixel(
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    buffer
+    let mapped = buffer
         .slice(..)
         .get_mapped_range()
-        .expect("readback buffer is mapped")[..4]
-        .try_into()
-        .unwrap()
+        .expect("readback buffer is mapped");
+    [0, 4, 256, 260].map(|offset| mapped[offset..offset + 4].try_into().unwrap())
 }
 
 /// Deliberately flattens the opaque samples so the differential fixture can detect lost coverage.
@@ -383,18 +395,6 @@ fn an_unprepared_view_submits_no_scene_work_after_repeated_installation() {
 
 /// A noop-device MSAA camera with Bevy's view targets and the scene attachment systems.
 fn msaa_view_fixture() -> (World, Entity, Schedule) {
-    use bevy::{
-        camera::{
-            CameraOutputMode, ClearColorConfig, MsaaWriteback, NormalizedRenderTarget, RenderTarget,
-        },
-        render::{
-            camera::ExtractedCamera,
-            texture::{OutputColorAttachment, TextureCache},
-            view::{
-                ExtractedView, RetainedViewEntity, ViewTargetAttachments, prepare_view_targets,
-            },
-        },
-    };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -408,7 +408,18 @@ fn msaa_view_fixture() -> (World, Entity, Schedule) {
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
-    let device = RenderDevice::from(device);
+    view_fixture(RenderDevice::from(device))
+}
+
+/// Prepares real Bevy view targets and scene ownership on the supplied device.
+fn view_fixture(device: RenderDevice) -> (World, Entity, Schedule) {
+    use bevy::{
+        camera::{NormalizedRenderTarget, RenderTarget},
+        render::{
+            texture::{OutputColorAttachment, TextureCache},
+            view::{ViewTargetAttachments, prepare_view_targets},
+        },
+    };
     let mut owned = World::new();
     let world = &mut owned;
     world.insert_resource(device.clone());
@@ -437,7 +448,30 @@ fn msaa_view_fixture() -> (World, Entity, Schedule) {
     world.init_resource::<WithheldSamples>();
     world.init_resource::<MultisampleFallback>();
     world.init_resource::<CameraMainPassTextureFormats>();
-    let view = world
+    let view = spawn_view(world, target, output.format());
+    let mut schedule = Render::base_schedule();
+    schedule.add_systems((
+        prepare_scene_formats
+            .in_set(RenderSystems::PrepareViews)
+            .before(prepare_view_targets),
+        prepare_view_targets.in_set(RenderSystems::PrepareViews),
+        render_systems(),
+        bevy::render::texture::update_texture_cache_system.in_set(RenderSystems::Cleanup),
+    ));
+    (owned, view, schedule)
+}
+
+/// Adds the same camera contract to another view without duplicating its extracted fields.
+fn spawn_view(
+    world: &mut World,
+    target: bevy::camera::NormalizedRenderTarget,
+    format: TextureFormat,
+) -> Entity {
+    use bevy::{
+        camera::{CameraOutputMode, MsaaWriteback},
+        render::view::{ExtractedView, RetainedViewEntity},
+    };
+    world
         .spawn((
             Camera3d::default(),
             ExtractedCamera {
@@ -459,7 +493,7 @@ fn msaa_view_fixture() -> (World, Entity, Schedule) {
                 clip_from_view: Mat4::IDENTITY,
                 world_from_view: GlobalTransform::default(),
                 clip_from_world: None,
-                target_format: output.format(),
+                target_format: format,
                 viewport: UVec4::new(0, 0, size().width, size().height),
                 color_grading: Default::default(),
                 invert_culling: false,
@@ -467,16 +501,7 @@ fn msaa_view_fixture() -> (World, Entity, Schedule) {
             CameraMainTextureUsages::default(),
             Msaa::Sample4,
         ))
-        .id();
-    let mut schedule = Render::base_schedule();
-    schedule.add_systems((
-        prepare_scene_formats
-            .in_set(RenderSystems::PrepareViews)
-            .before(prepare_view_targets),
-        prepare_view_targets.in_set(RenderSystems::PrepareViews),
-        render_systems(),
-    ));
-    (owned, view, schedule)
+        .id()
 }
 
 /// An MSAA view keeps exactly one multisampled colour texture: the shared scene attachment.
@@ -599,6 +624,9 @@ fn failed_scene_colour_backs_off_then_recovers() {
     schedule.set_executor(SingleThreadedExecutor::new());
     let world = &mut owned;
     *world.get_mut::<Msaa>(view).unwrap() = Msaa::Off;
+    world
+        .entity_mut(view)
+        .insert(render_scene::EnhancedRendering::default());
     let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     let failure = crate::gpu_allocation::inject({
         let attempts = attempts.clone();

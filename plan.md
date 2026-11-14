@@ -398,6 +398,12 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
 
 ### Lighting, atmosphere and publication
 
+- Ordinary clear-enabled LDR views at 1x share the current postprocess image when
+  no other camera shares it. Motion blur, spatial SMAA, Enhanced, shader packs,
+  HDR and multisampled views retain independent scene storage. Target identity
+  changes refresh the shared views. Rendered equivalence and matched hardware
+  qualification remain incomplete.
+
 - Ordinary cube terrain reads encoded fog prepared once per atmosphere upload,
   retaining the existing linear output and lighting order. Matched-output GPU
   timing and Metal acceptance remain incomplete; encoded attachment output and
