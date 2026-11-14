@@ -134,6 +134,10 @@ pub struct SessionHandoff {
     /// when the core is not tracing.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub trace_conn: u64,
+    /// The server's edition when it is not Bedrock: [`bridge::contract::JAVA_EDITION`] for a
+    /// Java server the core translates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<String>,
     /// Every packet the core received through StartGame, in order; StartGame is last.
     #[serde(skip)]
     pub startup: Vec<Bytes>,

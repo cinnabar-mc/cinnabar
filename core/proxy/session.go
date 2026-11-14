@@ -231,6 +231,11 @@ func (server *sessionServer) prepare(
 	if game, ok := prepared.upstream.(interface{ GameData() minecraft.GameData }); ok {
 		session.runtimeID.Store(game.GameData().EntityRuntimeID)
 	}
+	// Likewise the edition, which tells the client whose physics the server expects.
+	var edition string
+	if translated, ok := prepared.upstream.(interface{ Edition() string }); ok {
+		edition = translated.Edition()
+	}
 	prepared.upstream = observeTransfers(prepared.upstream, server.transfers, server.logger)
 	defer func() {
 		if err != nil {
@@ -265,6 +270,7 @@ func (server *sessionServer) prepare(
 		PacksRequired: prepared.packStack.required,
 		Packs:         selected,
 		TraceConn:     session.traceConn,
+		Edition:       edition,
 	}
 	prepared.releasePacks = referenceSessionPacks(server.prepared.resourcePackCache, selected, packs)
 	plan.packs = packs
@@ -493,6 +499,11 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 			key = bridgecontract.DisconnectKeyOutdatedServer
 		}
 		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), bridgecontract.GameVersion)}
+	}
+	if IsJavaTarget(clientData.ServerAddress) {
+		// The client claims the target it joins. A Java target is no Bedrock server address,
+		// and the Bedrock login that would carry the claim is never sent.
+		clientData.ServerAddress = ""
 	}
 	if err := clientData.Validate(); err != nil {
 		return nil, &sessionRefusedError{key: clientDataRefusalKey(clientData), err: fmt.Errorf("%w: client data: %v", errMalformedSession, err)}

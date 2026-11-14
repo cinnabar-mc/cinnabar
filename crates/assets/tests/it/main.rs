@@ -14,6 +14,7 @@ mod font;
 mod hud;
 mod icon;
 mod item;
+mod java_legacy_blocks;
 mod lang;
 mod legacy_terrain_mips;
 mod light_registry;

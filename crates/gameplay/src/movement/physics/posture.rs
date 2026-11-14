@@ -469,6 +469,16 @@ impl LocalPhysicsController {
         self.sync_state.sneak_profile = profile;
     }
 
+    /// Selects Java Edition 1.7.10 movement for the session, or Bedrock's. 1.7.10 keeps the
+    /// standing box while sneaking, which is the legacy sneaking profile.
+    pub fn set_java_physics(&mut self, java: bool) {
+        self.java_physics = java;
+        if java {
+            self.modes.set_sneak_profile(sim::SneakProfile::Legacy);
+            self.sync_state.sneak_profile = sim::SneakProfile::Legacy;
+        }
+    }
+
     /// Returns the level's sneaking dimensions for queries outside the tick.
     #[must_use]
     pub const fn sneak_profile(&self) -> sim::SneakProfile {

@@ -112,6 +112,10 @@ pub struct MovementInput {
     /// so the glide input pushes it upward before this tick's travel.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub glide_ascent: bool,
+    /// Whether the session is a Java Edition 1.7.10 server, whose physics the tick then
+    /// follows instead of Bedrock's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub java_physics: bool,
 }
 
 impl MovementInput {

@@ -5,7 +5,7 @@ use protocol::{
     decode_batch, encode, player_auth_input,
 };
 
-fn snapshot() -> PlayerAuthInputSnapshot {
+pub(super) fn snapshot() -> PlayerAuthInputSnapshot {
     PlayerAuthInputSnapshot {
         tick: 1_234,
         position: [1.25, 64.0, -2.5],
@@ -25,6 +25,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
         input_mode: PlayerInputMode::Mouse,
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
+        java_position: None,
     }
 }
 

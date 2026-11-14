@@ -2417,6 +2417,7 @@ dependencies = [
 name = "cinnabar-mcp"
 version = "0.2.1"
 dependencies = [
+ "bridge",
  "developer-control",
  "diagnostics",
  "image",
@@ -4353,6 +4354,7 @@ dependencies = [
  "client-world",
  "env-compat",
  "inventory 0.2.1",
+ "java-sim",
  "meshing",
  "player-state",
  "protocol",
@@ -5114,6 +5116,14 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "uuid",
+]
+
+[[package]]
+name = "java-sim"
+version = "0.2.1"
+dependencies = [
+ "flate2",
+ "serde_json",
 ]
 
 [[package]]
@@ -8513,6 +8523,8 @@ dependencies = [
  "assets",
  "block-transform",
  "criterion",
+ "flate2",
+ "java-sim",
  "serde",
  "serde_json",
  "sha2",

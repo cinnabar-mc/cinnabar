@@ -112,6 +112,7 @@ mod tests {
             input_mode: PlayerInputMode::GamePad,
             interaction_model: PlayerInteractionModel::Crosshair,
             vehicle: None,
+            java_position: None,
         }
     }
 

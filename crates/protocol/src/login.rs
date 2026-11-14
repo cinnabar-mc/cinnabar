@@ -62,6 +62,8 @@ pub struct LoginSequence;
 pub struct PlaySession<R = bridge::FramedReader> {
     transport: SessionTransport<R>,
     identity: crate::session_wire::SessionIdentity,
+    /// Whether the core translates this session from a Java Edition 1.7.10 server.
+    java_edition: bool,
     pending_initialization: Option<u64>, // the runtime ID until loading completes
     terrain_before_spawn: bool,
     decode_errors: u64,
@@ -133,6 +135,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         Self {
             transport,
             identity: Default::default(),
+            java_edition: false,
             pending_initialization: Some(runtime_id),
             terrain_before_spawn,
             decode_errors: 0,
@@ -155,6 +158,13 @@ impl<R: bridge::FrameRead> PlaySession<R> {
     /// The exact login identity handed off by the core for this server connection.
     pub fn identity(&self) -> &crate::session_wire::SessionIdentity {
         &self.identity
+    }
+
+    /// Whether the server is a Java Edition 1.7.10 server the core translates, which expects
+    /// that edition's movement.
+    #[must_use]
+    pub fn java_edition(&self) -> bool {
+        self.java_edition
     }
 
     /// Takes the most recent normalized server-initiated disconnect, if any.

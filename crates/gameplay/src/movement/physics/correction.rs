@@ -80,6 +80,7 @@ impl LocalPhysicsController {
             if let (Some(state), Some(previous)) = (self.state.as_mut(), previous_state.as_ref()) {
                 state.keep_climber_contact(previous);
                 state.keep_fall_distance(previous);
+                state.keep_java_player(previous);
             }
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;
@@ -496,6 +497,11 @@ impl LocalPhysicsController {
                 jump_fold = ReplayJumpArcFold::seed(true, false, false);
             }
             let (initiated, arc_active) = jump_fold.step(output.jump_initiated, result.on_ground);
+            retained.processed.java_position = frame_input.java_physics.then_some([
+                result.position.x,
+                result.position.y,
+                result.position.z,
+            ]);
             retained.sneaking = frame_input.sneaking;
             retained.sprinting = frame_input.sprinting;
             retained.processed.sneaking = frame_input.sneaking;

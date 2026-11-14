@@ -55,6 +55,10 @@ pub struct PlayerState {
     /// direction. Unreadable terrain keeps the last measurement.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) on_climbable: bool,
+    /// The Java Edition player behind this state on a Java session. It travels with the
+    /// state through history and replay; recorded traces never carry one.
+    #[serde(skip)]
+    pub(super) java: Option<Box<super::java::Shadow>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -104,6 +108,7 @@ impl PlayerState {
             fall_distance: 0.0,
             climber: None,
             on_climbable: false,
+            java: None,
         }
     }
 
@@ -155,6 +160,19 @@ impl PlayerState {
     /// vanilla's corrections and teleports leave the climber's flags untouched.
     pub fn keep_climber_contact(&mut self, previous: &PlayerState) {
         self.climber = previous.climber;
+    }
+
+    /// Keeps `previous`'s Java Edition player through a server teleport. The next Java tick
+    /// places that player where this state stands, as the 1.7.10 client applies a teleport
+    /// to the player it has: its ground state, jump cooldown and sprint survive.
+    pub fn keep_java_player(&mut self, previous: &PlayerState) {
+        self.java.clone_from(&previous.java);
+    }
+
+    /// Drops the Java Edition player, as the 1.7.10 client replaces its player on a respawn
+    /// or a dimension change. The next Java tick starts a new one where this state stands.
+    pub fn forget_java_player(&mut self) {
+        self.java = None;
     }
 
     /// Applies an external placement, rebuilding contact faces even at the same

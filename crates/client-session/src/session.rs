@@ -100,6 +100,9 @@ pub enum NetworkControlEvent<P = ()> {
         rewind_history_size: i32,
         /// StartGame's level base game version, resolved for version gates.
         base_game_version: protocol::BaseGameVersion,
+        /// Whether the server is a Java Edition 1.7.10 server, whose movement the local
+        /// player then follows.
+        java_edition: bool,
         /// The overworld range StartGame's generator selects; a server overworld
         /// definition replaces it.
         overworld_range: protocol::DimensionRange,

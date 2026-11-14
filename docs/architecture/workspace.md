@@ -13,6 +13,10 @@ cinnabar (Rust)  ── local socket ──  bedrock-core (Go, gophertunnel)
 Rust never implements Xbox authentication, encryption, RakNet or NetherNet; the core owns those
 and relays packets over a local stream.
 
+A `java/<host>[:<port>]` target joins a Java Edition 1.7.10 server instead. The core's
+`javaedition` packages speak that protocol over TCP and translate it to and from Bedrock
+packets, so the client receives the same handoff and packet stream as for a Bedrock server.
+
 | Library | Used for |
 | --- | --- |
 | [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
@@ -72,6 +76,7 @@ coordinates work that crosses these owners.
 | `crates/player-state` | `player-state` | Shared inventory and local-player authority; use `PlayerState` to keep both on one session generation. | `inventory` owns stacks and crafting; `client-world` owns player facts. |
 | `crates/gameplay` | `gameplay` | Local interaction decisions, prediction and ordered admission; use its mining, placement, item-use and movement APIs. | `sim` owns physics; `client-interaction` binds decisions to ECS; `client-session` sends packets. |
 | `crates/sim` | `sim` | Deterministic movement, collision and prediction; use its simulator with caller-supplied world queries. | `gameplay` chooses actions; `client-interaction` drives ticks; `world` supplies block state. |
+| `crates/java-sim` | `java-sim` | Java Edition 1.7.10 local-player physics: its player tick, block collision model and movement packets, in the game's `f64` arithmetic. | Callers supply a world of 1.7.10 block ids and the input; `sim` owns Bedrock physics and runs this crate behind its player state on a Java session; the Go core owns the Java protocol. |
 | `crates/input` | `semantic-input` | Device-independent actions, bindings and finalized input; use semantic snapshots instead of raw device events. | `client-shell` reads devices; `client-interaction` consumes actions; UI owns modal input routing. |
 | `crates/env-compat` | `env-compat` | Reads `CINNABAR_*` environment variables, accepting their pre-rename `RUST_MCBE_*` spelling with a one-time warning; use its `var` and `var_os` for those variables. | Each variable's name stays a constant with its owner, such as `diagnostics::markers`. |
 | `crates/simulation-clock` | `simulation-clock` | Shared simulation tick values and duration conversion; use its tick constants and conversion function. | Callers supply elapsed time; world and gameplay owners advance their own state. |
@@ -224,6 +229,11 @@ the SDK for their own host contract; they do not import client runtime authority
 | `catalog`, `launcher`, `control`, `xboxpresence` | Menu data and services: featured servers, Realms, friends and presence. |
 | `localworld` | The launcher's open local world as the core routes it; `proxy` hosts it for Xbox friends. |
 | `packcache` | On-disk cache of server packs. |
+| `javaedition/protocol`, `javaedition/conn` | The Java Edition 1.7.10 packet codec, and its TCP connection with login and encryption. |
+| `javaedition/auth` | Java Edition sign-in with the Microsoft account, and session joins for online-mode servers. |
+| `javaedition/legacy` | Generated tables from 1.7.10 block and item ids to Bedrock states and items. |
+| `javaedition/translate` | A joined Java server presented as a Bedrock upstream session. |
+| `javaedition/javatest` | A scriptable 1.7.10 server for tests. |
 
 Cross-crate re-exports are forbidden: consumers import the owning crate directly.
 Named exports must also have unambiguous ownership across Rust namespaces. Use
