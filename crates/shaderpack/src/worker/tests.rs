@@ -88,3 +88,23 @@ fn a_reaped_compiler_process_is_no_longer_listed() {
     assert!(process.poll(Duration::ZERO, true).is_some());
     assert!(!live_process_ids().contains(&id));
 }
+
+#[cfg(unix)]
+#[test]
+fn an_old_handle_leaves_a_reused_id_listed() {
+    let mut process = Process::start(Path::new("cat"), b"request").expect("start cat");
+    let id = process.child.id();
+    assert!(process.poll(Duration::ZERO, true).is_some());
+    // A later compiler given the same id by the system.
+    LIVE_PROCESSES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(id);
+    drop(process);
+    let mut live = LIVE_PROCESSES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let position = live.iter().position(|listed| *listed == id);
+    assert!(position.is_some(), "the newer compiler's entry was removed");
+    live.retain(|listed| *listed != id);
+}

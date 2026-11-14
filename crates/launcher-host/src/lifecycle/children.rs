@@ -290,13 +290,17 @@ impl Children {
     }
 
     /// Process ids of the tracked child processes still running, for memory accounting. A core
-    /// that runs inside this process has no process of its own and is left out.
+    /// that runs inside this process has no process of its own and is left out. Never waits:
+    /// shutdown holds the registry while a server saves, so a busy registry or child is skipped
+    /// and the caller's report goes on without it.
     fn live_pids(&self) -> Vec<u32> {
-        lock(&self.live)
-            .entries
+        let Some(live) = try_lock(&self.live) else {
+            return Vec::new();
+        };
+        live.entries
             .iter()
             .filter_map(|entry| {
-                let mut child = lock(&entry.child);
+                let mut child = try_lock(&entry.child)?;
                 running(&mut child).then(|| child.os_id()).flatten()
             })
             .collect()
@@ -589,6 +593,15 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Locks `mutex` when nothing else holds it, recovering a poisoned one.
+fn try_lock<T>(mutex: &Mutex<T>) -> Option<MutexGuard<'_, T>> {
+    match mutex.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
+}
+
 #[cfg(test)]
 mod update_tests {
     use super::*;
@@ -684,6 +697,13 @@ mod tests {
         let children = Children::new();
         let held = children.track(holds_stdin());
         assert_eq!(children.live_pids(), vec![held.id()]);
+        {
+            let _shutdown = lock(&children.live);
+            assert!(
+                children.live_pids().is_empty(),
+                "a busy registry is skipped"
+            );
+        }
         assert_eq!(held.stop(EXIT_GRACE), StopOutcome::Exited);
         assert!(children.live_pids().is_empty());
     }

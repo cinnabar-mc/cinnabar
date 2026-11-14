@@ -3,14 +3,17 @@
 //! The device allocator's totals are sampled only on request, because a report lists every
 //! allocation; the terrain arena's capacity is recorded whenever it changes.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{
+    Mutex, PoisonError,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 
 /// Marks a total nothing has reported yet.
 const UNKNOWN: u64 = u64::MAX;
 
 static SAMPLE_REQUESTED: AtomicBool = AtomicBool::new(false);
-static ALLOCATED: AtomicU64 = AtomicU64::new(UNKNOWN);
-static RESERVED: AtomicU64 = AtomicU64::new(UNKNOWN);
+/// The last allocator sample, published whole so readers never pair figures from two samples.
+static GPU_TOTALS: Mutex<Option<GpuTotals>> = Mutex::new(None);
 static CHUNK_ARENA: AtomicU64 = AtomicU64::new(UNKNOWN);
 
 /// What the device allocator held at its last requested sample.
@@ -31,12 +34,7 @@ pub fn request_gpu_totals() {
 /// allocator reports nothing (Metal, GL).
 #[must_use]
 pub fn gpu_totals() -> Option<GpuTotals> {
-    let allocated = ALLOCATED.load(Ordering::Relaxed);
-    let reserved = RESERVED.load(Ordering::Relaxed);
-    (allocated != UNKNOWN && reserved != UNKNOWN).then_some(GpuTotals {
-        allocated,
-        reserved,
-    })
+    *GPU_TOTALS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The terrain mesh arena's buffer capacity at its last change; `None` before it exists.
@@ -52,8 +50,7 @@ pub(crate) fn take_request() -> bool {
 
 /// Records the allocator totals of a sample.
 pub(crate) fn record_gpu_totals(totals: GpuTotals) {
-    ALLOCATED.store(totals.allocated.min(UNKNOWN - 1), Ordering::Relaxed);
-    RESERVED.store(totals.reserved.min(UNKNOWN - 1), Ordering::Relaxed);
+    *GPU_TOTALS.lock().unwrap_or_else(PoisonError::into_inner) = Some(totals);
 }
 
 /// Records the terrain arena's tracked buffer capacity.
@@ -66,17 +63,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recorded_totals_are_read_back_and_never_read_as_unknown() {
-        record_gpu_totals(GpuTotals {
+    fn recorded_totals_are_read_back_as_one_sample() {
+        let sample = GpuTotals {
             allocated: 300 << 20,
             reserved: u64::MAX,
-        });
-        assert_eq!(
-            gpu_totals(),
-            Some(GpuTotals {
-                allocated: 300 << 20,
-                reserved: u64::MAX - 1,
-            })
-        );
+        };
+        record_gpu_totals(sample);
+        assert_eq!(gpu_totals(), Some(sample));
+    }
+
+    #[test]
+    fn the_arena_capacity_never_reads_as_unknown() {
+        record_chunk_arena(u64::MAX);
+        assert_eq!(chunk_arena_bytes(), Some(u64::MAX - 1));
     }
 }
