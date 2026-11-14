@@ -49,6 +49,12 @@ pub(in crate::chunk) struct TerrainDiag {
     /// 9 only the per-fragment biome blend fallback (flat face tints stay), 10 only the
     /// glow/emissive mask samples.
     pub(in crate::chunk) shade: u8,
+    /// `diag_vary=N` splits vertex work from the varying interface on the unit vertex path
+    /// (non-Enhanced pipelines only): 1 full vertex work folded into one flat word, the fragment
+    /// shading constants; 2 only the position chain, every varying written with cheap unfoldable
+    /// values; 3 only the position chain and one flat word; 4 packed varyings (no
+    /// `local_position`, tint in one word).
+    pub(in crate::chunk) vary: u8,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,
     /// (h) `diag_counts=1`: logs terrain draw, instance and vertex counts every 120 frames.
@@ -68,6 +74,7 @@ static STATE: RwLock<TerrainDiag> = RwLock::new(TerrainDiag {
     sample: 0,
     page0: false,
     shade: 0,
+    vary: 0,
     units_off: false,
     counts: false,
 });
@@ -103,6 +110,7 @@ pub(in crate::chunk) fn refresh() {
         sample: number("SAMPLE").min(4) as u8,
         page0: flag("PAGE0"),
         shade: number("SHADE").min(10) as u8,
+        vary: number("VARY").min(4) as u8,
         units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
         counts: flag("COUNTS"),
     };
@@ -158,11 +166,11 @@ pub(in crate::chunk) fn distance_squared(origin: [i32; 3], camera: [f64; 3]) -> 
         .sum()
 }
 
-const SOLID_TRIVIAL: u16 = 1;
-const CUTOUT_AS_SOLID: u16 = 2;
-const VERTEX_MIN: u16 = 4;
-const VERTEX_CULL: u16 = 8;
-const VERTEX_NO_BLEND: u16 = 16;
+const SOLID_TRIVIAL: u32 = 1;
+const CUTOUT_AS_SOLID: u32 = 2;
+const VERTEX_MIN: u32 = 4;
+const VERTEX_CULL: u32 = 8;
+const VERTEX_NO_BLEND: u32 = 16;
 /// Fragment shader defines selected by `diag_sample=1..=4`.
 const SAMPLE_DEFINES: [&str; 4] = [
     "DIAG_SAMPLE_LEVEL",
@@ -171,12 +179,24 @@ const SAMPLE_DEFINES: [&str; 4] = [
     "DIAG_SAMPLE_LOD_MAX",
 ];
 /// The first of the four `diag_sample` bits.
-const SAMPLE_SHIFT: u16 = 5;
-const PAGE0: u16 = 1 << 9;
+const SAMPLE_SHIFT: u32 = 5;
+const PAGE0: u32 = 1 << 9;
 /// `diag_shade` occupies four bits from here.
-const SHADE_SHIFT: u16 = 10;
+const SHADE_SHIFT: u32 = 10;
+/// `diag_vary` occupies three bits from here.
+const VARY_SHIFT: u32 = 14;
+/// Vertex and fragment defines for each `diag_vary` value; the varying interface must agree.
+fn vary_defines(vary: u32) -> (&'static [&'static str], &'static [&'static str]) {
+    match vary {
+        1 => (&["DIAG_VARY_FULL_VS_FLAT"], &["DIAG_FS_CONSTANT_INPUTS"]),
+        2 => (&["DIAG_VARY_MIN_VS"], &[]),
+        3 => (&["DIAG_VARY_POSITION_ONLY"], &["DIAG_FS_CONSTANT_INPUTS"]),
+        4 => (&["DIAG_PACKED_VARYINGS"], &["DIAG_PACKED_VARYINGS"]),
+        _ => (&[], &[]),
+    }
+}
 /// The fragment shader defines for each `diag_shade` value.
-fn shade_defines(shade: u16) -> &'static [&'static str] {
+fn shade_defines(shade: u32) -> &'static [&'static str] {
     match shade {
         1 => &["DIAG_SHADE_NO_LIGHTMAP"],
         2 => &["DIAG_SHADE_NO_FOG"],
@@ -198,7 +218,7 @@ fn shade_defines(shade: u16) -> &'static [&'static str] {
 }
 
 /// The pipeline-changing switches as a variant key; zero leaves pipelines unchanged.
-pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u16 {
+pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u32 {
     let mut bits = 0;
     if diag.solid_trivial {
         bits |= SOLID_TRIVIAL;
@@ -213,15 +233,15 @@ pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u16 {
         _ => {}
     }
     if diag.sample > 0 {
-        bits |= 1 << (SAMPLE_SHIFT + u16::from(diag.sample) - 1);
+        bits |= 1 << (SAMPLE_SHIFT + u32::from(diag.sample) - 1);
     }
     if diag.page0 {
         bits |= PAGE0;
     }
-    bits | u16::from(diag.shade) << SHADE_SHIFT
+    bits | u32::from(diag.shade) << SHADE_SHIFT | u32::from(diag.vary) << VARY_SHIFT
 }
 
-static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u16), CachedRenderPipelineId>>> =
+static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u32), CachedRenderPipelineId>>> =
     Mutex::new(None);
 
 /// The diagnostic variant of the ready pipeline `id`, queued on first use. Returns `id` while
@@ -229,7 +249,7 @@ static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u16), CachedRende
 pub(in crate::chunk) fn pipeline(
     cache: &PipelineCache,
     id: CachedRenderPipelineId,
-    bits: u16,
+    bits: u32,
 ) -> CachedRenderPipelineId {
     if bits == 0 || cache.get_render_pipeline(id).is_none() {
         return id;
@@ -251,7 +271,7 @@ pub(in crate::chunk) fn pipeline(
 }
 
 /// Applies `bits` to a terrain pipeline; `false` when none applies to it.
-fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u16) -> bool {
+fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u32) -> bool {
     let mut changed = false;
     let chunk_shader = descriptor.vertex.shader == super::CHUNK_SHADER_HANDLE;
     if let Some(fragment) = descriptor.fragment.as_mut()
@@ -268,7 +288,7 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u16) -> bool {
             changed = true;
         }
         for (index, define) in SAMPLE_DEFINES.into_iter().enumerate() {
-            if bits & (1 << (SAMPLE_SHIFT + index as u16)) != 0 {
+            if bits & (1 << (SAMPLE_SHIFT + index as u32)) != 0 {
                 fragment.shader_defs.push(define.into());
                 changed = true;
             }
@@ -301,6 +321,25 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u16) -> bool {
                 .push("DIAG_NO_VERTEX_BLEND".into());
             changed = true;
         }
+    }
+    let (vertex_defines, fragment_defines) = vary_defines(bits >> VARY_SHIFT & 7);
+    let enhanced = descriptor.vertex.shader_defs.iter().any(
+        |define| matches!(define, bevy::shader::ShaderDefVal::Bool(name, true) if name.starts_with("ENHANCED")),
+    );
+    if !vertex_defines.is_empty()
+        && !enhanced
+        && chunk_shader
+        && descriptor.vertex.entry_point.as_deref() == Some("vertex_unit")
+        && let Some(fragment) = descriptor.fragment.as_mut()
+        && fragment.shader == super::CHUNK_SHADER_HANDLE
+    {
+        for define in vertex_defines {
+            descriptor.vertex.shader_defs.push((*define).into());
+        }
+        for define in fragment_defines {
+            fragment.shader_defs.push((*define).into());
+        }
+        changed = true;
     }
     if changed {
         descriptor.label = Some(

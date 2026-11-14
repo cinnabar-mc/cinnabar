@@ -41,6 +41,19 @@ fn terrain_spirv_validates_with_mobile_runtime_checks() {
             &["TERRAIN_UNITS", "DIAG_SHADE_NO_MASKS"][..],
             &[
                 "TERRAIN_UNITS",
+                "DIAG_VARY_FULL_VS_FLAT",
+                "DIAG_FS_CONSTANT_INPUTS",
+            ][..],
+            &["TERRAIN_UNITS", "DIAG_VARY_MIN_VS"][..],
+            &[
+                "TERRAIN_UNITS",
+                "DIAG_VARY_POSITION_ONLY",
+                "DIAG_FS_CONSTANT_INPUTS",
+            ][..],
+            &["TERRAIN_UNITS", "DIAG_PACKED_VARYINGS"][..],
+            &["TERRAIN_UNITS", "PACKED_TERRAIN", "DIAG_PACKED_VARYINGS"][..],
+            &[
+                "TERRAIN_UNITS",
                 "DIAG_SHADE_NO_LIGHTMAP",
                 "DIAG_SHADE_NO_FOG",
                 "DIAG_SHADE_NO_GAMMA",
