@@ -37,6 +37,8 @@ fn terrain_spirv_validates_with_mobile_runtime_checks() {
             &["TERRAIN_UNITS", "DIAG_SHADE_ONE_LIGHT_READ"][..],
             &["TERRAIN_UNITS", "DIAG_SHADE_NO_POINT_LIGHT"][..],
             &["TERRAIN_UNITS", "DIAG_SHADE_VARYINGS"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_NO_BLEND"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_NO_MASKS"][..],
             &[
                 "TERRAIN_UNITS",
                 "DIAG_SHADE_NO_LIGHTMAP",
@@ -281,4 +283,78 @@ fn assert_logical_allocations(words: &[u32]) {
 fn write_words(path: &Path, words: &[u32]) {
     let bytes: Vec<_> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
     std::fs::write(path, bytes).unwrap();
+}
+
+/// Compiles the unit terrain program on the first Vulkan adapter so a driver that logs shader
+/// statistics (such as Mesa's ir3 with `IR3_SHADER_DEBUG=fs`) reports each variant. Runs only when
+/// `CINNABAR_SHADER_STATS` lists define sets: `;` between sets, `,` between defines, `-` for
+/// none. `CINNABAR_SHADER_STATS_ENTRY` picks the fragment entry (default `fragment_solid`).
+#[test]
+fn terrain_program_variants_compile_for_driver_statistics() {
+    let Ok(sets) = std::env::var("CINNABAR_SHADER_STATS") else {
+        return;
+    };
+    let entry = std::env::var("CINNABAR_SHADER_STATS_ENTRY")
+        .unwrap_or_else(|_| "fragment_solid".to_owned());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default()))
+        .expect("a Vulkan adapter");
+    eprintln!("shader statistics adapter: {:?}", adapter.get_info());
+    let (device, _queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: adapter.limits(),
+        ..Default::default()
+    }))
+    .unwrap();
+    for set in sets.split(';') {
+        let defines = set
+            .split(',')
+            .map(str::trim)
+            .filter(|define| !define.is_empty() && *define != "-")
+            .collect::<Vec<_>>();
+        eprintln!("SHADER_STATS_VARIANT {entry} {defines:?}");
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("terrain statistics"),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::shader_source::composed(include_str!("../chunk.wesl"), &defines).into(),
+            ),
+        });
+        let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("terrain statistics"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vertex_unit"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some(&entry),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        if let Some(error) = bevy::tasks::block_on(scope.pop()) {
+            panic!("variant {defines:?} failed: {error}");
+        }
+    }
 }

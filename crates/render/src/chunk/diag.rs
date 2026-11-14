@@ -45,7 +45,9 @@ pub(in crate::chunk) struct TerrainDiag {
     /// `diag_shade=N` drops one part of non-Enhanced cube shading, keeping the rest:
     /// 1 lightmap (constant light), 2 fog, 3 gamma-to-linear conversion, 4 per-fragment tint and
     /// glow/emissive masks, 5 lightmap as one nearest table read instead of four, 6 dynamic
-    /// point-light loop only, 7 everything (reads every input, no texture or table), 8 1-4 at once.
+    /// point-light loop only, 7 everything (reads every input, no texture or table), 8 1-4 at once,
+    /// 9 only the per-fragment biome blend fallback (flat face tints stay), 10 only the
+    /// glow/emissive mask samples.
     pub(in crate::chunk) shade: u8,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,
@@ -100,7 +102,7 @@ pub(in crate::chunk) fn refresh() {
         keep_stride: number("KEEP_STRIDE"),
         sample: number("SAMPLE").min(4) as u8,
         page0: flag("PAGE0"),
-        shade: number("SHADE").min(8) as u8,
+        shade: number("SHADE").min(10) as u8,
         units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
         counts: flag("COUNTS"),
     };
@@ -189,6 +191,8 @@ fn shade_defines(shade: u16) -> &'static [&'static str] {
             "DIAG_SHADE_NO_GAMMA",
             "DIAG_SHADE_NO_TINT",
         ],
+        9 => &["DIAG_SHADE_NO_BLEND"],
+        10 => &["DIAG_SHADE_NO_MASKS"],
         _ => &[],
     }
 }

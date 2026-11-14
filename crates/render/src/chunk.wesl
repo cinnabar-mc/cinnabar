@@ -892,16 +892,19 @@ fn diag_cube_tint_gamma(@if(!ENHANCED)
 in: VertexOutput) -> vec3<f32> {
     @if(DIAG_SHADE_NO_TINT)
     return vec3(1.0);
-    @if(!DIAG_SHADE_NO_TINT)
+    // Keeps the flat per-face tint but drops the per-fragment biome blend fallback.
+    @if(DIAG_SHADE_NO_BLEND && !DIAG_SHADE_NO_TINT)
+    return select(vec3(1.0), in.uniform_tint_gamma.rgb, in.uniform_tint_gamma.a != 0.0);
+    @if(!DIAG_SHADE_NO_TINT && !DIAG_SHADE_NO_BLEND)
     return ordinary_cube_tint_gamma(in);
 }
 
 @if(!ENHANCED)
 fn diag_cube_masks(@if(!ENHANCED)
 in: VertexOutput) -> CubeMasks {
-    @if(DIAG_SHADE_NO_TINT)
+    @if(DIAG_SHADE_NO_TINT || DIAG_SHADE_NO_MASKS)
     return CubeMasks(vec3(0.0), 0.0);
-    @if(!DIAG_SHADE_NO_TINT)
+    @if(!DIAG_SHADE_NO_TINT && !DIAG_SHADE_NO_MASKS)
     return cube_masks(in);
 }
 
