@@ -15,12 +15,32 @@ allowing installation from that download source when Android asks. Release APKs 
 signing key so later APKs can update the installed app. The desktop updater does not install APKs.
 Uninstall an earlier CI test build before installing a release APK; this clears its app data.
 
-On Android 11+, reopening the app after an unexpected exit offers **Copy details** with the
-device, a readable exit cause with its numeric reason, and the start and end of long client logs, retaining build and startup context. Consecutive
-duplicate log lines appear once with a repeat count. Include those details when reporting a crash.
-**Save report** writes a ZIP to Downloads with those details and Android's retained crash trace,
-when available. For native crashes on Android 12+, the trace is the original tombstone protobuf;
-attach the ZIP to the crash report. Nothing is uploaded automatically.
+On Android 11+, reopening the app after an unexpected exit offers **Copy details**. The details
+start with the build (version, commit and release channel), the device, its SoC, RAM, ABI and
+page size, and the GPU adapter and driver recorded when the renderer last started. A readable
+exit cause with its numeric reason follows, then earlier exits Android still remembers, then
+the start and end of long client logs, retaining build and startup context. Consecutive
+duplicate log lines appear once with a repeat count, and very long lines, such as profiler
+records, are shortened. Include those details when reporting a crash.
+**Save report** writes a ZIP to Downloads with those details, the client log with every line
+whole (its newest 32 MiB), the adapter record and Android's retained crash trace, when
+available. For native crashes on Android 12+, the trace is the original tombstone protobuf;
+attach the ZIP to the crash report. The client log can name servers you joined and players you
+met. Nothing is uploaded automatically.
+
+To report a session that did not crash, such as one that was slow, open Settings > General and
+choose **Save diagnostic report** (Android 10+). It writes `Cinnabar-report-<time>.zip` to
+Downloads with the same header, Android's free memory when it was saved, the exits Android
+still remembers, the client log so far and the adapter record. A message at the bottom of the
+screen says whether the save worked. Save it before closing the app: the next launch starts a
+new client log.
+
+Both reports list the last three `memory event=` lines from the end of the client log, with
+their times, above the log context, so the details show what the client and its helper processes
+held just before the exit or the save. Builds whose client writes no such lines say so.
+
+When the graphics driver fails, the error shown names the first GPU error the driver reported;
+a panic that followed is listed after it.
 
 ## Build and install
 

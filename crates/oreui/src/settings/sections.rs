@@ -12,7 +12,10 @@ use launcher::menu::{
         KEY_BINDINGS, SettingsGroup, SettingsOptions, key_name, layout::SettingPanel,
         macro_message, macro_row, macro_row_index, macro_title,
     },
-    settings_support::{SupportAction, SupportDialog, SupportLink},
+    settings_support::{
+        SAVE_REPORT_DESCRIPTION, SAVE_REPORT_LABEL, SAVE_REPORT_TITLE, SupportAction,
+        SupportDialog, SupportLink,
+    },
 };
 use ui_engine::engine::screen::PaintError;
 
@@ -546,6 +549,15 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             &format!("{key}.description"),
             &format!("{key}.buttonLabel"),
             Some(MenuAction::SettingsSupport(action)),
+        )?;
+    }
+    if content.view.saves_diagnostic_report {
+        super::services::action_row_text(
+            content,
+            SAVE_REPORT_TITLE,
+            SAVE_REPORT_DESCRIPTION,
+            SAVE_REPORT_LABEL,
+            Some(MenuAction::SettingsSupport(SupportAction::SaveReport)),
         )?;
     }
     content.heading("options.cinnabar.advanced", "")?;

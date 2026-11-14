@@ -105,6 +105,7 @@ impl MenuRuntime {
             pressed: initial.pressed,
             pointer_down: false,
             touch_available: launcher::TOUCH_PRIMARY,
+            saves_diagnostic_report: launcher_host::desktop::saves_diagnostic_reports(),
             touch_editor_open: false,
             server_tab: initial.server_tab,
             profile_tab: initial.profile_tab,

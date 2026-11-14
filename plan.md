@@ -2077,7 +2077,17 @@ Flathub submission remain incomplete.
   log the full error source before stopping. Injected handler regressions cover all four GPU error
   categories; these diagnostics do not establish the cause of Android device-loss reports.
   Android exit reports retain the beginning and end of long logs so startup build and adapter
-  context survives a busy session. Qualcomm compiler startup faults still lack a reduced failing
+  context survives a busy session, and shorten over-long single-line records, such as hitch
+  profiles, that used to fill the bounded details; the saved ZIP keeps the whole client log.
+  The report header names the build commit and release channel, the SoC, RAM, ABI and page
+  size, and the GPU adapter and driver the client records when the renderer starts, and lists
+  earlier process exits. Settings > General saves the same ZIP on request from a running
+  session on Android 10+, without a trace, so a tester can send the log of a session that did
+  not crash. Both list the client's last memory lines above the log. A terminal report leads with the first GPU error the driver reported
+  and lists a later panic after it, including when a render-thread panic stopped the client
+  before the error policy ran. Host tests cover these; the Java and the report on a phone
+  still need device acceptance. Reports still lack the failing pipeline's label and raw
+  Vulkan result, and devices before Android 11 get no exit report. Qualcomm compiler startup faults still lack a reduced failing
   shader and affected-device acceptance; diagnostic improvements do not close that gate.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
