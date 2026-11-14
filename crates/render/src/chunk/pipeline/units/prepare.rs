@@ -35,6 +35,7 @@ pub(in crate::chunk) fn prepare_units(
     let mut stats = batches.stats;
     for (&entity, view) in &mut batches.views {
         let facing = view.camera.and_then(meshing::facing_cell);
+        let eye_block = view.camera.map(|eye| eye.map(|value| value.floor() as i64));
         for (stream, batch) in view.streams.iter_mut().enumerate() {
             batch.scratch.clear();
             let sections = &view.sources.streams[stream];
@@ -56,16 +57,35 @@ pub(in crate::chunk) fn prepare_units(
                     .scratch
                     .extend(order.iter().map(|&(entity, _)| entity));
             } else {
-                batch.scratch.extend(
-                    sections
-                        .iter()
-                        .filter(|section| {
-                            !occlusion
-                                .as_ref()
-                                .is_some_and(|state| state.skips(entity, section.entity))
-                        })
-                        .map(|section| section.entity),
-                );
+                let skips = |section: Entity| {
+                    occlusion
+                        .as_ref()
+                        .is_some_and(|state| state.skips(entity, section))
+                };
+                if stream < 2
+                    && let Some(eye) = view.camera
+                {
+                    // Nearer depth first lets early depth testing reject hidden fragments.
+                    // Section order changes only as the eye crosses block boundaries.
+                    if view.stale || batch.near_eye != eye_block {
+                        batch.near = super::sources::near_first(sections, eye);
+                        batch.near_eye = eye_block;
+                    }
+                    batch.scratch.extend(
+                        batch
+                            .near
+                            .iter()
+                            .copied()
+                            .filter(|&section| !skips(section)),
+                    );
+                } else {
+                    batch.scratch.extend(
+                        sections
+                            .iter()
+                            .map(|section| section.entity)
+                            .filter(|&section| !skips(section)),
+                    );
+                }
             }
             if view.stale
                 || batch.selected != batch.scratch

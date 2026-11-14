@@ -63,6 +63,9 @@ struct UnitStream {
     fallback: Vec<VisibleTerrainUnit>,
     pages: Vec<UnitPage>,
     padded_quads: u64,
+    /// Solid and cutout sections nearest first, and the eye block they were ordered for.
+    near: Vec<Entity>,
+    near_eye: Option<[i64; 3]>,
 }
 
 #[cfg(test)]
