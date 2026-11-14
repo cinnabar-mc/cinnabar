@@ -438,6 +438,9 @@ impl Manager {
             life.failure = Some(WorldError::Cancelled.status_text());
             self.set_state(&mut life, WorldState::Failed);
         }
+        drop(life);
+        // An open queued before the app was hidden still gets the hidden-app watch.
+        self.watch_if_hidden();
         Ok(())
     }
 

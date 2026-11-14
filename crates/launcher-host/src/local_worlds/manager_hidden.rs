@@ -28,6 +28,8 @@ pub(super) const POLL: Duration = Duration::from_secs(1);
 /// Whether the app is off screen, and what happened to the open world meanwhile.
 #[derive(Default)]
 pub(super) struct Hidden {
+    /// The platform has taken the app off screen.
+    app_hidden: bool,
     /// The running watch's number and the sender that ends it when dropped; `None` while the
     /// app is on screen.
     watch: Option<(u64, Sender<()>)>,
@@ -68,10 +70,17 @@ impl HiddenRun {
 impl Manager {
     /// Starts counting the time the open world's server runs while the platform keeps the app off
     /// screen; once it reaches the run limit, the world is saved and stopped, or its start
-    /// cancelled. Does nothing while already hidden or when no world is starting or running.
+    /// cancelled. A world opened while hidden is watched from its open.
     pub fn app_hidden(&self) {
+        lock(&self.inner.hidden).app_hidden = true;
+        self.watch_if_hidden();
+    }
+
+    /// Starts the hidden-app watch when the app is hidden, no watch runs and a world is starting
+    /// or running.
+    pub(super) fn watch_if_hidden(&self) {
         let mut hidden = lock(&self.inner.hidden);
-        if hidden.watch.is_some() {
+        if !hidden.app_hidden || hidden.watch.is_some() {
             return;
         }
         let state = lock(&self.inner.life).state;
@@ -110,6 +119,7 @@ impl Manager {
     /// world meanwhile, which is reported once.
     pub fn app_shown(&self) -> bool {
         let mut hidden = lock(&self.inner.hidden);
+        hidden.app_hidden = false;
         hidden.watch = None;
         std::mem::take(&mut hidden.closed)
     }
