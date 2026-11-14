@@ -78,6 +78,7 @@ members = [
     "crates/client-presentation",
     "crates/client-audio",
     "crates/player-state",
+    "crates/java-sim",
     "crates/sim",
     "crates/ui",
     "crates/ui-engine",
