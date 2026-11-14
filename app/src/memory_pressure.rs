@@ -4,7 +4,6 @@
 //! the pressure, releases the resource packs' read caches and returns freed heap to the OS.
 
 use bevy::prelude::{App, Last, MessageReader, Res, Update};
-use launcher_host::memory::telemetry;
 use memory_pressure::{MemoryPressure, MemoryPressurePlugin};
 
 use crate::runtime::network::PackReload;
@@ -23,7 +22,7 @@ pub(crate) fn configure(app: &mut App) {
 pub fn report_android_trim_level(level: i32) {
     let pressure = MemoryPressure::from_android_trim_level(level);
     bevy::log::info!(level, ?pressure, "memory pressure received from Android");
-    telemetry::report(received_event(pressure));
+    memory_line(received_event(pressure));
     let Some(pressure) = pressure else {
         return;
     };
@@ -31,6 +30,14 @@ pub fn report_android_trim_level(level: i32) {
     if pressure == MemoryPressure::Background {
         purge_heap(pressure);
     }
+}
+
+/// Asks for a memory line named `event`. Browser builds have no reporter.
+fn memory_line(event: &str) {
+    #[cfg(not(target_arch = "wasm32"))]
+    launcher_host::memory::telemetry::report(event);
+    #[cfg(target_arch = "wasm32")]
+    let _ = event;
 }
 
 /// The memory line's event name for a received report that asks for `pressure`.
@@ -100,7 +107,7 @@ fn purge_heap(pressure: MemoryPressure) {
     {
         let purge = android::purge(pressure == MemoryPressure::Background);
         bevy::log::info!(?pressure, purge, "returned unused heap to the system");
-        telemetry::report("heap_purged");
+        memory_line("heap_purged");
     }
     #[cfg(not(target_os = "android"))]
     let _ = pressure;
