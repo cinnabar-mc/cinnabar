@@ -196,6 +196,15 @@ impl CoreOutput {
 
     pub(crate) fn spawn(&self, command: &mut Command, role: CoreRole) -> io::Result<Spawned> {
         command.arg("-log-level").arg(go_log_level((self.level)()));
+        let inherited = std::env::var_os(GO_MEMORY_LIMIT_ENV).is_some();
+        if let Some(limit) = apply_memory_limit(command, crate::memory::physical_bytes(), inherited)
+        {
+            tracing::info!(
+                role = role.label(),
+                limit_mib = limit >> 20,
+                "core soft memory limit set from device memory"
+            );
+        }
         let crash_output = self
             .staging
             .as_deref()
@@ -226,6 +235,28 @@ impl CoreOutput {
         }
         Ok(child)
     }
+}
+
+/// Go's soft memory limit variable. bedrock-core applies its own fixed limit only when this is
+/// unset.
+const GO_MEMORY_LIMIT_ENV: &str = "GOMEMLIMIT";
+
+/// Gives `command`'s core the soft memory limit [`crate::memory::core_memory_limit`] derives from
+/// `physical_bytes` of device RAM, and returns it. Sets nothing when the command already names a
+/// limit, when this process's own environment does (`inherited`), which the core then inherits,
+/// or when device memory is unknown.
+fn apply_memory_limit(command: &mut Command, physical_bytes: u64, inherited: bool) -> Option<u64> {
+    let named = command
+        .get_envs()
+        .find(|(name, _)| *name == GO_MEMORY_LIMIT_ENV)
+        .map(|(_, value)| value.is_some());
+    // An explicit removal on the command hides an inherited value, so the limit applies again.
+    if named.unwrap_or(inherited) {
+        return None;
+    }
+    let limit = crate::memory::core_memory_limit(physical_bytes)?;
+    command.env(GO_MEMORY_LIMIT_ENV, format!("{}MiB", limit >> 20));
+    Some(limit)
 }
 
 /// Starts a core with stdin piped (null for the sign-in helper), stdout piped only for the

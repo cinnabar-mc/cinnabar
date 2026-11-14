@@ -192,6 +192,9 @@ Saved BDS worlds start only when opened explicitly. Leaving a world requests its
 immediately; reopening waits for the previous server to finish saving and cleaning up. Reusable
 startup-code preparation remains separate from saved-world opens; see [local worlds](local-worlds.md).
 Physical-phone battery cost and startup timing remain unmeasured.
+Each launcher core process (game session, account, catalog and sign-in) runs with a soft Go memory
+limit of one sixteenth of the device's RAM, kept between 128 and 512 MiB, unless the client was
+started with `GOMEMLIMIT` set; a 6 GB phone's core aims to stay under about 335 MiB.
 Local-server startup logs include milestone elapsed times and, when accessible, child-process CPU
 time. These entries are available without verbose logging and help distinguish CPU work from waiting.
 BDS worlds cannot pause simulation.
