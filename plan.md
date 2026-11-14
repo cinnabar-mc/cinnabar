@@ -629,6 +629,9 @@ Incomplete: vanilla rewinds a vehicle correction and replays the recorded inputs
 Cinnabar restarts prediction from the corrected state and snaps the rider like a teleport.
 Server motion of a predicted boat replaces its predicted motion; vanilla's handling is
 unverified. Horse prediction and boat-to-boat collision remain open.
+Boat hulls draw a depth-only water patch that keeps water out of the hull, as vanilla boats do.
+Incomplete: rafts draw no patch, and a submerged boat still hides the water inside it; both are
+unverified against vanilla.
 
 The block climber rewrites its contact flags after each movement tick; the descent
 action reads the retained contact before movement. Prediction sync reports those values
