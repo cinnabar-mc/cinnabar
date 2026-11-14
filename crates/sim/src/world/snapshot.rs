@@ -142,6 +142,10 @@ impl CollisionWorld for CollisionSnapshot {
         self.world().primary_is_air(block)
     }
 
+    fn primary_block(&self, block: [i32; 3]) -> Result<Option<u32>, WorldQueryError> {
+        self.world().primary_block(block)
+    }
+
     fn snapshot(&self) -> Option<CollisionSnapshot> {
         Some(self.clone())
     }

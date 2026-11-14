@@ -251,6 +251,7 @@ impl LocalPhysicsController {
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
             input.liquid_attach_height = Some(f64::from(self.eye_offset.height(1.0)));
+            input.java_physics = self.java_physics;
             let entry_velocity = [
                 state.velocity.x as f32,
                 state.velocity.y as f32,

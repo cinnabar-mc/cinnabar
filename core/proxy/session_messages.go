@@ -41,6 +41,7 @@ type sessionHandoff struct {
 	PacksRequired bool            `json:"packs_required"`       // the offer or the stack required the packs
 	Packs         []sessionPack   `json:"packs"`                // application order; uncached archives follow as PackData
 	TraceConn     int64           `json:"trace_conn,omitempty"` // latency-trace ID both processes stamp on this connection
+	Edition       string          `json:"edition,omitempty"`    // empty for Bedrock; bridgecontract.JavaEdition for a translated Java server
 }
 
 // sessionIdentity is the upstream login's canonical player identity.

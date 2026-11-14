@@ -325,12 +325,21 @@ func TestStairsFormCorners(t *testing.T) {
 	}
 }
 
-// Every connection variant the translator can produce is listed in testdata, where the
-// client's registry test checks that each state exists.
+// Every connection variant the translator can produce is listed in connected_states.tsv. The
+// client reads it to name the 1.7.10 block behind a state, and its registry test checks that
+// each state exists.
 func TestConnectedStatesGolden(t *testing.T) {
-	states := map[string]uint32{}
+	// Several blocks can share a state; the lowest id and metadata names it.
+	type source struct {
+		hash  uint32
+		block block
+	}
+	states := map[string]source{}
 	record := func(current block, variant uint8, state resolvedState) {
-		states[state.state.String()] = state.hash
+		key := state.state.String()
+		if _, listed := states[key]; !listed {
+			states[key] = source{state.hash, current}
+		}
 	}
 	for id := uint16(0); id <= legacy.MaxBlockID; id++ {
 		if !connects(id) {
@@ -365,12 +374,12 @@ func TestConnectedStatesGolden(t *testing.T) {
 		}
 	}
 	lines := make([]string, 0, len(states))
-	for state, hash := range states {
-		lines = append(lines, fmt.Sprintf("%s\t%d", state, hash))
+	for state, from := range states {
+		lines = append(lines, fmt.Sprintf("%s\t%d\t%d\t%d", state, from.hash, from.block.id, from.block.meta))
 	}
 	sort.Strings(lines)
-	golden := "# Bedrock states the Java translator produces for neighbour-dependent blocks.\n# state\tnetwork hash\n" + strings.Join(lines, "\n") + "\n"
-	const path = "testdata/connected_states.tsv"
+	golden := "# Bedrock states the Java translator produces for neighbour-dependent blocks.\n# state\tnetwork hash\tjava id\tjava metadata\n" + strings.Join(lines, "\n") + "\n"
+	const path = "connected_states.tsv"
 	if os.Getenv(updateFixturesEnv) != "" {
 		if err := os.WriteFile(path, []byte(golden), 0o644); err != nil {
 			t.Fatal(err)

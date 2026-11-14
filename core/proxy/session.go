@@ -231,6 +231,11 @@ func (server *sessionServer) prepare(
 	if game, ok := prepared.upstream.(interface{ GameData() minecraft.GameData }); ok {
 		session.runtimeID.Store(game.GameData().EntityRuntimeID)
 	}
+	// Likewise the edition, which tells the client whose physics the server expects.
+	var edition string
+	if translated, ok := prepared.upstream.(interface{ Edition() string }); ok {
+		edition = translated.Edition()
+	}
 	prepared.upstream = observeTransfers(prepared.upstream, server.transfers, server.logger)
 	defer func() {
 		if err != nil {
@@ -265,6 +270,7 @@ func (server *sessionServer) prepare(
 		PacksRequired: prepared.packStack.required,
 		Packs:         selected,
 		TraceConn:     session.traceConn,
+		Edition:       edition,
 	}
 	prepared.releasePacks = referenceSessionPacks(server.prepared.resourcePackCache, selected, packs)
 	plan.packs = packs

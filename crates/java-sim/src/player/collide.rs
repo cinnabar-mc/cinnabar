@@ -59,6 +59,27 @@ impl Player {
         boxes
     }
 
+    /// Raises the player onto a surface its feet are sunk into by at most `tolerance` blocks.
+    ///
+    /// The game places a teleported player at the exact position the server sent. A caller
+    /// that only has that position in single precision can land the feet a hair inside the
+    /// ground, where the game's collision would let the player fall through.
+    pub fn lift_onto_surface(&mut self, world: &impl World, tolerance: f64) {
+        let feet = self.bounds.min_y;
+        let surface = self
+            .colliding_boxes(world, &self.bounds)
+            .iter()
+            .map(|obstacle| obstacle.max_y)
+            .filter(|top| *top > feet && *top - feet <= tolerance)
+            .fold(None, |highest: Option<f64>, top| {
+                Some(highest.map_or(top, |held| held.max(top)))
+            });
+        if let Some(top) = surface {
+            self.bounds.offset(0.0, top - feet, 0.0);
+            self.y = self.bounds.min_y + f64::from(EYE_OFFSET) - f64::from(self.sink);
+        }
+    }
+
     /// Moves by `motion` as far as collisions allow, then updates ground and collision flags,
     /// fall distance, and the motion that hit something.
     pub(super) fn move_by(&mut self, world: &impl World, motion: [f64; 3]) {

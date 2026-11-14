@@ -462,7 +462,7 @@ forbidden_dependencies = ["asset-compiler"]
 [[crates]]
 name = "sim"
 path = "crates/sim"
-allowed_dependencies = ["simulation-clock", "assets", "block-transform", "world", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "assets", "block-transform", "java-sim", "world", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]

@@ -55,6 +55,10 @@ pub struct PlayerState {
     /// direction. Unreadable terrain keeps the last measurement.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) on_climbable: bool,
+    /// The Java Edition player behind this state on a Java session. It travels with the
+    /// state through history and replay; recorded traces never carry one.
+    #[serde(skip)]
+    pub(super) java: Option<Box<super::java::Shadow>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -104,6 +108,7 @@ impl PlayerState {
             fall_distance: 0.0,
             climber: None,
             on_climbable: false,
+            java: None,
         }
     }
 

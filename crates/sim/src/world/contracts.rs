@@ -33,6 +33,13 @@ pub trait CollisionWorld {
         Ok(None)
     }
 
+    /// Network id of the first-layer block at a position, when the adapter keeps block
+    /// identity. Java Edition physics names blocks by the id the server sent rather than
+    /// by Bedrock collision shapes.
+    fn primary_block(&self, _block: [i32; 3]) -> Result<Option<u32>, WorldQueryError> {
+        Ok(None)
+    }
+
     /// Retains the world read by this tick when the adapter supports historical replay.
     fn snapshot(&self) -> Option<CollisionSnapshot> {
         None

@@ -53,6 +53,11 @@ type javaUpstream struct {
 	*translate.Session
 }
 
+// Edition names the server's edition for the session handoff.
+func (javaUpstream) Edition() string {
+	return bridgecontract.JavaEdition
+}
+
 func (javaUpstream) ResourcePackOffer() (minecraft.ResourcePackOfferSnapshot, bool) {
 	return minecraft.ResourcePackOfferSnapshot{}, true
 }

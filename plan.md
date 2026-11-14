@@ -1917,13 +1917,25 @@ attacks and entity interaction, the held slot, chat, commands and respawning. Te
 scripted server, a vanilla 1.7.10 server when one is supplied, and the client's own packet and
 chunk decoders reading the translation.
 
+Implemented: on a Java session the local player follows 1.7.10 movement. The core names the
+edition in the session handoff, and the simulator then runs `java-sim` behind the player
+state ([`sim` Java mode](crates/sim/src/simulator/java.rs)), reading each block as the
+1.7.10 block its Bedrock state came from. The recorded client traces replay bit for bit
+through the simulator over the core's translation of their worlds, and the physics
+controller's ticks equal `java-sim`'s for the same keys.
+
 Incomplete:
 
-- A saved server whose address is `java/<host>[:<port>]` joins a Java server, but the
-  client still runs Bedrock physics on that session: `java-sim` is not connected. Until it
-  is, positions are sent from the Bedrock simulation's single-precision values with a derived
-  ground flag, and the camera sink of sneaking and stepping is missing from the reported
-  stance. No join has been run in the client itself; the evidence is the tests above.
+- No join has been run in the client itself; the evidence is the tests named here.
+- Positions reach the server in single precision: the client reports its Java position
+  through the Bedrock movement packet, and server teleports reach it the same way, with the
+  feet lifted onto the ground when rounding sinks them into it. The camera sink of sneaking
+  and stepping is missing from the reported stance.
+- On a Java session the client keeps its own sprint and flight rules and feeds the result to
+  `java-sim` as the sprint key and the flying state, so the 1.7.10 double-tap timers do not
+  decide them. Hunger and attribute snapshots (Speed and Slowness) are not carried to
+  `java-sim`. Bedrock's swimming and crawling poses can still engage. Reach, the pick ray
+  and the sneaking eye height are still Bedrock's.
 - `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
   solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
   with the bounds last computed for any block of their kind; `java-sim` uses each block's own

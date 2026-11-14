@@ -105,7 +105,7 @@ func TestSessionServerJoinsAJavaServer(t *testing.T) {
 	if len(startup) != 1 || startup[0][0] != packet.IDStartGame {
 		t.Fatalf("startup holds %d packets", len(startup))
 	}
-	if handoff.PacksRequired || len(handoff.Packs) != 0 || handoff.Identity.DisplayName != "Steve" {
+	if handoff.PacksRequired || len(handoff.Packs) != 0 || handoff.Identity.DisplayName != "Steve" || handoff.Edition != bridgecontract.JavaEdition {
 		t.Fatalf("handoff = %+v", handoff)
 	}
 

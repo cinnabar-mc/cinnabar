@@ -107,6 +107,8 @@ const (
 	RakNetTargetPrefix = "raknet/"
 	// JavaTargetPrefix: Prefix for a Java Edition 1.7.10 server, given as a host with an optional port.
 	JavaTargetPrefix = "java/"
+	// JavaEdition: Session handoff edition of a translated Java Edition 1.7.10 server.
+	JavaEdition = "java-1.7.10"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.

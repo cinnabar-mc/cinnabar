@@ -38,6 +38,8 @@ pub struct StartGamePhysics {
     pub rewind_history_size: i32,
     /// StartGame's level base game version, which selects the sneaking dimensions.
     pub base_game_version: protocol::BaseGameVersion,
+    /// Whether the server is a Java Edition 1.7.10 server.
+    pub java_edition: bool,
     pub auto_fly: bool,
     pub collision_registry_complete: bool,
 }
@@ -53,6 +55,7 @@ impl StartGamePhysics {
         movement.set_source(MovementSource::FreeCamera);
         local_physics.set_rewind_history_size(self.rewind_history_size);
         local_physics.set_base_game_version(self.base_game_version);
+        local_physics.set_java_physics(self.java_edition);
         reset_start_game_prediction(
             movement,
             local_physics,
@@ -117,6 +120,7 @@ mod tests {
                 position: [8.0, 70.62, -4.0],
                 rewind_history_size: 42,
                 base_game_version: protocol::BaseGameVersion::Any,
+                java_edition: false,
                 auto_fly,
                 collision_registry_complete: complete,
             }

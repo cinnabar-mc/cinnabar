@@ -74,15 +74,19 @@ fn java_legacy_table_covers_ids_in_order_without_repeats() {
 #[test]
 fn every_connected_java_block_state_is_pinned() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../core/javaedition/translate/testdata/connected_states.tsv");
+        .join("../../core/javaedition/translate/connected_states.tsv");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let rows: Vec<(&str, u32)> = text
         .lines()
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(|line| {
-            let (state, hash) = line.split_once('\t').expect("state and hash");
-            (state, hash.parse().expect("network hash"))
+            let mut fields = line.split('\t');
+            let state = fields.next().expect("state");
+            (
+                state,
+                fields.next().expect("hash").parse().expect("network hash"),
+            )
         })
         .collect();
     assert!(

@@ -200,8 +200,9 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 			return err
 		}
 	}
-	// Bedrock input has no ground flag: a vertical collision while not rising stands in.
-	onGround := pk.InputData.Load(packet.InputFlagVerticalCollision) && pk.Delta[1] <= 0
+	// Bedrock input has no ground flag. On a Java session the client's physics reports
+	// standing on the ground as the vertical collision flag.
+	onGround := pk.InputData.Load(packet.InputFlagVerticalCollision)
 	packets := st.report.next(st.entityID, x, feet, z, pk.Yaw, pk.Pitch, onGround,
 		pk.InputData.Load(packet.InputFlagSprinting), pk.InputData.Load(packet.InputFlagSneaking))
 	if err := s.send(packets...); err != nil {

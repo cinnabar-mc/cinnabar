@@ -215,6 +215,31 @@ fn handoff_carries_the_core_trace_connection() {
     assert_eq!(decode(untraced), 0);
 }
 
+/// A translated Java server names its edition in the handoff; a Bedrock server names none.
+#[test]
+fn handoff_carries_the_server_edition() {
+    let decode = |metadata: &str| {
+        let mut frame = vec![KIND_HANDOFF];
+        frame.extend_from_slice(&(metadata.len() as u32).to_be_bytes());
+        frame.extend_from_slice(metadata.as_bytes());
+        frame.extend_from_slice(&[1, 0x0b]);
+        let CoreMessage::Handoff(handoff) = decode_core_message(Bytes::from(frame)).unwrap() else {
+            panic!("handoff expected")
+        };
+        handoff.edition
+    };
+    let bedrock = r#"{"identity":{"display_name":"a","xuid":"","uuid":""},"client_cache":false,"packs_required":false,"packs":[]}"#;
+    let java = format!(
+        r#"{{"identity":{{"display_name":"a","xuid":"","uuid":""}},"client_cache":false,"packs_required":false,"packs":[],"edition":"{}"}}"#,
+        bridge::contract::JAVA_EDITION
+    );
+    assert_eq!(decode(bedrock), None);
+    assert_eq!(
+        decode(&java).as_deref(),
+        Some(bridge::contract::JAVA_EDITION)
+    );
+}
+
 fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
     SessionHandoff {
         identity: SessionIdentity {
