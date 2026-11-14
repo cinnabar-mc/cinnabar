@@ -625,8 +625,10 @@ Keep raw, analogue and processed input semantics distinct. A boat steered from i
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
 rotation turns the rider's view with its vehicle and holds it within the seat's range.
-Incomplete: vanilla rewinds a vehicle correction and replays the recorded inputs, while
-Cinnabar restarts prediction from the corrected state and snaps the rider like a teleport.
+A vehicle correction rewinds the boat to its corrected input tick and replays the recorded
+inputs since; the rider snaps to the replayed seat, and the drawn boat and view fade out the
+difference instead of jumping. The replay and fade are unverified against vanilla's exact
+smoothing, and the render fade is a client-only approximation.
 Server motion of a predicted boat replaces its predicted motion; vanilla's handling is
 unverified. Horse prediction and boat-to-boat collision remain open.
 
