@@ -180,6 +180,35 @@ impl LocalWorlds {
         self.menu.take_ready()
     }
 
+    /// Starts the host's watch on the open world as the platform takes the app off screen; a
+    /// server that keeps running hidden past the host's limit is saved and stopped.
+    pub fn app_hidden(&mut self) {
+        if let Some(manager) = &self.manager {
+            manager.app_hidden();
+        }
+    }
+
+    /// Ends that watch as the platform brings the app back; true when the host closed the world
+    /// meanwhile. An open that had not reached its session then ends on the menu's explanation;
+    /// a session in progress is the caller's to end.
+    pub fn app_shown(&mut self) -> bool {
+        let closed = self.manager.as_ref().is_some_and(Manager::app_shown);
+        if closed {
+            let effects = self.menu.closed_in_background();
+            self.dispatch(effects);
+        }
+        closed
+    }
+
+    /// Whether the host closed the world while the app is still hidden, without consuming the
+    /// report [`Self::app_shown`] makes.
+    #[must_use]
+    pub fn closed_while_hidden(&self) -> bool {
+        self.manager
+            .as_ref()
+            .is_some_and(Manager::closed_while_hidden)
+    }
+
     /// Leaves the local world and asks its server to save and stop.
     pub fn leave_world(&mut self) {
         self.dispatch(vec![Effect::Leave]);
@@ -211,6 +240,17 @@ impl Plugin for LocalWorldsPlugin {
         app.add_message::<WindowFocused>()
             .init_resource::<LocalWorlds>()
             .add_systems(Update, pump_local_worlds);
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl LocalWorlds {
+    /// Local worlds over `manager` with no worker or core attached, for tests that drive the
+    /// manager themselves.
+    pub fn with_manager(manager: Manager) -> Self {
+        let mut worlds = Self::default();
+        worlds.manager = Some(manager);
+        worlds
     }
 }
 

@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use launcher_host::lifecycle::{crash, update};
 
+pub(crate) mod background;
 mod client_logs;
 pub(crate) mod heartbeat;
 

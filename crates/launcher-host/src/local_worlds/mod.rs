@@ -9,6 +9,8 @@ mod container;
 mod core_link;
 mod docker;
 mod download;
+#[cfg(any(test, feature = "test-support"))]
+mod held_server;
 mod import;
 mod junction;
 mod level_dat;
@@ -127,6 +129,28 @@ fn android_runtime_dir(user_data_root: &Path) -> PathBuf {
 /// A manager over the worlds in `root` with no server runners, for code that drives one in tests.
 #[cfg(any(test, feature = "test-support"))]
 pub fn open_store(root: std::path::PathBuf) -> Result<Manager, WorldError> {
+    Ok(Manager::from_parts(store_parts(root)?))
+}
+
+/// [`open_store`] whose opened worlds run on an in-memory server until they are closed, for tests
+/// that need a running world without a server binary. A world closes after running for
+/// `hidden_run_limit` with the app off screen.
+#[cfg(any(test, feature = "test-support"))]
+pub fn open_store_with_server(
+    root: std::path::PathBuf,
+    hidden_run_limit: std::time::Duration,
+) -> Result<Manager, WorldError> {
+    let mut parts = store_parts(root)?;
+    parts.runner = Some(Arc::new(held_server::HeldRunner));
+    parts.hidden_run_limit = hidden_run_limit;
+    parts.hidden_poll = std::time::Duration::from_millis(1);
+    Ok(Manager::from_parts(parts))
+}
+
+/// The parts of a test manager over the worlds in `root`: a supported runtime with its EULA
+/// accepted and no runner.
+#[cfg(any(test, feature = "test-support"))]
+fn store_parts(root: std::path::PathBuf) -> Result<manager::Parts, WorldError> {
     let store = Arc::new(store::Store::open(root.clone())?);
     let mut parts = manager::Parts::new(store);
     let setup = Arc::new(provision::Provisioner::new(
@@ -136,7 +160,7 @@ pub fn open_store(root: std::path::PathBuf) -> Result<Manager, WorldError> {
     setup.set_runtime(provision::RuntimeInfo::native());
     setup.accept_eula()?;
     parts.setup = Some(setup);
-    Ok(Manager::from_parts(parts))
+    Ok(parts)
 }
 
 /// Ends a start or another wait once its [`CancelHandle`] is dropped.

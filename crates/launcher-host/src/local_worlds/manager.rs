@@ -52,6 +52,10 @@ pub(crate) struct Parts {
     pub runtime_wait: Duration,
     /// How long a BDS start waits for a [`Host::Loading`] host, counted from before its launch.
     pub host_wait: Duration,
+    /// How long the open world's server may run while the app is off screen.
+    pub hidden_run_limit: Duration,
+    /// How often a hidden app's watch counts the time the server ran.
+    pub hidden_poll: Duration,
 }
 
 impl Parts {
@@ -63,6 +67,8 @@ impl Parts {
             stop_timeout: DEFAULT_STOP_TIMEOUT,
             runtime_wait: DEFAULT_RUNTIME_WAIT,
             host_wait: DEFAULT_HOST_WAIT,
+            hidden_run_limit: hidden::RUN_LIMIT,
+            hidden_poll: hidden::POLL,
         }
     }
 }
@@ -81,6 +87,10 @@ struct Inner {
     runtime_wait: Duration,
     life: Mutex<Life>,
     host_wait: Duration,
+    hidden_run_limit: Duration,
+    hidden_poll: Duration,
+    /// Whether the app is off screen; see [`Manager::app_hidden`].
+    hidden: Mutex<hidden::Hidden>,
     /// Read by each start; see [`Manager::set_host`].
     host: Mutex<Host>,
     host_changed: Condvar,
@@ -149,6 +159,9 @@ impl Manager {
                 runtime_wait: parts.runtime_wait,
                 life: Mutex::default(),
                 host_wait: parts.host_wait,
+                hidden_run_limit: parts.hidden_run_limit,
+                hidden_poll: parts.hidden_poll,
+                hidden: Mutex::default(),
                 host: Mutex::default(),
                 host_changed: Condvar::new(),
                 player_name: Mutex::default(),
@@ -425,6 +438,9 @@ impl Manager {
             life.failure = Some(WorldError::Cancelled.status_text());
             self.set_state(&mut life, WorldState::Failed);
         }
+        drop(life);
+        // An open queued before the app was hidden still gets the hidden-app watch.
+        self.watch_if_hidden();
         Ok(())
     }
 
@@ -762,6 +778,8 @@ impl Manager {
     }
 }
 
+#[path = "manager_hidden.rs"]
+mod hidden;
 #[path = "manager_host.rs"]
 mod host;
 #[path = "manager_report.rs"]

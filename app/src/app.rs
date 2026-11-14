@@ -863,6 +863,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             ),
         );
     crate::lifecycle::heartbeat::configure(&mut app);
+    crate::lifecycle::background::configure(&mut app);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);

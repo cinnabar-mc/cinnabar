@@ -2143,6 +2143,10 @@ Flathub submission remain incomplete.
   startup aborts leave reliability acceptance open. Full APK, physical-device, offline lifecycle,
   performance and 4/16 KB compatibility acceptance remain incomplete.
   Legacy and reverse name lookups still use the native resolver; only `getaddrinfo` uses Android's resolver.
+  A local world whose server keeps running for one minute of unfrozen time while Android hides the
+  app is saved and stopped, and the return explains the closed world; device confirmation that
+  frozen time is excluded, that the stop completes before Android ends a hidden app, and the
+  server's resident memory on phones remain open.
   Setup refreshes a private export of Android's default accepted certificate authorities and supplies it
   to the translated server's TLS stack. An emulator check confirms the server reads the bundle;
   its effect on service authentication and startup time needs acceptance;

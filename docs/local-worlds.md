@@ -58,6 +58,10 @@ own new-world setup (spawn search, world version, flat layers) runs; the host th
 owned fields of that level.dat and starts it again. The host never writes level data BDS has not
 created.
 Reopening waits for the prior server to finish saving before it reloads rules and applies pending edits.
+A server starts only when the player opens a world, and leaving the world's session for any reason,
+including joining another server, saves and stops it. On platforms that suspend the app (Android),
+a server that keeps running for one minute while the app is hidden is saved and stopped as well;
+see [Android](android.md#local-worlds).
 Seed and terrain apply during creation; starting map and bonus chest are also fixed after creation.
 The edit screen exposes the remaining options.
 Older and imported worlds recover their options from level data. A `level.dat` over 1 MiB is
