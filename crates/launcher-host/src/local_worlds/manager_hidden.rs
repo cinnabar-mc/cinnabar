@@ -137,6 +137,8 @@ impl Manager {
         if hidden.watch.as_ref().map(|(watch, _)| *watch) != Some(number) {
             return;
         }
+        // This watch has ended, so a later open while still hidden starts its own.
+        hidden.watch = None;
         let life = lock(&self.inner.life);
         if !matches!(life.state, WorldState::Starting | WorldState::Running) {
             return;

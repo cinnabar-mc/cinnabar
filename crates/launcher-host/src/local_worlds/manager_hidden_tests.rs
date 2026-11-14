@@ -153,7 +153,7 @@ fn a_hidden_app_with_nothing_open_changes_nothing() {
 }
 
 /// A world opened after the app was hidden, such as an open still queued when it left the
-/// screen, is watched from its open.
+/// screen, is watched from its open, and so is each later open while still hidden.
 #[test]
 fn a_world_opened_while_hidden_is_watched_too() {
     let runner = Arc::new(FakeRunner::default());
@@ -161,9 +161,12 @@ fn a_world_opened_while_hidden_is_watched_too() {
     let manager = &fixture.manager;
     let world = manager.create(&flat("w")).expect("create");
     manager.app_hidden();
-    manager.open(&world.id, None).expect("open");
-    wait_for(manager, WorldState::Idle);
-    assert!(runner.entered.load(Ordering::SeqCst) <= 1);
+    for _ in 0..2 {
+        // The second open finds the first watch ended and starts its own.
+        manager.open(&world.id, None).expect("open");
+        wait_for(manager, WorldState::Idle);
+    }
+    assert!(runner.entered.load(Ordering::SeqCst) <= 2);
     assert!(manager.app_shown(), "the return reports the closed world");
     manager.open(&world.id, None).expect("reopen on screen");
     wait_for(manager, WorldState::Running);
