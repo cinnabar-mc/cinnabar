@@ -81,6 +81,8 @@ struct VertexOutput {
     // Face, extents and UV turn of the quad; see `pack_quad_shape`.
     @location(2) @interpolate(flat) quad_shape: u32,
     @location(3) @interpolate(flat) material_flags: u32,
+    // `diag_vary=4` drops this and rebuilds it from `world_position` (`diag_in_local_position`).
+    @if(!DIAG_PACKED_VARYINGS)
     @location(4) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
@@ -100,8 +102,11 @@ struct VertexOutput {
     @location(10) native_light_levels: vec2<f32>,
     @if(!ENHANCED)
     @location(11) native_ao_face: f32,
-    @if(!ENHANCED)
+    @if(!ENHANCED && !DIAG_PACKED_VARYINGS)
     @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
+    // `diag_vary=4`: the face tint as four unorm bytes.
+    @if(!ENHANCED && DIAG_PACKED_VARYINGS)
+    @location(12) @interpolate(flat) packed_tint: u32,
     // Cinnabar masks: inverted glow and emissive references (zero names none) and strength bits.
     @if(!ENHANCED)
     @location(13) @interpolate(flat) masks: vec3<u32>,
@@ -293,16 +298,83 @@ fn vertex_unit(
     }
     @if(DIAG_VERTEX_MIN)
     return minimal_cube_vertex(unit.z, unit.x + quad, vertex_index % 4u);
-    @if(!DIAG_VERTEX_MIN)
+    @if(DIAG_VARY_FULL_VS_FLAT && !ENHANCED)
+    return diag_hashed_vertex(cube_vertex(unit.z * 4u + vertex_index % 4u, unit.x + quad));
+    @if(DIAG_VARY_MIN_VS && !ENHANCED)
+    return diag_cheap_varyings_vertex(unit.z, unit.x + quad, vertex_index % 4u, vertex_index);
+    @if(DIAG_VARY_POSITION_ONLY && !ENHANCED)
+    return diag_position_only_vertex(unit.z, unit.x + quad, vertex_index % 4u);
+    @if(!DIAG_VERTEX_MIN && !DIAG_VARY_FULL_VS_FLAT && !DIAG_VARY_MIN_VS && !DIAG_VARY_POSITION_ONLY)
     return cube_vertex(unit.z * 4u + vertex_index % 4u, unit.x + quad);
+}
+
+/// Diagnostic `diag_vary=1`: every production output folded into one flat word, so all vertex
+/// work stays live while the fragment (under `DIAG_FS_CONSTANT_INPUTS`) reads only that word.
+@if(DIAG_VARY_FULL_VS_FLAT && !ENHANCED)
+fn diag_hashed_vertex(@if(DIAG_VARY_FULL_VS_FLAT && !ENHANCED)
+full: VertexOutput) -> VertexOutput {
+    let words = bitcast<vec2<u32>>(full.uv).x ^ bitcast<vec2<u32>>(full.uv).y
+        ^ full.current_texture ^ full.quad_shape ^ full.material_flags ^ full.biome_record
+        ^ full.next_texture ^ bitcast<u32>(full.frame_blend) ^ full.masks.x ^ full.masks.y
+        ^ full.masks.z ^ bitcast<u32>(full.native_ao_face);
+    let local = bitcast<vec3<u32>>(full.local_position);
+    let world = bitcast<vec3<u32>>(full.world_position);
+    let light = bitcast<vec2<u32>>(full.native_light_levels);
+    let tint = bitcast<vec4<u32>>(full.uniform_tint_gamma);
+    let hash = words ^ local.x ^ local.y ^ local.z ^ world.x ^ world.y ^ world.z ^ light.x
+        ^ light.y ^ tint.x ^ tint.y ^ tint.z ^ tint.w;
+    var out: VertexOutput;
+    out.clip_position = full.clip_position;
+    out.current_texture = select(full.current_texture, hash, hash == 0x9e3779b9u);
+    return out;
+}
+
+/// Diagnostic `diag_vary=2`: only the position chain, then every varying written with cheap
+/// values from `vertex_index` and the loaded quad word that the compiler cannot fold.
+@if(DIAG_VARY_MIN_VS && !ENHANCED)
+fn diag_cheap_varyings_vertex(@if(DIAG_VARY_MIN_VS && !ENHANCED)
+metadata_index: u32, @if(DIAG_VARY_MIN_VS && !ENHANCED)
+quad_index: u32, @if(DIAG_VARY_MIN_VS && !ENHANCED)
+corner: u32, @if(DIAG_VARY_MIN_VS && !ENHANCED)
+vertex_index: u32) -> VertexOutput {
+    var out = minimal_cube_vertex(metadata_index, quad_index, corner);
+    let quad = quads[quad_index];
+    let never = vertex_index == 0xffffffffu;
+    let width = f32(((quad.geometry >> 18u) & 0xfu) + 1u);
+    let height = f32(((quad.geometry >> 22u) & 0xfu) + 1u);
+    out.uv = vec2(f32(corner & 1u), f32(corner >> 1u)) * vec2(width, height);
+    out.current_texture = quad.material_id;
+    out.next_texture = quad.material_id;
+    out.quad_shape = pack_quad_shape((quad.geometry >> 15u) & 0x7u, width, height, 0u);
+    out.material_flags = select(0u, vertex_index, never);
+    out.biome_record = select(0u, vertex_index >> 1u, never);
+    out.frame_blend = select(0.0, 0.5, never);
+    out.native_light_levels = vec2(f32(vertex_index & 15u), f32(15u - (vertex_index & 7u)));
+    out.native_ao_face = 1.0 - f32(vertex_index & 3u) * 0.1;
+    out.uniform_tint_gamma = select(vec4(1.0), vec4(0.5, 0.5, 0.5, 1.0), never);
+    out.masks = select(vec3(0u), vec3(vertex_index), never);
+    return out;
+}
+
+/// Diagnostic `diag_vary=3`: only the position chain and one flat word for the fragment.
+@if(DIAG_VARY_POSITION_ONLY && !ENHANCED)
+fn diag_position_only_vertex(@if(DIAG_VARY_POSITION_ONLY && !ENHANCED)
+metadata_index: u32, @if(DIAG_VARY_POSITION_ONLY && !ENHANCED)
+quad_index: u32, @if(DIAG_VARY_POSITION_ONLY && !ENHANCED)
+corner: u32) -> VertexOutput {
+    let full = minimal_cube_vertex(metadata_index, quad_index, corner);
+    var out: VertexOutput;
+    out.clip_position = full.clip_position;
+    out.current_texture = quads[quad_index].material_id;
+    return out;
 }
 
 /// Diagnostic vertex: the unsealed corner position of packed quad `quad_index` in origin slot
 /// `metadata_index`, with constant varyings and no material, light or tint work.
-@if(DIAG_VERTEX_MIN)
-fn minimal_cube_vertex(@if(DIAG_VERTEX_MIN)
-metadata_index: u32, @if(DIAG_VERTEX_MIN)
-quad_index: u32, @if(DIAG_VERTEX_MIN)
+@if(DIAG_VERTEX_MIN || DIAG_VARY_MIN_VS || DIAG_VARY_POSITION_ONLY)
+fn minimal_cube_vertex(@if(DIAG_VERTEX_MIN || DIAG_VARY_MIN_VS || DIAG_VARY_POSITION_ONLY)
+metadata_index: u32, @if(DIAG_VERTEX_MIN || DIAG_VARY_MIN_VS || DIAG_VARY_POSITION_ONLY)
+quad_index: u32, @if(DIAG_VERTEX_MIN || DIAG_VARY_MIN_VS || DIAG_VARY_POSITION_ONLY)
 corner: u32) -> VertexOutput {
     let geometry = quads[quad_index].geometry;
     let local_origin = vec3<f32>(
@@ -321,6 +393,7 @@ corner: u32) -> VertexOutput {
         section_camera_offset(origin.xyz, local_position, view.world_position),
     );
     out.uv = vec2(f32(corner & 1u), f32(corner >> 1u));
+    @if(!DIAG_PACKED_VARYINGS)
     out.local_position = local_position;
     out.world_position = vec3<f32>(origin.xyz) + local_position;
     out.native_light_levels = vec2(0.0, 15.0);
@@ -448,6 +521,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.material_flags = material.flags;
     @if(!ENHANCED)
     out.masks = material_mask_varyings(material);
+    @if(!DIAG_PACKED_VARYINGS)
     out.local_position = local_position;
     out.biome_record = u32(cube.chunk_origin.w);
     out.next_texture = animation_sample.next_texture;
@@ -468,14 +542,14 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     @if(!ENHANCED)
     out.native_ao_face = material_ao_shade(ao * dimming, material.ao_exponent);
     @if(!ENHANCED)
-    out.uniform_tint_gamma = vec4(0.0);
+    var face_tint = vec4(0.0);
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
-    out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
+    face_tint = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
     // A one-block face owns a single block's blend, so evaluate it here once rather than per
     // fragment. Mixed records mesh tinted faces one block wide for exactly this.
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW && !DIAG_NO_VERTEX_BLEND)
-    if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
-        out.uniform_tint_gamma = vec4(blended_biome_tint_gamma(
+    if (face_tint.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
+        face_tint = vec4(blended_biome_tint_gamma(
             material.flags & 0x30u,
             material.flags,
             out.biome_record,
@@ -483,6 +557,10 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
             vec3<f32>(cube.chunk_origin.xyz),
         ).rgb, 1.0);
     }
+    @if(!ENHANCED && !DIAG_PACKED_VARYINGS)
+    out.uniform_tint_gamma = face_tint;
+    @if(!ENHANCED && DIAG_PACKED_VARYINGS)
+    out.packed_tint = pack4x8unorm(face_tint);
     @if(ENHANCED)
     out.surface_class = material_class(cube.material_id);
     @if(ENHANCED)
@@ -515,7 +593,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let shift = axes[0] * moved.x + axes[1] * moved.y;
     @if(!ENHANCED_SHADOW)
     out.uv = greedy_uv(face, corner_position + moved, width, height, uv_flags);
-    @if(!ENHANCED_SHADOW)
+    @if(!ENHANCED_SHADOW && !DIAG_PACKED_VARYINGS)
     out.local_position += shift;
     @if(!ENHANCED_SHADOW)
     out.world_position += shift;
@@ -760,6 +838,8 @@ fn native_masked_cube_colour(
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    @if(!ENHANCED && DIAG_FS_CONSTANT_INPUTS)
+    return diag_constant_inputs_colour(in);
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
@@ -868,6 +948,8 @@ fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4(1.0);
     @if(!ENHANCED && DIAG_SHADE_VARYINGS)
     return diag_varyings_colour(in);
+    @if(!ENHANCED && DIAG_FS_CONSTANT_INPUTS)
+    return diag_constant_inputs_colour(in);
     @if(!OPAQUE_OVERDRAW)
     return shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
 }
@@ -894,7 +976,7 @@ in: VertexOutput) -> vec3<f32> {
     return vec3(1.0);
     // Keeps the flat per-face tint but drops the per-fragment biome blend fallback.
     @if(DIAG_SHADE_NO_BLEND && !DIAG_SHADE_NO_TINT)
-    return select(vec3(1.0), in.uniform_tint_gamma.rgb, in.uniform_tint_gamma.a != 0.0);
+    return select(vec3(1.0), diag_in_tint(in).rgb, diag_in_tint(in).a != 0.0);
     @if(!DIAG_SHADE_NO_TINT && !DIAG_SHADE_NO_BLEND)
     return ordinary_cube_tint_gamma(in);
 }
@@ -937,6 +1019,29 @@ fn diag_to_linear(gamma: vec3<f32>) -> vec3<f32> {
     return tint_to_linear(vec4(gamma, 1.0)).rgb;
 }
 
+// Diagnostic `diag_vary=1|3`: full cube shading on constant inputs, reading only the clip
+// position and `current_texture`, so the linker can drop every other varying.
+@if(!ENHANCED && DIAG_FS_CONSTANT_INPUTS)
+fn diag_constant_inputs_colour(@if(!ENHANCED && DIAG_FS_CONSTANT_INPUTS)
+in: VertexOutput) -> vec4<f32> {
+    var c: VertexOutput;
+    c.clip_position = in.clip_position;
+    c.uv = vec2(0.5);
+    c.current_texture = in.current_texture;
+    c.quad_shape = 0u;
+    c.material_flags = 0u;
+    c.local_position = vec3(0.5);
+    c.biome_record = 0u;
+    c.next_texture = in.current_texture;
+    c.frame_blend = 0.0;
+    c.world_position = view.world_position + vec3(1.0);
+    c.native_light_levels = vec2(0.0, 15.0);
+    c.native_ao_face = 1.0;
+    c.uniform_tint_gamma = vec4(1.0);
+    c.masks = vec3(0u);
+    return shade_cube(c, sample_cube_texture(c, vec2(0.0), vec2(0.0)));
+}
+
 // Reads every fragment input with trivial arithmetic: no texture, table or buffer access.
 @if(!ENHANCED)
 fn diag_varyings_colour(@if(!ENHANCED)
@@ -944,25 +1049,50 @@ in: VertexOutput) -> vec4<f32> {
     let bits = in.material_flags ^ in.current_texture ^ in.next_texture ^ in.biome_record
         ^ in.quad_shape ^ in.masks.x ^ in.masks.y ^ in.masks.z;
     let mixed = in.world_position * 0.01 + vec3(in.uv, in.frame_blend)
-        + vec3(in.native_light_levels, in.native_ao_face) + in.uniform_tint_gamma.rgb
-        + in.local_position * 0.1 + vec3(f32(bits & 255u) / 255.0);
+        + vec3(in.native_light_levels, in.native_ao_face) + diag_in_tint(in).rgb
+        + diag_in_local_position(in) * 0.1 + vec3(f32(bits & 255u) / 255.0);
     return vec4(fract(mixed), 1.0);
+}
+
+// The face tint, unpacked under `diag_vary=4`.
+@if(!ENHANCED)
+fn diag_in_tint(@if(!ENHANCED)
+in: VertexOutput) -> vec4<f32> {
+    @if(DIAG_PACKED_VARYINGS)
+    return unpack4x8unorm(in.packed_tint);
+    @if(!DIAG_PACKED_VARYINGS)
+    return in.uniform_tint_gamma;
+}
+
+// The section-local position; `diag_vary=4` rebuilds it from the 16-aligned section corner of
+// the block just inside the face.
+@if(!ENHANCED)
+fn diag_in_local_position(@if(!ENHANCED)
+in: VertexOutput) -> vec3<f32> {
+    @if(DIAG_PACKED_VARYINGS)
+    let block = floor(in.world_position - quad_shape_normal(in.quad_shape) * 0.001);
+    @if(DIAG_PACKED_VARYINGS)
+    return in.world_position - floor(block / 16.0) * 16.0;
+    @if(!DIAG_PACKED_VARYINGS)
+    return in.local_position;
 }
 
 // Mixed records and position-noise grass keep their original per-block fragment lookup.
 @if(!ENHANCED)
 fn ordinary_cube_tint_gamma(@if(!ENHANCED)
 in: VertexOutput) -> vec3<f32> {
-    if (in.uniform_tint_gamma.a != 0.0) { return in.uniform_tint_gamma.rgb; }
+    let face_tint = diag_in_tint(in);
+    if (face_tint.a != 0.0) { return face_tint.rgb; }
     var tint_gamma = vec3(1.0);
     let tint_kind = in.material_flags & 0x30u;
     if (tint_kind != 0u) {
+        let local_position = diag_in_local_position(in);
         tint_gamma = blended_biome_tint_gamma(
             tint_kind,
             in.material_flags,
             in.biome_record,
-            in.local_position - quad_shape_normal(in.quad_shape) * 0.001,
-            in.world_position - in.local_position,
+            local_position - quad_shape_normal(in.quad_shape) * 0.001,
+            in.world_position - local_position,
         ).rgb;
     }
     return tint_gamma;
