@@ -1781,6 +1781,8 @@ native deadline remains due. Locked-line support does not receive a second centr
 filter. Ordinary and liquid queries retain their availability independently. Refreshed
 indirect support can become a direct top-face hit. Placement shares the same upcoming-tick
 item category cooldowns with air use and starts them only after transport admission.
+Boat and raft use provisionally selects the liquid-aware ray; version-matched native
+targeting and placement transactions, including flowing water, remain unverified.
 Regression coverage includes buffered aims, bounded float segments, same-tick retries,
 category expiry and actor lifetime/streaming boundaries. The focused app and domain
 suites pass. A headless local-server bridge comparison reproduces the old fall and keeps
