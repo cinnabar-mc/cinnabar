@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	javaauth "github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
@@ -212,3 +213,43 @@ func (d packetDelayControl) PositionSnapshot() (uint64, *control.Position) {
 }
 
 func (packetDelayControl) Lease() time.Duration { return proxy.PacketDelayLease }
+
+// javaAccountsControl serves java_accounts.v1 from the install's Java Edition accounts.
+type javaAccountsControl struct{ accounts *javaauth.Accounts }
+
+func (c javaAccountsControl) List() ([]control.JavaAccount, string, error) {
+	accounts, selected, err := c.accounts.List()
+	wire := make([]control.JavaAccount, len(accounts))
+	for i, account := range accounts {
+		wire[i] = control.JavaAccount{ID: account.ID, Name: account.Name}
+	}
+	return wire, selected, err
+}
+
+func (c javaAccountsControl) Add() control.JavaAccountAdd {
+	add := c.accounts.AddState()
+	return control.JavaAccountAdd{State: add.State, VerificationURI: add.VerificationURI, UserCode: add.UserCode, Reason: add.Reason}
+}
+
+func (c javaAccountsControl) BeginAdd(ctx context.Context) error {
+	_, err := c.accounts.BeginAdd(ctx)
+	return err
+}
+
+func (c javaAccountsControl) CancelAdd() { c.accounts.CancelAdd() }
+
+func (c javaAccountsControl) Select(id string) error {
+	return javaAccountError(c.accounts.Select(id))
+}
+
+func (c javaAccountsControl) Remove(ctx context.Context, id string) error {
+	return javaAccountError(c.accounts.Remove(ctx, id))
+}
+
+// javaAccountError gives an unknown account the control package's error.
+func javaAccountError(err error) error {
+	if errors.Is(err, javaauth.ErrNoAccount) {
+		return control.ErrNoJavaAccount
+	}
+	return err
+}

@@ -30,6 +30,7 @@ func TestEveryManifestControlMethodReachesItsHandler(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = server.Close() })
 	server.SetPacketDelay(new(fakePacketDelay))
+	server.SetJavaAccounts(new(fakeJavaAccounts))
 	methods := 0
 	for _, row := range manifest.Constants {
 		if !strings.HasPrefix(row.Name, "METHOD_") {

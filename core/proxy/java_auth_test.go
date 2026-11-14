@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
-	"github.com/hashimthearab/rust-mcbe/core/javaedition/conn"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/javatest"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"golang.org/x/oauth2"
@@ -90,66 +89,76 @@ func disconnectText(t *testing.T, err error) string {
 	return disconnect.Message
 }
 
-func dialJavaForTest(t *testing.T, server *javatest.Server, keychain *auth.Keychain) (upstreamSession, error) {
+func dialJavaForTest(t *testing.T, server *javatest.Server, accounts *auth.Accounts) (upstreamSession, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return dialJavaUpstream(ctx, server.Addr(), keychain, "Steve", slog.New(slog.DiscardHandler))
+	return dialJavaUpstream(ctx, server.Addr(), accounts, "Steve", slog.New(slog.DiscardHandler))
 }
 
-// An online-mode server asks for the session of a player with no Java Edition sign-in: the
-// join fails with the code to enter, and the sign-in goes on waiting for it.
-func TestJavaJoinWithoutASignInShowsTheCode(t *testing.T) {
-	server := startJavaServer(t, javatest.Config{OnlineMode: true})
-	keychain := auth.NewKeychain(auth.KeychainConfig{Path: filepath.Join(t.TempDir(), auth.CacheFile), App: switchStub{}})
-	t.Cleanup(keychain.Close)
-	_, err := dialJavaForTest(t, server, keychain)
-	text := disconnectText(t, err)
-	if !strings.Contains(text, "TESTCODE") || !strings.Contains(text, "https://www.microsoft.com/link") {
-		t.Fatalf("disconnect text = %q", text)
-	}
-}
+const notchID = "069a79f444e94726a5befca90e38aaf5"
 
-// A saved Java Edition sign-in that no longer works asks for a new one, as no sign-in does.
-func TestJavaJoinWithAnUnusableSignInShowsTheCode(t *testing.T) {
-	server := startJavaServer(t, javatest.Config{OnlineMode: true})
-	path := filepath.Join(t.TempDir(), auth.CacheFile)
-	if err := os.WriteFile(path, []byte("not a token"), 0o600); err != nil {
+// testAccounts opens a Java accounts directory holding one selected account named name,
+// whose token is token.
+func testAccounts(t *testing.T, services auth.Services, name string, token []byte) *auth.Accounts {
+	t.Helper()
+	dir := t.TempDir()
+	index, err := json.Marshal(map[string]any{"selected": notchID, "accounts": []auth.Account{{ID: notchID, Name: name}}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	keychain := auth.NewKeychain(auth.KeychainConfig{Path: path, App: switchStub{}})
-	t.Cleanup(keychain.Close)
-	_, err := dialJavaForTest(t, server, keychain)
-	if text := disconnectText(t, err); !strings.Contains(text, "TESTCODE") {
-		t.Fatalf("disconnect text = %q", text)
+	if err := os.WriteFile(filepath.Join(dir, "accounts.json"), index, 0o600); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, notchID+".json"), token, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	accounts := auth.OpenAccounts(auth.AccountsConfig{Dir: dir, App: switchStub{}, Services: services})
+	t.Cleanup(accounts.Close)
+	return accounts
 }
 
-// A signed-out player cannot join an online-mode server, and is told to sign in.
-func TestJavaJoinSignedOutAsksForAnAccount(t *testing.T) {
-	server := startJavaServer(t, javatest.Config{OnlineMode: true})
-	_, err := dialJavaForTest(t, server, nil)
-	if text := disconnectText(t, err); !strings.Contains(text, "Sign in to Cinnabar") {
-		t.Fatalf("disconnect text = %q", text)
-	}
-}
-
-// With a Java Edition sign-in the player logs in as its Java profile and registers the join
-// with the session service.
-func TestJavaJoinSignedInUsesTheJavaProfile(t *testing.T) {
-	server := startJavaServer(t, javatest.Config{OnlineMode: true})
-	fake := &javaServices{}
-	path := filepath.Join(t.TempDir(), auth.CacheFile)
+func workingToken(t *testing.T) []byte {
+	t.Helper()
 	token, err := json.Marshal(&oauth2.Token{AccessToken: "switch-access", RefreshToken: "switch-refresh", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, token, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	keychain := auth.NewKeychain(auth.KeychainConfig{Path: path, App: switchStub{}, Services: fake.start(t)})
-	t.Cleanup(keychain.Close)
+	return token
+}
 
+// An online-mode server asks for the session of a player with no Java account: the join
+// starts adding one and fails with its code, which the Accounts screen shows too.
+func TestJavaJoinWithoutAnAccountShowsTheCode(t *testing.T) {
+	server := startJavaServer(t, javatest.Config{OnlineMode: true})
+	accounts := auth.OpenAccounts(auth.AccountsConfig{Dir: t.TempDir(), App: switchStub{}})
+	t.Cleanup(accounts.Close)
+	_, err := dialJavaForTest(t, server, accounts)
+	text := disconnectText(t, err)
+	if !strings.Contains(text, "TESTCODE") || !strings.Contains(text, "https://www.microsoft.com/link") {
+		t.Fatalf("disconnect text = %q", text)
+	}
+	if add := accounts.AddState(); add.UserCode != "TESTCODE" {
+		t.Fatalf("add state = %+v", add)
+	}
+}
+
+// Without Java accounts at all, an online-mode server cannot be joined, and the player is
+// told where to add one.
+func TestJavaJoinWithoutAccountsAsksForOne(t *testing.T) {
+	server := startJavaServer(t, javatest.Config{OnlineMode: true})
+	_, err := dialJavaForTest(t, server, nil)
+	if text := disconnectText(t, err); !strings.Contains(text, "Add one in Accounts") {
+		t.Fatalf("disconnect text = %q", text)
+	}
+}
+
+// The selected account logs in as its saved profile and registers the join with the session
+// service.
+func TestJavaJoinUsesTheSelectedAccount(t *testing.T) {
+	server := startJavaServer(t, javatest.Config{OnlineMode: true})
+	fake := &javaServices{}
+	accounts := testAccounts(t, fake.start(t), "Notch", workingToken(t))
 	joined := make(chan *javatest.Client, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -157,7 +166,7 @@ func TestJavaJoinSignedInUsesTheJavaProfile(t *testing.T) {
 		client, _ := server.Accept(ctx)
 		joined <- client
 	}()
-	upstream, err := dialJavaForTest(t, server, keychain)
+	upstream, err := dialJavaForTest(t, server, accounts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,20 +182,35 @@ func TestJavaJoinSignedInUsesTheJavaProfile(t *testing.T) {
 	}
 }
 
+// A selected account whose sign-in no longer works asks for a new one, as no account does.
+func TestJavaJoinWithAnUnusableSignInShowsTheCode(t *testing.T) {
+	server := startJavaServer(t, javatest.Config{OnlineMode: true})
+	accounts := testAccounts(t, (&javaServices{}).start(t), "Notch", []byte("not a token"))
+	_, err := dialJavaForTest(t, server, accounts)
+	if text := disconnectText(t, err); !strings.Contains(text, "TESTCODE") {
+		t.Fatalf("disconnect text = %q", text)
+	}
+}
+
+// A profile renamed since it was saved logged in under its old name, which the server will
+// not accept: the player is asked to reconnect, and the next login sends the new name.
+func TestJavaJoinAfterARenameAsksToReconnect(t *testing.T) {
+	server := startJavaServer(t, javatest.Config{OnlineMode: true})
+	accounts := testAccounts(t, (&javaServices{}).start(t), "OldName", workingToken(t))
+	_, err := dialJavaForTest(t, server, accounts)
+	if text := disconnectText(t, err); !strings.Contains(text, "Reconnect") {
+		t.Fatalf("disconnect text = %q", text)
+	}
+	if account, _, ok := accounts.Selected(); !ok || account.Name != "Notch" {
+		t.Fatalf("selected after the rename = %+v", account)
+	}
+}
+
 // A server that refuses the login shows the player its own reason.
 func TestJavaJoinShowsTheServersRefusal(t *testing.T) {
 	server := startJavaServer(t, javatest.Config{RefuseLogin: `{"text":"You are banned","color":"red"}`})
 	_, err := dialJavaForTest(t, server, nil)
 	if text := disconnectText(t, err); !strings.Contains(text, "You are banned") {
-		t.Fatalf("disconnect text = %q", text)
-	}
-}
-
-// A sign-in that finished only after the login named the player cannot authenticate that
-// login, so the player is told to reconnect rather than shown the server's refusal.
-func TestJavaJoinWithALateSignInAsksToReconnect(t *testing.T) {
-	err := javaJoinError(&conn.SessionError{Err: errJavaSignInLate})
-	if text := disconnectText(t, err); !strings.Contains(text, "Reconnect") {
 		t.Fatalf("disconnect text = %q", text)
 	}
 }

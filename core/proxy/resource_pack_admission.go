@@ -446,7 +446,7 @@ type preparedSlot struct {
 // *minecraft.Conn identity until Accept transfers ownership to the session.
 type preparedConnections struct {
 	account                     *authcache.Account
-	javaEdition                 *auth.Keychain // nil joins Java servers signed out
+	javaEdition                 *auth.Accounts // nil joins Java servers signed out
 	logger                      *slog.Logger
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)

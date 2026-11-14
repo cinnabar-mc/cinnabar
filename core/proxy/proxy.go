@@ -30,8 +30,8 @@ type Config struct {
 	SocketDir string
 	Upstream  string
 	Account   *authcache.Account // nil runs offline
-	// JavaEdition is the account's Java Edition sign-in; nil joins Java servers signed out.
-	JavaEdition *auth.Keychain
+	// JavaEdition is the install's Java Edition accounts; nil joins Java servers signed out.
+	JavaEdition *auth.Accounts
 	Logger      *slog.Logger
 	// UpstreamClientCache advertises blob-cache support upstream; set it only when the downstream
 	// client owns a verified blob cache, since there is no runtime negotiation.

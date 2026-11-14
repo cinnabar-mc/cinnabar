@@ -105,6 +105,7 @@ type options struct {
 	socketDir                 string
 	upstream                  string
 	authCache                 string
+	javaAccounts              string
 	deviceFile                string
 	language                  string
 	catalogFile               string
@@ -143,6 +144,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.socketDir, "socket-dir", "", "directory containing the local bridge endpoint")
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
+	flags.StringVar(&opts.javaAccounts, "java-accounts", "", "directory of the install's Java Edition accounts")
 	flags.StringVar(&opts.deviceFile, "device-file", "", "the install's persisted login device profile (default: device.json beside -auth-cache)")
 	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
@@ -287,7 +289,15 @@ func runWithResourcePackCacheFactory(
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
 	var account *authcache.Account
-	var javaEdition *javaauth.Keychain
+	var javaEdition *javaauth.Accounts
+	if opts.javaAccounts != "" {
+		javaEdition = javaauth.OpenAccounts(javaauth.AccountsConfig{
+			Dir:      opts.javaAccounts,
+			Services: javaauth.Services{HTTP: &http.Client{Timeout: javaEditionHTTPTimeout}},
+			Logger:   logger,
+		})
+		defer javaEdition.Close()
+	}
 	closeCredentials := context.CancelFunc(func() {})
 	if statusStore != nil {
 		statusStore.SetAuth(control.AuthV1{State: control.AuthOffline})
@@ -316,12 +326,6 @@ func runWithResourcePackCacheFactory(
 		if account = authcache.NewAccount(credentialCtx, authcache.DerivedCachePath(opts.authCache), tokenSource, logger); account != nil {
 			tokenSource = account
 			defer func() { closeCredentials(); _ = account.Close() }()
-			javaEdition = javaauth.NewKeychain(javaauth.KeychainConfig{
-				Path:     javaauth.CachePath(opts.authCache),
-				Services: javaauth.Services{HTTP: &http.Client{Timeout: javaEditionHTTPTimeout}},
-				Logger:   logger,
-			})
-			defer javaEdition.Close()
 		}
 		// Initialization follows shutdown; afterward credentials survive title cleanup.
 		cancelAuthentication()
@@ -415,7 +419,7 @@ func runWithResourcePackCacheFactory(
 			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
 		}
 		service := launcher.New(launcher.Config{
-			Account: account, AuthCache: opts.authCache, JavaEdition: javaEdition, Language: opts.language,
+			Account: account, AuthCache: opts.authCache, Language: opts.language,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 		})
@@ -432,6 +436,9 @@ func runWithResourcePackCacheFactory(
 			controlServer.SetCinnabarAPI(api)
 		}
 		controlServer.SetLogger(logger)
+		if javaEdition != nil {
+			controlServer.SetJavaAccounts(javaAccountsControl{javaEdition})
+		}
 		controlServer.SetServices(launcherControl{service})
 		sessionTarget = service.SessionTarget
 		if account != nil {

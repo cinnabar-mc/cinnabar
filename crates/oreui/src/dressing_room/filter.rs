@@ -93,6 +93,7 @@ pub(super) fn popup(
                 selected: category == view.dressing_room.cosmetic_category,
                 enabled: true,
                 action: Some(command(Action::SetCosmeticCategory(category))),
+                heading: false,
             },
         )?;
     }

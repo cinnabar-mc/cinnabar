@@ -79,7 +79,7 @@ func (a *fakeApp) counts() (deviceAuth, identity int) {
 func newTestKeychain(t *testing.T, app MicrosoftApp, services Services) *Keychain {
 	t.Helper()
 	keychain := NewKeychain(KeychainConfig{
-		Path:     filepath.Join(t.TempDir(), CacheFile),
+		Path:     filepath.Join(t.TempDir(), "token.json"),
 		App:      app,
 		Services: services,
 	})
@@ -138,7 +138,7 @@ func TestKeychainReusesASessionUntilItExpires(t *testing.T) {
 	app := newFakeApp()
 	now := time.Now()
 	keychain := NewKeychain(KeychainConfig{
-		Path:     filepath.Join(t.TempDir(), CacheFile),
+		Path:     filepath.Join(t.TempDir(), "token.json"),
 		App:      app,
 		Services: fake.services(),
 		Now:      func() time.Time { return now },
@@ -212,12 +212,6 @@ func TestKeychainForgetRemovesTheSignIn(t *testing.T) {
 	}
 	if _, err := keychain.Session(context.Background()); !errors.Is(err, ErrNotSignedIn) {
 		t.Fatalf("session after Forget = %v", err)
-	}
-}
-
-func TestCachePathSitsBesideTheAccountToken(t *testing.T) {
-	if got := CachePath(filepath.Join("auth", "microsoft-token.json")); got != filepath.Join("auth", CacheFile) {
-		t.Fatalf("CachePath = %q", got)
 	}
 }
 

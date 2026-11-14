@@ -42,6 +42,7 @@ impl MenuRuntime {
             return;
         }
         self.reload_accounts();
+        self.refresh_java_accounts();
         self.dialog = Some(MenuDialog::Accounts);
         self.focused = 0;
         self.feeds.account_error = None;
@@ -129,6 +130,10 @@ impl MenuRuntime {
             | MenuAction::CancelSignIn
             | MenuAction::CloseSignIn
             | MenuAction::AddAccount
+            | MenuAction::AddJavaAccount
+            | MenuAction::SwitchJavaAccount(_)
+            | MenuAction::RemoveJavaAccount
+            | MenuAction::CancelJavaAccount
             | MenuAction::SignOut => true,
             _ => false,
         }

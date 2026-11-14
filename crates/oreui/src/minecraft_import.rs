@@ -47,6 +47,7 @@ impl OreUiScreen {
                     selected: false,
                     enabled: true,
                     action: Some(action(Action::Select(index))),
+                    heading: false,
                 })
                 .collect()
         } else {

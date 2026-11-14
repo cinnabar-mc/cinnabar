@@ -429,6 +429,10 @@ impl MenuRuntime {
                     if self.feeds.account_adding {
                         return vec![MenuAction::CancelSignIn];
                     }
+                    let java = &self.feeds.java_accounts;
+                    if java.add.in_progress() {
+                        return vec![MenuAction::CancelJavaAccount, MenuAction::DismissDialog];
+                    }
                     let mut actions: Vec<_> = self
                         .feeds
                         .accounts
@@ -439,8 +443,18 @@ impl MenuRuntime {
                         })
                         .map(|(index, _)| MenuAction::SwitchAccount(index))
                         .collect();
+                    actions.extend(
+                        java.accounts
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, account)| Some(&account.id) != java.selected.as_ref())
+                            .map(|(index, _)| MenuAction::SwitchJavaAccount(index)),
+                    );
+                    actions.extend([MenuAction::AddAccount, MenuAction::AddJavaAccount]);
+                    if java.selected.is_some() {
+                        actions.push(MenuAction::RemoveJavaAccount);
+                    }
                     actions.extend([
-                        MenuAction::AddAccount,
                         MenuAction::Navigate(MenuScreen::Profile),
                         MenuAction::DismissDialog,
                     ]);
