@@ -1,8 +1,9 @@
 //! Live-heap attribution for developer runs on Linux (glibc).
 //!
 //! [`ProfilingAllocator`] records a call stack for every allocation of at least
-//! [`LARGE_BYTES`] and for a byte-weighted sample of smaller ones (about one per
-//! [`SAMPLE_BYTES`] allocated on each thread, each standing for that many bytes), and forgets
+//! [`LARGE_BYTES`] and for a byte-weighted sample of smaller ones (on average one per
+//! [`SAMPLE_BYTES`] allocated on each thread, at exponentially distributed gaps, each standing
+//! for that many bytes), and forgets
 //! them when they are freed. [`start`] dumps what is still live, grouped by call stack, to
 //! `$CINNABAR_HEAP_PROFILE/heap-<pid>-<n>.txt` every `$CINNABAR_HEAP_PROFILE_EVERY` seconds (15 by
 //! default). Frames are written as `module+0xoffset`; `tools/heap-profile/symbolize.py`
@@ -25,7 +26,7 @@ use std::{
 /// Allocations at least this large are always recorded with their exact size.
 pub const LARGE_BYTES: usize = 64 << 10;
 /// Smaller allocations are sampled about once per this many bytes on each thread.
-pub const SAMPLE_BYTES: i64 = 256 << 10;
+pub const SAMPLE_BYTES: u64 = 256 << 10;
 /// Return addresses kept per recorded allocation.
 const DEPTH: usize = 40;
 /// Independent locks over the live-allocation table, to keep frees from contending.
@@ -63,8 +64,9 @@ static SITES: Mutex<Option<Sites>> = Mutex::new(None);
 thread_local! {
     /// Set while this thread runs profiler code, whose own allocations are not recorded.
     static INSIDE: Cell<bool> = const { Cell::new(false) };
-    /// Bytes left before this thread's next sampled small allocation.
-    static COUNTDOWN: Cell<i64> = const { Cell::new(SAMPLE_BYTES) };
+    /// Chooses this thread's sampled small allocations; seeded on first use.
+    static SAMPLER: std::cell::RefCell<Option<crate::sampler::Sampler>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Runs `work` with recording suppressed on this thread; `None` when the thread is already
@@ -90,20 +92,22 @@ fn weight(size: usize) -> Option<usize> {
     if size >= LARGE_BYTES {
         return Some(size);
     }
-    COUNTDOWN
-        .try_with(|countdown| {
-            let left = countdown.get() - size as i64;
-            if left > 0 {
-                countdown.set(left);
-                None
-            } else {
-                countdown.set(left.rem_euclid(SAMPLE_BYTES).max(1));
-                Some(SAMPLE_BYTES as usize)
-            }
+    SAMPLER
+        .try_with(|sampler| {
+            let mut sampler = sampler.try_borrow_mut().ok()?;
+            let sampler = sampler.get_or_insert_with(|| {
+                // Each thread draws its own sequence.
+                let seed = SEEDS.fetch_add(0x9E37_79B9_7F4A_7C15, Ordering::Relaxed);
+                crate::sampler::Sampler::new(SAMPLE_BYTES, seed)
+            });
+            sampler.sample(size).then(|| sampler.mean() as usize)
         })
         .ok()
         .flatten()
 }
+
+/// Seeds handed to each thread's sampler.
+static SEEDS: AtomicU64 = AtomicU64::new(0x2545_F491_4F6C_DD1D);
 
 fn track(pointer: *mut u8, size: usize) {
     if pointer.is_null() {
@@ -217,6 +221,7 @@ pub fn start() {
     let every = std::env::var("CINNABAR_HEAP_PROFILE_EVERY")
         .ok()
         .and_then(|seconds| seconds.parse().ok())
+        .filter(|seconds| *seconds > 0)
         .map_or(Duration::from_secs(15), Duration::from_secs);
     // Loads the unwinder before any allocation can need it.
     guarded(|| {

@@ -3,6 +3,7 @@
 
 #[cfg(all(feature = "heap-profile", target_os = "linux", target_env = "gnu"))]
 pub mod heap_profile;
+pub mod sampler;
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
