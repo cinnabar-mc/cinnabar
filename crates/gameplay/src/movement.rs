@@ -885,6 +885,7 @@ impl MovementTicker {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
                     pending.snapshot.position = replayed.position;
+                    pending.snapshot.java_position = replayed.processed.java_position;
                     if let Some(mining) = pending.mining.as_mut() {
                         mining.replay_at(replayed.position);
                     }

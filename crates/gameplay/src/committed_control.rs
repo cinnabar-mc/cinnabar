@@ -462,6 +462,7 @@ impl CommittedGameplayState<'_> {
                             position: resolved.position,
                         });
                     }
+                    self.physics.replace_java_player();
                 } else {
                     self.movement
                         .snap_non_authoritative_anchor(tick, resolved.position);
@@ -504,6 +505,7 @@ impl CommittedGameplayState<'_> {
                             position: resolved.position,
                         });
                     }
+                    self.physics.replace_java_player();
                 } else {
                     self.movement
                         .snap_non_authoritative_anchor(tick, resolved.position);

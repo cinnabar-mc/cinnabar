@@ -169,6 +169,12 @@ impl PlayerState {
         self.java.clone_from(&previous.java);
     }
 
+    /// Drops the Java Edition player, as the 1.7.10 client replaces its player on a respawn
+    /// or a dimension change. The next Java tick starts a new one where this state stands.
+    pub fn forget_java_player(&mut self) {
+        self.java = None;
+    }
+
     /// Applies an external placement, rebuilding contact faces even at the same
     /// position. Retained climber contact is kept.
     pub fn set_position(&mut self, position: Vec3) {

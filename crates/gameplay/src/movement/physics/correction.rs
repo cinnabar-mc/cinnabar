@@ -497,6 +497,11 @@ impl LocalPhysicsController {
                 jump_fold = ReplayJumpArcFold::seed(true, false, false);
             }
             let (initiated, arc_active) = jump_fold.step(output.jump_initiated, result.on_ground);
+            retained.processed.java_position = frame_input.java_physics.then_some([
+                result.position.x,
+                result.position.y,
+                result.position.z,
+            ]);
             retained.sneaking = frame_input.sneaking;
             retained.sprinting = frame_input.sprinting;
             retained.processed.sneaking = frame_input.sneaking;

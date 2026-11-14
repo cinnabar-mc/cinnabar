@@ -259,3 +259,156 @@ fn a_sprint_that_ends_with_forward_held_slows_to_a_walk() {
         step_of(&walked)
     );
 }
+
+/// A respawn moves the player like a teleport, but the 1.7.10 client replaces its player
+/// there: the new one starts in the air, so a held jump leaves the ground a tick later than
+/// the old, grounded player would.
+#[test]
+fn a_respawn_starts_a_new_java_player() {
+    use crate::committed_control::CommittedGameplayState;
+    use crate::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, MovementSource, MovementTicker,
+    };
+
+    let mut physics = grounded_controller();
+    physics.set_java_physics(true);
+    for _ in 0..3 {
+        step(
+            &mut physics,
+            MovementInput::default(),
+            ModeIntent::default(),
+            &TranslatedFloor,
+        );
+    }
+    let tick = physics.state().expect("a simulated player").tick;
+    let mut movement = MovementTicker::default();
+    movement.reset(7, tick, physics.network_position().expect("a position"));
+    movement.set_source(MovementSource::Physics);
+    let mut effects = LocalMovementEffectTimeline::default();
+    effects.begin_session(7);
+    let mut speed = LocalMovementSpeedAuthority::default();
+    speed.begin_session(7, 0);
+    let target = [5.5, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.5];
+    let resolved = client_world::ResolvedServerPosition {
+        position: target,
+        surface_anchor: None,
+    };
+    CommittedGameplayState {
+        movement: &mut movement,
+        physics: &mut physics,
+        effects: &mut effects,
+        speed: &mut speed,
+        session_generation: 7,
+        dimension: 0,
+        dimension_transfer_active: false,
+    }
+    .apply(
+        client_world::CommittedControlEvent::Respawn {
+            sequence: 1,
+            respawn: protocol::RespawnEvent {
+                position: target,
+                state: 1,
+                runtime_entity_id: 0,
+            },
+            resolved,
+        },
+        &TranslatedFloor,
+        |_| {},
+    );
+    assert_eq!(
+        physics.network_position(),
+        Some(target),
+        "the respawn applied"
+    );
+    let arrival = physics.advance(super::TICK, MovementInput::default(), &TranslatedFloor);
+    assert!(arrival.samples.is_empty(), "the arrival frame ticked");
+
+    let [x, sunk, z] = feet(&physics);
+    let mut fresh = Player::at_feet(x, sunk, z, 0.0, 0.0);
+    fresh.lift_onto_surface(&TranslatedFloor, 1.0e-3);
+    let mut kept = fresh.clone();
+    for _ in 0..3 {
+        kept.tick(
+            &TranslatedFloor,
+            &Input::default(),
+            &Status::default(),
+            &mut Vec::new(),
+        );
+    }
+    let eye = sunk + f64::from(java_sim::player::EYE_OFFSET);
+    let _ = kept.teleport(x, eye, z, 0.0, 0.0, false);
+    kept.lift_onto_surface(&TranslatedFloor, 1.0e-3);
+
+    let keys = Input {
+        jump: true,
+        ..Input::default()
+    };
+    let mut differed = false;
+    for tick in 0..6 {
+        let input = MovementInput {
+            jumping: true,
+            ..MovementInput::default()
+        };
+        step(&mut physics, input, ModeIntent::default(), &TranslatedFloor);
+        fresh.tick(&TranslatedFloor, &keys, &Status::default(), &mut Vec::new());
+        kept.tick(&TranslatedFloor, &keys, &Status::default(), &mut Vec::new());
+        assert_eq!(
+            feet(&physics).map(f64::to_bits),
+            fresh.feet().map(f64::to_bits),
+            "tick {tick} after the respawn"
+        );
+        differed |= fresh.feet() != kept.feet();
+    }
+    assert!(differed, "a kept player would have moved the same way");
+}
+
+/// A correction replays the ticks after it, and each replayed tick reports its new
+/// position in double precision rather than the one it had before the correction.
+#[test]
+fn a_replayed_tick_carries_its_new_exact_position() {
+    let mut physics = grounded_controller();
+    physics.set_java_physics(true);
+    let mut samples = Vec::new();
+    for _ in 0..6 {
+        let input = MovementInput {
+            forward: 1.0,
+            ..MovementInput::default()
+        };
+        samples.push(step(
+            &mut physics,
+            input,
+            ModeIntent::default(),
+            &TranslatedFloor,
+        ));
+    }
+    let corrected = &samples[2];
+    let mut position = corrected.position;
+    position[0] += 0.5;
+    let plan = physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: position,
+                tick: corrected.tick,
+                on_ground: true,
+                velocity: None,
+            },
+            crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &TranslatedFloor,
+        )
+        .expect("the correction replays");
+    assert!(!plan.replayed_samples.is_empty(), "no tick was replayed");
+    for replayed in &plan.replayed_samples {
+        let exact = replayed
+            .processed
+            .java_position
+            .expect("a Java tick carries its exact position");
+        assert_eq!(
+            [exact[0] as f32, exact[2] as f32],
+            [replayed.position[0], replayed.position[2]],
+            "tick {} reports {exact:?} for {:?}",
+            replayed.tick,
+            replayed.position
+        );
+    }
+}
