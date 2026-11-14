@@ -2077,7 +2077,14 @@ Flathub submission remain incomplete.
   log the full error source before stopping. Injected handler regressions cover all four GPU error
   categories; these diagnostics do not establish the cause of Android device-loss reports.
   Android exit reports retain the beginning and end of long logs so startup build and adapter
-  context survives a busy session. Qualcomm compiler startup faults still lack a reduced failing
+  context survives a busy session. A live-heap profile of the Linux client at the main menu with
+  no world holds about 450 MB once OreUI icon pages are cropped to their contents, cosmetic items
+  build their standard-size world raster only when first drawn and builds without Enhanced keep
+  one material key index. The rest is world data prepared after the first menu frame
+  (collision registries, physics table, block entities, block geometry and equipment art, about
+  140 MB), interface texture pages kept on the CPU so the texture array can be re-planned (about
+  110 MB), parsed JSON-UI (about 50 MB) and engine state. Phone heap measurements of these changes
+  and any deferral of world preparation until a join remain incomplete. Qualcomm compiler startup faults still lack a reduced failing
   shader and affected-device acceptance; diagnostic improvements do not close that gate.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android

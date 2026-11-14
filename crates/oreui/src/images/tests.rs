@@ -83,3 +83,34 @@ fn every_referenced_key_ships_in_the_source_manifest() {
         );
     }
 }
+
+/// A shelf page keeps only the rows and columns its images cover, so a handful of icons does
+/// not hold a whole page-sized raster on the CPU and the GPU.
+#[test]
+fn packed_pages_are_cropped_to_the_images_they_hold() {
+    let still =
+        |side: u32, value: u8| Art::Still(side, side, vec![value; (side * side * 4) as usize]);
+    let images = pack(vec![
+        ("assets/a.png".to_owned(), still(3, 10)),
+        ("assets/b.png".to_owned(), still(5, 20)),
+    ])
+    .unwrap();
+    assert_eq!(images.pages.len(), 1);
+    let page = &images.pages[0];
+    // Three texels, one gutter column, then five: nine columns by five rows.
+    assert_eq!(page.dimensions, [9, 5]);
+    assert_eq!(page.pixels.len(), 9 * 5 * 4);
+    for (key, value) in [("assets/a.png", 10), ("assets/b.png", 20)] {
+        let [left, top, right, bottom] = images.sprites[key].bounds.map(usize::from);
+        for y in top..bottom {
+            for x in left..right {
+                let start = (y * page.dimensions[0] as usize + x) * 4;
+                assert_eq!(
+                    page.pixels[start..start + 4],
+                    [value; 4],
+                    "{key} at {x},{y}"
+                );
+            }
+        }
+    }
+}

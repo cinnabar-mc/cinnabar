@@ -791,7 +791,7 @@ fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
     assert_eq!(unlit.material, body.material);
     assert_eq!(
         batch.skin_layers[unlit.texture_layer as usize].pixels(),
-        render_model::hats::rig(plain).pixels.pixels()
+        render_model::hats::rig(plain).pixels().pixels()
     );
 
     let mut placements = Vec::new();

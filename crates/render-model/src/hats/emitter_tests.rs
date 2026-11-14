@@ -235,14 +235,14 @@ fn emissive_items_keep_preview_art_and_add_a_fullbright_world_raster() {
     let glowing = rig(fixture::glowing_crown());
     assert!(!plain.emissive());
     assert!(glowing.emissive());
-    assert_eq!(plain.world_pixels().pixels(), plain.pixels.pixels());
-    assert_eq!(glowing.pixels.pixels(), plain.pixels.pixels());
+    assert_eq!(plain.world_pixels().pixels(), plain.pixels().pixels());
+    assert_eq!(glowing.pixels().pixels(), plain.pixels().pixels());
     assert_eq!(glowing.texture, plain.texture);
     let world = glowing.world_pixels();
-    assert_eq!(world.len(), glowing.pixels.len());
+    assert_eq!(world.len(), glowing.pixels().len());
     let mut opaque = 0;
     for (source, converted) in glowing
-        .pixels
+        .pixels()
         .as_chunks::<4>()
         .0
         .iter()
