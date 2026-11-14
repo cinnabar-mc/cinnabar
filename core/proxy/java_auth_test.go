@@ -109,6 +109,21 @@ func TestJavaJoinWithoutASignInShowsTheCode(t *testing.T) {
 	}
 }
 
+// A saved Java Edition sign-in that no longer works asks for a new one, as no sign-in does.
+func TestJavaJoinWithAnUnusableSignInShowsTheCode(t *testing.T) {
+	server := startJavaServer(t, javatest.Config{OnlineMode: true})
+	path := filepath.Join(t.TempDir(), auth.CacheFile)
+	if err := os.WriteFile(path, []byte("not a token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keychain := auth.NewKeychain(auth.KeychainConfig{Path: path, App: switchStub{}})
+	t.Cleanup(keychain.Close)
+	_, err := dialJavaForTest(t, server, keychain)
+	if text := disconnectText(t, err); !strings.Contains(text, "TESTCODE") {
+		t.Fatalf("disconnect text = %q", text)
+	}
+}
+
 // A signed-out player cannot join an online-mode server, and is told to sign in.
 func TestJavaJoinSignedOutAsksForAnAccount(t *testing.T) {
 	server := startJavaServer(t, javatest.Config{OnlineMode: true})

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
@@ -60,9 +61,10 @@ func (javaUpstream) ResourcePackStack() (minecraft.ResourcePackStackSnapshot, bo
 }
 
 // dialJavaUpstream joins a Java server. With a Java Edition sign-in the player joins as its
-// profile, which online-mode servers require; without one the player joins under name, and
-// an online-mode server's request for the session starts the sign-in and fails the join with
-// the code to enter. Failures the player can act on reach the client as disconnect text.
+// profile, which online-mode servers require; without a usable one the player joins under
+// name, and an online-mode server's request for the session starts the sign-in and fails the
+// join with the code to enter. Failures the player can act on reach the client as disconnect
+// text.
 func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keychain, name string, logger *slog.Logger) (upstreamSession, error) {
 	options := translate.Options{Username: name, Logger: logger}
 	if options.Username == "" {
@@ -78,13 +80,19 @@ func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keycha
 			return prompt
 		}
 		if keychain.SignedIn() {
-			session, err := keychain.Session(ctx)
-			if err == nil {
+			// Bounded, so an offline-mode server's join never waits long on the services.
+			signInCtx, cancel := context.WithTimeout(ctx, javaSignInTimeout)
+			session, err := keychain.Session(signInCtx)
+			cancel()
+			switch {
+			case err == nil:
 				options.Username = session.Profile.Name
 				options.JoinSession = func(ctx context.Context, serverHash string) error {
 					return keychain.Join(ctx, session, serverHash)
 				}
-			} else {
+			case errors.Is(err, auth.ErrNotSignedIn):
+				logger.Info("saved Java Edition sign-in is unusable; an online-mode server will ask for a new one", "error", err)
+			default:
 				// An offline-mode server never asks for the session, so the failure only
 				// matters if this one does.
 				logger.Warn("Java Edition sign-in failed; joining without a session", "error", err)
@@ -98,6 +106,9 @@ func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keycha
 	}
 	return javaUpstream{session}, nil
 }
+
+// javaSignInTimeout bounds the sign-in a Java join makes before it dials.
+const javaSignInTimeout = 10 * time.Second
 
 // errJavaNeedsAccount refuses an online-mode join of a player who is not signed in.
 var errJavaNeedsAccount = errors.New("joining an online-mode Java server needs a signed-in Microsoft account")
@@ -113,6 +124,10 @@ func javaJoinError(err error) error {
 		message = fmt.Sprintf("Java Edition needs its own Microsoft sign-in. Go to %s, enter %s, then reconnect.", prompt.VerificationURI, prompt.UserCode)
 	case errors.Is(err, errJavaNeedsAccount):
 		message = "This Java server needs a Java Edition account. Sign in to Cinnabar, then reconnect."
+	case errors.Is(err, auth.ErrSignInUnavailable):
+		message = "The Java Edition sign-in could not be started. Reconnect to try again."
+	case errors.As(err, &status) && status.Operation == auth.OperationJoin:
+		message = "The Java Edition session service refused the join: " + status.Error()
 	case errors.As(err, &status):
 		message = "Could not sign in to Java Edition: " + status.Error()
 	default:

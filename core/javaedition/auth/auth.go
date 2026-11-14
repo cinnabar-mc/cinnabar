@@ -45,6 +45,8 @@ type Services struct {
 	LoginURL   string
 	ProfileURL string
 	JoinURL    string
+	// Now reads the clock a session's expiry is measured on; nil uses time.Now.
+	Now func() time.Time
 }
 
 // Profile is a Java Edition player: its id, as 32 hexadecimal digits, and its name.
@@ -60,6 +62,13 @@ type Session struct {
 	// Expires is when the access token stops being accepted.
 	Expires time.Time
 }
+
+// Operations a StatusError names.
+const (
+	OperationSignIn  = "sign-in"
+	OperationProfile = "profile"
+	OperationJoin    = "session join"
+)
 
 // StatusError is a service response outside the 2xx range. Message is the service's own
 // explanation, such as "Invalid app registration", when it gave one; it never holds tokens.
@@ -87,8 +96,12 @@ func (s Services) SignIn(ctx context.Context, identityToken string) (Session, er
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int64  `json:"expires_in"`
 	}
-	requested := time.Now()
-	if err := s.call(ctx, "sign-in", http.MethodPost, orDefault(s.LoginURL, defaultLoginURL), "", body, &login); err != nil {
+	now := s.Now
+	if now == nil {
+		now = time.Now
+	}
+	requested := now()
+	if err := s.call(ctx, OperationSignIn, http.MethodPost, orDefault(s.LoginURL, defaultLoginURL), "", body, &login); err != nil {
 		return Session{}, err
 	}
 	if login.AccessToken == "" {
@@ -99,7 +112,7 @@ func (s Services) SignIn(ctx context.Context, identityToken string) (Session, er
 		lifetime = time.Duration(login.ExpiresIn) * time.Second
 	}
 	session := Session{AccessToken: login.AccessToken, Expires: requested.Add(lifetime)}
-	err = s.call(ctx, "profile", http.MethodGet, orDefault(s.ProfileURL, defaultProfileURL), login.AccessToken, nil, &session.Profile)
+	err = s.call(ctx, OperationProfile, http.MethodGet, orDefault(s.ProfileURL, defaultProfileURL), login.AccessToken, nil, &session.Profile)
 	var status *StatusError
 	if errors.As(err, &status) && status.Status == http.StatusNotFound {
 		return Session{}, ErrNoProfile
@@ -124,7 +137,7 @@ func (s Services) Join(ctx context.Context, session Session, serverHash string) 
 	if err != nil {
 		return err
 	}
-	return s.call(ctx, "session join", http.MethodPost, orDefault(s.JoinURL, defaultJoinURL), "", body, nil)
+	return s.call(ctx, OperationJoin, http.MethodPost, orDefault(s.JoinURL, defaultJoinURL), "", body, nil)
 }
 
 // call performs one request and decodes a JSON response into out when out is not nil. The

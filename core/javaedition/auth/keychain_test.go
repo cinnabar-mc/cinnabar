@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,8 @@ import (
 // closed, and its identity token names how many times it was asked for.
 type fakeApp struct {
 	finish chan struct{}
+	// revoked makes the identity token fail as Microsoft refusing a revoked token.
+	revoked bool
 
 	mu         sync.Mutex
 	deviceAuth int
@@ -56,6 +59,9 @@ func (a *fakeApp) IdentityToken(_ context.Context, source oauth2.TokenSource) (s
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.identity++
+	if a.revoked {
+		return "", fmt.Errorf("xbox token: %w", &oauth2.RetrieveError{ErrorCode: "invalid_grant"})
+	}
 	return "XBL3.0 x=hash;switch", nil
 }
 
@@ -207,5 +213,61 @@ func TestKeychainForgetRemovesTheSignIn(t *testing.T) {
 func TestCachePathSitsBesideTheAccountToken(t *testing.T) {
 	if got := CachePath(filepath.Join("auth", "microsoft-token.json")); got != filepath.Join("auth", CacheFile) {
 		t.Fatalf("CachePath = %q", got)
+	}
+}
+
+// Signing out while a sign-in waits for the player stops it: entering the code afterwards
+// must not bring the Java Edition sign-in back.
+func TestKeychainForgetStopsAPendingSignIn(t *testing.T) {
+	fake := newFakeServices(t)
+	app := newFakeApp()
+	keychain := newTestKeychain(t, app, fake.services())
+	if _, err := keychain.BeginSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := keychain.Forget(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	keychain.flows.Wait()
+	if keychain.SignedIn() {
+		t.Fatal("the forgotten sign-in was saved")
+	}
+	if _, err := os.Stat(keychain.config.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("token file after Forget: %v", err)
+	}
+}
+
+// A saved sign-in that can no longer be read or refreshed reads as no sign-in, so the next
+// online-mode join asks for a new one instead of failing until the player signs out.
+func TestKeychainAnUnusableSavedSignInAsksAgain(t *testing.T) {
+	fake := newFakeServices(t)
+	keychain := newTestKeychain(t, newFakeApp(), fake.services())
+	if err := os.WriteFile(keychain.config.Path, []byte("not a token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !keychain.SignedIn() {
+		t.Fatal("a saved sign-in is not reported")
+	}
+	if _, err := keychain.Session(context.Background()); !errors.Is(err, ErrNotSignedIn) {
+		t.Fatalf("session from an unreadable sign-in = %v", err)
+	}
+}
+
+// A sign-in Microsoft refuses, such as a revoked one, reads as no sign-in too.
+func TestKeychainARevokedSignInAsksAgain(t *testing.T) {
+	fake := newFakeServices(t)
+	app := newFakeApp()
+	keychain := newTestKeychain(t, app, fake.services())
+	if _, err := keychain.BeginSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	testwait.Eventually(t, 5*time.Second, "the sign-in to finish", keychain.SignedIn)
+	app.mu.Lock()
+	app.revoked = true
+	app.mu.Unlock()
+	if _, err := keychain.Session(context.Background()); !errors.Is(err, ErrNotSignedIn) {
+		t.Fatalf("session from a revoked sign-in = %v", err)
 	}
 }
