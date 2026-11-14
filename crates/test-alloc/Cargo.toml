@@ -8,6 +8,11 @@ publish = false
 [features]
 # Adds process-wide counters for opt-in runtime profiling.
 global-stats = []
+# Live-heap attribution by call stack for developer runs on Linux with glibc.
+heap-profile = ["dep:libc"]
+
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+libc = { version = "0.2", optional = true }
 
 [lints]
 workspace = true

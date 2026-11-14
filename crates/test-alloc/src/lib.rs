@@ -1,6 +1,9 @@
 //! Allocation request counters for tests and opt-in runtime diagnostics.
 //! Thread counters isolate tests; `global-stats` also counts requests across all threads.
 
+#[cfg(all(feature = "heap-profile", target_os = "linux", target_env = "gnu"))]
+pub mod heap_profile;
+
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
