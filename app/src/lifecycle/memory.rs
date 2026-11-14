@@ -17,6 +17,8 @@ use crate::{runtime::world::ClientWorld, session::SessionController};
 
 /// How often the subsystem totals behind the reporter's `periodic` lines are refreshed.
 const COUNTER_REFRESH: Duration = Duration::from_secs(10);
+/// A queued refresh of the subsystem totals that logs no line of its own.
+const REFRESH: &str = "";
 /// Frames between an event and its line: the render world samples the device allocator at the
 /// end of the frame after the request, which the main world sees one frame later.
 const GPU_SAMPLE_FRAMES: u8 = 2;
@@ -201,8 +203,11 @@ fn report_memory(
         events.extend(lifecycle_event(*change));
     }
     let now = time.elapsed();
-    let refresh = refresh_due(*refreshed_at, now);
-    if refresh || !events.is_empty() {
+    if refresh_due(*refreshed_at, now) {
+        *refreshed_at = Some(now);
+        events.push(REFRESH);
+    }
+    if !events.is_empty() {
         render::memory_totals::request_gpu_totals();
     }
     // A new event waits whole frames for the sample it requested; the last frame before
@@ -217,11 +222,10 @@ fn report_memory(
     if leaving {
         pending.end_frame(true, |event| ready.push(event));
     }
-    if refresh || !ready.is_empty() {
-        *refreshed_at = Some(now);
+    if !ready.is_empty() {
         telemetry::set_counters(sources.counters());
     }
-    for event in ready {
+    for event in ready.into_iter().filter(|event| *event != REFRESH) {
         telemetry::report(event);
     }
 }

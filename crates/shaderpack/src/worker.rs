@@ -112,18 +112,11 @@ pub fn live_process_ids() -> Vec<u32> {
         .clone()
 }
 
-/// Removes a reaped compiler process from [`live_process_ids`], before the system can give its
-/// id to another process.
-fn forget(id: u32) {
-    LIVE_PROCESSES
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .retain(|live| *live != id);
-}
-
 /// One child owned until it exits or is killed and reaped; dropping it cannot detach work.
 struct Process {
     child: Child,
+    /// Whether this process is still in [`live_process_ids`].
+    listed: bool,
     output: File,
     decoder: Option<Decoder>,
     #[cfg(windows)]
@@ -204,6 +197,7 @@ impl Process {
             .push(child.id());
         let mut running = Self {
             child,
+            listed: true,
             output,
             decoder: None,
             #[cfg(windows)]
@@ -239,12 +233,12 @@ impl Process {
         if let Some(reason) = interruption {
             let _ = self.child.kill();
             let _ = self.child.wait();
-            forget(self.child.id());
+            self.forget();
             return Some(Err(reason.into()));
         }
         let status = match self.child.try_wait() {
             Ok(Some(status)) => {
-                forget(self.child.id());
+                self.forget();
                 status
             }
             Ok(None) => return None,
@@ -266,12 +260,28 @@ impl Process {
     }
 }
 
+impl Process {
+    /// Removes this reaped process from [`live_process_ids`] once, before the system can give
+    /// its id to another compiler whose own entry must stay.
+    fn forget(&mut self) {
+        if std::mem::take(&mut self.listed) {
+            let id = self.child.id();
+            let mut live = LIVE_PROCESSES
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if let Some(index) = live.iter().position(|listed| *listed == id) {
+                live.swap_remove(index);
+            }
+        }
+    }
+}
+
 impl Drop for Process {
     /// Stops and reaps only the compiler process this handle started.
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        forget(self.child.id());
+        self.forget();
     }
 }
 

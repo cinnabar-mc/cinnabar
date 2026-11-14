@@ -72,7 +72,9 @@ mod tests {
         for detailed in [true, false] {
             let own = process(None, detailed);
             assert!(own.resident.is_some_and(|bytes| bytes > 0), "{own:?}");
-            assert_eq!(own.proportional.is_some(), detailed, "{own:?}");
+            // Kernels before 4.14 have no rollup; the resident size then comes from `statm`.
+            let rollup = std::path::Path::new("/proc/self/smaps_rollup").exists();
+            assert_eq!(own.proportional.is_some(), detailed && rollup, "{own:?}");
         }
         let by_pid = process(Some(std::process::id()), false);
         assert!(by_pid.resident.is_some(), "{by_pid:?}");
