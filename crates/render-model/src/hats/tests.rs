@@ -56,7 +56,7 @@ fn original_model_has_a_flexible_continuous_surface_and_valid_art() {
     let model = rig(fixture::bunny());
     assert!(model.flex.iter().filter(|weight| **weight > 0.0).count() >= 16);
     assert!(model.texture.is_valid());
-    assert_eq!(model.pixels.len(), crate::STANDARD_SKIN_SIDE.pow(2) * 4);
+    assert_eq!(model.pixels().len(), crate::STANDARD_SKIN_SIDE.pow(2) * 4);
     assert!(
         model
             .geometry
@@ -431,4 +431,28 @@ fn catalog_triangle_normals_stay_as_authored() {
     .map(|v| v as f32);
     assert!(normals.contains(&expected));
     assert!(!normals.contains(&[expected[0], -expected[1], expected[2]]));
+}
+
+/// Preparing a catalog item keeps only its original texture: the standard-size world raster
+/// (a mebibyte per item) is built when the item is first drawn, and then kept.
+#[test]
+fn prepared_items_build_their_world_raster_only_when_drawn() {
+    let raster = crate::STANDARD_SKIN_SIDE.pow(2) * 4;
+    let mut descriptor = fixture::crown().descriptor().clone();
+    descriptor.render_flags.emissive = true;
+    let (model, building) = test_alloc::measure(|| {
+        model::build(
+            &descriptor,
+            include_str!("crown.geo.json"),
+            include_bytes!("crown.png"),
+            b"{}\n",
+        )
+        .unwrap()
+    });
+    assert!(building.bytes < raster, "{building:?}");
+    let (_, drawing) = test_alloc::measure(|| model.world_pixels().len());
+    assert!(drawing.bytes >= 2 * raster, "{drawing:?}");
+    assert_eq!(model.pixels().len(), raster);
+    let (_, again) = test_alloc::measure(|| model.world_pixels().len());
+    assert_eq!(again.calls, 0, "the raster is kept once built");
 }

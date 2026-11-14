@@ -171,18 +171,6 @@ pub(super) fn build(
     {
         return None;
     }
-    let pixels: SkinRgba8 = image::imageops::resize(
-        &image,
-        crate::STANDARD_SKIN_SIDE as u32,
-        crate::STANDARD_SKIN_SIDE as u32,
-        image::imageops::FilterType::Nearest,
-    )
-    .into_raw()
-    .into();
-    let world_pixels = item
-        .render_flags
-        .emissive
-        .then(|| emissive_raster(&pixels).into());
     let texture = CapeImage {
         width: image.width(),
         height: image.height(),
@@ -275,8 +263,9 @@ pub(super) fn build(
             .map_or(u32::MAX, |part| part as u32),
         preview_frame: Default::default(),
         texture,
-        pixels,
-        world_pixels,
+        pixels: std::sync::OnceLock::new(),
+        emissive: item.render_flags.emissive,
+        world_pixels: std::sync::OnceLock::new(),
         emitters,
         cloth,
         wind: definition.wind,
@@ -308,11 +297,41 @@ pub(super) fn emissive_raster(rgba8: &[u8]) -> Arc<[u8]> {
 impl HatRig {
     /// Whether the world draws this item fullbright from [`Self::world_pixels`].
     pub fn emissive(&self) -> bool {
-        self.world_pixels.is_some()
+        self.emissive
     }
 
-    /// The raster world submissions sample; previews and thumbnails keep [`Self::pixels`].
-    pub fn world_pixels(&self) -> &SkinRgba8 {
-        self.world_pixels.as_ref().unwrap_or(&self.pixels)
+    /// The item's texture scaled to the standard skin raster with nearest sampling, built on
+    /// first use and kept for the process like the rig itself.
+    pub fn pixels(&self) -> &SkinRgba8 {
+        self.pixels.get_or_init(|| standard_raster(&self.texture))
     }
+
+    /// The raster world submissions sample: [`Self::pixels`], or its fullbright conversion for
+    /// emissive items. Previews and thumbnails draw [`Self::texture`] instead.
+    pub fn world_pixels(&self) -> &SkinRgba8 {
+        if !self.emissive {
+            return self.pixels();
+        }
+        self.world_pixels
+            .get_or_init(|| emissive_raster(self.pixels()).into())
+    }
+}
+
+/// Scales `texture`, already checked against the model's texture size, to the standard skin
+/// raster without filtering.
+fn standard_raster(texture: &CapeImage) -> SkinRgba8 {
+    let source = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
+        texture.width,
+        texture.height,
+        &texture.rgba8[..],
+    )
+    .expect("hat texture dimensions match its pixels");
+    image::imageops::resize(
+        &source,
+        crate::STANDARD_SKIN_SIDE as u32,
+        crate::STANDARD_SKIN_SIDE as u32,
+        image::imageops::FilterType::Nearest,
+    )
+    .into_raw()
+    .into()
 }

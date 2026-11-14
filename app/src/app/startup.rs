@@ -254,7 +254,7 @@ fn finish_core(assets: LoadedAssets, times: &LoadTimes) -> Result<CoreCarriers, 
     let authored_texture_loading =
         crate::render_mode::authored_textures::AuthoredTextureLoading::new(
             Arc::clone(&assets.runtime),
-            assets.material_keys.clone(),
+            assets.material_keys.as_ref(),
         );
     let (world, entities) = (assets.selected_path.as_path(), &assets.entities);
     let (actor, equipment) = std::thread::scope(|scope| {
