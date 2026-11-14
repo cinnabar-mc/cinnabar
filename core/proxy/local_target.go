@@ -77,7 +77,8 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 }
 
 // localNetherNetAPI includes same-device routes even when every external interface is down.
-// External candidates remain available for container port mappings.
+// External candidates remain available for container port mappings. The pinned WebRTC fork
+// accepts data-channel-only peers that decline use_srtp, as some NetherNet servers do.
 func localNetherNetAPI() *webrtc.API {
 	var settings webrtc.SettingEngine
 	settings.SetIncludeLoopbackCandidate(true)
