@@ -197,7 +197,10 @@ impl CoreOutput {
     pub(crate) fn spawn(&self, command: &mut Command, role: CoreRole) -> io::Result<Spawned> {
         command.arg("-log-level").arg(go_log_level((self.level)()));
         let inherited = std::env::var_os(GO_MEMORY_LIMIT_ENV).is_some();
-        if let Some(limit) = apply_memory_limit(command, crate::memory::physical_bytes(), inherited)
+        // iOS runs the core inside this process, where a command's environment never reaches it.
+        if cfg!(not(target_os = "ios"))
+            && let Some(limit) =
+                apply_memory_limit(command, crate::memory::physical_bytes(), inherited)
         {
             tracing::info!(
                 role = role.label(),

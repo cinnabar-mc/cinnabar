@@ -276,7 +276,7 @@ fn every_core_spawn_applies_this_device_memory_limit() {
             .spawn(&mut command, CoreRole::Account)
             .is_err()
     );
-    let expected = if std::env::var_os(GO_MEMORY_LIMIT_ENV).is_some() {
+    let expected = if cfg!(target_os = "ios") || std::env::var_os(GO_MEMORY_LIMIT_ENV).is_some() {
         None
     } else {
         crate::memory::core_memory_limit(crate::memory::physical_bytes())
