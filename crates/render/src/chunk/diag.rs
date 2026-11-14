@@ -36,6 +36,12 @@ pub(in crate::chunk) struct TerrainDiag {
     pub(in crate::chunk) max_chunks: u32,
     /// (g') `diag_keep_stride=K`: draws only about one section in K.
     pub(in crate::chunk) keep_stride: u32,
+    /// (i)-(iii) `diag_sample=1`: terrain textures use `textureSampleLevel` with a level computed
+    /// from the same gradients; `2`: implicit-derivative `textureSample`; `3`: level 0; `4`:
+    /// the lowest mip. Pixels may differ; these separate sample-instruction from cache cost.
+    pub(in crate::chunk) sample: u8,
+    /// (iv) `diag_page0=1`: terrain textures sample texture page 0 only (wrong pixels).
+    pub(in crate::chunk) page0: bool,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,
     /// (h) `diag_counts=1`: logs terrain draw, instance and vertex counts every 120 frames.
@@ -52,6 +58,8 @@ static STATE: RwLock<TerrainDiag> = RwLock::new(TerrainDiag {
     vertex: 0,
     max_chunks: 0,
     keep_stride: 0,
+    sample: 0,
+    page0: false,
     units_off: false,
     counts: false,
 });
@@ -84,6 +92,8 @@ pub(in crate::chunk) fn refresh() {
         vertex: number("VERTEX").min(3) as u8,
         max_chunks: number("MAX_CHUNKS"),
         keep_stride: number("KEEP_STRIDE"),
+        sample: number("SAMPLE").min(4) as u8,
+        page0: flag("PAGE0"),
         units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
         counts: flag("COUNTS"),
     };
@@ -139,14 +149,24 @@ pub(in crate::chunk) fn distance_squared(origin: [i32; 3], camera: [f64; 3]) -> 
         .sum()
 }
 
-const SOLID_TRIVIAL: u8 = 1;
-const CUTOUT_AS_SOLID: u8 = 2;
-const VERTEX_MIN: u8 = 4;
-const VERTEX_CULL: u8 = 8;
-const VERTEX_NO_BLEND: u8 = 16;
+const SOLID_TRIVIAL: u16 = 1;
+const CUTOUT_AS_SOLID: u16 = 2;
+const VERTEX_MIN: u16 = 4;
+const VERTEX_CULL: u16 = 8;
+const VERTEX_NO_BLEND: u16 = 16;
+/// Fragment shader defines selected by `diag_sample=1..=4`.
+const SAMPLE_DEFINES: [&str; 4] = [
+    "DIAG_SAMPLE_LEVEL",
+    "DIAG_SAMPLE_IMPLICIT",
+    "DIAG_SAMPLE_LOD0",
+    "DIAG_SAMPLE_LOD_MAX",
+];
+/// The first of the four `diag_sample` bits.
+const SAMPLE_SHIFT: u16 = 5;
+const PAGE0: u16 = 1 << 9;
 
 /// The pipeline-changing switches as a variant key; zero leaves pipelines unchanged.
-pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u8 {
+pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u16 {
     let mut bits = 0;
     if diag.solid_trivial {
         bits |= SOLID_TRIVIAL;
@@ -160,10 +180,16 @@ pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u8 {
         3 => bits |= VERTEX_NO_BLEND,
         _ => {}
     }
+    if diag.sample > 0 {
+        bits |= 1 << (SAMPLE_SHIFT + u16::from(diag.sample) - 1);
+    }
+    if diag.page0 {
+        bits |= PAGE0;
+    }
     bits
 }
 
-static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u8), CachedRenderPipelineId>>> =
+static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u16), CachedRenderPipelineId>>> =
     Mutex::new(None);
 
 /// The diagnostic variant of the ready pipeline `id`, queued on first use. Returns `id` while
@@ -171,7 +197,7 @@ static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u8), CachedRender
 pub(in crate::chunk) fn pipeline(
     cache: &PipelineCache,
     id: CachedRenderPipelineId,
-    bits: u8,
+    bits: u16,
 ) -> CachedRenderPipelineId {
     if bits == 0 || cache.get_render_pipeline(id).is_none() {
         return id;
@@ -193,7 +219,7 @@ pub(in crate::chunk) fn pipeline(
 }
 
 /// Applies `bits` to a terrain pipeline; `false` when none applies to it.
-fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u8) -> bool {
+fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u16) -> bool {
     let mut changed = false;
     let chunk_shader = descriptor.vertex.shader == super::CHUNK_SHADER_HANDLE;
     if let Some(fragment) = descriptor.fragment.as_mut()
@@ -207,6 +233,16 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u8) -> bool {
         }
         if bits & SOLID_TRIVIAL != 0 && solid {
             fragment.shader_defs.push("OPAQUE_OVERDRAW".into());
+            changed = true;
+        }
+        for (index, define) in SAMPLE_DEFINES.into_iter().enumerate() {
+            if bits & (1 << (SAMPLE_SHIFT + index as u16)) != 0 {
+                fragment.shader_defs.push(define.into());
+                changed = true;
+            }
+        }
+        if bits & PAGE0 != 0 {
+            fragment.shader_defs.push("DIAG_PAGE0".into());
             changed = true;
         }
     }
