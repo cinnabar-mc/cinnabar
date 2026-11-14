@@ -124,7 +124,7 @@ fn track(pointer: *mut u8, size: usize) {
     guarded(|| {
         let mut frames = [0_usize; DEPTH];
         // SAFETY: the buffer holds DEPTH pointer-sized slots.
-        let depth = unsafe { libc::backtrace(frames.as_mut_ptr().cast(), DEPTH as i32) };
+        let depth = unsafe { glibc::backtrace(frames.as_mut_ptr().cast(), DEPTH as i32) };
         frames[depth.max(0) as usize..].fill(0);
         let site = {
             let mut sites = SITES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -226,7 +226,7 @@ pub fn start() {
     guarded(|| {
         let mut frames = [0_usize; 4];
         // SAFETY: the buffer holds four pointer-sized slots.
-        unsafe { libc::backtrace(frames.as_mut_ptr().cast(), 4) };
+        unsafe { glibc::backtrace(frames.as_mut_ptr().cast(), 4) };
     });
     ENABLED.store(true, Ordering::Relaxed);
     let _ = std::thread::Builder::new()
@@ -264,7 +264,7 @@ fn dump(path: &Path) -> std::io::Result<()> {
     let recorded: u64 = sites.iter().map(|(_, (bytes, _))| bytes).sum();
     let mut out = String::new();
     // SAFETY: mallinfo2 only reads the allocator's statistics.
-    let info = unsafe { libc::mallinfo2() };
+    let info = unsafe { glibc::mallinfo2() };
     let _ = writeln!(
         out,
         "live_bytes {} live_count {} allocated_total {} recorded_bytes {recorded}",
@@ -355,5 +355,42 @@ impl Modules {
                 || format!("?+{at:#x}"),
                 |(_, _, base, name)| format!("{name}+{:#x}", at - base),
             )
+    }
+}
+
+/// The glibc functions the profiler calls, declared here because this crate takes no
+/// dependencies.
+mod glibc {
+    use std::ffi::{c_int, c_void};
+
+    /// glibc's `struct mallinfo2`: allocator statistics in bytes.
+    #[repr(C)]
+    #[allow(
+        dead_code,
+        reason = "glibc fills the whole struct; the dump reports only some fields"
+    )]
+    pub(super) struct Mallinfo2 {
+        /// Bytes the main arena took from the system with `brk`.
+        pub arena: usize,
+        pub ordblks: usize,
+        pub smblks: usize,
+        pub hblks: usize,
+        /// Bytes in blocks taken with `mmap`.
+        pub hblkhd: usize,
+        pub usmblks: usize,
+        pub fsmblks: usize,
+        /// Bytes in allocated blocks.
+        pub uordblks: usize,
+        /// Bytes in free blocks the allocator keeps.
+        pub fordblks: usize,
+        /// Bytes at the top of the heap that could be returned to the system.
+        pub keepcost: usize,
+    }
+
+    unsafe extern "C" {
+        /// glibc `backtrace`: writes up to `size` return addresses and returns how many.
+        pub(super) fn backtrace(buffer: *mut *mut c_void, size: c_int) -> c_int;
+        /// glibc `mallinfo2`, since glibc 2.33.
+        pub(super) fn mallinfo2() -> Mallinfo2;
     }
 }

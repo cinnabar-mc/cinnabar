@@ -8814,9 +8814,6 @@ dependencies = [
 [[package]]
 name = "test-alloc"
 version = "0.2.1"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "test-assembler"
