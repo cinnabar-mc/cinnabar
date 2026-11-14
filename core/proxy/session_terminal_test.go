@@ -17,6 +17,7 @@ import (
 func TestSessionTerminalTCPDrain(t *testing.T) {
 	for _, terminal := range []packet.Packet{
 		&packet.Transfer{Address: "next.example.test", Port: 19133},
+		&packet.Transfer{Address: "1234567890123456789"},
 		&packet.Disconnect{Message: "fixture kicked during spawn"},
 	} {
 		t.Run(map[uint32]string{packet.IDTransfer: "transfer", packet.IDDisconnect: "disconnect"}[terminal.ID()], func(t *testing.T) {

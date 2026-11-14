@@ -62,7 +62,7 @@ impl ServerTransferEvent {
         if host.chars().any(is_forbidden_host_character) {
             return Err(ServerTransferRejection::InvalidHostCharacter);
         }
-        if port == 0 {
+        if port == 0 && host.parse::<u64>().is_err() && uuid::Uuid::parse_str(host).is_err() {
             return Err(ServerTransferRejection::ZeroPort);
         }
         Ok(Self {
@@ -190,6 +190,20 @@ mod tests {
             ServerTransferEvent::from_packet_data(&transfer_data("play.example.net", 0)),
             Err(ServerTransferRejection::ZeroPort)
         );
+    }
+
+    #[test]
+    fn zero_port_accepts_nethernet_identities() {
+        for id in [
+            "1234567890123456789",
+            "b4cd0192-299e-43d7-9a2c-bcb670dcf85f",
+        ] {
+            let event = ServerTransferEvent::from_packet_data(&transfer_data(id, 0))
+                .expect("NetherNet identity is a valid destination")
+                .expect("transfer packet");
+            assert_eq!(event.host, id);
+            assert_eq!(event.port, 0);
+        }
     }
 
     #[test]

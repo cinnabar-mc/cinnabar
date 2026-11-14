@@ -341,6 +341,8 @@ const (
 	PackApplicationApplied = "applied"
 	// TargetRakNet: Where the next client connection goes. RakNet.
 	TargetRakNet = "raknet"
+	// TargetNetherNet: Where the next client connection goes. NetherNet.
+	TargetNetherNet = "nethernet"
 	// TargetRealm: Where the next client connection goes. Realm.
 	TargetRealm = "realm"
 	// TargetFriend: Where the next client connection goes. Friend.

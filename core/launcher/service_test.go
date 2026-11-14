@@ -12,6 +12,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
@@ -58,6 +59,7 @@ func TestConnectAndSessionTargetMapTargetsToProxySyntax(t *testing.T) {
 		{control.TargetRakNet, " NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9 ", "NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9"},
 		{control.TargetRakNet, "nethernet/http/play.example.net:19132", "nethernet/http/play.example.net:19132"},
 		{control.TargetRakNet, "nethernet/http/[::1]:19132", "nethernet/http/[::1]:19132"},
+		{control.TargetNetherNet, "12345", bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingJSONRPC + "/12345"},
 		{control.TargetRealm, "12345", "realm_id/12345"},
 		{control.TargetFriend, "2535428000000000", "friend_xuid/2535428000000000"},
 	} {
@@ -86,6 +88,7 @@ func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
 		{control.TargetRakNet, "nethernet/http/play.example.net"},
 		{control.TargetRakNet, "nethernet/http/play.example.net:0"},
 		{control.TargetRealm, "abc"}, {control.TargetFriend, "gamertag"}, {"other", "x"},
+		{control.TargetNetherNet, "not-an-identity"},
 	} {
 		if err := f.service.Connect(context.Background(), test.kind, test.value); !errors.Is(err, control.ErrInvalidTarget) {
 			t.Fatalf("Connect(%s, %q) = %v, want invalid target", test.kind, test.value, err)

@@ -37,6 +37,38 @@ func TestTransferStateRecordsNextUpstreamAndNotifies(t *testing.T) {
 	}
 }
 
+func TestNetherNetTransferRecordsIdentityAndConsumesOnSuccess(t *testing.T) {
+	const id = "b4cd0192-299e-43d7-9a2c-bcb670dcf85f"
+	var state TransferState
+	var seen TransferTarget
+	state.OnTransfer = func(target TransferTarget) { seen = target }
+	if err := state.Record(TransferTarget{Host: id}); err != nil {
+		t.Fatal(err)
+	}
+	want := NetherNetTargetPrefix + NetherNetSignalingJSONRPC + "/" + id
+	if got := state.Upstream(""); got != want || seen != (TransferTarget{Host: id}) {
+		t.Fatalf("pending = %q, notification = %+v", got, seen)
+	}
+	dial := consumeTransferOnDial(func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error) {
+		return newFakeUpstream(nil), nil
+	}, &state)
+	if _, err := dial(context.Background(), &resolvedUpstreamTarget{address: id}, minecraft.Dialer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Pending(); ok {
+		t.Fatal("successful NetherNet dial did not consume transfer")
+	}
+}
+
+func TestInitialNetherNetTransferTarget(t *testing.T) {
+	const id = "1234567890123456789"
+	got, err := initialTransferTarget(&minecraft.TransferError{Address: id})
+	want := NetherNetTargetPrefix + NetherNetSignalingJSONRPC + "/" + id
+	if err != nil || got != want {
+		t.Fatalf("target = %q, %v; want %q", got, err, want)
+	}
+}
+
 func TestTransferStateIgnoresUnusableTargets(t *testing.T) {
 	var state TransferState
 	calls := 0
@@ -71,6 +103,30 @@ func TestObserveTransfersRecordsAndStillRelays(t *testing.T) {
 	}
 	if _, err := session.ReadBatchRaw(nil); !errors.Is(err, io.EOF) {
 		t.Fatalf("ReadBatchRaw() error = %v, want EOF", err)
+	}
+}
+
+// legacyTransferSource delivers the unconverted wire packet a NetherConnect session emits.
+type legacyTransferSource struct {
+	*fakeUpstream
+	data []byte
+}
+
+func (s *legacyTransferSource) ReadBatchRaw(func(uint32) bool) ([]minecraft.RawPacket, error) {
+	return []minecraft.RawPacket{{ID: packet.IDTransfer, Data: s.data}}, nil
+}
+
+func TestObserveTransfersRecordsNetherConnectLegacyPacket(t *testing.T) {
+	data := encodeTestPacket(&packet.Transfer{Address: "1234567890123456789"})
+	data = data[:len(data)-1]
+	var state TransferState
+	session := observeTransfers(&legacyTransferSource{fakeUpstream: newFakeUpstream(nil), data: data}, &state, nil)
+	if _, err := session.ReadBatchRaw(nil); err != nil {
+		t.Fatal(err)
+	}
+	want := NetherNetTargetPrefix + NetherNetSignalingJSONRPC + "/1234567890123456789"
+	if got, ok := state.Pending(); !ok || got != want {
+		t.Fatalf("pending = %q, %t; want %q", got, ok, want)
 	}
 }
 
@@ -115,6 +171,26 @@ func TestConsumeTransferOnDialClearsOnlyAfterSuccessfulDial(t *testing.T) {
 	}
 	if _, ok := state.Pending(); ok {
 		t.Fatal("successful dial left the transfer pending")
+	}
+}
+
+func TestConsumeTransferOnDialPreservesRepeatedDestination(t *testing.T) {
+	var state TransferState
+	target := TransferTarget{Host: "next.example", Port: 19133}
+	if err := state.Record(target); err != nil {
+		t.Fatal(err)
+	}
+	dial := consumeTransferOnDial(func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error) {
+		if err := state.Record(target); err != nil {
+			return nil, err
+		}
+		return newFakeUpstream(nil), nil
+	}, &state)
+	if _, err := dial(t.Context(), &resolvedUpstreamTarget{address: "next.example:19133"}, minecraft.Dialer{}); err != nil {
+		t.Fatal(err)
+	}
+	if pending, ok := state.Pending(); !ok || pending != "next.example:19133" {
+		t.Fatalf("new transfer = %q, %t; want the repeated destination", pending, ok)
 	}
 }
 
