@@ -60,7 +60,7 @@ fn capture_legacy(
 }
 
 #[test]
-fn direct_batches_collapse_section_draws_and_keep_their_exact_quad_order() {
+fn direct_batches_collapse_section_draws_and_keep_each_sections_quad_order() {
     let (mut app, _) = chunk_app(
         noop_render_plugin(WgpuFeatures::empty()),
         Msaa::Off,
@@ -107,6 +107,11 @@ fn direct_batches_collapse_section_draws_and_keep_their_exact_quad_order() {
     assert!(batches.stats.list_bytes_uploaded > 0);
     assert_eq!(batches.views.len(), 1);
     let view = batches.views.values().next().unwrap();
+    // Batches may order sections differently; each section's quads keep their exact order.
+    let by_section = |mut quads: Vec<(u32, u32)>| {
+        quads.sort_by_key(|&(origin, _)| origin);
+        quads
+    };
     for (stream, expected) in view.streams.iter().zip(&expected) {
         let actual = stream
             .visible_units()
@@ -114,7 +119,7 @@ fn direct_batches_collapse_section_draws_and_keep_their_exact_quad_order() {
                 (0..unit.quad_count).map(move |quad| (unit.origin_slot, unit.stream_start + quad))
             })
             .collect::<Vec<_>>();
-        assert_eq!(&actual, expected);
+        assert_eq!(by_section(actual), by_section(expected.clone()));
     }
     frame(&mut app);
     assert_eq!(
@@ -428,4 +433,144 @@ impl TerrainUnitBatches {
             })
             .collect()
     }
+}
+
+#[test]
+fn opaque_streams_draw_solid_before_cutout_whichever_section_comes_first() {
+    let mut world = World::new();
+    let [cutout_only, mixed] = [(); 2].map(|_| world.spawn(mixed_allocation()).id());
+    let mut state = bevy::ecs::system::SystemState::<Query<&GpuChunkAllocation>>::new(&mut world);
+    let allocations = state.get(&world).unwrap();
+    let drawable = [cutout_only, mixed].map(|entity| {
+        crate::chunk::pipeline::batches::DrawableTerrain::new(
+            entity,
+            MainEntity::from(entity),
+            allocations.get(entity).unwrap(),
+            true,
+        )
+    });
+    let mut drawable = drawable.to_vec();
+    drawable[0].solid = false;
+    drawable[0].model = false;
+    drawable[0].depth_liquid = false;
+    assert!(drawable[0].cutout && drawable[1].solid);
+    let sources = UnitSources::build(&drawable, &allocations, None);
+    assert_eq!(sources.order, [0, 1, 2, 3]);
+}
+
+#[test]
+fn sections_are_ordered_nearest_first_from_the_eye() {
+    let mut world = World::new();
+    let sections = [3, 0, 5, 1, 4, 2].map(|x| {
+        super::sources::SectionUnits::fixture_at(
+            world.spawn_empty().id(),
+            SubChunkKey::new(0, x, 0, 0),
+            Vec::new(),
+        )
+    });
+    let order = super::sources::near_first(&sections, [-4.0, 8.0, 8.0]);
+    let xs = order
+        .iter()
+        .map(|entity| {
+            let section = sections.iter().find(|s| s.entity == *entity).unwrap();
+            section.key.x
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(xs, [0, 1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn prepared_solid_sections_are_submitted_nearest_first() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Off,
+        camera_transform(),
+    );
+    // Without the occlusion terrain pass, the solid stream uses the ordinary section order.
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<gpu_cull::DirectOcclusionSupport>()
+        .0 = false;
+    let keys = (0..3)
+        .flat_map(|x| (0..3).map(move |z| SubChunkKey::new(0, x, 0, z)))
+        .collect::<Vec<_>>();
+    insert_meshes(&mut app, &keys);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    let batches = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<TerrainUnitBatches>();
+    let view = batches.views.values().next().unwrap();
+    let eye = view.camera.unwrap();
+    let distance = |entity: &Entity| {
+        let section = &view.sources.streams[0][view.sources.lookup[0][entity]];
+        let origin = chunk_origin(section.key);
+        (0..3)
+            .map(|axis| f64::from(origin[axis]) + 8.0 - eye[axis])
+            .map(|delta| delta * delta)
+            .sum::<f64>()
+    };
+    let selected = &view.streams[0].selected;
+    assert!(selected.len() >= 3, "{}", selected.len());
+    assert!(
+        selected
+            .windows(2)
+            .all(|pair| distance(&pair[0]) <= distance(&pair[1])),
+        "{:?}",
+        selected.iter().map(distance).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn nearest_first_order_includes_sections_published_while_it_was_unused() {
+    let (mut app, camera) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Off,
+        camera_transform(),
+    );
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<gpu_cull::DirectOcclusionSupport>()
+        .0 = false;
+    insert_meshes(&mut app, &KEYS[..1]);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    // An orthographic view has no culling camera, so its streams keep source order.
+    app.world_mut()
+        .entity_mut(camera)
+        .insert(bevy::camera::Projection::Orthographic(
+            bevy::camera::OrthographicProjection::default_3d(),
+        ));
+    for _ in 0..2 {
+        frame(&mut app);
+    }
+    insert_meshes(&mut app, &KEYS[1..]);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    // Back in the same eye block, the order must cover the section published meanwhile.
+    app.world_mut()
+        .entity_mut(camera)
+        .insert(bevy::camera::Projection::default());
+    for _ in 0..2 {
+        frame(&mut app);
+    }
+    let batches = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<TerrainUnitBatches>();
+    let view = batches.views.values().next().unwrap();
+    assert!(view.camera.is_some());
+    let mut published = view.sources.streams[0]
+        .iter()
+        .map(|section| section.entity)
+        .collect::<Vec<_>>();
+    assert_eq!(published.len(), KEYS.len());
+    let mut selected = view.streams[0].selected.clone();
+    published.sort();
+    selected.sort();
+    assert_eq!(selected, published);
 }
