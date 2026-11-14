@@ -136,6 +136,10 @@ pub(super) fn render() -> String {
         mod_api::MAX_CUES_PER_FRAME => "Outgoing presentation cues per frame.",
         mod_api::MAX_CUE_NAME_BYTES => "Cue name bytes.",
         mod_api::MAX_CUE_VALUES => "Scalar values per cue.",
+        mod_api::MAX_SOUNDS_PER_FRAME => "Sound playback requests per frame.",
+        mod_api::MAX_PLAYED_SOUND_VOLUME => "Loudest volume a requested sound may have.",
+        mod_api::MIN_PLAYED_SOUND_PITCH => "Lowest pitch a requested sound may have.",
+        mod_api::MAX_PLAYED_SOUND_PITCH => "Highest pitch a requested sound may have.",
         mod_api::MAX_INCOMING_CUES => "Incoming cues per callback.",
     );
     section!("Drawing, masks and shaders",

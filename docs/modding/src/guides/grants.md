@@ -40,6 +40,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `movement` | Movement | Movement snapshots, jump pulses, movement intents and control modes |
 | `commands` | Commands | Requesting the named commands only; the list is part of the grant |
 | `packet_delay` | Packet delay | Bounded post-login packet delay and the relayed-position read |
+| `audio` | Sound | Sound handlers that cancel playback requests; `gameplay.play-sound`, a bounded one-shot named sound |
 | `settings` | Settings file | The companion settings file in [Settings and storage](settings-and-storage.md) |
 | `render` | Rendering | Post-process passes and world primitives |
 | `render_depth` | Scene depth | Lets render passes read scene depth |

@@ -6,7 +6,7 @@
 
 Explicit local gameplay capabilities; no raw packet access.
 
-**Grants:** Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `commands` or `packet_delay`; see each function.
+**Grants:** Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `commands`, `packet_delay` or `audio`; see each function.
 
 ## Types
 
@@ -475,3 +475,18 @@ request-command: func(command: string) -> result<_, string>;
 ```
 
 Sent as a player command request after frame returns; the command must be granted by name.
+
+<a id="play-sound"></a>
+
+### `play-sound`
+
+```wit
+play-sound: func(name: string, volume: f32, pitch: f32) -> result<_, string>;
+```
+
+Requires audio. Plays a named sound definition once, non-positionally, after frame
+returns; a name no loaded sound definition has plays nothing. The name is at most
+MAX_SOUND_NAME_BYTES of printable ASCII, volume is 0 to MAX_PLAYED_SOUND_VOLUME and pitch
+MIN_PLAYED_SOUND_PITCH to MAX_PLAYED_SOUND_PITCH. At most MAX_SOUNDS_PER_FRAME per frame; a
+request that frame cannot commit is dropped. It cannot start loops, move a sound or stop
+one.

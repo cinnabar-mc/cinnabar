@@ -607,6 +607,9 @@ pub(super) fn drive_mod(
     gameplay.apply_control_modes(merged.control_modes);
     gameplay.apply_movement_input(merged.movement_input, captured && !absorbed, &ui);
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
+    for sound in merged.sounds {
+        client_ui::sound_requests::ui_sound(&sound.name, sound.volume, sound.pitch);
+    }
     if let Some(mut cues) = cues {
         cues.0 = merged.cues;
     }

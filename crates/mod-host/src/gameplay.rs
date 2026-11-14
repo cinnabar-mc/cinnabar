@@ -2,12 +2,15 @@ use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{
     CameraDelta, GameplayCameraPose, GameplayCameraRig, GameplayControlModes, GameplayFacts,
     GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, GameplayVector3, ModCue,
+    ModSound,
 };
 use anyhow::{Result, bail, ensure};
 use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_COMMAND_BYTES, MAX_COMMANDS_PER_FRAME, MAX_COMMANDS_PER_SECOND,
-    MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_INCOMING_CUES, MAX_RIG_BACK_BLOCKS,
+    MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_INCOMING_CUES,
+    MAX_PLAYED_SOUND_PITCH, MAX_PLAYED_SOUND_VOLUME, MAX_RIG_BACK_BLOCKS,
     MAX_RIG_FOV_DELTA_DEGREES, MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS, MAX_RIG_VERTICAL_BLOCKS,
+    MAX_SOUND_NAME_BYTES, MAX_SOUNDS_PER_FRAME, MIN_PLAYED_SOUND_PITCH,
 };
 
 /// Retained movement output and rig, and per-frame command and cue output.
@@ -28,12 +31,15 @@ pub(super) struct WorldState {
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
     pub cues: Vec<ModCue>,
+    /// Sounds the last committed frame asked to play.
+    pub sounds: Vec<ModSound>,
     /// Delivered before a callback and dropped after it.
     pub incoming: Vec<ModCue>,
     polls: u32,
     pending_rig: Option<Option<GameplayCameraRig>>,
     pending_commands: Vec<String>,
     pending_cues: Vec<ModCue>,
+    pending_sounds: Vec<ModSound>,
     window_seconds: f32,
     window_sent: usize,
 }
@@ -52,11 +58,13 @@ impl WorldState {
             rig: None,
             commands: Vec::new(),
             cues: Vec::new(),
+            sounds: Vec::new(),
             incoming: self.incoming.clone(),
             polls: 0,
             pending_rig: None,
             pending_commands: Vec::new(),
             pending_cues: Vec::new(),
+            pending_sounds: Vec::new(),
             window_sent: self.window_sent,
             window_seconds: 0.,
         }
@@ -74,6 +82,7 @@ impl WorldState {
             }
             self.pending_commands = transaction.pending_commands;
             self.pending_cues = transaction.pending_cues;
+            self.pending_sounds = transaction.pending_sounds;
         }
     }
 
@@ -88,9 +97,11 @@ impl WorldState {
         self.polls = 0;
         self.commands.clear();
         self.cues.clear();
+        self.sounds.clear();
         self.pending_rig = None;
         self.pending_commands.clear();
         self.pending_cues.clear();
+        self.pending_sounds.clear();
     }
 
     /// Advances the one-second command rate window by host-measured frame time.
@@ -140,6 +151,7 @@ impl WorldState {
         self.commands = std::mem::take(&mut self.pending_commands);
         self.window_sent += self.commands.len();
         self.cues = std::mem::take(&mut self.pending_cues);
+        self.sounds = std::mem::take(&mut self.pending_sounds);
     }
 }
 
@@ -168,6 +180,18 @@ fn command_allowed(command: &str, granted: &[String]) -> bool {
     command.len() <= MAX_COMMAND_BYTES
         && command.bytes().all(|byte| (0x20..0x7f).contains(&byte))
         && granted.iter().any(|granted| granted == name)
+}
+
+/// A sound definition name of the characters the game's sound definitions use, with a volume and
+/// pitch inside the bounds a mod may ask for.
+fn sound_valid(name: &str, volume: f32, pitch: f32) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_SOUND_NAME_BYTES
+        && name.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+        })
+        && (0.0..=MAX_PLAYED_SOUND_VOLUME).contains(&volume)
+        && (MIN_PLAYED_SOUND_PITCH..=MAX_PLAYED_SOUND_PITCH).contains(&pitch)
 }
 
 fn cue_name_valid(name: &str) -> bool {
@@ -567,6 +591,26 @@ impl cinnabar::extension::gameplay::Host for State {
             return Ok(Err("command rate limit reached".into()));
         }
         self.world.pending_commands.push(command);
+        Ok(Ok(()))
+    }
+
+    fn play_sound(&mut self, name: String, volume: f32, pitch: f32) -> Result<Result<(), String>> {
+        if self.world.pending_sounds.len() >= MAX_SOUNDS_PER_FRAME {
+            bail!("sound budget exhausted");
+        }
+        if !self.grants.audio {
+            return Ok(Err("audio capability denied".into()));
+        }
+        if !sound_valid(&name, volume, pitch) {
+            return Ok(Err(
+                "sound must be a definition name, with volume and pitch in range".into(),
+            ));
+        }
+        self.world.pending_sounds.push(ModSound {
+            name,
+            volume,
+            pitch,
+        });
         Ok(Ok(()))
     }
 

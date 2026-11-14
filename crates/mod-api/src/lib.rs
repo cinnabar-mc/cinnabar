@@ -148,6 +148,11 @@ pub const MAX_COMMANDS_PER_SECOND: usize = 10;
 pub const MAX_CUES_PER_FRAME: usize = 16;
 pub const MAX_CUE_NAME_BYTES: usize = 32;
 pub const MAX_CUE_VALUES: usize = 8;
+/// Requested sound playbacks per frame, the loudest volume and the pitch range a mod may ask for.
+pub const MAX_SOUNDS_PER_FRAME: usize = 4;
+pub const MAX_PLAYED_SOUND_VOLUME: f32 = 1.0;
+pub const MIN_PLAYED_SOUND_PITCH: f32 = 0.5;
+pub const MAX_PLAYED_SOUND_PITCH: f32 = 2.0;
 /// Cues delivered to one callback from every loaded mod.
 pub const MAX_INCOMING_CUES: usize = 64;
 /// Structural bound on local mods running at once; frame fuel and memory budgets limit their cost.
