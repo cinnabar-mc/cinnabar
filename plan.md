@@ -1917,13 +1917,23 @@ attacks and entity interaction, the held slot, chat, commands and respawning. Te
 scripted server, a vanilla 1.7.10 server when one is supplied, and the client's own packet and
 chunk decoders reading the translation.
 
+Implemented: Java Edition sign-in ([`javaedition/auth`](core/javaedition/auth/keychain.go)).
+The Java Edition services refuse tokens from the account's Bedrock sign-in ("Invalid app
+registration"), so an account signs in a second time through the Nintendo Switch edition's
+Microsoft app, which they accept. The first online-mode join starts that device-code sign-in
+and fails with the code to enter; the token is kept beside the account's own, sign-out removes
+it, and the Java session is reused until it nears its expiry. A server's own login refusal
+reaches the player as its text.
+
 Incomplete:
 
 - A saved server whose address is `java/<host>[:<port>]` joins a Java server, but the
   client still runs Bedrock physics on that session: `java-sim` is not connected. Until it
   is, positions are sent from the Bedrock simulation's single-precision values with a derived
   ground flag, and the camera sink of sneaking and stepping is missing from the reported
-  stance. No join has been run in the client itself; the evidence is the tests above.
+  stance, so a vanilla server corrects sprinting. The client has joined an offline-mode
+  vanilla 1.7.10 server on the same machine and a public online-mode network through the
+  Java Edition sign-in; combat, teleports and inventories have not been exercised in it.
 - `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
   solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
   with the bounds last computed for any block of their kind; `java-sim` uses each block's own
@@ -1951,7 +1961,8 @@ Incomplete:
   checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
   where Java uses its modified form, which differs for NUL and for characters outside the
   basic plane.
-- Online-mode joins are tested against scripted services only, not the production ones.
+- The Java Edition sign-in's code reaches the player only in the failed join's disconnect
+  text; the menu has no sign-in screen for it, and no account picker entry shows it.
 - Server lists cannot ping Java servers.
 
 ## Phase 7 — Local worlds

@@ -48,7 +48,12 @@ func (s *Session) handleJava(pk java.Packet) error {
 		}
 		s.queue(&packet.SetTime{Time: int32(timeOfDay % 24000)})
 	case *java.ChatMessage:
-		s.queue(&packet.Text{TextType: packet.TextTypeRaw, Message: chatText(pk.Message)})
+		message := chatText(pk.Message)
+		if message == "" {
+			// Servers send empty lines to space out chat; Bedrock text cannot be empty.
+			message = " "
+		}
+		s.queue(&packet.Text{TextType: packet.TextTypeRaw, Message: message})
 	case *java.Disconnect:
 		s.queue(&packet.Disconnect{Message: chatText(pk.Reason)})
 	case *java.UpdateHealth:

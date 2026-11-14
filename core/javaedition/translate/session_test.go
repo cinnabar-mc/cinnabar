@@ -104,7 +104,11 @@ func expect[T java.Packet](ts *testSession) T {
 // write sends a client packet through the translator and flushes it.
 func (ts *testSession) write(pk packet.Packet) {
 	ts.t.Helper()
-	if err := ts.session.WritePacketRaw(encodeBedrock(pk)); err != nil {
+	data, err := encodeBedrock(pk)
+	if err != nil {
+		ts.t.Fatal(err)
+	}
+	if err := ts.session.WritePacketRaw(data); err != nil {
 		ts.t.Fatal(err)
 	}
 	if err := ts.session.Flush(); err != nil {
@@ -169,7 +173,10 @@ func checkFixture(t *testing.T, path string, data []byte) {
 func checkRegistryFixture(t *testing.T, registry *packet.ItemRegistry) {
 	t.Helper()
 	if os.Getenv(updateFixturesEnv) != "" {
-		data := encodeBedrock(registry)
+		data, err := encodeBedrock(registry)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(registryFixture, append(binary.AppendUvarint([]byte{batchHeader}, uint64(len(data))), data...), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -281,7 +288,10 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 			checkRegistryFixture(t, registry)
 			continue
 		}
-		data := encodeBedrock(pk)
+		data, err := encodeBedrock(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
 		encoded = binary.AppendUvarint(encoded, uint64(len(data)))
 		encoded = append(encoded, data...)
 	}
@@ -571,6 +581,29 @@ func TestADimensionChangeEndsAPendingRespawn(t *testing.T) {
 		if _, ok := pk.(*packet.Respawn); ok {
 			t.Fatalf("a teleport after a dimension change translated to a respawn: %+v", placed)
 		}
+	}
+}
+
+// Servers send empty chat lines to space out their messages. Bedrock text cannot be empty,
+// so the line reaches the client blank instead of failing to encode and ending the core.
+func TestAnEmptyChatLineReachesTheClientBlank(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	for _, raw := range []string{`{"text":""}`, `""`, `{"extra":[],"text":""}`} {
+		lines := ts.serve(&java.ChatMessage{Message: raw})
+		if len(lines) != 1 {
+			t.Fatalf("chat %s translated to %d packets", raw, len(lines))
+		}
+		if text, ok := lines[0].(*packet.Text); !ok || text.Message != " " {
+			t.Fatalf("chat %s translated to %+v", raw, lines[0])
+		}
+	}
+}
+
+// A packet the Bedrock encoder refuses is an error, not a panic.
+func TestAnUnencodablePacketIsAnError(t *testing.T) {
+	if _, err := encodeBedrock(&packet.Text{TextType: packet.TextTypeRaw}); err == nil {
+		t.Fatal("an empty chat message encoded")
 	}
 }
 

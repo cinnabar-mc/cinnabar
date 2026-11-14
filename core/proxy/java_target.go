@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 
-	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/translate"
@@ -61,45 +59,64 @@ func (javaUpstream) ResourcePackStack() (minecraft.ResourcePackStackSnapshot, bo
 	return minecraft.ResourcePackStackSnapshot{}, true
 }
 
-// dialJavaUpstream joins a Java server. A signed-in account joins as its Java Edition
-// profile, which online-mode servers require; without one the player joins under name and
-// only offline-mode servers accept the login.
-func dialJavaUpstream(ctx context.Context, address string, account *authcache.Account, name string, client *http.Client, logger *slog.Logger) (upstreamSession, error) {
+// dialJavaUpstream joins a Java server. With a Java Edition sign-in the player joins as its
+// profile, which online-mode servers require; without one the player joins under name, and
+// an online-mode server's request for the session starts the sign-in and fails the join with
+// the code to enter. Failures the player can act on reach the client as disconnect text.
+func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keychain, name string, logger *slog.Logger) (upstreamSession, error) {
 	options := translate.Options{Username: name, Logger: logger}
 	if options.Username == "" {
 		options.Username = javaSignedOutName
 	}
-	signInErr := errors.New("joining an online-mode Java server needs a signed-in Microsoft account")
-	if account != nil {
-		services := auth.Services{HTTP: client}
-		session, err := javaSignIn(ctx, account, services)
-		if err == nil {
-			options.Username = session.Profile.Name
-			options.JoinSession = func(ctx context.Context, serverHash string) error {
-				return services.Join(ctx, session, serverHash)
+	options.JoinSession = func(context.Context, string) error { return errJavaNeedsAccount }
+	if keychain != nil {
+		options.JoinSession = func(ctx context.Context, _ string) error {
+			prompt, err := keychain.BeginSignIn(ctx)
+			if err != nil {
+				return err
 			}
-		} else {
-			// An offline-mode server never asks for the session, so the failure only
-			// matters if this one does.
-			logger.Warn("Java Edition sign-in failed; joining without a session", "error", err)
-			signInErr = err
+			return prompt
 		}
-	}
-	if options.JoinSession == nil {
-		options.JoinSession = func(context.Context, string) error { return signInErr }
+		if keychain.SignedIn() {
+			session, err := keychain.Session(ctx)
+			if err == nil {
+				options.Username = session.Profile.Name
+				options.JoinSession = func(ctx context.Context, serverHash string) error {
+					return keychain.Join(ctx, session, serverHash)
+				}
+			} else {
+				// An offline-mode server never asks for the session, so the failure only
+				// matters if this one does.
+				logger.Warn("Java Edition sign-in failed; joining without a session", "error", err)
+				options.JoinSession = func(context.Context, string) error { return err }
+			}
+		}
 	}
 	session, err := translate.Dial(ctx, address, options)
 	if err != nil {
-		return nil, err
+		return nil, javaJoinError(err)
 	}
 	return javaUpstream{session}, nil
 }
 
-// javaSignIn signs the account in to the Java Edition services with its Xbox token.
-func javaSignIn(ctx context.Context, account *authcache.Account, services auth.Services) (auth.Session, error) {
-	token, err := account.XSTSToken(ctx, auth.RelyingParty)
-	if err != nil {
-		return auth.Session{}, fmt.Errorf("java edition xbox token: %w", err)
+// errJavaNeedsAccount refuses an online-mode join of a player who is not signed in.
+var errJavaNeedsAccount = errors.New("joining an online-mode Java server needs a signed-in Microsoft account")
+
+// javaJoinError gives a failed authentication the disconnect text that tells the player what
+// to do; any other failure keeps its error.
+func javaJoinError(err error) error {
+	var prompt *auth.SignInRequired
+	var status *auth.StatusError
+	var message string
+	switch {
+	case errors.As(err, &prompt):
+		message = fmt.Sprintf("Java Edition needs its own Microsoft sign-in. Go to %s, enter %s, then reconnect.", prompt.VerificationURI, prompt.UserCode)
+	case errors.Is(err, errJavaNeedsAccount):
+		message = "This Java server needs a Java Edition account. Sign in to Cinnabar, then reconnect."
+	case errors.As(err, &status):
+		message = "Could not sign in to Java Edition: " + status.Error()
+	default:
+		return err
 	}
-	return services.SignIn(ctx, token.String())
+	return errors.Join(&minecraft.DisconnectPacketError{Message: message}, err)
 }

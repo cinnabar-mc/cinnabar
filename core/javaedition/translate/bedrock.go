@@ -12,13 +12,19 @@ import (
 var clientPackets = packet.NewClientPool()
 
 // encodeBedrock returns a Bedrock packet's header and payload, the form the session relay
-// carries.
-func encodeBedrock(pk packet.Packet) []byte {
+// carries. The encoder panics on values the protocol forbids, such as an empty chat message;
+// such a packet is an error instead.
+func encodeBedrock(pk packet.Packet) (data []byte, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			data, err = nil, fmt.Errorf("encode packet %d: %v", pk.ID(), recovered)
+		}
+	}()
 	var buf bytes.Buffer
 	header := packet.Header{PacketID: pk.ID()}
 	_ = header.Write(&buf)
 	pk.Marshal(protocol.NewWriter(&buf, 0))
-	return buf.Bytes()
+	return buf.Bytes(), nil
 }
 
 // decodeBedrock decodes one encoded client packet. Packets the pool does not know return

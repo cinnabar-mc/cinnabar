@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 // fakeServices serves the three endpoints and records what each received.
@@ -102,5 +104,40 @@ func TestJoinRefused(t *testing.T) {
 	}
 	if got := err.Error(); got != "java edition session join: HTTP 403" {
 		t.Fatalf("error text %q", got)
+	}
+}
+
+// A refused sign-in keeps the service's own explanation, which names the cause (such as an
+// app the services do not accept), and nothing else from the response.
+func TestSignInFailureCarriesTheServiceMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"path":         "/authentication/login_with_xbox",
+			"errorMessage": "Invalid app registration, see https://aka.ms/AppRegInfo for more information",
+			"access_token": "must-not-leak",
+		})
+	}))
+	t.Cleanup(server.Close)
+	_, err := Services{HTTP: server.Client(), LoginURL: server.URL}.SignIn(context.Background(), "XBL3.0 x=hash;token")
+	var status *StatusError
+	if !errors.As(err, &status) || status.Status != http.StatusForbidden {
+		t.Fatalf("sign-in error = %v", err)
+	}
+	if !strings.HasPrefix(status.Message, "Invalid app registration") || strings.Contains(err.Error(), "must-not-leak") {
+		t.Fatalf("sign-in error = %q", err)
+	}
+}
+
+// The session's expiry comes from the service's expires_in.
+func TestSignInRecordsTheSessionExpiry(t *testing.T) {
+	fake := newFakeServices(t)
+	before := time.Now()
+	session, err := fake.services().SignIn(context.Background(), "XBL3.0 x=hash;token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lifetime := session.Expires.Sub(before); lifetime < 24*time.Hour-time.Minute || lifetime > 24*time.Hour+time.Minute {
+		t.Fatalf("session lasts %v", lifetime)
 	}
 }

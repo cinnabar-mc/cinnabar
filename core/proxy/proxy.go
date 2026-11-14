@@ -16,6 +16,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -29,7 +30,9 @@ type Config struct {
 	SocketDir string
 	Upstream  string
 	Account   *authcache.Account // nil runs offline
-	Logger    *slog.Logger
+	// JavaEdition is the account's Java Edition sign-in; nil joins Java servers signed out.
+	JavaEdition *auth.Keychain
+	Logger      *slog.Logger
 	// UpstreamClientCache advertises blob-cache support upstream; set it only when the downstream
 	// client owns a verified blob cache, since there is no runtime negotiation.
 	UpstreamClientCache bool
@@ -83,6 +86,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	prepared := newPreparedConnections(cfg.Upstream, cfg.Account, logger)
+	prepared.javaEdition = cfg.JavaEdition
 	prepared.resourcePackCache = cfg.ResourcePackCache
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
