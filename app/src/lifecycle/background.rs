@@ -31,7 +31,8 @@ fn visibility(change: AppLifecycle) -> Option<bool> {
 
 /// Passes each visibility change to local worlds in order. When the host closed the world while
 /// the app was hidden, a session playing or joining a local world ends with the explanation;
-/// any other session is left alone.
+/// any other session is left alone. The closure is checked every frame, so a frame that runs
+/// while the app is still hidden records the explanation before the session's own end can.
 fn forward_app_visibility(
     mut lifecycle: MessageReader<AppLifecycle>,
     worlds: Option<ResMut<LocalWorlds>>,
@@ -53,7 +54,7 @@ fn forward_app_visibility(
             worlds.app_hidden();
         }
     }
-    if closed
+    if (closed || worlds.closed_while_hidden())
         && session.is_some_and(|session| session.is_local_world())
         && let Some(mut fatal_error) = fatal_error
     {
@@ -128,7 +129,18 @@ mod tests {
         test_time::eventually("the world to close", || {
             manager.status().state == WorldState::Idle
         });
-        assert_eq!(fatal_error(&app), None, "nothing is reported while hidden");
+        assert_eq!(
+            fatal_error(&app),
+            None,
+            "nothing is reported before a frame runs"
+        );
+        // A frame that runs while the app is still hidden already explains the ended session.
+        app.update();
+        assert_eq!(
+            fatal_error(&app),
+            Some(launcher::menu::disconnect::local_world_closed_in_background())
+        );
+        app.world_mut().resource_mut::<FatalError>().0 = None;
 
         // Returning starts nothing: the player opens the world again.
         app.world_mut().write_message(AppLifecycle::WillResume);

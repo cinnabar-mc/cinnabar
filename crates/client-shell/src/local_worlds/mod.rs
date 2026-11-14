@@ -200,6 +200,15 @@ impl LocalWorlds {
         closed
     }
 
+    /// Whether the host closed the world while the app is still hidden, without consuming the
+    /// report [`Self::app_shown`] makes.
+    #[must_use]
+    pub fn closed_while_hidden(&self) -> bool {
+        self.manager
+            .as_ref()
+            .is_some_and(Manager::closed_while_hidden)
+    }
+
     /// Leaves the local world and asks its server to save and stop.
     pub fn leave_world(&mut self) {
         self.dispatch(vec![Effect::Leave]);

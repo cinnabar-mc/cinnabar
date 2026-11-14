@@ -114,6 +114,13 @@ impl Manager {
         std::mem::take(&mut hidden.closed)
     }
 
+    /// Whether the watch closed the world since the app was hidden, without ending the report
+    /// [`Self::app_shown`] makes.
+    #[must_use]
+    pub fn closed_while_hidden(&self) -> bool {
+        lock(&self.inner.hidden).closed
+    }
+
     /// Closes the open world for watch `number`, unless the app has returned since it started.
     fn close_hidden(&self, number: u64) {
         let mut hidden = lock(&self.inner.hidden);

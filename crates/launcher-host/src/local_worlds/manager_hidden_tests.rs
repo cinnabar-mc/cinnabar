@@ -81,8 +81,11 @@ fn a_world_running_hidden_past_the_limit_is_saved_and_stopped() {
     drop(save);
     wait_for(manager, WorldState::Idle);
     assert!(server.stopped(), "the server was not stopped");
+    assert!(manager.closed_while_hidden(), "visible before the return");
+    assert!(manager.closed_while_hidden(), "and not consumed by looking");
     assert!(manager.app_shown(), "the return reports the closed world");
     assert!(!manager.app_shown(), "the report is made once");
+    assert!(!manager.closed_while_hidden());
     assert_eq!(runner.entered.load(Ordering::SeqCst), 1);
 }
 
