@@ -113,24 +113,27 @@ type KeychainConfig struct {
 // The session is reused until shortly before it expires, since the services limit how often
 // an account signs in.
 //
-// mu guards the fields and is never held across a network call. signIn serializes the
-// network work of Session, so concurrent joins sign in once.
+// mu guards the fields and is never held across a network call or a token file's lease.
 type Keychain struct {
 	config   KeychainConfig
 	lifetime context.Context
 	stop     context.CancelFunc
-	// flows counts the device-code sign-ins still running in the background.
-	flows sync.WaitGroup
-
-	signIn sync.Mutex
+	// work counts the sign-ins running in the background: device-code flows and session
+	// sign-ins.
+	work sync.WaitGroup
 
 	mu      sync.Mutex
+	closed  bool
 	source  oauth2.TokenSource
 	session Session
 	pending *pendingSignIn
-	// generation changes whenever the sign-in is forgotten, so work begun before cannot
-	// restore it.
+	// signingIn is the session sign-in under way, which concurrent joins share.
+	signingIn *sessionSignIn
+	// generation changes whenever the sign-in is replaced, dropped or forgotten, so work
+	// begun before cannot store a stale result.
 	generation uint64
+	// forgets counts sign-outs, which a token saved meanwhile must not survive.
+	forgets uint64
 }
 
 // pendingSignIn is a device-code sign-in the player has not finished yet.
@@ -140,14 +143,21 @@ type pendingSignIn struct {
 	cancel  context.CancelFunc
 }
 
+// sessionSignIn is one session sign-in; done closes once session and err are set.
+type sessionSignIn struct {
+	done    chan struct{}
+	session Session
+	err     error
+}
+
 // CachePath returns the Java Edition token file of the account whose Microsoft token is at
 // oauthPath.
 func CachePath(oauthPath string) string {
 	return filepath.Join(filepath.Dir(oauthPath), CacheFile)
 }
 
-// NewKeychain returns the Java Edition sign-in kept at config.Path. Close stops a sign-in
-// still waiting for the player.
+// NewKeychain returns the Java Edition sign-in kept at config.Path. Close stops the sign-ins
+// running in the background.
 func NewKeychain(config KeychainConfig) *Keychain {
 	if config.App == nil {
 		config.App = SwitchApp()
@@ -168,10 +178,14 @@ func NewKeychain(config KeychainConfig) *Keychain {
 	return &Keychain{config: config, lifetime: lifetime, stop: stop}
 }
 
-// Close stops any sign-in waiting for the player and waits for it to end.
+// Close stops the sign-ins running in the background and waits for them to end. No sign-in
+// starts afterwards.
 func (k *Keychain) Close() {
+	k.mu.Lock()
+	k.closed = true
+	k.mu.Unlock()
 	k.stop()
-	k.flows.Wait()
+	k.work.Wait()
 }
 
 // SignedIn reports whether the account has a saved Java Edition sign-in. It may still turn
@@ -187,77 +201,104 @@ func (k *Keychain) SignedIn() bool {
 }
 
 // Session returns the account's Java Edition session, signing in with the saved token when
-// the last session is about to expire. It returns ErrNotSignedIn when there is no usable
-// sign-in, so the caller can start one.
+// the last session is about to expire. Concurrent callers share one sign-in, and each waits
+// only as long as its own ctx allows; the sign-in itself is bounded by the HTTP client's
+// timeout. It returns ErrNotSignedIn when there is no usable sign-in, so the caller can
+// start one.
 func (k *Keychain) Session(ctx context.Context) (Session, error) {
-	k.signIn.Lock()
-	defer k.signIn.Unlock()
 	k.mu.Lock()
-	session, source, generation := k.session, k.source, k.generation
-	k.mu.Unlock()
-	if session.AccessToken != "" && k.config.Now().Add(sessionMargin).Before(session.Expires) {
+	if k.session.AccessToken != "" && k.config.Now().Add(sessionMargin).Before(k.session.Expires) {
+		session := k.session
+		k.mu.Unlock()
 		return session, nil
 	}
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, k.config.Services.HTTP)
+	if k.closed {
+		k.mu.Unlock()
+		return Session{}, context.Canceled
+	}
+	call := k.signingIn
+	if call == nil {
+		call = &sessionSignIn{done: make(chan struct{})}
+		k.signingIn = call
+		k.work.Add(1)
+		go k.signInSession(call, k.source, k.generation)
+	}
+	k.mu.Unlock()
+	select {
+	case <-call.done:
+		return call.session, call.err
+	case <-ctx.Done():
+		return Session{}, ctx.Err()
+	}
+}
+
+// signInSession signs in with the saved token and stores the session, unless the sign-in
+// was replaced meanwhile.
+func (k *Keychain) signInSession(call *sessionSignIn, source oauth2.TokenSource, generation uint64) {
+	defer k.work.Done()
+	session, source, err := k.newSession(source)
+	k.mu.Lock()
+	if k.generation == generation {
+		switch {
+		case err == nil:
+			k.source, k.session = source, session
+		case errors.Is(err, ErrNotSignedIn):
+			k.source, k.session = nil, Session{}
+			k.generation++
+		}
+	}
+	k.signingIn = nil
+	k.mu.Unlock()
+	call.session, call.err = session, err
+	close(call.done)
+}
+
+// newSession signs in to the Java Edition services with source, opening the saved token
+// when source is nil. An unreadable, unrefreshable or refused token is ErrNotSignedIn.
+func (k *Keychain) newSession(source oauth2.TokenSource) (Session, oauth2.TokenSource, error) {
+	ctx := k.lifetime
 	if source == nil {
 		if _, err := os.Stat(k.config.Path); errors.Is(err, os.ErrNotExist) {
-			return Session{}, ErrNotSignedIn
+			return Session{}, nil, ErrNotSignedIn
 		}
 		// The token cache asks for a new token when the saved one is unreadable or no longer
 		// refreshes; the player has to sign in again then.
 		var err error
-		source, err = authcache.Source(k.lifetime, authcache.Config{
+		source, err = authcache.Source(ctx, authcache.Config{
 			Path:    k.config.Path,
 			Request: func(context.Context, io.Writer) (*oauth2.Token, error) { return nil, ErrNotSignedIn },
 			Refresh: k.refresh,
 		})
 		if errors.Is(err, ErrNotSignedIn) {
-			return Session{}, fmt.Errorf("%w: the saved one no longer refreshes", ErrNotSignedIn)
+			return Session{}, nil, fmt.Errorf("%w: the saved one no longer refreshes", ErrNotSignedIn)
 		}
 		if err != nil {
-			return Session{}, fmt.Errorf("java edition sign-in: %w", err)
+			return Session{}, nil, fmt.Errorf("java edition sign-in: %w", err)
 		}
 	}
 	identity, err := k.config.App.IdentityToken(ctx, source)
 	var refused *oauth2.RetrieveError
 	if errors.As(err, &refused) {
 		// The Microsoft sign-in itself was refused, as for a revoked token.
-		k.dropSource(source)
-		return Session{}, fmt.Errorf("%w: %v", ErrNotSignedIn, err)
+		return Session{}, nil, fmt.Errorf("%w: %v", ErrNotSignedIn, err)
 	}
 	if err != nil {
-		return Session{}, err
+		return Session{}, nil, err
 	}
-	session, err = k.config.Services.SignIn(ctx, identity)
+	session, err := k.config.Services.SignIn(ctx, identity)
 	if err != nil {
-		return Session{}, err
+		return Session{}, nil, err
 	}
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	if k.generation == generation {
-		k.source, k.session = source, session
-	}
-	return session, nil
-}
-
-// dropSource forgets a token source that no longer works, unless it was already replaced.
-func (k *Keychain) dropSource(source oauth2.TokenSource) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	if k.source == source {
-		k.source, k.session = nil, Session{}
-	}
+	return session, source, nil
 }
 
 // BeginSignIn starts the device-code sign-in, or returns the one already waiting for the
 // player. It finishes in the background and saves the token for later joins.
 func (k *Keychain) BeginSignIn(ctx context.Context) (*SignInRequired, error) {
-	k.mu.Lock()
-	if k.pending != nil && k.config.Now().Before(k.pending.expires) {
-		prompt := k.pending.prompt
-		k.mu.Unlock()
-		return &prompt, nil
+	if prompt := k.livePrompt(); prompt != nil {
+		return prompt, nil
 	}
+	k.mu.Lock()
 	generation := k.generation
 	k.mu.Unlock()
 
@@ -275,52 +316,87 @@ func (k *Keychain) BeginSignIn(ctx context.Context) (*SignInRequired, error) {
 		pending.expires = k.config.Now().Add(deviceCodeLifetime)
 	}
 	k.mu.Lock()
-	if k.generation != generation {
-		// Forgotten while the code was requested.
+	switch {
+	case k.closed || k.generation != generation:
+		// Closed or forgotten while the code was requested.
 		k.mu.Unlock()
 		cancel()
 		return nil, fmt.Errorf("%w: the account signed out", ErrSignInUnavailable)
+	case k.pending != nil && k.config.Now().Before(k.pending.expires):
+		// Another join started a sign-in meanwhile; its code is the one to enter.
+		prompt := k.pending.prompt
+		k.mu.Unlock()
+		cancel()
+		return &prompt, nil
 	}
 	if k.pending != nil {
 		k.pending.cancel()
 	}
 	k.pending = pending
-	k.flows.Add(1)
+	k.work.Add(1)
 	k.mu.Unlock()
 	go k.finishSignIn(flow, device, pending)
 	prompt := pending.prompt
 	return &prompt, nil
 }
 
+// livePrompt returns the code of the sign-in waiting for the player, if it is still valid.
+func (k *Keychain) livePrompt() *SignInRequired {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.pending == nil || !k.config.Now().Before(k.pending.expires) {
+		return nil
+	}
+	prompt := k.pending.prompt
+	return &prompt
+}
+
 // finishSignIn waits for the player to finish a device-code sign-in and saves its token,
 // unless the sign-in was forgotten or replaced meanwhile.
 func (k *Keychain) finishSignIn(flow context.Context, device *oauth2.DeviceAuthResponse, pending *pendingSignIn) {
-	defer k.flows.Done()
+	defer k.work.Done()
 	defer pending.cancel()
 	token, err := k.config.App.DeviceAccessToken(flow, device)
 	k.mu.Lock()
-	defer k.mu.Unlock()
 	if k.pending != pending {
+		k.mu.Unlock()
 		return
 	}
 	k.pending = nil
+	forgets := k.forgets
+	k.mu.Unlock()
 	if err != nil {
 		if flow.Err() == nil {
 			k.config.Logger.Warn("Java Edition sign-in did not finish", "error", err)
 		}
 		return
 	}
-	// Saving needs no network: the token cache writes the requested token.
-	source, err := authcache.Source(k.lifetime, authcache.Config{
-		Path:    k.config.Path,
-		Request: func(context.Context, io.Writer) (*oauth2.Token, error) { return token, nil },
-		Refresh: k.refresh,
-	})
+	// Any older token goes first, so the cache saves this one instead of refreshing that.
+	err = authcache.Remove(k.lifetime, k.config.Path, os.Remove)
+	var source oauth2.TokenSource
+	if err == nil {
+		source, err = authcache.Source(k.lifetime, authcache.Config{
+			Path:    k.config.Path,
+			Request: func(context.Context, io.Writer) (*oauth2.Token, error) { return token, nil },
+			Refresh: k.refresh,
+		})
+	}
 	if err != nil {
 		k.config.Logger.Warn("Java Edition sign-in could not be saved", "error", err)
 		return
 	}
-	k.source, k.session = source, Session{}
+	k.mu.Lock()
+	forgotten := k.forgets != forgets
+	if !forgotten {
+		k.source, k.session = source, Session{}
+		k.generation++
+	}
+	k.mu.Unlock()
+	if forgotten {
+		// The account signed out while the token was saved.
+		_ = authcache.Remove(k.lifetime, k.config.Path, os.Remove)
+		return
+	}
 	k.config.Logger.Info("Java Edition sign-in finished")
 }
 
@@ -348,6 +424,7 @@ func (k *Keychain) Forget(ctx context.Context) error {
 	}
 	k.source, k.session, k.pending = nil, Session{}, nil
 	k.generation++
+	k.forgets++
 	k.mu.Unlock()
 	return authcache.Remove(ctx, k.config.Path, os.Remove)
 }

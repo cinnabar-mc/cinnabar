@@ -72,31 +72,32 @@ func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keycha
 	}
 	options.JoinSession = func(context.Context, string) error { return errJavaNeedsAccount }
 	if keychain != nil {
-		options.JoinSession = func(ctx context.Context, _ string) error {
-			prompt, err := keychain.BeginSignIn(ctx)
+		// Only an online-mode server asks for the session. The join's own context bounds the
+		// sign-in then, and no usable sign-in starts a new one.
+		options.JoinSession = func(ctx context.Context, serverHash string) error {
+			session, err := keychain.Session(ctx)
+			if errors.Is(err, auth.ErrNotSignedIn) {
+				prompt, err := keychain.BeginSignIn(ctx)
+				if err != nil {
+					return err
+				}
+				return prompt
+			}
 			if err != nil {
 				return err
 			}
-			return prompt
+			return keychain.Join(ctx, session, serverHash)
 		}
 		if keychain.SignedIn() {
-			// Bounded, so an offline-mode server's join never waits long on the services.
+			// The login names the profile, so the session is read before dialing. The wait is
+			// bounded, so an offline-mode server's join never waits long on the services.
 			signInCtx, cancel := context.WithTimeout(ctx, javaSignInTimeout)
 			session, err := keychain.Session(signInCtx)
 			cancel()
-			switch {
-			case err == nil:
+			if err == nil {
 				options.Username = session.Profile.Name
-				options.JoinSession = func(ctx context.Context, serverHash string) error {
-					return keychain.Join(ctx, session, serverHash)
-				}
-			case errors.Is(err, auth.ErrNotSignedIn):
-				logger.Info("saved Java Edition sign-in is unusable; an online-mode server will ask for a new one", "error", err)
-			default:
-				// An offline-mode server never asks for the session, so the failure only
-				// matters if this one does.
-				logger.Warn("Java Edition sign-in failed; joining without a session", "error", err)
-				options.JoinSession = func(context.Context, string) error { return err }
+			} else {
+				logger.Warn("Java Edition sign-in unavailable before the join", "error", err)
 			}
 		}
 	}

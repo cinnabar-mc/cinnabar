@@ -21,6 +21,8 @@ type fakeApp struct {
 	finish chan struct{}
 	// revoked makes the identity token fail as Microsoft refusing a revoked token.
 	revoked bool
+	// stall, when not nil, holds every identity token request until it is closed.
+	stall chan struct{}
 
 	mu         sync.Mutex
 	deviceAuth int
@@ -55,6 +57,9 @@ func (a *fakeApp) TokenSource(_ context.Context, token *oauth2.Token) oauth2.Tok
 func (a *fakeApp) IdentityToken(_ context.Context, source oauth2.TokenSource) (string, error) {
 	if _, err := source.Token(); err != nil {
 		return "", err
+	}
+	if a.stall != nil {
+		<-a.stall
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -229,7 +234,7 @@ func TestKeychainForgetStopsAPendingSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(app.finish)
-	keychain.flows.Wait()
+	keychain.work.Wait()
 	if keychain.SignedIn() {
 		t.Fatal("the forgotten sign-in was saved")
 	}
@@ -269,5 +274,37 @@ func TestKeychainARevokedSignInAsksAgain(t *testing.T) {
 	app.mu.Unlock()
 	if _, err := keychain.Session(context.Background()); !errors.Is(err, ErrNotSignedIn) {
 		t.Fatalf("session from a revoked sign-in = %v", err)
+	}
+}
+
+// A join reads the session before it dials, so a slow sign-in must not hold it past its own
+// deadline: concurrent joins share one sign-in and each stops waiting at its deadline, while
+// the sign-in finishes in the background for the joins after them.
+func TestKeychainSessionWaitsOnlyAsLongAsItsContext(t *testing.T) {
+	fake := newFakeServices(t)
+	app := newFakeApp()
+	keychain := newTestKeychain(t, app, fake.services())
+	if _, err := keychain.BeginSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	testwait.Eventually(t, 5*time.Second, "the sign-in to finish", keychain.SignedIn)
+	app.stall = make(chan struct{})
+
+	for range 2 {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		_, err := keychain.Session(ctx)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("a stalled sign-in returned %v", err)
+		}
+	}
+	close(app.stall)
+	session, err := keychain.Session(context.Background())
+	if err != nil || session.Profile.Name != "Notch" {
+		t.Fatalf("session after the stall = %+v, %v", session, err)
+	}
+	if _, identity := app.counts(); identity != 1 {
+		t.Fatalf("the waiting joins started %d sign-ins", identity)
 	}
 }
