@@ -200,4 +200,14 @@ func TestExactPositionIgnoresAnOrdinaryDeltaAndOrientation(t *testing.T) {
 	if x != 8.5 || feet != float64(float32(5.62001))-networkOffset || z != -300.25 {
 		t.Fatalf("position read as %v, %v, %v", x, feet, z)
 	}
+	// Far out, where a single-precision step is larger than an ordinary delta, the delta
+	// and orientation still do not read as remainders.
+	far := &packet.PlayerAuthInput{
+		Position:          mgl32.Vec3{29999984, 5.62001, -29999984},
+		Delta:             mgl32.Vec3{0.1, -0.0784, 0.2},
+		CameraOrientation: mgl32.Vec3{0.48, -0.6, 0.64},
+	}
+	if x, _, z := exactPosition(far); x != 29999984 || z != -29999984 {
+		t.Fatalf("far position read as %v, %v", x, z)
+	}
 }

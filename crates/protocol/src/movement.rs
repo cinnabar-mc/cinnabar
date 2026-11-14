@@ -197,7 +197,8 @@ pub struct PredictedVehicleInput {
 /// Splits what a single-precision wire position loses of a Java Edition feet position into
 /// two single-precision remainders per axis. The core's translator restores the position as
 /// `base + (first + second)`, where `base` is the wire position with the network offset
-/// taken off its height. The result is the original double wherever its difference from
+/// taken off its height. `second` is at most half a single-precision step of `first`, the
+/// shape the translator checks before it reads a pair as remainders. The result is the original double wherever its difference from
 /// `base` is itself a double, which only fails within a millionth of height zero.
 #[must_use]
 pub fn java_position_remainders(feet: [f64; 3], wire: [f32; 3]) -> ([f32; 3], [f32; 3]) {

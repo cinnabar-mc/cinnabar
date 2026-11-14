@@ -226,17 +226,28 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 // in single precision, and a 1.7.10 server reads doubles: a position rounded into a block
 // by a hair is one the server will not walk the player out of. On a Java session the client
 // therefore sends what the rounding lost in the delta and camera orientation fields, as
-// two remainders per axis that add up to the difference. Remainders larger than rounding
-// can lose are some other client's delta and orientation, and are left out.
+// two remainders per axis that add up to the difference. Only a pair shaped like that is
+// read as remainders: the second within a single-precision step of the first, and the two
+// no larger than rounding can lose. Any other pair is an ordinary delta and orientation. A
+// zero orientation component far from the origin, where a step exceeds an ordinary delta,
+// still passes; the core's own client sends remainders on every simulated tick of a Java
+// session, so that case only arises for ticks it does not simulate.
 func exactPosition(pk *packet.PlayerAuthInput) (x, feet, z float64) {
 	position := [3]float64{float64(pk.Position[0]), float64(pk.Position[1]) - networkOffset, float64(pk.Position[2])}
 	for axis := range position {
-		rest := float64(pk.Delta[axis]) + float64(pk.CameraOrientation[axis])
-		if math.Abs(rest) <= roundingBound(pk.Position[axis]) {
-			position[axis] += rest
+		first, second := float64(pk.Delta[axis]), float64(pk.CameraOrientation[axis])
+		if isRemainderPair(first, second) && math.Abs(first+second) <= roundingBound(pk.Position[axis]) {
+			position[axis] += first + second
 		}
 	}
 	return position[0], position[1], position[2]
+}
+
+// isRemainderPair reports whether second could be what is left of a double after first,
+// its nearest single-precision value: at most half a single-precision step of first, which
+// is below 2^-24 of first's size, so 2^-23 leaves room for second's own rounding.
+func isRemainderPair(first, second float64) bool {
+	return math.Abs(second) <= math.Abs(first)*0x1p-23
 }
 
 // roundingBound is the most a coordinate sent as value can differ from the double it was
