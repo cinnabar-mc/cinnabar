@@ -2301,6 +2301,7 @@ dependencies = [
  "launcher",
  "launcher-host",
  "libc",
+ "memory-pressure",
  "meshing",
  "mimalloc",
  "mod-api",
@@ -2510,6 +2511,7 @@ dependencies = [
  "client-world",
  "crossbeam-queue",
  "inventory 0.2.1",
+ "memory-pressure",
  "pack-json",
  "particles",
  "player-state",
@@ -5744,6 +5746,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "memory-pressure"
+version = "0.2.1"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "meshing"
 version = "0.2.1"
 dependencies = [
@@ -7834,6 +7843,7 @@ dependencies = [
  "glam",
  "image",
  "libc",
+ "memory-pressure",
  "meshing",
  "mod-api",
  "mod-render",

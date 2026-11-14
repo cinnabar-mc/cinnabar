@@ -62,7 +62,8 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
             "{}/CinnabarActivity",
             super::runtime().application_id.replace('.', "/")
         );
-        // Physical keyboard and mouse ingress is optional: without it the game keeps touch input.
+        // Physical keyboard and mouse ingress and memory-pressure reports are optional: without
+        // them the game keeps touch input and its caches.
         if let Err(error) = env.register_native_methods(
             game_class,
             &[
@@ -96,9 +97,14 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                     sig: "(Z)V".into(),
                     fn_ptr: on_pointer_capture_change as *mut c_void,
                 },
+                NativeMethod {
+                    name: "nativeOnTrimMemory".into(),
+                    sig: "(I)V".into(),
+                    fn_ptr: on_trim_memory as *mut c_void,
+                },
             ],
         ) {
-            eprintln!("Cinnabar could not register physical input natives: {error}");
+            eprintln!("Cinnabar could not register game activity natives: {error}");
             let _ = env.exception_clear();
         }
         Ok(())
@@ -163,6 +169,11 @@ extern "system" fn on_mouse_cursor(_: JNIEnv<'_>, _: JObject<'_>, x: jfloat, y: 
 /// Receives the decor view gaining or losing pointer capture.
 extern "system" fn on_pointer_capture_change(_: JNIEnv<'_>, _: JObject<'_>, has_capture: jboolean) {
     cinnabar::platform_devices::ingress::set_platform_pointer_captured(has_capture != 0);
+}
+
+/// Receives the activity's `onTrimMemory` level, or its `onLowMemory` as the critical level.
+extern "system" fn on_trim_memory(_: JNIEnv<'_>, _: JObject<'_>, level: jint) {
+    cinnabar::memory_pressure::report_android_trim_level(level);
 }
 
 extern "system" fn prepare<'local>(

@@ -164,6 +164,16 @@ search filters friends currently playing; it does not search Xbox users. The Bac
 button closes chat, inventories and other game screens and goes back in menus, like a mouse's
 Back button.
 
+## Memory pressure and backgrounding
+
+When Android reports memory pressure, or the app leaves the screen, the client releases
+memory it can rebuild: decoded sounds, resource-pack read caches and the extra upload staging
+its pools grew into. A hidden app also closes its audio output, so sound pauses and resumes
+where it stopped on return. The first sounds, pack reads and upload bursts after returning are
+decoded, inflated and staged again. Textures, terrain and the server connection stay loaded,
+so Android can still close a hidden app that holds a large world. Device measurements of the
+released memory are pending.
+
 ## Local worlds
 
 All local worlds use BDS through the bundled translated runtime. Legacy Dragonfly saves
