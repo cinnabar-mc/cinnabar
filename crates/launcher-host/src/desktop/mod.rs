@@ -76,12 +76,8 @@ pub fn saves_diagnostic_reports() -> bool {
 /// Downloads with device details and the client log so far. Returns at once; the platform shows
 /// whether the save worked. Does nothing but log where [`saves_diagnostic_reports`] is false.
 pub fn save_diagnostic_report() {
-    if !saves_diagnostic_reports() {
-        tracing::warn!("this platform cannot save a diagnostic report");
-        return;
-    }
     #[cfg(target_os = "android")]
-    {
+    if saves_diagnostic_reports() {
         let spawned = std::thread::Builder::new()
             .name("save-report".into())
             .spawn(|| {
@@ -92,7 +88,9 @@ pub fn save_diagnostic_report() {
         if let Err(error) = spawned {
             tracing::warn!("could not start the diagnostic report: {error}");
         }
+        return;
     }
+    tracing::warn!("this platform cannot save a diagnostic report");
 }
 
 /// Creates `dir` if needed and shows it in the OS file manager on a worker thread.
