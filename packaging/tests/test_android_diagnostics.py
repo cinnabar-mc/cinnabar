@@ -324,14 +324,23 @@ public final class DiagnosticsFixture {
             // A cut after a newline keeps its line; a cut inside the last line keeps the rest of it.
             long[][] cuts = {{0, 0}, {1, 3}, {3, 3}, {4, 6}, {6, 6}, {7, 7}};
             for (long[] cut : cuts) {
-                if (CrashReport.wholeLineStart(source, cut[0], new byte[2]) != cut[1])
+                if (CrashReport.wholeLineStart(source, cut[0], source.length(), new byte[2]) != cut[1])
                     throw new AssertionError("cut " + cut[0] + " did not start on a whole line");
             }
         }
         Files.write(log.toPath(), "ab\\ncd\\n".getBytes(StandardCharsets.UTF_8));
         try (java.io.RandomAccessFile source = new java.io.RandomAccessFile(log, "r")) {
-            if (CrashReport.wholeLineStart(source, 4, new byte[2]) != 4)
+            if (CrashReport.wholeLineStart(source, 4, source.length(), new byte[2]) != 4)
                 throw new AssertionError("a cut inside the only remaining line dropped it");
+        }
+        try (java.io.RandomAccessFile source = new java.io.RandomAccessFile(log, "r")) {
+            long end = source.length();
+            Files.write(log.toPath(), "late record\\n".getBytes(StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.APPEND);
+            ByteArrayOutputStream snapshot = new ByteArrayOutputStream();
+            CrashReport.copySnapshot(source, end, snapshot, new byte[3]);
+            if (!"ab\\ncd\\n".equals(new String(snapshot.toByteArray(), StandardCharsets.UTF_8)))
+                throw new AssertionError("records appended while saving entered the attachment");
         }
         byte[] longLog = new byte[(int) CrashReport.ATTACHMENT_BYTES + 100];
         Arrays.fill(longLog, (byte) 'x');

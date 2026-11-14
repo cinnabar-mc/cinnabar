@@ -205,9 +205,8 @@ final class CrashReport {
             return;
         }
         try {
-            source.seek(wholeLineStart(source, Math.max(0, source.length() - ATTACHMENT_BYTES), buffer));
             zip.putNextEntry(new ZipEntry(file.getName()));
-            for (int count; (count = source.read(buffer)) != -1; ) zip.write(buffer, 0, count);
+            copySnapshot(source, source.length(), zip, buffer);
             zip.closeEntry();
         } finally {
             source.close();
@@ -215,20 +214,41 @@ final class CrashReport {
     }
 
     /**
-     * The first line start at or after `cut`, so a file cut there begins with a whole line.
-     * A final line that itself starts before `cut` is kept from `cut`.
+     * Copies the newest {@link #ATTACHMENT_BYTES} before `end` to `output`, from the first whole
+     * line when the start is cut. Bytes written after `end`, such as records a running client
+     * appends while a session report is saved, are left out.
      */
-    static long wholeLineStart(RandomAccessFile source, long cut, byte[] buffer) throws IOException {
+    static void copySnapshot(RandomAccessFile source, long end, OutputStream output, byte[] buffer)
+            throws IOException {
+        long position = wholeLineStart(source, Math.max(0, end - ATTACHMENT_BYTES), end, buffer);
+        source.seek(position);
+        while (position < end) {
+            int count = source.read(buffer, 0, (int) Math.min(buffer.length, end - position));
+            if (count == -1) break;
+            output.write(buffer, 0, count);
+            position += count;
+        }
+    }
+
+    /**
+     * The first line start at or after `cut` and before `end`, so a file cut there begins with a
+     * whole line. A final line that itself starts before `cut` is kept from `cut`.
+     */
+    static long wholeLineStart(RandomAccessFile source, long cut, long end, byte[] buffer)
+            throws IOException {
         if (cut == 0) return 0;
         // A newline just before the cut means the cut already falls on a line start.
         long offset = cut - 1;
         source.seek(offset);
-        for (int count; (count = source.read(buffer)) != -1; offset += count) {
+        while (offset < end) {
+            int count = source.read(buffer, 0, (int) Math.min(buffer.length, end - offset));
+            if (count == -1) break;
             for (int index = 0; index < count; index++) {
                 if (buffer[index] != '\n') continue;
                 long line = offset + index + 1;
-                return line < source.length() ? line : cut;
+                return line < end ? line : cut;
             }
+            offset += count;
         }
         return cut;
     }
