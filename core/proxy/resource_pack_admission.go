@@ -488,6 +488,9 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		logger := joinprofile.Logger(ctx, logger)
+		if target.java {
+			return dialJavaUpstream(ctx, target.address, connections.account, dialer.IdentityData.DisplayName, connections.httpClient, logger)
+		}
 		return connectUpstream(ctx, target.address, authenticationMode(dialer.TokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			attempt := withJoinStages(localHopDialer(target, address, dialer, accountTokenSource(connections.account)), logger)
 			dial := attempt.DialContextNetwork

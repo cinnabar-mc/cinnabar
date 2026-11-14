@@ -155,6 +155,9 @@ pub const NETHERNET_SIGNALING_HTTP: &str = "http";
 /// Prefix for a host:port joined over RakNet without probing it for NetherNet.
 pub const RAKNET_TARGET_PREFIX: &str = "raknet/";
 
+/// Prefix for a Java Edition 1.7.10 server, given as a host with an optional port.
+pub const JAVA_TARGET_PREFIX: &str = "java/";
+
 /// Version of the control JSON-RPC envelope.
 pub const JSON_RPC_VERSION: &str = "2.0";
 

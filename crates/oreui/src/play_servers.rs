@@ -230,11 +230,12 @@ enum Selection {
 pub fn animated_server_details(view: &MenuView) -> bool {
     let address = match selection(view, view.featured.len()) {
         Some(Selection::Saved(index)) => &view.servers[index].address,
-        Some(Selection::Featured(index)) if pingable(&view.featured[index].address) => {
-            &view.featured[index].address
-        }
-        _ => return false,
+        Some(Selection::Featured(index)) => &view.featured[index].address,
+        None => return false,
     };
+    if !pingable(address) {
+        return false;
+    }
     !view
         .feeds
         .pings
@@ -290,6 +291,27 @@ mod tests {
         assert_eq!(selection(&view, 2), Some(Selection::Saved(0)));
         view.feeds.select(1);
         assert_eq!(selection(&view, 2), Some(Selection::Featured(1)));
+    }
+
+    /// A saved Java server is never pinged, so its details wait for nothing.
+    #[test]
+    fn a_saved_server_that_is_never_pinged_does_not_animate() {
+        let saved = |address: String| {
+            let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
+            view.servers = vec![launcher::menu::SavedServer {
+                name: "Home".to_owned(),
+                address,
+                favorite: false,
+                last_joined_unix: 0,
+            }]
+            .into();
+            view
+        };
+        assert!(animated_server_details(&saved(
+            "127.0.0.1:19132".to_owned()
+        )));
+        let java = format!("{}127.0.0.1", bridge::contract::JAVA_TARGET_PREFIX);
+        assert!(!animated_server_details(&saved(java)));
     }
 
     #[test]

@@ -19,6 +19,8 @@ reads = [
     "assets/oreui-icons-source.json",
     "assets/vanilla-source.json",
     "assets/touch-controls.json",
+    "core/javaedition/legacy/blocks.tsv",
+    "core/javaedition/translate/testdata/connected_states.tsv",
     "crates/protocol/data/retail_biomes_1_26_60.txt",
     "crates/protocol/data/retail_actors_1_26_60.txt",
     "crates/protocol/data/retail_items_1_26_60.tsv",

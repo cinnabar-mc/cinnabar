@@ -109,15 +109,26 @@ pub const FRIEND_ADDRESS_PREFIX: &str = bridge::contract::FRIEND_TARGET_PREFIX;
 /// Marks a Realm's join target, followed by its service id.
 pub const REALM_ADDRESS_PREFIX: &str = bridge::contract::REALM_TARGET_PREFIX;
 
-/// Whether the server at `address` can be pinged; an experience has no server until joined.
+/// Whether the server at `address` can be pinged; an experience has no server until joined,
+/// and a Java server does not answer the Bedrock ping.
 pub fn pingable(address: &str) -> bool {
-    !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
+    !address.starts_with(EXPERIENCE_ADDRESS_PREFIX) && !is_java_target(address)
 }
 
 /// Whether `address` is a raw NetherNet target, `nethernet/<signaling>/<id>`. It
 /// names no port, and the core matches its prefix case-insensitively.
 pub fn is_nethernet_target(address: &str) -> bool {
     let prefix = bridge::contract::NETHERNET_TARGET_PREFIX;
+    address
+        .trim()
+        .get(..prefix.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+}
+
+/// Whether `address` is a Java Edition target, `java/<host>[:<port>]`. Its port is
+/// optional, and the core matches its prefix case-insensitively.
+pub fn is_java_target(address: &str) -> bool {
+    let prefix = bridge::contract::JAVA_TARGET_PREFIX;
     address
         .trim()
         .get(..prefix.len())
