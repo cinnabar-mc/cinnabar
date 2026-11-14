@@ -169,7 +169,7 @@ fn assert_matches_reference(harness: &Harness) {
             harness.stream.classifier,
             harness.stream.authority.runtime_assets(),
             harness.stream.authority.network_id_mode(),
-            false,
+            &PackedBiomeRecord::fallback(),
             &mut ::meshing::MeshScratch::default(),
         );
         if fresh.cube_lighting() != presented.cube_lighting() {

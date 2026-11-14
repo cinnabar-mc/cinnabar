@@ -71,11 +71,6 @@ impl BiomeRecordCache {
             && Arc::ptr_eq(&self.resolved, resolved)
     }
 
-    /// [`per_block_tints`] against this cache's tint snapshot.
-    pub(in crate::stream) fn per_block_tints(&self, record: &PackedBiomeRecord) -> bool {
-        per_block_tints(record, &self.resolved)
-    }
-
     /// Returns a shared record on an exact hit; misses build outside the cache lock.
     pub(in crate::stream) fn record(&self, sources: &BiomeNeighbourhood) -> PackedBiomeRecord {
         #[cfg(feature = "benchmark-support")]
@@ -183,24 +178,6 @@ impl WorldStream {
             .expect("current biome cache installed")
             .clone()
     }
-}
-
-/// Whether tinted faces under `record` need a tint per block: mixed records, and uniform records
-/// whose grass follows swamp position noise. The vertex shader resolves such tints only for
-/// one-block faces, so these faces must be meshed one block in size.
-pub(in crate::stream) fn per_block_tints(
-    record: &PackedBiomeRecord,
-    resolved: &ResolvedBiomeTints,
-) -> bool {
-    let Some(index) = record.uniform_tint_index() else {
-        return true;
-    };
-    // The shader reads slot zero for an index past the table, as `safe_tint_index` does.
-    usize::try_from(index)
-        .ok()
-        .and_then(|index| resolved.records.get(index))
-        .or_else(|| resolved.records.first())
-        .is_some_and(|tint| tint.flags & assets::BIOME_TINT_FLAG_SWAMP_GRASS != 0)
 }
 
 /// Builds a record without cache bookkeeping for standalone snapshots and validation callers.

@@ -121,7 +121,7 @@ use client_world::ingestion::{
 use column_set::ColumnSubChunkSet;
 use helpers::*;
 use lighting::types::*;
-use meshing::biome_records::{pack_biome_record, per_block_tints};
+use meshing::biome_records::pack_biome_record;
 use meshing::types::*;
 use request_queue::RequestQueue;
 

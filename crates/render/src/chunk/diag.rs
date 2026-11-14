@@ -46,8 +46,8 @@ pub(in crate::chunk) struct TerrainDiag {
     /// 1 lightmap (constant light), 2 fog, 3 gamma-to-linear conversion, 4 per-fragment tint and
     /// glow/emissive masks, 5 lightmap as one nearest table read instead of four, 6 dynamic
     /// point-light loop only, 7 everything (reads every input, no texture or table), 8 1-4 at once,
-    /// 9 the per-fragment biome blend fallback (now always absent, so 9 matches the baseline),
-    /// 10 only the glow/emissive mask samples.
+    /// 9 only the per-fragment biome blend fallback (flat face tints stay), 10 only the
+    /// glow/emissive mask samples.
     pub(in crate::chunk) shade: u8,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,

@@ -103,7 +103,7 @@ fn publish_biome_mesh(stream: &mut WorldStream, key: SubChunkKey) -> PackedBiome
         stream.classifier,
         assets,
         mode,
-        per_block_tints(&biome, &stream.resolved_biome_tints_snapshot()),
+        &biome,
         &mut ::meshing::MeshScratch::default(),
     );
     assert!(!mesh.is_empty());

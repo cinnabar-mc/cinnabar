@@ -1,5 +1,4 @@
-//! Cube faces carry one resolved tint. Faces whose tint varies by block are meshed one block in
-//! size, so their vertex-resolved tint matches the per-fragment block lookup it replaced.
+//! Uniform cube tints may skip fragment lookup; mixed and swamp grass retain per-block colour.
 use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source};
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu};
@@ -203,36 +202,62 @@ fn calls(module: &naga::Module, statement: &naga::Statement, name: &str) -> bool
 }
 
 #[test]
-fn ordinary_cube_fragments_read_their_face_tint_without_biome_lookups() {
+fn uniform_cube_tints_return_before_fragment_biome_work() {
     let source = shader_source::standalone(include_str!("../../src/chunk.wesl"), &[]);
     let module = naga::front::wgsl::parse_str(&source).unwrap();
-    let reaches = |entry: &naga::EntryPoint, name: &str| {
-        entry
-            .function
+    let helper = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("ordinary_cube_tint_gamma"))
+        .expect("ordinary cubes must reuse their admitted vertex tint")
+        .1;
+    let (gate, accept) = helper
+        .body
+        .iter()
+        .enumerate()
+        .find_map(|(index, statement)| {
+            if let naga::Statement::If { accept, .. } = statement {
+                Some((index, accept))
+            } else {
+                None
+            }
+        })
+        .expect("cached tint must return before the fallback lookup");
+    assert!(
+        !helper.body.iter().take(gate).any(|statement| calls(
+            &module,
+            statement,
+            "blended_biome_tint"
+        )),
+        "the cached branch must not follow an unconditional biome query"
+    );
+    assert!(
+        accept
+            .iter()
+            .any(|statement| matches!(statement, naga::Statement::Return { .. }))
+    );
+    assert!(
+        !accept
+            .iter()
+            .any(|statement| calls(&module, statement, "blended_biome_tint"))
+    );
+    assert!(
+        helper
             .body
             .iter()
-            .any(|statement| calls(&module, statement, name))
-    };
-    for entry in module
-        .entry_points
-        .iter()
-        .filter(|entry| entry.stage == naga::ShaderStage::Fragment)
-    {
-        for name in ["uniform_biome_tint_gamma", "blended_biome_tint"] {
-            assert!(
-                !reaches(entry, name),
-                "{} resolves biome tint through {name}",
-                entry.name
-            );
-        }
-    }
+            .any(|statement| calls(&module, statement, "blended_biome_tint")),
+        "mixed records retain the shared blender"
+    );
     let vertex = module
         .entry_points
         .iter()
         .find(|entry| entry.stage == naga::ShaderStage::Vertex)
         .unwrap();
-    assert!(reaches(vertex, "uniform_biome_tint_gamma"));
-    assert!(reaches(vertex, "blended_biome_tint"));
+    assert!(vertex.function.body.iter().any(|statement| calls(
+        &module,
+        statement,
+        "uniform_biome_tint_gamma"
+    )));
     let result = vertex.function.result.as_ref().unwrap();
     let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
         panic!("cube vertex outputs");
@@ -274,15 +299,18 @@ fn enhanced_and_shadow_cube_vertices_do_not_resolve_biome_tint() {
     }
 }
 
-/// Greedy faces with a flat tint, and one-block faces for swamp grass, mixed, and invalid
-/// records, render exactly as the per-fragment block lookup did.
 #[test]
-fn face_tints_match_the_per_fragment_block_lookup() {
-    render_fixture();
+fn uniform_cube_pixels_match_fragment_reference_and_mixed_fallback() {
+    render_fixture(false);
 }
 
-/// Renders every case with the production shader and the per-fragment reference.
-fn render_fixture() {
+#[test]
+fn uniform_cube_cache_admits_only_position_independent_descriptors() {
+    render_fixture(true);
+}
+
+/// Checks either exact old pixels or observable admission without requiring the new varying in both.
+fn render_fixture(cache_admission: bool) {
     let Some(gpu) = Gpu::for_fixture("uniform cube tint raster") else {
         return;
     };
@@ -310,23 +338,13 @@ fn render_fixture() {
     }
     offsets.push(u32::MAX);
     assert_eq!(offsets.len(), ROWS);
-    // Rows: normal, swamp/seasonal, mixed, invalid magic, out-of-range tint, missing record.
-    // The mesher keeps faces greedy only where the tint is one colour for the whole face; swamp
-    // grass (row 1, grass columns), mixed and invalid records get one-block faces.
-    let per_block =
-        |row: usize, column: usize| matches!(row, 2 | 3 | 5) || (row == 1 && column < 2);
     let quads = (0..CASES)
         .map(|index| {
-            let (width, height) = if per_block(index / COLUMNS, index % COLUMNS) {
-                (1, 1)
-            } else {
-                (16, 8)
-            };
             PackedQuad::new(
                 [0, (index % 8) as u8, 0],
                 Face::ALL[index % COLUMNS],
-                width,
-                height,
+                16,
+                8,
                 (index % COLUMNS) as u32,
             )
         })
@@ -446,41 +464,61 @@ fn render_fixture() {
     };
     let reference = source(true);
     let candidate = source(false);
-    for fragment in ["fragment", "fragment_solid"] {
-        let expected = gpu.render_srgb(&reference, "tint_cube_vertex", &[draw(fragment)]);
-        let actual = gpu.render_srgb(&candidate, "tint_cube_vertex", &[draw(fragment)]);
-        let mismatched = expected
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .zip(actual.as_chunks::<4>().0.iter())
-            .filter(|(left, right)| left != right)
-            .count();
-        assert_eq!(
-            mismatched, 0,
-            "{fragment}: face and per-fragment tints must be identical"
-        );
-        assert!(
-            actual
+    if !cache_admission {
+        for fragment in ["fragment", "fragment_solid"] {
+            let expected = gpu.render_srgb(&reference, "tint_cube_vertex", &[draw(fragment)]);
+            let actual = gpu.render_srgb(&candidate, "tint_cube_vertex", &[draw(fragment)]);
+            let mismatched = expected
                 .as_chunks::<4>()
                 .0
                 .iter()
-                .any(|pixel| pixel != &actual[..4]),
-            "fixture must draw coloured terrain"
+                .zip(actual.as_chunks::<4>().0.iter())
+                .filter(|(left, right)| left != right)
+                .count();
+            assert_eq!(
+                mismatched, 0,
+                "{fragment}: cached and per-fragment tint must be identical"
+            );
+            assert!(
+                actual
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel != &actual[..4]),
+                "fixture must draw coloured terrain"
+            );
+        }
+        return;
+    }
+    let markers = gpu.render_srgb(
+        &format!("{candidate}\n{MARKER}"),
+        "tint_cube_vertex",
+        &[draw("cache_marker")],
+    );
+    let side = gpu_snapshot::SNAPSHOT_SIDE as usize;
+    for case in 0..CASES {
+        let row = case / COLUMNS;
+        let column = case % COLUMNS;
+        let offset = (((row * 2 + 1) * side / (ROWS * 2)) * side
+            + (column * 2 + 1) * side / (COLUMNS * 2))
+            * 4;
+        let cached = row == 0 || (row == 1 && column >= 2) || row == 4;
+        assert_eq!(
+            markers[offset + 3],
+            if cached { 255 } else { 0 },
+            "case {case}: uniform admission and fallback"
         );
     }
 }
 
 const VERTEX: &str = r#"
 // Keeps real greedy positions and UVs while laying each face in an independently visible cell.
-// The cell replaces the projected position, so the face is built unsealed: the production
-// 1/64-pixel seal would otherwise move UVs and positions by a projection that is not drawn.
 @vertex fn tint_cube_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let indices = array<u32, 6>(INDICES);
     let corners = array(vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
     let quad = index / 6u;
     let corner = indices[index % 6u];
-    var out = sealed_cube_vertex(quad * 4u + corner, quad, 0.0);
+    var out = cube_vertex(quad * 4u + corner, quad);
     let cell = vec2(f32(quad % u32(COLUMNS)), f32(quad / u32(COLUMNS)));
     let position = (cell + corners[corner]) / vec2(COLUMNS, ROWS);
     out.clip_position = vec4(position * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.5, 1.0);
@@ -512,5 +550,13 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         distance_fog_amount(in.world_position),
     );
     return native_colour;
+}
+"#;
+
+const MARKER: &str = r#"
+// Alpha reports cache admission while RGB retains all production texture and lighting bindings.
+@fragment fn cache_marker(in: VertexOutput) -> @location(0) vec4<f32> {
+    let colour = shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
+    return vec4(colour.rgb, in.uniform_tint_gamma.a);
 }
 "#;
