@@ -100,7 +100,8 @@ fn weight(size: usize) -> Option<usize> {
                 let seed = SEEDS.fetch_add(0x9E37_79B9_7F4A_7C15, Ordering::Relaxed);
                 crate::sampler::Sampler::new(SAMPLE_BYTES, seed)
             });
-            sampler.sample(size).then(|| sampler.mean() as usize)
+            let points = sampler.sample(size);
+            (points > 0).then(|| (points * sampler.mean()) as usize)
         })
         .ok()
         .flatten()

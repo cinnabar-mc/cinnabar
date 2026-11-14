@@ -34,23 +34,18 @@ impl Sampler {
         self.mean
     }
 
-    /// Whether an allocation of `size` bytes is sampled.
-    pub fn sample(&mut self, size: usize) -> bool {
-        let size = size as u64;
-        if size < self.countdown {
-            self.countdown -= size;
-            return false;
-        }
-        let mut over = size - self.countdown;
-        self.countdown = self.gap();
-        // An allocation larger than the next gap still yields one sample; its excess counts
-        // toward the following ones.
-        while over >= self.countdown {
-            over -= self.countdown;
+    /// How many sampling points an allocation of `size` bytes crosses; record it with that
+    /// many times [`Self::mean`] bytes. Zero means it is not sampled.
+    pub fn sample(&mut self, size: usize) -> u64 {
+        let mut left = size as u64;
+        let mut points = 0;
+        while left >= self.countdown {
+            left -= self.countdown;
             self.countdown = self.gap();
+            points += 1;
         }
-        self.countdown -= over;
-        true
+        self.countdown -= left;
+        points
     }
 
     /// The next exponentially distributed gap, at least one byte.
@@ -79,9 +74,7 @@ mod tests {
         let mut sampler = Sampler::new(MEAN, 0x5eed);
         let mut estimated = 0_u64;
         for _ in 0..PAIRS {
-            if sampler.sample(SIZE) {
-                estimated += sampler.mean();
-            }
+            estimated += sampler.sample(SIZE) * sampler.mean();
             // Its freed partner: a sample here is forgotten when the block is freed.
             sampler.sample(SIZE);
         }
@@ -90,12 +83,22 @@ mod tests {
         assert!(error < 0.15, "estimated {estimated} of {retained} bytes");
     }
 
+    /// Blocks near the size above which every allocation is recorded exactly still count in
+    /// full: one crossing several sampling points carries all of them.
     #[test]
-    fn one_large_allocation_is_one_sample() {
-        let mut sampler = Sampler::new(1024, 7);
-        assert!(sampler.sample(1 << 20));
-        let samples = (0..4096).filter(|_| sampler.sample(16)).count();
-        // 64 KiB in 16-byte blocks: about 64 samples at one per KiB.
-        assert!((32..128).contains(&samples), "{samples}");
+    fn blocks_spanning_several_sampling_points_keep_their_full_weight() {
+        const SIZE: usize = 60 << 10;
+        const MEAN: u64 = 256 << 10;
+        const BLOCKS: usize = 16_384;
+        let mut sampler = Sampler::new(MEAN, 0xb10c);
+        let estimated: u64 = (0..BLOCKS).map(|_| sampler.sample(SIZE) * MEAN).sum();
+        let retained = (BLOCKS * SIZE) as f64;
+        let error = (estimated as f64 - retained).abs() / retained;
+        assert!(error < 0.05, "estimated {estimated} of {retained} bytes");
+        let mut tiny = Sampler::new(16, 3);
+        assert!(
+            tiny.sample(1 << 20) > 1,
+            "one large block spans many points"
+        );
     }
 }
