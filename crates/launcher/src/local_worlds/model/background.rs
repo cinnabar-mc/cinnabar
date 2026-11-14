@@ -4,7 +4,7 @@ use super::{Effect, WorldsMenu};
 
 /// Shown when the player returns to a world that was closed while the app was in the background.
 pub const CLOSED_IN_BACKGROUND: &str = concat!(
-    "This world was saved and closed because the app stayed in the background. ",
+    "This world was closed because the app stayed in the background. ",
     "Open it again to keep playing."
 );
 

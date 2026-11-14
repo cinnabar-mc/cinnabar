@@ -199,7 +199,7 @@ running for up to one minute of time the app actually runs; time Android keeps t
 not count. After that its server is asked to save and stop (a start still in progress is
 cancelled), so it neither simulates unseen nor holds its memory while Android may end the hidden
 app and its helper processes without a save. Returning sooner keeps playing; returning later shows
-that the world was saved and closed, and opening it again starts nothing until the player does.
+that the world was closed, and opening it again starts nothing until the player does.
 
 With an emulator running, the runtime probe can check the packaged helper under the app's
 normal permissions, including IPv4/IPv6 enumeration, offline name resolution, threads, storage and UDP:
