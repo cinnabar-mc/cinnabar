@@ -149,6 +149,10 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | `mod_api::MAX_CUES_PER_FRAME` | 16 | Outgoing presentation cues per frame. |
 | `mod_api::MAX_CUE_NAME_BYTES` | 32 | Cue name bytes. |
 | `mod_api::MAX_CUE_VALUES` | 8 | Scalar values per cue. |
+| `mod_api::MAX_SOUNDS_PER_FRAME` | 4 | Sound playback requests per frame. |
+| `mod_api::MAX_PLAYED_SOUND_VOLUME` | 1 | Loudest volume a requested sound may have. |
+| `mod_api::MIN_PLAYED_SOUND_PITCH` | 0.5 | Lowest pitch a requested sound may have. |
+| `mod_api::MAX_PLAYED_SOUND_PITCH` | 2 | Highest pitch a requested sound may have. |
 | `mod_api::MAX_INCOMING_CUES` | 64 | Incoming cues per callback. |
 
 ## Drawing, masks and shaders

@@ -301,6 +301,107 @@ fn commands_must_name_a_granted_command_in_printable_text() {
     assert_eq!(state.world.commands, ["/ability beam start", "/ability"]);
 }
 
+fn audio_granted() -> ModGrants {
+    ModGrants {
+        audio: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn sounds_need_the_audio_grant() {
+    let mut state = state(ModGrants::default());
+    assert!(
+        state
+            .play_sound("random.orb".into(), 1.0, 1.0)
+            .unwrap()
+            .is_err()
+    );
+    state.world.commit();
+    assert!(state.world.sounds.is_empty());
+}
+
+#[test]
+fn sounds_must_name_a_definition_within_the_volume_and_pitch_bounds() {
+    let mut state = state(audio_granted());
+    let long = "a".repeat(MAX_SOUND_NAME_BYTES + 1);
+    for (name, volume, pitch) in [
+        ("", 1.0, 1.0),
+        ("Random.Orb", 1.0, 1.0),
+        ("random orb", 1.0, 1.0),
+        ("random.orb/", 1.0, 1.0),
+        (long.as_str(), 1.0, 1.0),
+        ("random.orb", -0.1, 1.0),
+        ("random.orb", MAX_PLAYED_SOUND_VOLUME + 0.1, 1.0),
+        ("random.orb", f32::NAN, 1.0),
+        ("random.orb", 1.0, MIN_PLAYED_SOUND_PITCH - 0.1),
+        ("random.orb", 1.0, MAX_PLAYED_SOUND_PITCH + 0.1),
+        ("random.orb", 1.0, f32::INFINITY),
+    ] {
+        assert!(
+            state
+                .play_sound(name.into(), volume, pitch)
+                .unwrap()
+                .is_err(),
+            "{name} {volume} {pitch}"
+        );
+    }
+    state.world.commit();
+    assert!(state.world.sounds.is_empty());
+}
+
+#[test]
+fn a_requested_sound_commits_with_its_frame_and_is_consumed_once() {
+    let mut state = state(audio_granted());
+    state
+        .play_sound("random.orb".into(), 0.5, MAX_PLAYED_SOUND_PITCH)
+        .unwrap()
+        .unwrap();
+    assert!(
+        state.world.sounds.is_empty(),
+        "staged until the callback returns"
+    );
+    state.world.commit();
+    assert_eq!(
+        state.world.sounds,
+        [ModSound {
+            name: "random.orb".into(),
+            volume: 0.5,
+            pitch: MAX_PLAYED_SOUND_PITCH,
+        }]
+    );
+    state.world.begin_frame();
+    state.world.commit();
+    assert!(state.world.sounds.is_empty());
+}
+
+#[test]
+fn a_sound_from_a_frame_that_cannot_commit_is_dropped() {
+    let mut state = state(audio_granted());
+    let mut late = state.world.transaction();
+    late.pending_sounds.push(ModSound {
+        name: "random.orb".into(),
+        volume: 1.0,
+        pitch: 1.0,
+    });
+    state.world.begin_frame();
+    state.world.accept(late, false, false);
+    state.world.commit();
+    assert!(state.world.sounds.is_empty());
+}
+
+#[test]
+fn the_per_frame_sound_budget_traps() {
+    let mut state = state(audio_granted());
+    for _ in 0..MAX_SOUNDS_PER_FRAME {
+        state
+            .play_sound("random.orb".into(), 1.0, 1.0)
+            .unwrap()
+            .unwrap();
+    }
+    assert!(state.play_sound("random.orb".into(), 1.0, 1.0).is_err());
+}
+
 #[test]
 fn per_frame_command_and_cue_budgets_trap() {
     let mut state = state(granted());
