@@ -2159,6 +2159,9 @@ Flathub submission remain incomplete.
   another scratch preparation. Cache writes are skipped before creating a file if
   they would exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone timing, shutdown, storage
   and executable-cache acceptance remain incomplete.
+  Each launcher core process gets a soft Go memory limit of one sixteenth of device RAM, between
+  128 and 512 MiB, so phones collect garbage earlier while desktops keep the previous 512 MiB; its
+  effect on phone memory and on heavy-pack joins is unmeasured.
   Pipeline loading prepares single-sample coverage before switching to Performance.
   An Anti-Aliasing change keeps the world camera at its old sample count until every warm-up
   and actor variant for the new count and rendering configuration has compiled in the background.

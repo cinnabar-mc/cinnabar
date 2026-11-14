@@ -216,6 +216,75 @@ fn uninstalled_spawns_pass_the_default_level_and_no_crash_output() {
     assert_eq!(args, ["-log-level", "info"]);
 }
 
+/// The memory limit `command` names for its core: `None` when it names none, `Some(None)` when
+/// it removes an inherited one.
+fn named_memory_limit(command: &Command) -> Option<Option<String>> {
+    command
+        .get_envs()
+        .find(|(name, _)| *name == GO_MEMORY_LIMIT_ENV)
+        .map(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+}
+
+#[test]
+fn a_core_gets_a_memory_limit_from_device_memory_unless_one_is_already_chosen() {
+    const MIB: u64 = 1 << 20;
+    let mut command = Command::new("core");
+    assert_eq!(
+        apply_memory_limit(&mut command, 5_365 * MIB, false),
+        Some(335 * MIB)
+    );
+    assert_eq!(
+        named_memory_limit(&command),
+        Some(Some("335MiB".to_owned()))
+    );
+
+    let mut inherited = Command::new("core");
+    assert_eq!(apply_memory_limit(&mut inherited, 5_365 * MIB, true), None);
+    assert_eq!(
+        named_memory_limit(&inherited),
+        None,
+        "the core inherits the limit this process was started with"
+    );
+
+    let mut chosen = Command::new("core");
+    chosen.env(GO_MEMORY_LIMIT_ENV, "1GiB");
+    assert_eq!(apply_memory_limit(&mut chosen, 5_365 * MIB, false), None);
+    assert_eq!(named_memory_limit(&chosen), Some(Some("1GiB".to_owned())));
+
+    let mut cleared = Command::new("core");
+    cleared.env_remove(GO_MEMORY_LIMIT_ENV);
+    assert_eq!(
+        apply_memory_limit(&mut cleared, 3_789 * MIB, true),
+        Some(236 * MIB),
+        "a command that drops the inherited limit gets the device's"
+    );
+    assert_eq!(
+        named_memory_limit(&cleared),
+        Some(Some("236MiB".to_owned()))
+    );
+
+    let mut unknown = Command::new("core");
+    assert_eq!(apply_memory_limit(&mut unknown, 0, false), None);
+    assert_eq!(named_memory_limit(&unknown), None);
+}
+
+#[test]
+fn every_core_spawn_applies_this_device_memory_limit() {
+    let mut command = Command::new("bedrock-core-that-does-not-exist");
+    assert!(
+        CoreOutput::uninstalled()
+            .spawn(&mut command, CoreRole::Account)
+            .is_err()
+    );
+    let expected = if cfg!(target_os = "ios") || std::env::var_os(GO_MEMORY_LIMIT_ENV).is_some() {
+        None
+    } else {
+        crate::memory::core_memory_limit(crate::memory::physical_bytes())
+            .map(|limit| Some(format!("{}MiB", limit >> 20)))
+    };
+    assert_eq!(named_memory_limit(&command), expected);
+}
+
 #[cfg(not(target_os = "ios"))]
 #[test]
 fn core_roles_keep_their_process_pipes_and_stdin_shutdown_with_and_without_logging() {
