@@ -4,6 +4,11 @@
 //! exponential distribution with that mean, so a workload whose allocation sizes repeat on a
 //! fixed period cannot line its samples up with only short-lived (or only retained) blocks.
 
+/// Allocations at least this large are always recorded with their exact size.
+pub const LARGE_BYTES: usize = 64 << 10;
+/// Smaller allocations are sampled on average once per this many bytes on each thread.
+pub const SAMPLE_BYTES: u64 = 256 << 10;
+
 /// Chooses which small allocations a thread records.
 #[derive(Clone, Debug)]
 pub struct Sampler {
@@ -69,7 +74,7 @@ mod tests {
     #[test]
     fn periodic_retained_and_freed_blocks_are_estimated_without_aliasing() {
         const SIZE: usize = 32 << 10;
-        const MEAN: u64 = 256 << 10;
+        const MEAN: u64 = SAMPLE_BYTES;
         const PAIRS: usize = 8192;
         let mut sampler = Sampler::new(MEAN, 0x5eed);
         let mut estimated = 0_u64;
@@ -87,8 +92,8 @@ mod tests {
     /// full: one crossing several sampling points carries all of them.
     #[test]
     fn blocks_spanning_several_sampling_points_keep_their_full_weight() {
-        const SIZE: usize = 60 << 10;
-        const MEAN: u64 = 256 << 10;
+        const SIZE: usize = LARGE_BYTES - (4 << 10);
+        const MEAN: u64 = SAMPLE_BYTES;
         const BLOCKS: usize = 16_384;
         let mut sampler = Sampler::new(MEAN, 0xb10c);
         let estimated: u64 = (0..BLOCKS).map(|_| sampler.sample(SIZE) * MEAN).sum();

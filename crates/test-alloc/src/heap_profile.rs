@@ -9,6 +9,8 @@
 //! default). Frames are written as `module+0xoffset`; `tools/heap-profile/symbolize.py`
 //! resolves them against the binary. Recording slows allocation-heavy work several times over.
 
+pub use crate::sampler::{LARGE_BYTES, SAMPLE_BYTES};
+
 use std::{
     alloc::{GlobalAlloc, Layout},
     cell::Cell,
@@ -23,10 +25,6 @@ use std::{
     time::Duration,
 };
 
-/// Allocations at least this large are always recorded with their exact size.
-pub const LARGE_BYTES: usize = 64 << 10;
-/// Smaller allocations are sampled about once per this many bytes on each thread.
-pub const SAMPLE_BYTES: u64 = 256 << 10;
 /// Return addresses kept per recorded allocation.
 const DEPTH: usize = 40;
 /// Independent locks over the live-allocation table, to keep frees from contending.
