@@ -72,7 +72,8 @@ type Session struct {
 }
 
 // Dial joins the server at address and starts translating. The returned session's first
-// batch ends with StartGame, as a Bedrock login does.
+// batch ends with StartGame, as a Bedrock login does. A server that refuses the login fails
+// it with a *minecraft.DisconnectPacketError carrying the server's reason as Bedrock text.
 func Dial(ctx context.Context, address string, options Options) (*Session, error) {
 	logger := options.Logger
 	if logger == nil {
@@ -85,6 +86,10 @@ func Dial(ctx context.Context, address string, options Options) (*Session, error
 		Resolver:     options.Resolver,
 		WriteTimeout: writeTimeout,
 	})
+	var refused *conn.DisconnectError
+	if errors.As(err, &refused) {
+		return nil, &minecraft.DisconnectPacketError{Message: chatText(refused.Reason)}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -125,12 +130,18 @@ func (s *Session) read() {
 	}
 }
 
-// queue appends Bedrock packets to the batch the packet being translated produces.
+// queue appends Bedrock packets to the batch the packet being translated produces. A packet
+// that cannot be encoded is dropped and logged, so odd server data never ends the session.
 func (s *Session) queue(packets ...packet.Packet) {
 	s.pendingMu.Lock()
 	defer s.pendingMu.Unlock()
 	for _, pk := range packets {
-		s.pending = append(s.pending, outbound{packet: pk, data: encodeBedrock(pk)})
+		data, err := encodeBedrock(pk)
+		if err != nil {
+			s.log.Warn("dropping a translated packet that cannot be encoded", "error", err)
+			continue
+		}
+		s.pending = append(s.pending, outbound{packet: pk, data: data})
 	}
 }
 

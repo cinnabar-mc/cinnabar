@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // RelyingParty is the Xbox relying party the Java Edition services accept tokens for.
@@ -26,6 +27,13 @@ const (
 // maxResponseBytes bounds a service response body.
 const maxResponseBytes = 1 << 20
 
+// maxMessageRunes bounds the service's error message kept in a StatusError.
+const maxMessageRunes = 200
+
+// defaultSessionLifetime is how long a session is taken to last when the service names no
+// expiry.
+const defaultSessionLifetime = time.Hour
+
 // ErrNoProfile reports an account that has no Java Edition profile: it does not own the game
 // or has not chosen a name.
 var ErrNoProfile = errors.New("the Microsoft account has no Java Edition profile")
@@ -37,6 +45,8 @@ type Services struct {
 	LoginURL   string
 	ProfileURL string
 	JoinURL    string
+	// Now reads the clock a session's expiry is measured on; nil uses time.Now.
+	Now func() time.Time
 }
 
 // Profile is a Java Edition player: its id, as 32 hexadecimal digits, and its name.
@@ -49,15 +59,29 @@ type Profile struct {
 type Session struct {
 	AccessToken string
 	Profile     Profile
+	// Expires is when the access token stops being accepted.
+	Expires time.Time
 }
 
-// StatusError is a service response outside the 2xx range.
+// Operations a StatusError names.
+const (
+	OperationSignIn  = "sign-in"
+	OperationProfile = "profile"
+	OperationJoin    = "session join"
+)
+
+// StatusError is a service response outside the 2xx range. Message is the service's own
+// explanation, such as "Invalid app registration", when it gave one; it never holds tokens.
 type StatusError struct {
 	Operation string
 	Status    int
+	Message   string
 }
 
 func (e *StatusError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("java edition %s: HTTP %d: %s", e.Operation, e.Status, e.Message)
+	}
 	return fmt.Sprintf("java edition %s: HTTP %d", e.Operation, e.Status)
 }
 
@@ -70,15 +94,25 @@ func (s Services) SignIn(ctx context.Context, identityToken string) (Session, er
 	}
 	var login struct {
 		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
 	}
-	if err := s.call(ctx, "sign-in", http.MethodPost, orDefault(s.LoginURL, defaultLoginURL), "", body, &login); err != nil {
+	now := s.Now
+	if now == nil {
+		now = time.Now
+	}
+	requested := now()
+	if err := s.call(ctx, OperationSignIn, http.MethodPost, orDefault(s.LoginURL, defaultLoginURL), "", body, &login); err != nil {
 		return Session{}, err
 	}
 	if login.AccessToken == "" {
 		return Session{}, errors.New("java edition sign-in: response has no access token")
 	}
-	session := Session{AccessToken: login.AccessToken}
-	err = s.call(ctx, "profile", http.MethodGet, orDefault(s.ProfileURL, defaultProfileURL), login.AccessToken, nil, &session.Profile)
+	lifetime := defaultSessionLifetime
+	if login.ExpiresIn > 0 {
+		lifetime = time.Duration(login.ExpiresIn) * time.Second
+	}
+	session := Session{AccessToken: login.AccessToken, Expires: requested.Add(lifetime)}
+	err = s.call(ctx, OperationProfile, http.MethodGet, orDefault(s.ProfileURL, defaultProfileURL), login.AccessToken, nil, &session.Profile)
 	var status *StatusError
 	if errors.As(err, &status) && status.Status == http.StatusNotFound {
 		return Session{}, ErrNoProfile
@@ -103,7 +137,7 @@ func (s Services) Join(ctx context.Context, session Session, serverHash string) 
 	if err != nil {
 		return err
 	}
-	return s.call(ctx, "session join", http.MethodPost, orDefault(s.JoinURL, defaultJoinURL), "", body, nil)
+	return s.call(ctx, OperationJoin, http.MethodPost, orDefault(s.JoinURL, defaultJoinURL), "", body, nil)
 }
 
 // call performs one request and decodes a JSON response into out when out is not nil. The
@@ -134,7 +168,7 @@ func (s Services) call(ctx context.Context, operation, method, url, bearer strin
 		return fmt.Errorf("java edition %s: %w", operation, err)
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return &StatusError{Operation: operation, Status: response.StatusCode}
+		return &StatusError{Operation: operation, Status: response.StatusCode, Message: serviceMessage(data)}
 	}
 	if out == nil || len(data) == 0 {
 		return nil
@@ -143,6 +177,26 @@ func (s Services) call(ctx context.Context, operation, method, url, bearer strin
 		return fmt.Errorf("java edition %s: malformed response", operation)
 	}
 	return nil
+}
+
+// serviceMessage returns the explanation a service error response gives, bounded in length.
+// Only the message fields are read, so nothing else in the body can reach an error.
+func serviceMessage(body []byte) string {
+	var fields struct {
+		ErrorMessage string `json:"errorMessage"`
+		Error        string `json:"error"`
+	}
+	if json.Unmarshal(body, &fields) != nil {
+		return ""
+	}
+	message := []rune(strings.TrimSpace(fields.ErrorMessage))
+	if len(message) == 0 {
+		message = []rune(strings.TrimSpace(fields.Error))
+	}
+	if len(message) > maxMessageRunes {
+		message = message[:maxMessageRunes]
+	}
+	return string(message)
 }
 
 // orDefault returns value, or fallback when value is empty.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
+	javaauth "github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -40,6 +42,8 @@ const (
 	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
 	shutdownGrace      = 2 * time.Second
 	parentPollInterval = 250 * time.Millisecond
+	// Bounds one request to the Java Edition services.
+	javaEditionHTTPTimeout = 30 * time.Second
 )
 
 // The build stamps these with -ldflags "-X main.version=<workspace version> -X main.commit=<commit>",
@@ -283,6 +287,7 @@ func runWithResourcePackCacheFactory(
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
 	var account *authcache.Account
+	var javaEdition *javaauth.Keychain
 	closeCredentials := context.CancelFunc(func() {})
 	if statusStore != nil {
 		statusStore.SetAuth(control.AuthV1{State: control.AuthOffline})
@@ -311,6 +316,12 @@ func runWithResourcePackCacheFactory(
 		if account = authcache.NewAccount(credentialCtx, authcache.DerivedCachePath(opts.authCache), tokenSource, logger); account != nil {
 			tokenSource = account
 			defer func() { closeCredentials(); _ = account.Close() }()
+			javaEdition = javaauth.NewKeychain(javaauth.KeychainConfig{
+				Path:     javaauth.CachePath(opts.authCache),
+				Services: javaauth.Services{HTTP: &http.Client{Timeout: javaEditionHTTPTimeout}},
+				Logger:   logger,
+			})
+			defer javaEdition.Close()
 		}
 		// Initialization follows shutdown; afterward credentials survive title cleanup.
 		cancelAuthentication()
@@ -404,7 +415,7 @@ func runWithResourcePackCacheFactory(
 			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
 		}
 		service := launcher.New(launcher.Config{
-			Account: account, AuthCache: opts.authCache, Language: opts.language,
+			Account: account, AuthCache: opts.authCache, JavaEdition: javaEdition, Language: opts.language,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 		})
@@ -462,6 +473,7 @@ func runWithResourcePackCacheFactory(
 		SocketDir:           opts.socketDir,
 		Upstream:            opts.upstream,
 		Account:             account,
+		JavaEdition:         javaEdition,
 		Logger:              logger,
 		UpstreamClientCache: opts.upstreamClientCache,
 		Transfers:           transfers,

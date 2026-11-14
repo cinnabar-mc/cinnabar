@@ -1917,6 +1917,14 @@ attacks and entity interaction, the held slot, chat, commands and respawning. Te
 scripted server, a vanilla 1.7.10 server when one is supplied, and the client's own packet and
 chunk decoders reading the translation.
 
+Implemented: Java Edition sign-in ([`javaedition/auth`](core/javaedition/auth/keychain.go)).
+The Java Edition services refuse tokens from the account's Bedrock sign-in ("Invalid app
+registration"), so an account signs in a second time through the Nintendo Switch edition's
+Microsoft app, which they accept. The first online-mode join starts that device-code sign-in
+and fails with the code to enter; the token is kept beside the account's own, sign-out removes
+it, and the Java session is reused until it nears its expiry. A server's own login refusal
+reaches the player as its text.
+
 Implemented: on a Java session the local player follows 1.7.10 movement. The core names the
 edition in the session handoff, and the simulator then runs `java-sim` behind the player
 state ([`sim` Java mode](crates/sim/src/simulator/java.rs)), reading each block as the
@@ -1927,10 +1935,11 @@ single-precision position loses, so the server receives the simulated position e
 
 Incomplete:
 
-- The client has joined only an offline-mode vanilla 1.7.10 server on the same machine:
-  it spawned, loaded its chunks, walked, jumped and chatted without a movement warning from
-  the server. No online-mode server, sign-in with the Java Edition services, server with an
-  anticheat, combat, teleport or inventory use has been exercised in the client.
+- The client has joined an offline-mode vanilla 1.7.10 server on the same machine, where it
+  spawned, loaded its chunks, walked, sprinted, jumped and chatted without a movement warning,
+  and a public online-mode network through the Java Edition sign-in, where it reached the
+  lobby and walked. Combat, teleports, inventories and anticheat behaviour have not been
+  exercised in the client.
 - Server positions reach the client in single precision: a teleport or the join position
   crosses in the Bedrock movement packet, with the feet lifted onto the ground when rounding
   sinks them into it, so the client stands up to one single-precision step from where the
@@ -1969,7 +1978,8 @@ Incomplete:
   checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
   where Java uses its modified form, which differs for NUL and for characters outside the
   basic plane.
-- Online-mode joins are tested against scripted services only, not the production ones.
+- The Java Edition sign-in's code reaches the player only in the failed join's disconnect
+  text; the menu has no sign-in screen for it, and no account picker entry shows it.
 - Server lists cannot ping Java servers.
 
 ## Phase 7 — Local worlds

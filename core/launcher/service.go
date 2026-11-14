@@ -24,6 +24,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
+	javaauth "github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
@@ -33,15 +34,17 @@ import (
 
 // Config wires a Service. A nil Account means the core runs without one.
 type Config struct {
-	Account    *authcache.Account // shared per-account runtime; sign-out closes it
-	AuthCache  string             // token cache path; sign-out deletes it and its derived cache
-	Store      *control.Store
-	Selector   *proxy.UpstreamSelector
-	Transfers  *proxy.TransferState
-	ArtworkDir string // rendered persona art; empty skips it
-	CacheFile  string // last good catalog; empty keeps it in memory only
-	Logger     *slog.Logger
-	Language   string // active UI locale used by messaging
+	Account   *authcache.Account // shared per-account runtime; sign-out closes it
+	AuthCache string             // token cache path; sign-out deletes it and its derived cache
+	// JavaEdition is the account's Java Edition sign-in, which sign-out forgets; nil has none.
+	JavaEdition *javaauth.Keychain
+	Store       *control.Store
+	Selector    *proxy.UpstreamSelector
+	Transfers   *proxy.TransferState
+	ArtworkDir  string // rendered persona art; empty skips it
+	CacheFile   string // last good catalog; empty keeps it in memory only
+	Logger      *slog.Logger
+	Language    string // active UI locale used by messaging
 
 	// Injectable for tests; nil selects the real implementation.
 	RealmMembership func(context.Context, *authcache.Account, string, bool) (catalog.Realm, error)
@@ -374,6 +377,9 @@ func (s *Service) SignOut() error {
 	s.disk.Lock()
 	wait, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	failed := authcache.Remove(wait, s.cfg.AuthCache, s.cfg.Remove) != nil
+	if s.cfg.JavaEdition != nil && s.cfg.JavaEdition.Forget(wait) != nil {
+		failed = true
+	}
 	cancel()
 	if s.cfg.CacheFile != "" {
 		if err := s.cfg.Remove(s.cfg.CacheFile); err != nil && !errors.Is(err, os.ErrNotExist) {
