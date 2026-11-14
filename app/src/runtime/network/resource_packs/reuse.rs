@@ -282,6 +282,11 @@ impl CompiledStacks {
         client_runtime::session::release_off_frame((released, compiled, reads));
     }
 
+    /// Bytes of compressed pack archives the kept stacks hold.
+    pub(crate) fn archive_bytes(&self) -> usize {
+        self.lock().iter().map(|kept| kept.archive_bytes).sum()
+    }
+
     /// How many stacks are kept.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {

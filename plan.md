@@ -2077,7 +2077,12 @@ Flathub submission remain incomplete.
   log the full error source before stopping. Injected handler regressions cover all four GPU error
   categories; these diagnostics do not establish the cause of Android device-loss reports.
   Android exit reports retain the beginning and end of long logs so startup build and adapter
-  context survives a busy session. Qualcomm compiler startup faults still lack a reduced failing
+  context survives a busy session. The client log records memory lines at session milestones,
+  every 30 s from a reporter thread, on backgrounding and return, and around local server starts:
+  process and helper-process resident, proportional and swapped sizes, device and Android
+  availability, and the totals subsystems already track. No phone has produced these lines yet,
+  the upload staging pools, terrain texture pages and pack read cache are not among the totals,
+  and the lines measure memory without reducing it. Qualcomm compiler startup faults still lack a reduced failing
   shader and affected-device acceptance; diagnostic improvements do not close that gate.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
