@@ -89,7 +89,7 @@ pub(in crate::chunk) fn refresh() {
     };
     let mut state = STATE.write().unwrap_or_else(|poison| poison.into_inner());
     if frame == 0 || *state != next {
-        bevy::log::info!("CINNABAR_TERRAIN_DIAG {next:?}");
+        println!("CINNABAR_TERRAIN_DIAG {next:?}");
         *state = next;
     }
 }
@@ -181,7 +181,7 @@ pub(in crate::chunk) fn pipeline(
     *variants.entry((id, bits)).or_insert_with(|| {
         let mut descriptor = cache.get_render_pipeline_descriptor(id).clone();
         if apply(&mut descriptor, bits) {
-            bevy::log::info!(
+            println!(
                 "CINNABAR_TERRAIN_DIAG queued variant {bits:#x} of {:?}",
                 descriptor.label
             );
@@ -262,7 +262,7 @@ pub(in crate::chunk) fn log_unit_counts(streams: &[StreamCounts; 4], occluder_un
             - counts
                 .padded_quads
                 .min(counts.units * u64::from(render_model::terrain_units::QUADS_PER_UNIT));
-        bevy::log::info!(
+        println!(
             "CINNABAR_TERRAIN_COUNTS stream={stream} sections={} draws={} instances={} units={} quads={quads} padded_quads={} indices={} vertex_invocations_max={}",
             counts.sections,
             counts.draws,
@@ -277,7 +277,7 @@ pub(in crate::chunk) fn log_unit_counts(streams: &[StreamCounts; 4], occluder_un
         totals.2 += counts.instances * unique;
         totals.3 += quads;
     }
-    bevy::log::info!(
+    println!(
         "CINNABAR_TERRAIN_COUNTS total draws={} indices={} vertex_invocations_max={} quads={} occluder_units={occluder_units}",
         totals.0,
         totals.1,
