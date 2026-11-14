@@ -27,11 +27,14 @@ exit. One is written at startup, at the first menu frame (`menu_ready`), when a 
 (`join_start`), at world entry and exit (`world_entry`, `world_exit`), when Android takes the app
 off screen or brings it back (`background`, `foreground`), and when a local world server is
 spawned, becomes ready or exits (`local_server_spawned`, `local_server_ready`,
-`local_server_exited`). A `periodic` line follows whenever 30 s pass without one, also while
-frames stall. For example:
+`local_server_exited`). Each memory-pressure report from Android gets one as well
+(`pressure_low`, `pressure_critical`, `pressure_background`, or `pressure_ignored` for levels
+the client does not act on), and so does each return of freed heap to the system
+(`heap_purged`). A `periodic` line follows whenever 30 s pass without one, also while frames
+stall. For example:
 
 ```text
-memory event=world_entry rss=812M pss=640M swap=12M children=[bedrock_core:71 rss=38M pss=30M swap=0M] system=[available=1210M total=5365M swap_free=2048M swap_total=4096M] android=[available=1180M threshold=216M low=false] pools=[gpu_allocated=310M gpu_reserved=352M chunk_arena=48M ui_gpu=103M actor_art=20M chunk_uploads_pending=3M kept_packs=0M] counts=[sections=1234]
+memory event=world_entry rss=812M pss=640M swap=12M children=[bedrock_core:71 rss=38M pss=30M swap=0M] system=[available=1210M total=5365M swap_free=2048M swap_total=4096M] android=[available=1180M threshold=216M low=false] pools=[gpu_allocated=310M gpu_reserved=352M chunk_arena=48M ui_gpu=103M actor_art=20M chunk_uploads_pending=3M sounds=14M kept_packs=0M] counts=[sections=1234]
 ```
 
 Sizes are whole MiB. `rss`, `pss` and `swap` are this process's resident, proportional and
@@ -41,8 +44,14 @@ server and shader compilers. `system` is `/proc/meminfo`; `android` is
 `ActivityManager.MemoryInfo`'s `availMem`, `threshold` and `lowMemory`. `pools` are totals the
 client already tracks, refreshed every 10 s and at each event: the graphics device allocator's
 live and reserved bytes, terrain mesh buffers, interface textures, entity artwork pixels, queued
-chunk uploads and kept server pack archives; `sections` counts resident chunk
+chunk uploads, decoded sounds and kept server pack archives; `sections` counts resident chunk
 sections. A figure the system does not expose is left out.
+
+Under memory pressure the log names each step on its own info line: `memory pressure received
+from Android` with the trim level and the pressure it maps to, `releasing rebuildable memory`
+for the pressure a frame acts on, then one line per release: `released decoded sounds` (bytes),
+`released upload staging growth` (slots), `releasing resource pack read caches`, and `returned
+unused heap to the system` with the allocator purge that ran.
 
 ## Build and install
 

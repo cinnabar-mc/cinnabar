@@ -18,8 +18,8 @@ pub fn release_sound_memory(
     let Some(pressure) = pressure.read().copied().max() else {
         return;
     };
-    let released = engine.release_decoded(pressure);
-    bevy::log::debug!(?pressure, released, "released decoded sounds");
+    let released_bytes = engine.release_decoded(pressure);
+    bevy::log::info!(?pressure, released_bytes, "released decoded sounds");
 }
 
 /// Closes the audio output while the app is off screen and reopens it when it returns, so a

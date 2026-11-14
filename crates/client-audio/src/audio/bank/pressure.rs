@@ -29,8 +29,7 @@ impl SoundBank {
     }
 
     /// Decoded bytes the cache currently holds.
-    #[cfg(test)]
-    pub(crate) fn cached_bytes(&self) -> usize {
+    pub fn cached_bytes(&self) -> usize {
         self.cache_bytes
     }
 }

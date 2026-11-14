@@ -58,7 +58,7 @@ pub(super) fn release_staging_growth(
     .flatten()
     .map(|staging| staging.release_growth())
     .sum();
-    debug!(?pressure, slots, "released upload staging growth");
+    info!(?pressure, slots, "released upload staging growth");
 }
 
 #[cfg(test)]

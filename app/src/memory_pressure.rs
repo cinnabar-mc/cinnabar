@@ -4,6 +4,7 @@
 //! the pressure, releases the resource packs' read caches and returns freed heap to the OS.
 
 use bevy::prelude::{App, Last, MessageReader, Res, Update};
+use launcher_host::memory::telemetry;
 use memory_pressure::{MemoryPressure, MemoryPressurePlugin};
 
 use crate::runtime::network::PackReload;
@@ -20,12 +21,25 @@ pub(crate) fn configure(app: &mut App) {
 /// Levels for a hidden process arrive after the client's last frame has emptied its caches, and
 /// no later frame runs until it returns, so those levels return the freed heap to the OS here.
 pub fn report_android_trim_level(level: i32) {
-    let Some(pressure) = MemoryPressure::from_android_trim_level(level) else {
+    let pressure = MemoryPressure::from_android_trim_level(level);
+    bevy::log::info!(level, ?pressure, "memory pressure received from Android");
+    telemetry::report(received_event(pressure));
+    let Some(pressure) = pressure else {
         return;
     };
     memory_pressure::report(pressure);
     if pressure == MemoryPressure::Background {
         purge_heap(pressure);
+    }
+}
+
+/// The memory line's event name for a received report that asks for `pressure`.
+fn received_event(pressure: Option<MemoryPressure>) -> &'static str {
+    match pressure {
+        None => "pressure_ignored",
+        Some(MemoryPressure::Low) => "pressure_low",
+        Some(MemoryPressure::Critical) => "pressure_critical",
+        Some(MemoryPressure::Background) => "pressure_background",
     }
 }
 
@@ -39,6 +53,7 @@ fn release_pack_read_caches(
         return;
     };
     if let Some(reload) = reload {
+        bevy::log::info!(?pressure, "releasing resource pack read caches");
         // The reads are dropped off the frame, after this frame's own purge has run.
         client_runtime::session::release_off_frame(DropThen {
             released: Some(reload.take_cached_reads()),
@@ -82,7 +97,11 @@ fn purge_emptied_heap(pressure: MemoryPressure) {
 /// the request; elsewhere this does nothing.
 fn purge_heap(pressure: MemoryPressure) {
     #[cfg(target_os = "android")]
-    android::purge(pressure == MemoryPressure::Background);
+    {
+        let purge = android::purge(pressure == MemoryPressure::Background);
+        bevy::log::info!(?pressure, purge, "returned unused heap to the system");
+        telemetry::report("heap_purged");
+    }
     #[cfg(not(target_os = "android"))]
     let _ = pressure;
 }
@@ -102,14 +121,19 @@ mod android {
         fn mallopt(option: c_int, value: c_int) -> c_int;
     }
 
-    /// Purges unused heap. A hidden client takes the thorough purge where the device has it; a
-    /// visible one takes the quick purge, which older devices also fall back to.
-    pub(super) fn purge(thorough: bool) {
+    /// Purges unused heap and names the purge that ran, or `none` when the device took neither.
+    /// A hidden client takes the thorough purge where the device has it; a visible one takes the
+    /// quick purge, which older devices also fall back to.
+    pub(super) fn purge(thorough: bool) -> &'static str {
         // SAFETY: `mallopt` takes two integers, is thread-safe, and only fails for an option the
         // running Android version lacks.
         unsafe {
-            if !thorough || mallopt(M_PURGE_ALL, 0) == 0 {
-                mallopt(M_PURGE, 0);
+            if thorough && mallopt(M_PURGE_ALL, 0) != 0 {
+                "M_PURGE_ALL"
+            } else if mallopt(M_PURGE, 0) != 0 {
+                "M_PURGE"
+            } else {
+                "none"
             }
         }
     }
@@ -119,6 +143,27 @@ mod android {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Every received report, including one that asks for nothing, gets a memory line of its own.
+    #[test]
+    fn each_received_pressure_names_its_memory_line() {
+        let events = [
+            None,
+            Some(MemoryPressure::Low),
+            Some(MemoryPressure::Critical),
+            Some(MemoryPressure::Background),
+        ]
+        .map(received_event);
+        assert_eq!(
+            events,
+            [
+                "pressure_ignored",
+                "pressure_low",
+                "pressure_critical",
+                "pressure_background"
+            ]
+        );
+    }
 
     /// The purge that follows an off-frame release must find the released memory already freed.
     #[test]

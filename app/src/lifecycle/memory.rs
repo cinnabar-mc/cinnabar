@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use bevy::{ecs::system::SystemParam, prelude::*, time::Real, window::AppLifecycle};
+use client_audio::audio::AudioEngine;
 use launcher_host::memory::{snapshot::Counters, telemetry};
 use render_scene::{
     ActorArtworkResource, ChunkRenderQueue, UiRenderStatsResource,
@@ -114,6 +115,7 @@ struct Sources<'w> {
     ui: Option<Res<'w, UiRenderStatsResource>>,
     actor_art: Option<Res<'w, ActorArtworkResource>>,
     chunk_queue: Option<Res<'w, ChunkRenderQueue>>,
+    audio: Option<Res<'w, AudioEngine>>,
 }
 
 impl Sources<'_> {
@@ -148,6 +150,13 @@ impl Sources<'_> {
         pool(
             "chunk_uploads_pending",
             self.chunk_queue.as_ref().map(|queue| queue.pending_bytes()),
+        );
+        pool(
+            "sounds",
+            self.audio
+                .as_ref()
+                .and_then(|audio| audio.bank())
+                .map(|bank| bank.cached_bytes() as u64),
         );
         pool(
             "kept_packs",
