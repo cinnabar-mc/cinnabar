@@ -23,7 +23,11 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
             Render,
             (
                 render_scene::begin_stage_span::<FRAME>.before(RenderSystems::ExtractCommands),
-                render_scene::runtime_profile::end_render_frame_span.in_set(RenderSystems::Cleanup),
+                (
+                    render_scene::runtime_profile::end_render_frame_span,
+                    crate::encode_counting::publish_encode_counters,
+                )
+                    .in_set(RenderSystems::Cleanup),
             ),
         )
         .add_systems(

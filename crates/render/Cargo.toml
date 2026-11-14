@@ -81,7 +81,6 @@ test-alloc = { path = "../test-alloc" }
 render-model = { path = "../render-model", features = ["test-support"] }
 render-scene = { path = "../render-scene", features = ["publication-test-support"] }
 test-time = { path = "../test-time" }
-wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
 naga = { workspace = true, features = ["wgsl-out", "spv-out"] }
