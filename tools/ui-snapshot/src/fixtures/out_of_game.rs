@@ -41,6 +41,22 @@ pub(super) fn sign_in_recovery(recovered: bool) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the prompt a launch reopens for a code the player took to the browser before the
+/// system ended the client.
+pub(super) fn sign_in_resumed() -> Fixture {
+    use launcher::menu::{auth::AuthState, sign_in::BrowserState};
+
+    let mut view = menu();
+    view.sign_in_requested = true;
+    view.auth_state = AuthState::AwaitingCode {
+        uri: "https://example.invalid/sign-in".into(),
+        code: "DEMO-CODE".into(),
+    };
+    view.sign_in_browser = BrowserState::Resumed;
+    view.focused_action = Some(MenuAction::OpenSignInLink);
+    Fixture::Menu(Box::new(view))
+}
+
 /// Wraps a launcher dialog over settings.
 fn dialog(value: MenuDialog) -> Fixture {
     let mut view = menu();

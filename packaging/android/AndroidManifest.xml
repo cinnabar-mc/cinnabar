@@ -5,6 +5,8 @@
     android:versionCode="@VERSION_CODE@"
     android:versionName="@VERSION_NAME@">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- For SignInHoldService only; granted at install, with no prompt. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
     <application
         android:label="@PRODUCT_NAME@"
@@ -33,5 +35,11 @@
             android:configChanges="orientation|keyboard|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode|density|navigation">
             <meta-data android:name="android.app.lib_name" android:value="@CLIENT_LIBRARY@" />
         </activity>
+        <!-- Keeps the game alive for up to three minutes while the player approves a Microsoft
+             sign-in code in the browser. -->
+        <service
+            android:name=".SignInHoldService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
     </application>
 </manifest>

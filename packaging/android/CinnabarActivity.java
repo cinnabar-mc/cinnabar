@@ -189,6 +189,20 @@ public final class CinnabarActivity extends NativeActivity {
         });
     }
 
+    /**
+     * Native sign-in reports when it starts and stops waiting for the player to approve its code
+     * in the browser, so the process is kept alive while they are away.
+     */
+    public void setSignInWaiting(boolean waiting) {
+        runOnUiThread(() -> {
+            if (waiting && !isFinishing() && !isDestroyed()) {
+                SignInHoldService.hold(this);
+            } else {
+                SignInHoldService.release();
+            }
+        });
+    }
+
     /** Publishes UI obstructions while leaving the Vulkan surface at full size. */
     private void updateWindowGeometry(View decor, WindowInsets insets) {
         if (insets == null) return;

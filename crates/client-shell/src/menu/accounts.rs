@@ -33,7 +33,7 @@ impl MenuRuntime {
             || self.accounts.work.is_some()
     }
 
-    fn account_store(&self) -> AccountStore {
+    pub(super) fn account_store(&self) -> AccountStore {
         AccountStore::new(self.layout.auth_cache())
     }
 
@@ -170,6 +170,19 @@ impl MenuRuntime {
     }
 
     pub(super) fn add_account(&mut self) {
+        self.open_add_account(false);
+    }
+
+    /// Reopens the Add account sign-in the player was waiting on when the system ended the
+    /// client, keeping a token that arrived meanwhile.
+    pub(super) fn resume_add_account(&mut self) {
+        self.reload_accounts();
+        self.open_add_account(true);
+    }
+
+    /// Starts adding an account. A fresh attempt drops an abandoned one's credentials; `resume`
+    /// keeps them, since they belong to the sign-in being resumed.
+    fn open_add_account(&mut self, resume: bool) {
         if self.over_world()
             || self.is_connecting()
             || self.feeds.account_adding
@@ -197,7 +210,9 @@ impl MenuRuntime {
         // Each Add account drops an abandoned attempt's credentials. Its sign-in resumes an
         // unexpired saved prompt, so a code the player approved before the phone ended the
         // client still completes.
-        let _ = self.account_store().discard_pending();
+        if !resume {
+            let _ = self.account_store().discard_pending();
+        }
         self.start_sign_in();
     }
 
@@ -338,6 +353,7 @@ impl MenuRuntime {
             self.feeds.account_error = Some("Could not switch accounts. Try again.".into());
         }
         self.feeds.account_adding = false;
+        self.sign_in_away.forget();
         self.accounts.pending_ready = false;
         self.accounts.remembered = None;
         self.feeds.profile = Default::default();
