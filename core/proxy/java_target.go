@@ -86,6 +86,11 @@ func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keycha
 			if err != nil {
 				return err
 			}
+			if session.Profile.Name != options.Username {
+				// The sign-in finished after the login named the player, and the server checks
+				// the join against that name.
+				return errJavaSignInLate
+			}
 			return keychain.Join(ctx, session, serverHash)
 		}
 		if keychain.SignedIn() {
@@ -111,6 +116,10 @@ func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keycha
 // javaSignInTimeout bounds the sign-in a Java join makes before it dials.
 const javaSignInTimeout = 10 * time.Second
 
+// errJavaSignInLate refuses a join whose Java Edition sign-in finished only after the login
+// had named the player; the next join uses the finished sign-in.
+var errJavaSignInLate = errors.New("the Java Edition sign-in finished after the login named the player")
+
 // errJavaNeedsAccount refuses an online-mode join of a player who is not signed in.
 var errJavaNeedsAccount = errors.New("joining an online-mode Java server needs a signed-in Microsoft account")
 
@@ -125,6 +134,8 @@ func javaJoinError(err error) error {
 		message = fmt.Sprintf("Java Edition needs its own Microsoft sign-in. Go to %s, enter %s, then reconnect.", prompt.VerificationURI, prompt.UserCode)
 	case errors.Is(err, errJavaNeedsAccount):
 		message = "This Java server needs a Java Edition account. Sign in to Cinnabar, then reconnect."
+	case errors.Is(err, errJavaSignInLate):
+		message = "The Java Edition sign-in was still finishing. Reconnect to join."
 	case errors.Is(err, auth.ErrSignInUnavailable):
 		message = "The Java Edition sign-in could not be started. Reconnect to try again."
 	case errors.As(err, &status) && status.Operation == auth.OperationJoin:

@@ -257,6 +257,10 @@ func TestKeychainAnUnusableSavedSignInAsksAgain(t *testing.T) {
 	if _, err := keychain.Session(context.Background()); !errors.Is(err, ErrNotSignedIn) {
 		t.Fatalf("session from an unreadable sign-in = %v", err)
 	}
+	// Joins no longer try the dead token before dialing.
+	if keychain.SignedIn() {
+		t.Fatal("an unusable sign-in is still reported as signed in")
+	}
 }
 
 // A sign-in Microsoft refuses, such as a revoked one, reads as no sign-in too.

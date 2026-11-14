@@ -134,6 +134,8 @@ type Keychain struct {
 	generation uint64
 	// forgets counts sign-outs, which a token saved meanwhile must not survive.
 	forgets uint64
+	// unusable marks a saved token that no longer works, until a new sign-in replaces it.
+	unusable bool
 }
 
 // pendingSignIn is a device-code sign-in the player has not finished yet.
@@ -188,13 +190,16 @@ func (k *Keychain) Close() {
 	k.work.Wait()
 }
 
-// SignedIn reports whether the account has a saved Java Edition sign-in. It may still turn
-// out unusable, which Session reports as ErrNotSignedIn.
+// SignedIn reports whether the account has a saved Java Edition sign-in that has not yet
+// turned out unusable.
 func (k *Keychain) SignedIn() bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.source != nil {
 		return true
+	}
+	if k.unusable {
+		return false
 	}
 	_, err := os.Stat(k.config.Path)
 	return err == nil
@@ -215,6 +220,10 @@ func (k *Keychain) Session(ctx context.Context) (Session, error) {
 	if k.closed {
 		k.mu.Unlock()
 		return Session{}, context.Canceled
+	}
+	if k.unusable && k.source == nil {
+		k.mu.Unlock()
+		return Session{}, fmt.Errorf("%w: the saved one no longer works", ErrNotSignedIn)
 	}
 	call := k.signingIn
 	if call == nil {
@@ -243,7 +252,7 @@ func (k *Keychain) signInSession(call *sessionSignIn, source oauth2.TokenSource,
 		case err == nil:
 			k.source, k.session = source, session
 		case errors.Is(err, ErrNotSignedIn):
-			k.source, k.session = nil, Session{}
+			k.source, k.session, k.unusable = nil, Session{}, true
 			k.generation++
 		}
 	}
@@ -299,7 +308,7 @@ func (k *Keychain) BeginSignIn(ctx context.Context) (*SignInRequired, error) {
 		return prompt, nil
 	}
 	k.mu.Lock()
-	generation := k.generation
+	forgets := k.forgets
 	k.mu.Unlock()
 
 	device, err := k.config.App.DeviceAuth(context.WithValue(ctx, oauth2.HTTPClient, k.config.Services.HTTP))
@@ -317,8 +326,8 @@ func (k *Keychain) BeginSignIn(ctx context.Context) (*SignInRequired, error) {
 	}
 	k.mu.Lock()
 	switch {
-	case k.closed || k.generation != generation:
-		// Closed or forgotten while the code was requested.
+	case k.closed || k.forgets != forgets:
+		// Closed or signed out while the code was requested.
 		k.mu.Unlock()
 		cancel()
 		return nil, fmt.Errorf("%w: the account signed out", ErrSignInUnavailable)
@@ -388,7 +397,7 @@ func (k *Keychain) finishSignIn(flow context.Context, device *oauth2.DeviceAuthR
 	k.mu.Lock()
 	forgotten := k.forgets != forgets
 	if !forgotten {
-		k.source, k.session = source, Session{}
+		k.source, k.session, k.unusable = source, Session{}, false
 		k.generation++
 	}
 	k.mu.Unlock()
@@ -422,7 +431,7 @@ func (k *Keychain) Forget(ctx context.Context) error {
 	if k.pending != nil {
 		k.pending.cancel()
 	}
-	k.source, k.session, k.pending = nil, Session{}, nil
+	k.source, k.session, k.pending, k.unusable = nil, Session{}, nil, false
 	k.generation++
 	k.forgets++
 	k.mu.Unlock()

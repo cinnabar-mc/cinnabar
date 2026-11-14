@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
+	"github.com/hashimthearab/rust-mcbe/core/javaedition/conn"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/javatest"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"golang.org/x/oauth2"
@@ -177,6 +178,15 @@ func TestJavaJoinShowsTheServersRefusal(t *testing.T) {
 	server := startJavaServer(t, javatest.Config{RefuseLogin: `{"text":"You are banned","color":"red"}`})
 	_, err := dialJavaForTest(t, server, nil)
 	if text := disconnectText(t, err); !strings.Contains(text, "You are banned") {
+		t.Fatalf("disconnect text = %q", text)
+	}
+}
+
+// A sign-in that finished only after the login named the player cannot authenticate that
+// login, so the player is told to reconnect rather than shown the server's refusal.
+func TestJavaJoinWithALateSignInAsksToReconnect(t *testing.T) {
+	err := javaJoinError(&conn.SessionError{Err: errJavaSignInLate})
+	if text := disconnectText(t, err); !strings.Contains(text, "Reconnect") {
 		t.Fatalf("disconnect text = %q", text)
 	}
 }
