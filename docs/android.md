@@ -35,6 +35,10 @@ still remembers, the client log so far and the adapter record. A message at the 
 screen says whether the save worked. Save it before closing the app: the next launch starts a
 new client log.
 
+Both reports list the last three `memory event=` lines from the end of the client log, with
+their times, above the log context, so the details show what the client and its helper processes
+held just before the exit or the save. Builds whose client writes no such lines say so.
+
 When the graphics driver fails, the error shown names the first GPU error the driver reported;
 a panic that followed is listed after it.
 

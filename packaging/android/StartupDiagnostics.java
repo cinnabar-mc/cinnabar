@@ -42,6 +42,10 @@ final class StartupDiagnostics {
     static final String ADAPTER_RECORD = "@ADAPTER_RECORD@";
     /** Bounds the adapter record shown in the details; the client writes a few hundred bytes. */
     static final int ADAPTER_RECORD_BYTES = 4096;
+    /** Begins the client's memory lines; the packaging manifest names the text for both sides. */
+    static final String MEMORY_LINE = "@MEMORY_LINE@";
+    /** Memory lines shown above the log: the last readings before the exit or the save. */
+    static final int MEMORY_READINGS = 3;
     private static final String GENERIC_EXIT = "Android stopped @PRODUCT_NAME@ for an unknown reason.";
     private static final String NO_LOG = "No client log was written before the process stopped.";
     private static final Pattern LOG_TIMESTAMP = Pattern.compile(
@@ -69,6 +73,7 @@ final class StartupDiagnostics {
                     + "Exit timestamp: " + exit.getTimestamp() + " ("
                     + java.time.Instant.ofEpochMilli(exit.getTimestamp()) + ")\n"
                     + (earlier.isEmpty() ? "" : "Earlier exits, newest first:\n" + earlier)
+                    + memoryReadings(new File(files, CLIENT_LOG))
                     + "\n" + logContext(new File(files, CLIENT_LOG));
             AlertDialog dialog = new AlertDialog.Builder(activity)
                     .setTitle("@PRODUCT_NAME@ stopped unexpectedly")
@@ -115,7 +120,8 @@ final class StartupDiagnostics {
         File files = context.getFilesDir();
         return sessionDetails(deviceHeader(manager, files), savedAtMillis,
                 memoryLine(memory.availMem, memory.threshold, memory.lowMemory), exits,
-                logContext(new File(files, CLIENT_LOG)));
+                memoryReadings(new File(files, CLIENT_LOG)) + "\n"
+                        + logContext(new File(files, CLIENT_LOG)));
     }
 
     /**
@@ -276,6 +282,34 @@ final class StartupDiagnostics {
         } catch (IOException error) {
             return NO_LOG;
         }
+    }
+
+    /**
+     * The last memory readings in the newest part of the log, oldest first, under a heading; a
+     * note when that part holds none, and nothing when the log cannot be read. Each reading keeps
+     * its timestamp and starts at the memory marker, so the busy records between them cannot push
+     * them out of the details.
+     */
+    static String memoryReadings(File file) {
+        String tail;
+        try (RandomAccessFile source = new RandomAccessFile(file, "r")) {
+            int count = (int) Math.min(source.length(), LOG_SCAN_BYTES);
+            tail = decode(read(source, source.length() - count, count));
+        } catch (IOException error) {
+            return "";
+        }
+        java.util.ArrayDeque<String> readings = new java.util.ArrayDeque<>();
+        for (String line : tail.split("\n")) {
+            int marker = line.indexOf(MEMORY_LINE);
+            if (marker < 0) continue;
+            java.util.regex.Matcher timestamp = LOG_TIMESTAMP.matcher(line);
+            String time = timestamp.find() && timestamp.end() <= marker
+                    ? timestamp.group().trim() + " " : "";
+            readings.addLast(time + line.substring(marker).trim());
+            if (readings.size() > MEMORY_READINGS) readings.removeFirst();
+        }
+        if (readings.isEmpty()) return "Memory: the log's last records hold no memory reading.\n";
+        return "Memory, last readings:\n" + String.join("\n", readings) + "\n";
     }
 
     /** Reads a bounded, readable tail of the app's own log; absent logs never prevent a retry. */

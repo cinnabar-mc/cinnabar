@@ -2083,7 +2083,7 @@ Flathub submission remain incomplete.
   size, and the GPU adapter and driver the client records when the renderer starts, and lists
   earlier process exits. Settings > General saves the same ZIP on request from a running
   session on Android 10+, without a trace, so a tester can send the log of a session that did
-  not crash. A terminal report leads with the first GPU error the driver reported
+  not crash. Both list the client's last memory lines above the log. A terminal report leads with the first GPU error the driver reported
   and lists a later panic after it, including when a render-thread panic stopped the client
   before the error policy ran. Host tests cover these; the Java and the report on a phone
   still need device acceptance. Reports still lack the failing pipeline's label and raw

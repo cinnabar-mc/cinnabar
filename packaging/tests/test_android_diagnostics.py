@@ -225,6 +225,27 @@ public final class DiagnosticsFixture {
         if (!StartupDiagnostics.header("d", "s", 0, "a", 4096, "").endsWith(
                 "GPU adapter: not recorded; the renderer had not chosen one on this install."))
             throw new AssertionError("a missing adapter record was not explained");
+        String marker = StartupDiagnostics.MEMORY_LINE;
+        if (marker.isEmpty() || marker.contains("@")) throw new AssertionError(marker);
+        Files.write(log.toPath(), ("2026-10-24T10:00:00.000Z  INFO client: session start\\n"
+                + "2026-10-24T10:00:01.000Z  INFO reporter: " + marker + "startup rss=100M\\n"
+                + "2026-10-24T10:00:02.000Z  INFO reporter: " + marker + "menu_ready rss=400M\\n"
+                + "2026-10-24T10:00:02.500Z  WARN render: unrelated record\\n"
+                + "2026-10-24T10:00:03.000Z  INFO reporter: " + marker + "world_entry rss=800M \\n"
+                + marker + "periodic rss=900M").getBytes(StandardCharsets.UTF_8));
+        String readings = StartupDiagnostics.memoryReadings(log);
+        String expectedReadings = "Memory, last readings:\\n"
+                + "2026-10-24T10:00:02.000Z " + marker + "menu_ready rss=400M\\n"
+                + "2026-10-24T10:00:03.000Z " + marker + "world_entry rss=800M\\n"
+                + marker + "periodic rss=900M\\n";
+        if (!expectedReadings.equals(readings)) throw new AssertionError(readings);
+        Files.write(log.toPath(), "a log without readings".getBytes(StandardCharsets.UTF_8));
+        if (!"Memory: the log's last records hold no memory reading.\\n"
+                .equals(StartupDiagnostics.memoryReadings(log)))
+            throw new AssertionError("a log without memory readings was not explained");
+        log.delete();
+        if (!StartupDiagnostics.memoryReadings(log).isEmpty())
+            throw new AssertionError("a missing log produced memory readings");
         String earlier = StartupDiagnostics.exitLine(0, ApplicationExitInfo.REASON_CRASH_NATIVE, 11, "crash");
         if (!earlier.contains("1970-01-01T00:00:00Z reason " + ApplicationExitInfo.REASON_CRASH_NATIVE
                 + ", status 11: ") || !earlier.endsWith("native crash. (crash)"))
