@@ -440,16 +440,14 @@ fn prepared_items_build_their_world_raster_only_when_drawn() {
     let raster = crate::STANDARD_SKIN_SIDE.pow(2) * 4;
     let mut descriptor = fixture::crown().descriptor().clone();
     descriptor.render_flags.emissive = true;
-    let (model, building) = test_alloc::measure(|| {
-        model::build(
-            &descriptor,
-            include_str!("crown.geo.json"),
-            include_bytes!("crown.png"),
-            b"{}\n",
-        )
-        .unwrap()
-    });
-    assert!(building.bytes < raster, "{building:?}");
+    let model = model::build(
+        &descriptor,
+        include_str!("crown.geo.json"),
+        include_bytes!("crown.png"),
+        b"{}\n",
+    )
+    .unwrap();
+    assert!(model.pixels.get().is_none() && model.world_pixels.get().is_none());
     let (_, drawing) = test_alloc::measure(|| model.world_pixels().len());
     assert!(drawing.bytes >= 2 * raster, "{drawing:?}");
     assert_eq!(model.pixels().len(), raster);
