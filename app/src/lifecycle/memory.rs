@@ -205,11 +205,18 @@ fn report_memory(
     if refresh || !events.is_empty() {
         render::memory_totals::request_gpu_totals();
     }
+    // A new event waits whole frames for the sample it requested; the last frame before
+    // leaving sends everything at once, with the newest sample there is.
+    let mut ready = Vec::new();
+    if !leaving {
+        pending.end_frame(false, |event| ready.push(event));
+    }
     for event in events {
         pending.defer(event);
     }
-    let mut ready = Vec::new();
-    pending.end_frame(leaving, |event| ready.push(event));
+    if leaving {
+        pending.end_frame(true, |event| ready.push(event));
+    }
     if refresh || !ready.is_empty() {
         *refreshed_at = Some(now);
         telemetry::set_counters(sources.counters());

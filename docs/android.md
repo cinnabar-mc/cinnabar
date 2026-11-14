@@ -35,7 +35,9 @@ memory event=world_entry rss=812M pss=640M swap=12M children=[bedrock_core:71 rs
 ```
 
 Sizes are whole MiB. `rss`, `pss` and `swap` are this process's resident, proportional and
-swapped sizes from `/proc/self/smaps_rollup` (or `statm` for `rss` alone); `children` lists the
+swapped sizes from `/proc/self/smaps_rollup` (or `statm` for `rss` alone). `periodic` lines
+read `status` instead and leave out `pss`, because the rollup walks every mapping under a lock
+the game's threads also need; `children` lists the
 same for each helper process the client started, by name and process id: the core, a local world
 server and shader compilers. `system` is `/proc/meminfo`; `android` is
 `ActivityManager.MemoryInfo`'s `availMem`, `threshold` and `lowMemory`. `pools` are totals the

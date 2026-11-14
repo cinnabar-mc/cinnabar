@@ -79,3 +79,12 @@ fn a_compiler_process_is_listed_until_it_is_dropped() {
     drop(process);
     assert!(!live_process_ids().contains(&id));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_reaped_compiler_process_is_no_longer_listed() {
+    let mut process = Process::start(Path::new("cat"), b"request").expect("start cat");
+    let id = process.child.id();
+    assert!(process.poll(Duration::ZERO, true).is_some());
+    assert!(!live_process_ids().contains(&id));
+}

@@ -32,6 +32,17 @@ impl ProcessMemory {
         }
     }
 
+    /// Reads `VmRSS` and `VmSwap` from the text of `/proc/<pid>/status`, the kernel's running
+    /// counters; it has no proportional size.
+    #[must_use]
+    pub fn from_status(text: &str) -> Self {
+        Self {
+            resident: kib_field(text, "VmRSS:"),
+            proportional: None,
+            swapped: kib_field(text, "VmSwap:"),
+        }
+    }
+
     /// The same figures, with `resident` taken from the text of `/proc/<pid>/statm` when the
     /// rollup did not give one. `page_bytes` is the kernel's page size.
     #[must_use]
