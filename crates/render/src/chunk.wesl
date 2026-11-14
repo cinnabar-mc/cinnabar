@@ -101,7 +101,8 @@ struct VertexOutput {
     @if(!ENHANCED)
     @location(11) native_ao_face: f32,
     @if(!ENHANCED)
-    @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
+    // The face's biome tint in gamma space, white for untinted materials.
+    @location(12) @interpolate(flat) face_tint_gamma: vec3<f32>,
     // Cinnabar masks: inverted glow and emissive references (zero names none) and strength bits.
     @if(!ENHANCED)
     @location(13) @interpolate(flat) masks: vec3<u32>,
@@ -427,14 +428,15 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     @if(!ENHANCED)
     out.native_ao_face = material_ao_shade(ao * dimming, material.ao_exponent);
     @if(!ENHANCED)
-    out.uniform_tint_gamma = vec4(0.0);
+    var face_tint = vec4(0.0);
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
-    out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
-    // A one-block face owns a single block's blend, so evaluate it here once rather than per
-    // fragment. Mixed records mesh tinted faces one block wide for exactly this.
+    face_tint = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
+    // Faces whose tint varies by block (mixed records, swamp grass noise) are meshed one block
+    // in size (`MeshOptions::split_tinted_faces`), so the origin block's blend is the whole
+    // face's tint and fragments never resolve biome tints themselves.
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
-    if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
-        out.uniform_tint_gamma = vec4(blended_biome_tint_gamma(
+    if (face_tint.a == 0.0 && (material.flags & 0x30u) != 0u) {
+        face_tint = vec4(blended_biome_tint_gamma(
             material.flags & 0x30u,
             material.flags,
             out.biome_record,
@@ -442,6 +444,8 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
             vec3<f32>(cube.chunk_origin.xyz),
         ).rgb, 1.0);
     }
+    @if(!ENHANCED)
+    out.face_tint_gamma = face_tint.rgb;
     @if(ENHANCED)
     out.surface_class = material_class(cube.material_id);
     @if(ENHANCED)
@@ -811,25 +815,6 @@ fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> 
     return sampled;
 }
 
-// Mixed records and position-noise grass keep their original per-block fragment lookup.
-@if(!ENHANCED)
-fn ordinary_cube_tint_gamma(@if(!ENHANCED)
-in: VertexOutput) -> vec3<f32> {
-    if (in.uniform_tint_gamma.a != 0.0) { return in.uniform_tint_gamma.rgb; }
-    var tint_gamma = vec3(1.0);
-    let tint_kind = in.material_flags & 0x30u;
-    if (tint_kind != 0u) {
-        tint_gamma = blended_biome_tint_gamma(
-            tint_kind,
-            in.material_flags,
-            in.biome_record,
-            in.local_position - quad_shape_normal(in.quad_shape) * 0.001,
-            in.world_position - in.local_position,
-        ).rgb;
-    }
-    return tint_gamma;
-}
-
 fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     @if(ENHANCED)
     let colour = apply_material_tint(
@@ -854,14 +839,12 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     @if(ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
     @if(!ENHANCED)
-    let tint_gamma = ordinary_cube_tint_gamma(in);
-    @if(!ENHANCED)
     let masks = cube_masks(in);
     @if(!ENHANCED)
     let native_colour = native_masked_cube_colour(
         sampled,
         in.material_flags,
-        tint_gamma,
+        in.face_tint_gamma,
         in.native_ao_face,
         point_lit_terrain_light_colour(in.native_light_levels, in.world_position),
         atmosphere.fog_gamma.rgb,

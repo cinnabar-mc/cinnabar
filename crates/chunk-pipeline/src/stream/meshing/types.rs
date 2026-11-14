@@ -95,13 +95,14 @@ impl MeshSnapshot {
         neighbourhood
     }
 
-    /// Meshes with tinted faces split per block when `biome` is a mixed record.
+    /// Meshes with tinted faces split per block when `per_block_tints` (see
+    /// [`super::biome_records::per_block_tints`]).
     pub(in crate::stream) fn mesh(
         &self,
         classifier: BlockClassifier,
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
-        biome: &PackedBiomeRecord,
+        per_block_tints: bool,
         scratch: &mut ::meshing::MeshScratch,
     ) -> ChunkMesh {
         let overlays = self.overlays.resolve(&self.center);
@@ -113,7 +114,7 @@ impl MeshSnapshot {
             &self.light_halo,
             ::meshing::MeshOptions {
                 rendering: self.rendering,
-                split_tinted_faces: biome.uniform_tint_index().is_none(),
+                split_tinted_faces: per_block_tints,
                 cutout_leaves: self.java_meshing.is_some(),
                 water_filled: self.java_meshing.as_deref().unwrap_or_default(),
                 overlays: &overlays,
