@@ -33,6 +33,9 @@ pub(in crate::chunk) fn prepare_units(
             .min(limits.max_storage_buffer_binding_size),
     );
     let mut stats = batches.stats;
+    let diag = crate::chunk::diag::current();
+    let counting = crate::chunk::diag::count_frame();
+    let mut counts = [crate::chunk::diag::StreamCounts::default(); 4];
     for (&entity, view) in &mut batches.views {
         let facing = view.camera.and_then(meshing::facing_cell);
         for (stream, batch) in view.streams.iter_mut().enumerate() {
@@ -66,6 +69,28 @@ pub(in crate::chunk) fn prepare_units(
                         })
                         .map(|section| section.entity),
                 );
+            }
+            let key_of = |entity: &Entity| lookup.get(entity).map(|&index| sections[index].key);
+            if diag.max_chunks > 0 || diag.keep_stride > 1 {
+                batch.scratch.retain(|entity| {
+                    key_of(entity).is_none_or(|key| {
+                        crate::chunk::diag::keeps_section(&diag, chunk_origin(key), view.camera)
+                    })
+                });
+            }
+            if diag.front_to_back
+                && stream < 2
+                && !(stream == 0 && early.is_some())
+                && let Some(camera) = view.camera
+            {
+                batch.scratch.sort_by(|left, right| {
+                    let distance = |entity: &Entity| {
+                        key_of(entity).map_or(f64::MAX, |key| {
+                            crate::chunk::diag::distance_squared(chunk_origin(key), camera)
+                        })
+                    };
+                    distance(left).total_cmp(&distance(right))
+                });
             }
             if view.stale
                 || batch.selected != batch.scratch
@@ -121,6 +146,23 @@ pub(in crate::chunk) fn prepare_units(
                 stats.list_bytes_uploaded += uploaded.descriptors + uploaded.references;
                 batch.descriptors.dirty.clear();
             }
+            if counting {
+                let counted = &mut counts[stream];
+                counted.sections += batch.selected.len() as u64;
+                counted.draws += batch.pages.len() as u64;
+                counted.instances += batch
+                    .pages
+                    .iter()
+                    .map(|page| {
+                        u64::from(
+                            page.count
+                                .div_ceil(render_model::terrain_units::UNITS_PER_INSTANCE),
+                        )
+                    })
+                    .sum::<u64>();
+                counted.units += (batch.references.len() + batch.fallback.len()) as u64;
+                counted.padded_quads += batch.padded_quads;
+            }
             stats.draws += batch.pages.len() as u64;
             stats.units += (batch.references.len() + batch.fallback.len()) as u64;
             stats.padded_quads += batch.padded_quads;
@@ -160,6 +202,9 @@ pub(in crate::chunk) fn prepare_units(
         view.facing = facing;
     }
     batches.stats = stats;
+    if counting {
+        crate::chunk::diag::log_unit_counts(&counts, stats.occluder_units);
+    }
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
         "terrain.unit_batches",

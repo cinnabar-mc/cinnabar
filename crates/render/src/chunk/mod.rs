@@ -96,6 +96,7 @@ use {
 pub(crate) mod blocks;
 mod bounds;
 mod constants;
+mod diag;
 mod draw;
 #[cfg(feature = "enhanced")]
 pub(crate) mod enhanced;

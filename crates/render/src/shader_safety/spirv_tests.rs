@@ -21,6 +21,10 @@ fn terrain_spirv_validates_with_mobile_runtime_checks() {
             &["PACKED_TERRAIN"][..],
             &["TERRAIN_UNITS"][..],
             &["ALPHA_TO_COVERAGE"][..],
+            &["TERRAIN_UNITS", "DIAG_VERTEX_MIN"][..],
+            &["TERRAIN_UNITS", "DIAG_VERTEX_CULL"][..],
+            &["TERRAIN_UNITS", "OPAQUE_OVERDRAW"][..],
+            &["TERRAIN_UNITS", "DIAG_NO_VERTEX_BLEND"][..],
         ] {
             let source = crate::shader_source::composed(source, definitions);
             let module = naga::front::wgsl::parse_str(&source).unwrap();

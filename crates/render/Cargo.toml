@@ -65,6 +65,10 @@ sha2 = { workspace = true, features = ["asm"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
+# Reads `debug.cinnabar.diag_*` system properties for terrain diagnostics.
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2"
+
 # Reads marker command-buffer host times for whole-frame GPU timing.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

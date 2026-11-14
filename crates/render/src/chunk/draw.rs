@@ -59,6 +59,11 @@ pub(in crate::chunk) fn queue_chunks(
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::OpaqueQueue));
     let frame_probe = &probes.frame_probe;
+    super::diag::refresh();
+    let diag = super::diag::current();
+    let diag_bits = super::diag::pipeline_bits(&diag);
+    let diag_counting = super::diag::count_frame();
+    let mut diag_direct_items = [0_u64; 4];
     let changes = retained.begin_frame();
     units.begin_frame();
     let diagnostic_timer = probes
@@ -212,9 +217,12 @@ pub(in crate::chunk) fn queue_chunks(
         let Ok(pipeline_id) = pipeline.variants.specialize(&pipeline_cache, key) else {
             continue;
         };
+        let pipeline_id = super::diag::pipeline(&pipeline_cache, pipeline_id, diag_bits);
         let Ok(solid_pipeline_id) = pipeline.solid_variants.specialize(&pipeline_cache, key) else {
             continue;
         };
+        let solid_pipeline_id =
+            super::diag::pipeline(&pipeline_cache, solid_pipeline_id, diag_bits);
         let Ok(model_pipeline_id) = pipeline.model_variants.specialize(&pipeline_cache, key) else {
             continue;
         };
@@ -404,8 +412,18 @@ pub(in crate::chunk) fn queue_chunks(
             continue;
         }
 
-        let use_units =
-            !probing && enhanced.is_none() && !units.disabled && pipeline.unit_supported;
+        let use_units = !probing
+            && enhanced.is_none()
+            && !units.disabled
+            && !diag.units_off
+            && pipeline.unit_supported;
+        if diag_counting {
+            bevy::log::info!(
+                "CINNABAR_TERRAIN_COUNTS path={} draw_mode={draw_mode:?} probing={probing} direct_view={}",
+                if use_units { "units" } else { "per-section" },
+                direct_view == Some(view_entity),
+            );
+        }
         if use_units {
             lists.drawable(admit);
             let sources = lists.units(&allocations);
@@ -422,8 +440,9 @@ pub(in crate::chunk) fn queue_chunks(
             else {
                 continue;
             };
-            let pipelines = [solid, cutout, model, liquid];
-            let terrain_pass = if direct_view == Some(view_entity) {
+            let pipelines = [solid, cutout, model, liquid]
+                .map(|id| super::diag::pipeline(&pipeline_cache, id, diag_bits));
+            let terrain_pass = if direct_view == Some(view_entity) && !diag.no_split {
                 gpu_culling.begin_direct(view_entity, view, *msaa, (pipelines[0], draws[0]))
             } else {
                 None
@@ -435,8 +454,24 @@ pub(in crate::chunk) fn queue_chunks(
                     frame.push(terrain.entity, terrain.solid);
                 }
             }
-            for &stream in &sources.order {
+            if diag_counting {
+                bevy::log::info!(
+                    "CINNABAR_TERRAIN_COUNTS terrain_pass={terrain_pass:?} stream_order={:?}",
+                    sources.order
+                );
+            }
+            let order = if diag.solid_first {
+                (0..4)
+                    .filter(|stream| sources.order.contains(stream))
+                    .collect()
+            } else {
+                sources.order.clone()
+            };
+            for stream in order {
                 if stream == 0 && terrain_pass == Some(true) {
+                    continue;
+                }
+                if diag.skip_streams & (1 << stream) != 0 {
                     continue;
                 }
                 phase.add(
@@ -465,7 +500,7 @@ pub(in crate::chunk) fn queue_chunks(
         }
 
         // `Some(true)` routes solid faces to the terrain pass instead of this phase.
-        let terrain_pass = if direct_view == Some(view_entity) {
+        let terrain_pass = if direct_view == Some(view_entity) && !diag.no_split {
             gpu_culling.begin_direct(
                 view_entity,
                 view,
@@ -482,15 +517,39 @@ pub(in crate::chunk) fn queue_chunks(
             {
                 frame.push(render_entity, terrain.solid);
             }
+            if (diag.max_chunks > 0 || diag.keep_stride > 1)
+                && !super::diag::keeps_section(
+                    &diag,
+                    chunk_origin(terrain.key),
+                    pipeline::solid::solid_cull_camera(view, false),
+                )
+            {
+                continue;
+            }
             // Solid before cutout, so the cutout bin follows it in insertion order.
             let cube_draws = [
                 (
-                    terrain.solid && terrain_pass != Some(true),
+                    terrain.solid && terrain_pass != Some(true) && diag.skip_streams & 1 == 0,
                     solid_direct_draw,
                     solid_pipeline_id,
                 ),
-                (terrain.cutout, direct_draw, pipeline_id),
+                (
+                    terrain.cutout && diag.skip_streams & 2 == 0,
+                    direct_draw,
+                    pipeline_id,
+                ),
             ];
+            for (stream, enabled) in [
+                cube_draws[0].0,
+                cube_draws[1].0,
+                terrain.model && diag.skip_streams & 4 == 0,
+                terrain.depth_liquid && diag.skip_streams & 8 == 0,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                diag_direct_items[stream] += u64::from(enabled);
+            }
             for (_, draw_function, pipeline) in cube_draws.into_iter().filter(|draw| draw.0) {
                 phase.add(
                     Opaque3dBatchSetKey {
@@ -508,7 +567,7 @@ pub(in crate::chunk) fn queue_chunks(
                     BinnedRenderPhaseType::NonMesh,
                 );
             }
-            if terrain.model {
+            if terrain.model && diag.skip_streams & 4 == 0 {
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function: model_direct_draw,
@@ -525,7 +584,7 @@ pub(in crate::chunk) fn queue_chunks(
                     BinnedRenderPhaseType::NonMesh,
                 );
             }
-            if terrain.depth_liquid {
+            if terrain.depth_liquid && diag.skip_streams & 8 == 0 {
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function: depth_liquid_direct_draw,
@@ -543,6 +602,15 @@ pub(in crate::chunk) fn queue_chunks(
                 );
             }
         }
+    }
+    if diag_counting && diag_direct_items.iter().any(|&items| items != 0) {
+        bevy::log::info!(
+            "CINNABAR_TERRAIN_COUNTS per-section phase items solid={} cutout={} model={} liquid={}",
+            diag_direct_items[0],
+            diag_direct_items[1],
+            diag_direct_items[2],
+            diag_direct_items[3],
+        );
     }
     retain_queued_indirect_views(&mut indirect_batch_sets, &indirect_views, &mut retained);
 }

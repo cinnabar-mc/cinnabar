@@ -267,6 +267,13 @@ fn vertex_unit(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    // Diagnostic floor: every vertex is rejected before any fetch, so nothing rasterises.
+    @if(DIAG_VERTEX_CULL)
+    if (true) {
+        var culled: VertexOutput;
+        culled.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
+        return culled;
+    }
     // Header locates packed visibility references beside stable descriptor slots.
     let unit_index = instance_index * TERRAIN_UNITS_PER_INSTANCE
         + vertex_index / (TERRAIN_UNIT_QUADS * 4u);
@@ -284,7 +291,41 @@ fn vertex_unit(
         invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
         return invisible;
     }
+    @if(DIAG_VERTEX_MIN)
+    return minimal_cube_vertex(unit.z, unit.x + quad, vertex_index % 4u);
+    @if(!DIAG_VERTEX_MIN)
     return cube_vertex(unit.z * 4u + vertex_index % 4u, unit.x + quad);
+}
+
+/// Diagnostic vertex: the unsealed corner position of packed quad `quad_index` in origin slot
+/// `metadata_index`, with constant varyings and no material, light or tint work.
+@if(DIAG_VERTEX_MIN)
+fn minimal_cube_vertex(@if(DIAG_VERTEX_MIN)
+metadata_index: u32, @if(DIAG_VERTEX_MIN)
+quad_index: u32, @if(DIAG_VERTEX_MIN)
+corner: u32) -> VertexOutput {
+    let geometry = quads[quad_index].geometry;
+    let local_origin = vec3<f32>(
+        f32(geometry & 0x1fu),
+        f32((geometry >> 5u) & 0x1fu),
+        f32((geometry >> 10u) & 0x1fu),
+    );
+    let origin = chunk_origins(metadata_index).value;
+    let width = f32(((geometry >> 18u) & 0xfu) + 1u);
+    let height = f32(((geometry >> 22u) & 0xfu) + 1u);
+    let local_position = quad_corner((geometry >> 15u) & 0x7u, corner, local_origin, width, height);
+    var out: VertexOutput;
+    out.clip_position = camera_offset_clip(
+        view.clip_from_world,
+        view.world_position,
+        section_camera_offset(origin.xyz, local_position, view.world_position),
+    );
+    out.uv = vec2(f32(corner & 1u), f32(corner >> 1u));
+    out.local_position = local_position;
+    out.world_position = vec3<f32>(origin.xyz) + local_position;
+    out.native_light_levels = vec2(0.0, 15.0);
+    out.native_ao_face = 1.0;
+    return out;
 }
 
 // Per-section and indirect draws fetch their vertex index and first instance from vertex
@@ -432,7 +473,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
     // A one-block face owns a single block's blend, so evaluate it here once rather than per
     // fragment. Mixed records mesh tinted faces one block wide for exactly this.
-    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
+    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW && !DIAG_NO_VERTEX_BLEND)
     if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
         out.uniform_tint_gamma = vec4(blended_biome_tint_gamma(
             material.flags & 0x30u,
