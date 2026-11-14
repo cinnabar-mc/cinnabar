@@ -52,7 +52,8 @@ pub fn start() {
                         Err(RecvTimeoutError::Timeout) => PERIODIC_EVENT.to_owned(),
                         Err(RecvTimeoutError::Disconnected) => break,
                     };
-                    tracing::info!("{}", read().line(&event));
+                    let detailed = event != PERIODIC_EVENT;
+                    tracing::info!("{}", read(detailed).line(&event));
                     last_line = Instant::now();
                 }
             });
@@ -100,8 +101,9 @@ pub fn set_counters(counters: Counters) {
     *COUNTERS.lock().unwrap_or_else(PoisonError::into_inner) = counters;
 }
 
-/// Reads this process, its tracked helpers, the device and the platform now.
-fn read() -> Snapshot {
+/// Reads this process, its tracked helpers, the device and the platform now; see
+/// [`proc::process`] for what a `detailed` reading adds.
+fn read(detailed: bool) -> Snapshot {
     let sources = CHILD_SOURCES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -115,7 +117,7 @@ fn read() -> Snapshot {
     let children = pids
         .into_iter()
         .filter_map(|pid| {
-            let memory = proc::process(Some(pid));
+            let memory = proc::process(Some(pid), detailed);
             (!memory.is_empty()).then(|| ChildMemory {
                 name: proc::name(pid).unwrap_or_default(),
                 pid,
@@ -124,7 +126,7 @@ fn read() -> Snapshot {
         })
         .collect();
     Snapshot {
-        process: proc::process(None),
+        process: proc::process(None, detailed),
         children,
         system: proc::system(),
         platform: platform(),
@@ -174,7 +176,7 @@ mod tests {
     fn added_helper_processes_are_read_and_exited_ones_skipped() {
         add_child_source(this_process);
         add_child_source(this_process);
-        let children = read().children;
+        let children = read(true).children;
         let own: Vec<_> = children
             .iter()
             .filter(|child| child.pid == std::process::id())
@@ -186,7 +188,7 @@ mod tests {
 
     #[test]
     fn a_reading_covers_this_process_and_the_device() {
-        let snapshot = read();
+        let snapshot = read(true);
         assert!(snapshot.process.resident.is_some(), "{snapshot:?}");
         assert!(snapshot.system.total.is_some(), "{snapshot:?}");
         assert_eq!(snapshot.platform, None);

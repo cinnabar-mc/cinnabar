@@ -112,6 +112,15 @@ pub fn live_process_ids() -> Vec<u32> {
         .clone()
 }
 
+/// Removes a reaped compiler process from [`live_process_ids`], before the system can give its
+/// id to another process.
+fn forget(id: u32) {
+    LIVE_PROCESSES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .retain(|live| *live != id);
+}
+
 /// One child owned until it exits or is killed and reaped; dropping it cannot detach work.
 struct Process {
     child: Child,
@@ -230,10 +239,14 @@ impl Process {
         if let Some(reason) = interruption {
             let _ = self.child.kill();
             let _ = self.child.wait();
+            forget(self.child.id());
             return Some(Err(reason.into()));
         }
         let status = match self.child.try_wait() {
-            Ok(Some(status)) => status,
+            Ok(Some(status)) => {
+                forget(self.child.id());
+                status
+            }
             Ok(None) => return None,
             Err(error) => return Some(Err(error.to_string())),
         };
@@ -258,11 +271,7 @@ impl Drop for Process {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        let id = self.child.id();
-        LIVE_PROCESSES
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|live| *live != id);
+        forget(self.child.id());
     }
 }
 

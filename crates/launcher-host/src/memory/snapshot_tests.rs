@@ -197,3 +197,17 @@ fn the_android_packaging_manifest_names_the_same_line_prefix() {
             .expect("the tracked Android runtime manifest parses");
     assert_eq!(runtime.memory_line, LINE_PREFIX);
 }
+
+#[test]
+fn status_gives_resident_and_swapped_bytes_without_a_proportional_size() {
+    let status = "Name:\tcinnabar\nVmHWM:\t  900000 kB\nVmRSS:\t  831488 kB\nRssAnon:\t 500000 kB\nVmSwap:\t   12288 kB\n";
+    assert_eq!(
+        ProcessMemory::from_status(status),
+        ProcessMemory {
+            resident: Some(831_488 * 1024),
+            proportional: None,
+            swapped: Some(12_288 * 1024),
+        }
+    );
+    assert!(ProcessMemory::from_status("RssAnon: 5 kB\n").is_empty());
+}

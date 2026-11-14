@@ -5,11 +5,21 @@ use super::snapshot::{ProcessMemory, SystemMemory};
 
 /// Memory of process `pid`, or of this process for `None`. A process of the same user is
 /// readable; one that has exited, or a file the system hides, leaves its figures unknown.
+///
+/// Only a `detailed` reading includes the proportional size: `smaps_rollup` walks every mapping
+/// under the process's address-space lock, which stalls its threads' `mmap` calls on a large
+/// process, so frequent readings take resident and swapped sizes from the kernel's counters in
+/// `status` instead.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub(super) fn process(pid: Option<u32>) -> ProcessMemory {
+pub(super) fn process(pid: Option<u32>, detailed: bool) -> ProcessMemory {
     let dir = pid.map_or_else(|| "/proc/self".to_owned(), |pid| format!("/proc/{pid}"));
-    let rollup = std::fs::read_to_string(format!("{dir}/smaps_rollup")).unwrap_or_default();
-    let memory = ProcessMemory::from_smaps_rollup(&rollup);
+    let source = if detailed { "smaps_rollup" } else { "status" };
+    let text = std::fs::read_to_string(format!("{dir}/{source}")).unwrap_or_default();
+    let memory = if detailed {
+        ProcessMemory::from_smaps_rollup(&text)
+    } else {
+        ProcessMemory::from_status(&text)
+    };
     if memory.resident.is_some() {
         return memory;
     }
@@ -34,7 +44,7 @@ pub(super) fn system() -> SystemMemory {
 
 /// No per-process accounting is read on this system.
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-pub(super) fn process(_pid: Option<u32>) -> ProcessMemory {
+pub(super) fn process(_pid: Option<u32>, _detailed: bool) -> ProcessMemory {
     ProcessMemory::default()
 }
 
@@ -59,9 +69,12 @@ mod tests {
 
     #[test]
     fn this_process_and_the_device_report_their_memory() {
-        let own = process(None);
-        assert!(own.resident.is_some_and(|bytes| bytes > 0), "{own:?}");
-        let by_pid = process(Some(std::process::id()));
+        for detailed in [true, false] {
+            let own = process(None, detailed);
+            assert!(own.resident.is_some_and(|bytes| bytes > 0), "{own:?}");
+            assert_eq!(own.proportional.is_some(), detailed, "{own:?}");
+        }
+        let by_pid = process(Some(std::process::id()), false);
         assert!(by_pid.resident.is_some(), "{by_pid:?}");
         assert!(name(std::process::id()).is_some_and(|name| !name.is_empty()));
         let system = system();
@@ -75,7 +88,8 @@ mod tests {
     #[test]
     fn a_process_that_does_not_exist_reports_nothing() {
         // PID numbers stop far below this on Linux.
-        assert!(process(Some(u32::MAX)).is_empty());
+        assert!(process(Some(u32::MAX), true).is_empty());
+        assert!(process(Some(u32::MAX), false).is_empty());
         assert_eq!(name(u32::MAX), None);
     }
 }
