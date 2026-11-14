@@ -6,7 +6,7 @@ import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
 import render::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
-import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, point_lit_terrain_light_colour, tint_to_gamma, tint_to_linear, terrain_light_levels};
+import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, point_lit_terrain_light_colour, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour, native_light_texel};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array, cutout_mix};
 @if(ENHANCED)
@@ -753,7 +753,7 @@ fn native_masked_cube_colour(
     // Emissive texels skip the face shade and lightmap; glow adds after lighting, before fog.
     let lit_gamma = ((texture_gamma * masked_tint) * mix(ao_face, 1.0, masks.unlit))
         * mix(lightmap_gamma, vec3(1.0), masks.unlit) + masks.glow;
-    let colour = tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
+    let colour = diag_to_linear(mix(lit_gamma, fog_gamma, fog_amount));
     let alpha = select(texture.a, 1.0, overlay || material_uses_native_leaf_colour(flags));
     return vec4(colour, alpha);
 }
@@ -866,6 +866,8 @@ flags: u32) -> CutoutSample {
 fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
     @if(OPAQUE_OVERDRAW)
     return vec4(1.0);
+    @if(!ENHANCED && DIAG_SHADE_VARYINGS)
+    return diag_varyings_colour(in);
     @if(!OPAQUE_OVERDRAW)
     return shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
 }
@@ -881,6 +883,70 @@ fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> 
         sampled = mix(current_sample, next_sample, frame_blend);
     }
     return sampled;
+}
+
+// Diagnostic `diag_shade` switches each drop one part of the vanilla cube shading on phone
+// GPUs; without their defines these helpers are exactly the production calls.
+@if(!ENHANCED)
+fn diag_cube_tint_gamma(@if(!ENHANCED)
+in: VertexOutput) -> vec3<f32> {
+    @if(DIAG_SHADE_NO_TINT)
+    return vec3(1.0);
+    // Keeps the flat per-face tint but drops the per-fragment biome blend fallback.
+    @if(DIAG_SHADE_NO_BLEND && !DIAG_SHADE_NO_TINT)
+    return select(vec3(1.0), in.uniform_tint_gamma.rgb, in.uniform_tint_gamma.a != 0.0);
+    @if(!DIAG_SHADE_NO_TINT && !DIAG_SHADE_NO_BLEND)
+    return ordinary_cube_tint_gamma(in);
+}
+
+@if(!ENHANCED)
+fn diag_cube_masks(@if(!ENHANCED)
+in: VertexOutput) -> CubeMasks {
+    @if(DIAG_SHADE_NO_TINT || DIAG_SHADE_NO_MASKS)
+    return CubeMasks(vec3(0.0), 0.0);
+    @if(!DIAG_SHADE_NO_TINT && !DIAG_SHADE_NO_MASKS)
+    return cube_masks(in);
+}
+
+@if(!ENHANCED)
+fn diag_cube_light(@if(!ENHANCED)
+in: VertexOutput) -> vec3<f32> {
+    @if(DIAG_SHADE_NO_LIGHTMAP)
+    return vec3(1.0);
+    @if(DIAG_SHADE_ONE_LIGHT_READ)
+    let nearest = vec2<u32>(clamp(round(in.native_light_levels), vec2(0.0), vec2(15.0)));
+    @if(DIAG_SHADE_ONE_LIGHT_READ)
+    return native_light_texel(nearest.x | (nearest.y << 4u));
+    @if(DIAG_SHADE_NO_POINT_LIGHT)
+    return terrain_light_colour(in.native_light_levels);
+    @if(!DIAG_SHADE_NO_LIGHTMAP && !DIAG_SHADE_ONE_LIGHT_READ && !DIAG_SHADE_NO_POINT_LIGHT)
+    return point_lit_terrain_light_colour(in.native_light_levels, in.world_position);
+}
+
+fn diag_fog_amount(world_position: vec3<f32>) -> f32 {
+    @if(DIAG_SHADE_NO_FOG)
+    return 0.0;
+    @if(!DIAG_SHADE_NO_FOG)
+    return distance_fog_amount(world_position);
+}
+
+fn diag_to_linear(gamma: vec3<f32>) -> vec3<f32> {
+    @if(DIAG_SHADE_NO_GAMMA)
+    return gamma;
+    @if(!DIAG_SHADE_NO_GAMMA)
+    return tint_to_linear(vec4(gamma, 1.0)).rgb;
+}
+
+// Reads every fragment input with trivial arithmetic: no texture, table or buffer access.
+@if(!ENHANCED)
+fn diag_varyings_colour(@if(!ENHANCED)
+in: VertexOutput) -> vec4<f32> {
+    let bits = in.material_flags ^ in.current_texture ^ in.next_texture ^ in.biome_record
+        ^ in.quad_shape ^ in.masks.x ^ in.masks.y ^ in.masks.z;
+    let mixed = in.world_position * 0.01 + vec3(in.uv, in.frame_blend)
+        + vec3(in.native_light_levels, in.native_ao_face) + in.uniform_tint_gamma.rgb
+        + in.local_position * 0.1 + vec3(f32(bits & 255u) / 255.0);
+    return vec4(fract(mixed), 1.0);
 }
 
 // Mixed records and position-noise grass keep their original per-block fragment lookup.
@@ -926,18 +992,18 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     @if(ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
     @if(!ENHANCED)
-    let tint_gamma = ordinary_cube_tint_gamma(in);
+    let tint_gamma = diag_cube_tint_gamma(in);
     @if(!ENHANCED)
-    let masks = cube_masks(in);
+    let masks = diag_cube_masks(in);
     @if(!ENHANCED)
     let native_colour = native_masked_cube_colour(
         sampled,
         in.material_flags,
         tint_gamma,
         in.native_ao_face,
-        point_lit_terrain_light_colour(in.native_light_levels, in.world_position),
+        diag_cube_light(in),
         atmosphere.fog_gamma.rgb,
-        distance_fog_amount(in.world_position),
+        diag_fog_amount(in.world_position),
         masks,
     );
     @if(!ENHANCED)

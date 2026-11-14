@@ -42,6 +42,13 @@ pub(in crate::chunk) struct TerrainDiag {
     pub(in crate::chunk) sample: u8,
     /// (iv) `diag_page0=1`: terrain textures sample texture page 0 only (wrong pixels).
     pub(in crate::chunk) page0: bool,
+    /// `diag_shade=N` drops one part of non-Enhanced cube shading, keeping the rest:
+    /// 1 lightmap (constant light), 2 fog, 3 gamma-to-linear conversion, 4 per-fragment tint and
+    /// glow/emissive masks, 5 lightmap as one nearest table read instead of four, 6 dynamic
+    /// point-light loop only, 7 everything (reads every input, no texture or table), 8 1-4 at once,
+    /// 9 only the per-fragment biome blend fallback (flat face tints stay), 10 only the
+    /// glow/emissive mask samples.
+    pub(in crate::chunk) shade: u8,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,
     /// (h) `diag_counts=1`: logs terrain draw, instance and vertex counts every 120 frames.
@@ -60,6 +67,7 @@ static STATE: RwLock<TerrainDiag> = RwLock::new(TerrainDiag {
     keep_stride: 0,
     sample: 0,
     page0: false,
+    shade: 0,
     units_off: false,
     counts: false,
 });
@@ -94,6 +102,7 @@ pub(in crate::chunk) fn refresh() {
         keep_stride: number("KEEP_STRIDE"),
         sample: number("SAMPLE").min(4) as u8,
         page0: flag("PAGE0"),
+        shade: number("SHADE").min(10) as u8,
         units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
         counts: flag("COUNTS"),
     };
@@ -164,6 +173,29 @@ const SAMPLE_DEFINES: [&str; 4] = [
 /// The first of the four `diag_sample` bits.
 const SAMPLE_SHIFT: u16 = 5;
 const PAGE0: u16 = 1 << 9;
+/// `diag_shade` occupies four bits from here.
+const SHADE_SHIFT: u16 = 10;
+/// The fragment shader defines for each `diag_shade` value.
+fn shade_defines(shade: u16) -> &'static [&'static str] {
+    match shade {
+        1 => &["DIAG_SHADE_NO_LIGHTMAP"],
+        2 => &["DIAG_SHADE_NO_FOG"],
+        3 => &["DIAG_SHADE_NO_GAMMA"],
+        4 => &["DIAG_SHADE_NO_TINT"],
+        5 => &["DIAG_SHADE_ONE_LIGHT_READ"],
+        6 => &["DIAG_SHADE_NO_POINT_LIGHT"],
+        7 => &["DIAG_SHADE_VARYINGS"],
+        8 => &[
+            "DIAG_SHADE_NO_LIGHTMAP",
+            "DIAG_SHADE_NO_FOG",
+            "DIAG_SHADE_NO_GAMMA",
+            "DIAG_SHADE_NO_TINT",
+        ],
+        9 => &["DIAG_SHADE_NO_BLEND"],
+        10 => &["DIAG_SHADE_NO_MASKS"],
+        _ => &[],
+    }
+}
 
 /// The pipeline-changing switches as a variant key; zero leaves pipelines unchanged.
 pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u16 {
@@ -186,7 +218,7 @@ pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u16 {
     if diag.page0 {
         bits |= PAGE0;
     }
-    bits
+    bits | u16::from(diag.shade) << SHADE_SHIFT
 }
 
 static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u16), CachedRenderPipelineId>>> =
@@ -243,6 +275,10 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u16) -> bool {
         }
         if bits & PAGE0 != 0 {
             fragment.shader_defs.push("DIAG_PAGE0".into());
+            changed = true;
+        }
+        for define in shade_defines(bits >> SHADE_SHIFT & 15) {
+            fragment.shader_defs.push((*define).into());
             changed = true;
         }
     }
