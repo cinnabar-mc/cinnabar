@@ -5,7 +5,9 @@
 
 use std::fmt::Write as _;
 
-/// Begins every memory line, so reports and tools can find them in a client log.
+/// Begins every memory line, so reports and tools can find them in a client log. The Android
+/// exit report finds them by `memory_line` in `packaging/android/runtime.json`, which a test
+/// keeps equal to this.
 pub const LINE_PREFIX: &str = "memory event=";
 
 /// Bytes the kernel charges to one process; a figure it did not expose stays `None`.

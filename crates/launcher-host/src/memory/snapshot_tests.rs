@@ -185,3 +185,15 @@ fn sizes_round_to_the_nearest_mebibyte() {
     assert_eq!(mib(MIB / 2), "1M");
     assert_eq!(mib(u64::MAX), "17592186044415M");
 }
+
+#[test]
+fn the_android_packaging_manifest_names_the_same_line_prefix() {
+    #[derive(serde::Deserialize)]
+    struct Runtime {
+        memory_line: String,
+    }
+    let runtime: Runtime =
+        serde_json::from_str(include_str!("../../../../packaging/android/runtime.json"))
+            .expect("the tracked Android runtime manifest parses");
+    assert_eq!(runtime.memory_line, LINE_PREFIX);
+}
