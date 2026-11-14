@@ -55,7 +55,7 @@ minidumper = "0.11"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
+rustix = { version = "1", default-features = false, features = ["fs", "param", "process", "std", "stdio"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

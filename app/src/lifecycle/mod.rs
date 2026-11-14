@@ -5,6 +5,7 @@ use launcher_host::lifecycle::{crash, update};
 
 mod client_logs;
 pub(crate) mod heartbeat;
+pub(crate) mod memory;
 
 use launcher::install_layout::InstallLayout;
 use launcher_host::lifecycle::crash::protocol::Stage;
@@ -115,7 +116,11 @@ pub fn preload(rewritten: bool) {
 fn start_session() -> Result<InstallLayout> {
     static LOGGING: Once = Once::new();
     static SESSION_FILES: Once = Once::new();
-    LOGGING.call_once(|| crate::app::logging::install(crate::app::logging::Process::Client));
+    LOGGING.call_once(|| {
+        crate::app::logging::install(crate::app::logging::Process::Client);
+        launcher_host::memory::telemetry::start();
+        launcher_host::memory::telemetry::report("startup");
+    });
     let layout = InstallLayout::discover().context("resolve install layout")?;
     SESSION_FILES.call_once(|| {
         crate::app::logging::apply_saved_verbose_setting(&layout);

@@ -53,6 +53,15 @@ impl Process {
         }
     }
 
+    /// The operating-system PID; `None` for an iOS core, which runs inside this process.
+    fn os_id(&self) -> Option<u32> {
+        match self {
+            Self::Os(child) => Some(child.id()),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(_) => None,
+        }
+    }
+
     /// Collects a completed worker's status without waiting for a running one.
     fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         match self {
@@ -280,6 +289,19 @@ impl Children {
         handoff()
     }
 
+    /// Process ids of the tracked child processes still running, for memory accounting. A core
+    /// that runs inside this process has no process of its own and is left out.
+    fn live_pids(&self) -> Vec<u32> {
+        lock(&self.live)
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let mut child = lock(&entry.child);
+                running(&mut child).then(|| child.os_id()).flatten()
+            })
+            .collect()
+    }
+
     /// Counts the children still registered by the Unix process-lifecycle tests.
     #[cfg(all(test, unix))]
     fn tracked(&self) -> usize {
@@ -297,6 +319,12 @@ impl From<Child> for Spawned {
     fn from(child: Child) -> Self {
         CHILDREN.track(child)
     }
+}
+
+/// Process ids of the helper processes this client started that are still running.
+#[must_use]
+pub fn live_pids() -> Vec<u32> {
+    CHILDREN.live_pids()
 }
 
 /// Spawns `command` as a tracked child that knows to exit with this process.
@@ -649,6 +677,15 @@ mod tests {
             .unwrap();
         assert_eq!(stderr, "diagnostic\n");
         assert!(child.take_stderr().is_none());
+    }
+
+    #[test]
+    fn live_pids_list_running_children_only() {
+        let children = Children::new();
+        let held = children.track(holds_stdin());
+        assert_eq!(children.live_pids(), vec![held.id()]);
+        assert_eq!(held.stop(EXIT_GRACE), StopOutcome::Exited);
+        assert!(children.live_pids().is_empty());
     }
 
     fn sh(script: &str) -> Child {

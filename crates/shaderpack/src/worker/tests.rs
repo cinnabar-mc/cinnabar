@@ -69,3 +69,13 @@ fn cpu_budget_lets_every_compile_thread_use_the_elapsed_limit() {
     assert_eq!(cpu_time_limit(), TIME_LIMIT * threads as u32);
     assert!(cpu_time_limit() >= TIME_LIMIT);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_compiler_process_is_listed_until_it_is_dropped() {
+    let process = Process::start(Path::new("cat"), b"request").expect("start cat");
+    let id = process.child.id();
+    assert!(live_process_ids().contains(&id));
+    drop(process);
+    assert!(!live_process_ids().contains(&id));
+}

@@ -7,6 +7,7 @@ use std::{
     io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    sync::{Mutex, PoisonError},
     time::Duration,
 };
 
@@ -98,6 +99,19 @@ enum Backend {
     InProcess(in_process::Running),
 }
 
+/// Process ids of the compiler processes started and not yet dropped.
+static LIVE_PROCESSES: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// Process ids of the compiler processes this client started and has not yet dropped, for
+/// memory accounting. A listed process may already have exited.
+#[must_use]
+pub fn live_process_ids() -> Vec<u32> {
+    LIVE_PROCESSES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
 /// One child owned until it exits or is killed and reaped; dropping it cannot detach work.
 struct Process {
     child: Child,
@@ -175,6 +189,10 @@ impl Process {
                 return Err(error.to_string());
             }
         };
+        LIVE_PROCESSES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(child.id());
         let mut running = Self {
             child,
             output,
@@ -240,6 +258,11 @@ impl Drop for Process {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let id = self.child.id();
+        LIVE_PROCESSES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|live| *live != id);
     }
 }
 
