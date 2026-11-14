@@ -363,7 +363,7 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    let query_tables = module
+    let (query_handle, query_tables) = module
         .global_variables
         .iter()
         .find(|(_, variable)| {
@@ -372,14 +372,20 @@ fn packed_chunk_shader_parses_and_validates() {
                     && resource.binding == material_shader::BIOME_QUERY_TABLES_BINDING
             })
         })
-        .expect("chunk shaders must bind the biome query tables")
-        .1;
+        .expect("chunk shaders must bind the biome query tables");
     assert_eq!(query_tables.space, naga::AddressSpace::Uniform);
-    assert!(entry_points_use_binding(
-        &module,
-        naga::ShaderStage::Fragment,
-        material_shader::BIOME_QUERY_TABLES_BINDING,
-    ));
+    // Biome tints resolve once per face in the vertex stage; fragments read the face tint.
+    for entry in module
+        .entry_points
+        .iter()
+        .filter(|entry| entry.stage == naga::ShaderStage::Fragment)
+    {
+        assert!(
+            !super::function_uses_global(&module, &entry.function, query_handle, 0),
+            "{} reads the biome query tables",
+            entry.name
+        );
+    }
     for binding in 0..=11 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
@@ -424,7 +430,6 @@ fn packed_chunk_shader_parses_and_validates() {
         assets::MATERIAL_FLAG_OVERLAY_MASK
     )));
     assert!(shader.contains("mix(sampled.rgb, tinted, sampled.a)"));
-    assert!(shader.contains("in.biome_record,"));
     assert!(shader.contains("greedy_uv"));
     assert!(shader.contains("var<storage, read> biome_records: array<u32>"));
     assert!(shader.contains("var<storage, read> biome_tints: array<BiomeTintGpu>"));

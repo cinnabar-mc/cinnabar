@@ -246,7 +246,7 @@ fn build_pending_meshes(stream: &mut WorldStream) {
             stream.classifier,
             assets,
             mode,
-            &biome,
+            per_block_tints(&biome, &stream.decode_ids(key.dimension).biome_tints),
             &mut ::meshing::MeshScratch::default(),
         );
         let dependency_mask = snapshot.dependency_mask(stream.classifier, assets, mode);

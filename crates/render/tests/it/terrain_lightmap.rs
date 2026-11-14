@@ -72,15 +72,6 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
     });
     let sampler = gpu.device.create_sampler(&Default::default());
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
-    let records = gpu.buffer(&[0.0], wgpu::BufferUsages::STORAGE);
-    let tints = gpu.buffer(
-        &[0.0; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4],
-        wgpu::BufferUsages::STORAGE,
-    );
-    let query_tables = gpu.words(
-        &meshing::biome_lattice::query_table_words(),
-        wgpu::BufferUsages::UNIFORM,
-    );
     let mut atmosphere = [0.0; 40];
     atmosphere[20] = 100.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
@@ -183,24 +174,10 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                 });
             }
             if kind == "cube" {
-                bindings.extend([
-                    wgpu::BindGroupEntry {
-                        binding: material_shader::BIOME_QUERY_TABLES_BINDING,
-                        resource: query_tables.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: records.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
-                        resource: tints.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ]);
+                bindings.push(wgpu::BindGroupEntry {
+                    binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                });
             }
             for &fragment in fragments {
                 let pixels = gpu.render_srgb(
@@ -269,6 +246,7 @@ const CUBE_VERTEX: &str = r#"
     out.uv = vec2(0.5);
     out.native_light_levels = terrain_light_levels(witness_sample(corner));
     out.native_ao_face = 1.0;
+    out.face_tint_gamma = vec3(1.0);
     return out;
 }
 "#;

@@ -38,7 +38,8 @@ impl ResourceMeshSnapshot {
                     ::meshing::MeshScratch::default,
                     |scratch, (key, snapshot)| {
                         let biome = pack_biome_record(&snapshot.biomes, &resolved);
-                        let mesh = snapshot.mesh(classifier, assets, mode, &biome, scratch);
+                        let split = per_block_tints(&biome, &resolved);
+                        let mesh = snapshot.mesh(classifier, assets, mode, split, scratch);
                         (key, mesh, biome)
                     },
                 )

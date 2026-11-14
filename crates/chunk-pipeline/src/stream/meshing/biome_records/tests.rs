@@ -218,3 +218,34 @@ fn biome_cache_charges_edit_metadata_in_identically_encoded_sources() {
     );
     assert!(entries.bytes <= CACHE_BYTES);
 }
+
+#[test]
+fn mixed_records_and_uniform_swamp_grass_need_per_block_tints() {
+    let mut stream = stream();
+    let definition = |biome_id, name: &str, temperature| BiomeDefinitionEvent {
+        biome_id: Some(biome_id),
+        name: name.into(),
+        temperature,
+        downfall: 0.4,
+        snow_foliage: 0.0,
+        max_snow_accumulation: None,
+        map_water_color: 0xff44_88aa,
+    };
+    stream.replace_biome_definitions(Arc::from([
+        definition(7, "warm_biome", 0.8),
+        definition(9, "cold_biome", 0.1),
+    ]));
+    let cache = stream.biome_record_cache(0);
+    let uniform = cache.record(&std::array::from_fn(|_| Some(storage(7))));
+    let mixed = cache.record(&std::array::from_fn(|slot| {
+        Some(storage(if slot % 3 == 2 { 9 } else { 7 }))
+    }));
+    assert!(mixed.uniform_tint_index().is_none());
+    assert!(cache.per_block_tints(&mixed));
+    assert!(!cache.per_block_tints(&uniform));
+    let index = uniform.uniform_tint_index().unwrap() as usize;
+    let mut swamp = (*cache.resolved).clone();
+    swamp.records[index].flags |= assets::BIOME_TINT_FLAG_SWAMP_GRASS;
+    assert!(per_block_tints(&uniform, &swamp));
+    assert!(per_block_tints(&mixed, &swamp));
+}
