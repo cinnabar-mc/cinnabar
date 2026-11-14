@@ -194,6 +194,7 @@ impl MenuRuntime {
             sign_in_requested: false,
             sign_in_cancelled: false,
             sign_in_failure: None,
+            sign_in_away: Default::default(),
             #[cfg(feature = "developer-control")]
             sign_in_fixture,
             presentation_accounts: false,

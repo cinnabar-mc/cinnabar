@@ -8,6 +8,9 @@ pub enum BrowserState {
     Opening,
     Opened,
     Failed,
+    /// An earlier run of the client took this code to the browser; this run resumed waiting on
+    /// it and opens the browser again only when asked.
+    Resumed,
 }
 
 const SIGN_IN_PAGE: &str = "https://www.microsoft.com/link?otc=";
@@ -22,6 +25,7 @@ pub fn device_code_url(code: &str) -> Option<String> {
 pub struct SignInLink {
     target: Option<String>,
     attempted: std::collections::HashSet<String>,
+    resumed: std::collections::HashSet<String>,
     state: BrowserState,
     revision: u64,
 }
@@ -46,6 +50,7 @@ impl SignInLink {
     /// client was, so only an explicit press opens it again.
     pub fn skip_automatic_open(&mut self, code: &str) {
         self.attempted.insert(code.to_owned());
+        self.resumed.insert(code.to_owned());
     }
 
     /// Orders handoffs for either prompt, retaining the one automatic attempt per target.
@@ -84,10 +89,13 @@ impl SignInLink {
         }
     }
 
-    /// Returns the handoff status for this device code or signup URL, hiding stale attempts.
+    /// Returns the handoff status for this device code or signup URL, hiding stale attempts. A
+    /// resumed code reports that until this run opens the browser for it.
     pub fn state_for(&self, target: &str) -> BrowserState {
         if self.target.as_deref() == Some(target) {
             self.state
+        } else if self.resumed.contains(target) {
+            BrowserState::Resumed
         } else {
             BrowserState::Waiting
         }
@@ -137,7 +145,8 @@ mod tests {
         link.open("SAVED-CODE", false, |_, _| {
             panic!("automatic open of a skipped code")
         });
-        assert_eq!(link.state_for("SAVED-CODE"), BrowserState::Waiting);
+        assert_eq!(link.state_for("SAVED-CODE"), BrowserState::Resumed);
+        assert_eq!(link.state_for("FRESH-CODE"), BrowserState::Waiting);
         link.open("SAVED-CODE", true, |_, _| true);
         assert_eq!(link.state_for("SAVED-CODE"), BrowserState::Opening);
         let mut opened = false;

@@ -142,6 +142,18 @@ search filters friends currently playing; it does not search Xbox users. The Bac
 button closes chat, inventories and other game screens and goes back in menus, like a mouse's
 Back button.
 
+## Microsoft sign-in
+
+Sign-in sends the player to the browser to approve a code. While the code waits, a short
+foreground service (`SignInHoldService`, type `shortService`) keeps the game from being frozen
+or closed first for memory, so the approval is picked up in the background. It shows a silent
+"Finishing Microsoft sign-in" notification where notifications are allowed and ends when sign-in
+settles or after about three minutes per trip to the browser. If Android still closes the game,
+reopening it, from the launcher or from recents, resumes the same code by itself. The prompt
+says "Finishing sign-in…", shows the code and keeps Open link, and the account appears without
+another tap once the code is approved. A cancelled sign-in stays closed. If Android ends only
+the sign-in helper, the game restarts it once on the same code.
+
 ## Local worlds
 
 All local worlds use BDS through the bundled translated runtime. Legacy Dragonfly saves
@@ -214,8 +226,8 @@ Typing sign or book text still needs a hardware keyboard. Featured servers need 
 sign-in, whose code you enter on another device.
 These stay keyboard, mouse or controller only: dropping the held item from the hotbar, pick
 block, the emote wheel, the player list, perspective, and mod or server Experience key
-bindings. Also missing are Back during gameplay, clipboard, opening links, Microsoft
-sign-in while the app is in the background, touch scrolling in forms and menus outside Settings,
+bindings. Also missing are Back during gameplay, clipboard, opening links,
+touch scrolling in forms and menus outside Settings,
 and the native touch layouts, remapping and control customization. Device performance, audio
 and suspend/resume are untested. See
 `plan.md`.

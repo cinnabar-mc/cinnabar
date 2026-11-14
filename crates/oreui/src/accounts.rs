@@ -98,6 +98,8 @@ pub(super) fn sign_in_modal(view: &MenuView) -> Modal<'_> {
     Modal {
         title: if matches!(view.auth_state, AuthState::AwaitingXboxSignup { .. }) {
             "Create your Xbox profile"
+        } else if resumed_code(view) {
+            "Finishing sign-in…"
         } else {
             "Sign in with Microsoft"
         },
@@ -120,7 +122,15 @@ pub(super) fn sign_in_modal(view: &MenuView) -> Modal<'_> {
     }
 }
 
-/// Manual instructions appear only when the default browser handoff fails.
+/// Whether the prompt shows a code an earlier run of the client already took to the browser, as
+/// after the system ended the client while the player approved it there.
+fn resumed_code(view: &MenuView) -> bool {
+    matches!(view.auth_state, AuthState::AwaitingCode { .. })
+        && view.sign_in_browser == launcher::menu::sign_in::BrowserState::Resumed
+}
+
+/// Manual instructions appear only when the default browser handoff fails. A resumed code says
+/// that sign-in is still finishing and names the code, so the player need not start over.
 fn status(view: &MenuView) -> String {
     use launcher::menu::sign_in::BrowserState;
     match &view.auth_state {
@@ -128,7 +138,7 @@ fn status(view: &MenuView) -> String {
             BrowserState::Failed => "Your browser couldn't open. Select Create Xbox profile to try again.".into(),
             BrowserState::Opened => "Your Microsoft account needs an Xbox profile. Finish creating it in your browser, then return to the game.".into(),
             BrowserState::Opening => "Opening Xbox profile setup in your browser…".into(),
-            BrowserState::Waiting => "Select Create Xbox profile to finish setting up your account in your browser.".into(),
+            BrowserState::Waiting | BrowserState::Resumed => "Select Create Xbox profile to finish setting up your account in your browser.".into(),
         },
         AuthState::AwaitingCode { uri, code } => match view.sign_in_browser {
             BrowserState::Failed => format!(
@@ -141,6 +151,9 @@ fn status(view: &MenuView) -> String {
             BrowserState::Waiting => {
                 "Select Open link to finish signing in in your browser.".into()
             }
+            BrowserState::Resumed => format!(
+                "Checking code {code} with Microsoft. If you approved it in your browser, you'll be signed in here in a few seconds.\n\nNot approved yet? Select Open link."
+            ),
         },
         AuthState::Failed(reason) => reason.clone(),
         AuthState::Authenticated => "Signed in. Loading Xbox profile…".into(),
@@ -324,6 +337,25 @@ mod tests {
         assert!(fallback.body.contains("TEST-CODE"));
         assert!(fallback.body.contains("example.invalid"));
         assert_eq!(fallback.buttons[0].2, Some(MenuAction::OpenSignInLink));
+    }
+
+    #[test]
+    fn a_resumed_code_says_sign_in_is_finishing_and_keeps_the_way_back_to_the_browser() {
+        let mut view = account_manager_view();
+        view.sign_in_requested = true;
+        view.auth_state = AuthState::AwaitingCode {
+            uri: "https://example.invalid/link".into(),
+            code: "TEST-CODE".into(),
+        };
+        let fresh = sign_in_modal(&view);
+        assert_eq!(fresh.title, "Sign in with Microsoft");
+        view.sign_in_browser = launcher::menu::sign_in::BrowserState::Resumed;
+        let resumed = sign_in_modal(&view);
+        assert_eq!(resumed.title, "Finishing sign-in…");
+        assert!(resumed.body.contains("TEST-CODE"), "{}", resumed.body);
+        assert!(!resumed.body.contains("example.invalid"));
+        assert_eq!(resumed.buttons[0].2, Some(MenuAction::OpenSignInLink));
+        assert_eq!(resumed.buttons[1].2, Some(MenuAction::CancelSignIn));
     }
 
     #[test]

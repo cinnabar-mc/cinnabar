@@ -77,12 +77,15 @@ impl MenuRuntime {
         self.cancel_join_fallback_prompt();
         // Cached validation also runs when a signed-out account core is already
         // attached, as happens before opening the menu in a direct session.
-        if self.visible
-            && !self.is_connecting()
-            && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
-        {
-            self.start_cached_sign_in();
+        let now = std::time::SystemTime::now();
+        if self.visible && !self.is_connecting() {
+            self.resume_sign_in_left_waiting(now);
+            if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
+                self.start_cached_sign_in();
+            }
         }
+        // The note of the code is written before the browser can open for it.
+        self.track_sign_in_away(now);
         self.update_sign_in_browser(false);
         self.poll_catalog_art();
         if core_feeds {
@@ -118,7 +121,7 @@ impl MenuRuntime {
     }
 
     /// The token cache the current sign-in writes: the pending one while adding an account.
-    fn sign_in_cache(&self) -> PathBuf {
+    pub(super) fn sign_in_cache(&self) -> PathBuf {
         if self.feeds.account_adding {
             launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache()
         } else {
@@ -312,6 +315,9 @@ impl MenuRuntime {
                 .open(state, explicit, launcher_host::desktop::open_sign_in_link);
             #[cfg(test)]
             self.sign_in_browser.open(state, explicit, |_| true);
+            if explicit {
+                self.renew_sign_in_hold();
+            }
         }
     }
 
@@ -345,7 +351,7 @@ impl MenuRuntime {
     }
 
     /// Interactive failures own presentation; background cache checks leave core status visible.
-    fn owned_sign_in_failure(&self) -> Option<&AuthState> {
+    pub(super) fn owned_sign_in_failure(&self) -> Option<&AuthState> {
         self.sign_in_failure
             .as_ref()
             .filter(|_| self.sign_in_requested || self.feeds.account_adding)
@@ -474,6 +480,8 @@ impl MenuRuntime {
         self.sign_in_failure = None;
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;
+        // An abandoned sign-in must not reopen at the next launch.
+        self.sign_in_away.forget();
         // Cancellation is sticky. Only the explicit StartSignIn action may
         // create another helper after this point.
         if matches!(
