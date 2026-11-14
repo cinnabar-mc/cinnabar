@@ -162,6 +162,9 @@ func (s *Session) respawn(pk *java.Respawn) {
 	st.dimension, st.gameMode, st.difficulty = int8(pk.Dimension), pk.GameMode, pk.Difficulty
 	st.report, st.breaking = motionReport{}, nil
 	if previous != st.dimension {
+		// The client respawns through the dimension change; a same-dimension respawn
+		// before it that never got a position is over.
+		st.respawning = false
 		st.world = newWorld(st.dimension)
 		st.hasPublisher = false
 		for id := range st.entities {

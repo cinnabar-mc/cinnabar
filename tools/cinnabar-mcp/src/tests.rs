@@ -137,10 +137,19 @@ fn remote_addresses_need_an_explicit_opt_in() {
     assert!(commands::is_loopback("[::1]:19132"));
     assert!(!commands::is_loopback("zeqa.net:19132"));
     assert!(!commands::is_loopback("10.0.0.2:19132"));
+    assert!(commands::is_loopback("::1"));
     let java = bridge::contract::JAVA_TARGET_PREFIX;
+    let upper = java.to_ascii_uppercase();
     assert!(commands::is_loopback(&format!("{java}127.0.0.1:25565")));
-    assert!(commands::is_loopback(&format!("{java}localhost")));
+    assert!(commands::is_loopback(&format!("{java}127.0.0.1")));
+    assert!(commands::is_loopback(&format!(" {upper}[::1]:25565")));
+    assert!(commands::is_loopback(&format!("{java}localhost:25565")));
+    // Without a port the core looks the name up as a service record first.
+    assert!(!commands::is_loopback(&format!("{java}localhost")));
     assert!(!commands::is_loopback(&format!("{java}play.example.net")));
+    assert!(!commands::is_loopback(&format!(
+        "{upper}play.example.net:25565"
+    )));
     let mut server = Server::new(scratch("remote"));
     let reply = server.call("connect", &json!({ "address": "play.example.net:19132" }));
     assert_eq!(reply["isError"], true);

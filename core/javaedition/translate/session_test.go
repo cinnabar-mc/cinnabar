@@ -557,6 +557,23 @@ func TestRespawnKeepsTheWorldUnlessTheDimensionChanges(t *testing.T) {
 	}
 }
 
+// A respawn in place waits for the position that tells the client where it respawned. A
+// dimension change before that position ends the wait, so a later teleport is only a
+// teleport.
+func TestADimensionChangeEndsAPendingRespawn(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 1 + eyeHeight, Z: 0.5, OnGround: true})
+	ts.serve(&java.Respawn{Dimension: 0, LevelType: "default"})
+	ts.serve(&java.Respawn{Dimension: -1, LevelType: "default"})
+	placed := ts.serve(&java.PlayerPositionAndLook{X: 2.5, Y: 1 + eyeHeight, Z: 0.5, OnGround: true})
+	for _, pk := range placed {
+		if _, ok := pk.(*packet.Respawn); ok {
+			t.Fatalf("a teleport after a dimension change translated to a respawn: %+v", placed)
+		}
+	}
+}
+
 func TestClientFlightChatLengthAndRadiusChanges(t *testing.T) {
 	ts := startTestSession(t)
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
