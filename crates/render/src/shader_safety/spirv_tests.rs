@@ -30,6 +30,20 @@ fn terrain_spirv_validates_with_mobile_runtime_checks() {
             &["TERRAIN_UNITS", "DIAG_SAMPLE_LOD0"][..],
             &["TERRAIN_UNITS", "DIAG_SAMPLE_LOD_MAX"][..],
             &["TERRAIN_UNITS", "DIAG_PAGE0"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_NO_LIGHTMAP"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_NO_FOG"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_NO_GAMMA"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_NO_TINT"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_ONE_LIGHT_READ"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_NO_POINT_LIGHT"][..],
+            &["TERRAIN_UNITS", "DIAG_SHADE_VARYINGS"][..],
+            &[
+                "TERRAIN_UNITS",
+                "DIAG_SHADE_NO_LIGHTMAP",
+                "DIAG_SHADE_NO_FOG",
+                "DIAG_SHADE_NO_GAMMA",
+                "DIAG_SHADE_NO_TINT",
+            ][..],
         ] {
             let source = crate::shader_source::composed(source, definitions);
             let module = naga::front::wgsl::parse_str(&source).unwrap();
