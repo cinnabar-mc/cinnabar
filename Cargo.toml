@@ -145,7 +145,8 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 ] }
 # The noop backend only runs when an instance explicitly enables it (render tests).
 # `std` keeps error scopes per thread; without it, concurrent pipeline compiles share one stack.
-wgpu = { version = "30.0.1", default-features = false, features = ["noop", "std", "wgsl"] }
+# `counters` keeps wgpu's command-encoding counters, which slow-frame reports read.
+wgpu = { version = "30.0.1", default-features = false, features = ["counters", "noop", "std", "wgsl"] }
 # Every crate that names naga uses this one feature set, so `-p cinnabar` and `--workspace`
 # builds agree on naga and nothing above it (wgpu, bevy_render) builds twice. `glsl-in` is the
 # Java shader-pack frontend; it adds only naga's GLSL parser and pp-rs.
@@ -205,15 +206,16 @@ minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev 
 android-activity = { git = "https://github.com/cinnabar-mc/android-activity", rev = "07587797903a8c607eb9240ca67e8d5fbdebd1c6" }
 # Mobile input support; patches live on `cinnabar-v0.30`.
 winit = { git = "https://github.com/cinnabar-mc/winit", rev = "b1e59b0d5a63628cd4946575765a6c35d53d90df" }
-# TEST BUILD ONLY: wgpu and Bevy point at the unmerged `integration/android-test-20261113`
-# fork branches (wgpu PRs 23, 24, 25; Bevy PR 6). CI's pin checks reject this by design.
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "dcc6cd430dd0d23dc7fb083902e9c37dbb946040" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "dcc6cd430dd0d23dc7fb083902e9c37dbb946040" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "dcc6cd430dd0d23dc7fb083902e9c37dbb946040" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "dcc6cd430dd0d23dc7fb083902e9c37dbb946040" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "dcc6cd430dd0d23dc7fb083902e9c37dbb946040" }
+# TEST BUILD ONLY: wgpu and Bevy point at unmerged fork integration branches: wgpu
+# `integration/android-test-encode-finish` (PRs 23, 24, 25, 26 and the encode counters) and
+# Bevy `integration/android-test-20261113` (PR 6). CI's pin checks reject this by design.
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "5722b9188117f6639ff7eee7938c81f1ca74da95" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "5722b9188117f6639ff7eee7938c81f1ca74da95" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "5722b9188117f6639ff7eee7938c81f1ca74da95" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "5722b9188117f6639ff7eee7938c81f1ca74da95" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "5722b9188117f6639ff7eee7938c81f1ca74da95" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "dcc6cd430dd0d23dc7fb083902e9c37dbb946040" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "5722b9188117f6639ff7eee7938c81f1ca74da95" }
 
 # Keep every Bevy crate on the same renderer fork revision. CI checks the locked graph.
 bevy = { git = "https://github.com/cinnabar-mc/bevy", rev = "1dbf60db7b42c5990f555fee469b8de02b83b837" }

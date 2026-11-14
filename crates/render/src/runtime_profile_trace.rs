@@ -34,6 +34,7 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
                 (
                     render_scene::runtime_profile::end_render_frame_span,
                     finish_render_counters,
+                    crate::encode_counting::publish_encode_counters,
                 )
                     .in_set(RenderSystems::Cleanup),
             ),
