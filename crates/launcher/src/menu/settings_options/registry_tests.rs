@@ -556,3 +556,21 @@ fn saved_values_survive_alongside_removed_setting_keys() {
         assert!(encoded["values"].get(retired).is_none(), "{retired}");
     }
 }
+
+/// Opening the plain inventory is opt-in, so the inventory stays vanilla until the player asks.
+#[test]
+fn plain_inventory_defaults_off_persists_and_resets_with_the_accessibility_group() {
+    let id = SettingId::OpenPlainInventory;
+    let mut settings = SettingsOptions::default();
+    assert_eq!(settings.value(id), 0);
+    settings.set(id.index(), 1);
+    settings = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(settings.value(id), 1);
+    assert!(
+        SettingPanel::AccessibilityGameplay
+            .options()
+            .any(|row| row.id == id)
+    );
+    settings.reset_group(SettingsGroup::Accessibility);
+    assert_eq!(settings.value(id), 0);
+}
