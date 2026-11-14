@@ -2,9 +2,7 @@
 //! parts of it. Desktop builds compile the platform-independent parts for their tests.
 
 #[cfg(target_os = "android")]
-mod android;
-#[cfg(target_os = "android")]
-pub(crate) use android::with_activity;
+pub(crate) mod android;
 #[cfg_attr(
     not(target_os = "android"),
     allow(dead_code, reason = "Android-only mapping, tested on every host")

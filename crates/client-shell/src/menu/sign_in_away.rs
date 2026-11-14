@@ -97,7 +97,7 @@ impl SignInAway {
 /// the browser; other platforms have no such request.
 #[cfg(target_os = "android")]
 fn request_hold(waiting: bool) {
-    if let Err(error) = crate::mobile_input::with_activity(|env, activity| {
+    if let Err(error) = crate::mobile_input::android::with_activity(|env, activity| {
         env.call_method(activity, "setSignInWaiting", "(Z)V", &[waiting.into()])
             .map(drop)
     }) {
@@ -116,15 +116,32 @@ impl MenuRuntime {
     /// waiting on when the system ended it. The helper polls the same code again, so approving
     /// it in the browser still signs them in, and the prompt says so. A cancelled sign-in left
     /// no note and stays closed; a token that arrived meanwhile is picked up by the saved
-    /// account's check, or completes the unfinished Add account. A dialog the launch opened, or
-    /// an account change under way, defers the look until it closes, so the prompt is visible.
+    /// account's check, or completes the unfinished Add account. When a note exists, a dialog
+    /// the launch opened, or an account change under way, defers the look until it closes, so
+    /// the prompt is visible; [`Self::sign_in_resume_deferred`] holds other sign-ins meanwhile.
     pub(super) fn resume_sign_in_left_waiting(&mut self, now: SystemTime) {
         if !self.sign_in_away.resumes_at_launch
             || self.sign_in_away.checked
             || self.external.is_some()
-            || self
-                .dialog
-                .is_some_and(|dialog| dialog != MenuDialog::Accounts)
+        {
+            return;
+        }
+        #[cfg(feature = "developer-control")]
+        if self.fixture_active() {
+            self.sign_in_away.checked = true;
+            return;
+        }
+        let primary = self.layout.auth_cache();
+        let adding = self.account_store().pending_cache();
+        if !pending_sign_in::waiting_path(&primary).exists()
+            && !pending_sign_in::waiting_path(&adding).exists()
+        {
+            self.sign_in_away.checked = true;
+            return;
+        }
+        if self
+            .dialog
+            .is_some_and(|dialog| dialog != MenuDialog::Accounts)
             || self.account_change_pending()
         {
             return;
@@ -133,11 +150,6 @@ impl MenuRuntime {
         if self.auth_attempted || self.auth_process.is_some() {
             return;
         }
-        #[cfg(feature = "developer-control")]
-        if self.fixture_active() {
-            return;
-        }
-        let primary = self.layout.auth_cache();
         match pending_sign_in::left_waiting(&primary, now) {
             Some(LeftWaiting::Awaiting(code)) => {
                 self.sign_in_away.noted = Some((primary, code));
@@ -149,7 +161,6 @@ impl MenuRuntime {
             }
             None => {}
         }
-        let adding = self.account_store().pending_cache();
         let code = match pending_sign_in::left_waiting(&adding, now) {
             Some(LeftWaiting::Awaiting(code)) => code,
             // The token arrived while the client was away; the account was not yet added.
@@ -162,6 +173,12 @@ impl MenuRuntime {
         };
         self.sign_in_away.noted = Some((adding, code));
         self.resume_add_account();
+    }
+
+    /// Whether a launch's resume is waiting for a dialog or account change to close. The saved
+    /// account's background check waits with it, so it cannot claim the launch's first sign-in.
+    pub(super) fn sign_in_resume_deferred(&self) -> bool {
+        self.sign_in_away.resumes_at_launch && !self.sign_in_away.checked
     }
 
     /// Keeps the client's note and the platform's hold in step with its sign-in at `now`. The

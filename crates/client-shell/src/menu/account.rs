@@ -80,7 +80,9 @@ impl MenuRuntime {
         let now = std::time::SystemTime::now();
         if self.visible && !self.is_connecting() {
             self.resume_sign_in_left_waiting(now);
-            if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
+            if !self.sign_in_resume_deferred()
+                && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
+            {
                 self.start_cached_sign_in();
             }
         }

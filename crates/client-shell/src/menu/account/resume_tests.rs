@@ -542,3 +542,45 @@ fn a_launch_dialog_defers_the_resume_until_it_closes() {
     assert_eq!(menu.view().sign_in_browser, BrowserState::Resumed);
     remove_install(menu);
 }
+
+/// With a saved account, the background check that a launch starts must not claim the launch
+/// while a dialog defers an unfinished Add account's resume; the Add account reopens once the
+/// dialog closes.
+#[test]
+fn a_saved_account_check_waits_for_a_deferred_add_account_resume() {
+    let mut menu = phone_menu();
+    install_resuming_helper(&mut menu);
+    let primary = menu.layout.auth_cache();
+    fs::create_dir_all(primary.parent().unwrap()).unwrap();
+    fs::write(&primary, b"{}").unwrap();
+    let adding = menu.account_store().pending_cache();
+    save_prompt(&adding);
+    pending_sign_in::note_waiting(&adding, SAVED_CODE).unwrap();
+    menu.dialog = Some(MenuDialog::MinecraftImport);
+    menu.poll_catalog(true);
+    assert!(
+        menu.auth_process.is_none(),
+        "the saved account's check started while the resume was deferred"
+    );
+
+    menu.dialog = None;
+    wait_for_saved_prompt(&mut menu);
+    assert!(menu.feeds.account_adding, "Add account was not resumed");
+    assert_eq!(menu.sign_in_cache(), adding);
+    remove_install(menu);
+}
+
+/// Without a note, a launch dialog defers nothing: the saved account's check starts as before.
+#[test]
+fn a_launch_without_a_note_checks_the_saved_account_behind_a_dialog() {
+    let mut menu = phone_menu();
+    install_resuming_helper(&mut menu);
+    let primary = menu.layout.auth_cache();
+    fs::create_dir_all(primary.parent().unwrap()).unwrap();
+    fs::write(&primary, b"{}").unwrap();
+    menu.dialog = Some(MenuDialog::MinecraftImport);
+    menu.poll_catalog(true);
+    assert!(menu.auth_process.is_some());
+    assert!(!menu.sign_in_requested);
+    remove_install(menu);
+}
