@@ -44,6 +44,7 @@ bytemuck = { version = "1", features = ["derive"] }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 meshing = { path = "../meshing" }
+memory-pressure = { path = "../memory-pressure" }
 particles = { path = "../particles" }
 rayon.workspace = true
 serde = { version = "1", features = ["derive"] }

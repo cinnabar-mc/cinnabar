@@ -2077,7 +2077,12 @@ Flathub submission remain incomplete.
   log the full error source before stopping. Injected handler regressions cover all four GPU error
   categories; these diagnostics do not establish the cause of Android device-loss reports.
   Android exit reports retain the beginning and end of long logs so startup build and adapter
-  context survives a busy session. Qualcomm compiler startup faults still lack a reduced failing
+  context survives a busy session. The client log records memory lines at session milestones,
+  every 30 s from a reporter thread, on backgrounding and return, and around local server starts:
+  process and helper-process resident, proportional and swapped sizes, device and Android
+  availability, and the totals subsystems already track. No phone has produced these lines yet,
+  the upload staging pools, terrain texture pages and pack read cache are not among the totals,
+  and the lines measure memory without reducing it. Qualcomm compiler startup faults still lack a reduced failing
   shader and affected-device acceptance; diagnostic improvements do not close that gate.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
@@ -2175,6 +2180,14 @@ Flathub submission remain incomplete.
   while the top screen shows a menu; that is not implemented because terrain drawing does not yet
   stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
   unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.
+  Android reports `onTrimMemory` and `onLowMemory` to the client, and leaving the screen counts
+  as the strongest pressure without waiting for a report. Under pressure the client releases
+  decoded sounds, resource-pack read caches and upload staging the pools grew into; when hidden
+  it also abandons queued sound decodes, waits briefly for submitted frames so the storage they
+  retire is freed, purges the allocator and closes the audio output until it returns. Released
+  data is rebuilt on next use. Incomplete: render targets, textures, terrain meshes, chunk data
+  and the network session stay resident while hidden; no device run has measured the released
+  memory or confirmed the audio pause; iOS does not report memory warnings yet.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Native UI receives display-cutout insets combined with
   keyboard overlap at the window's DPI, while the world surface stays full size.

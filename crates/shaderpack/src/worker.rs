@@ -7,6 +7,7 @@ use std::{
     io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    sync::{Mutex, PoisonError},
     time::Duration,
 };
 
@@ -98,9 +99,24 @@ enum Backend {
     InProcess(in_process::Running),
 }
 
+/// Process ids of the compiler processes started and not yet dropped.
+static LIVE_PROCESSES: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// Process ids of the compiler processes this client started and has not yet dropped, for
+/// memory accounting. A listed process may already have exited.
+#[must_use]
+pub fn live_process_ids() -> Vec<u32> {
+    LIVE_PROCESSES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
 /// One child owned until it exits or is killed and reaped; dropping it cannot detach work.
 struct Process {
     child: Child,
+    /// Whether this process is still in [`live_process_ids`].
+    listed: bool,
     output: File,
     decoder: Option<Decoder>,
     #[cfg(windows)]
@@ -175,8 +191,13 @@ impl Process {
                 return Err(error.to_string());
             }
         };
+        LIVE_PROCESSES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(child.id());
         let mut running = Self {
             child,
+            listed: true,
             output,
             decoder: None,
             #[cfg(windows)]
@@ -212,10 +233,14 @@ impl Process {
         if let Some(reason) = interruption {
             let _ = self.child.kill();
             let _ = self.child.wait();
+            self.forget();
             return Some(Err(reason.into()));
         }
         let status = match self.child.try_wait() {
-            Ok(Some(status)) => status,
+            Ok(Some(status)) => {
+                self.forget();
+                status
+            }
             Ok(None) => return None,
             Err(error) => return Some(Err(error.to_string())),
         };
@@ -235,11 +260,28 @@ impl Process {
     }
 }
 
+impl Process {
+    /// Removes this reaped process from [`live_process_ids`] once, before the system can give
+    /// its id to another compiler whose own entry must stay.
+    fn forget(&mut self) {
+        if std::mem::take(&mut self.listed) {
+            let id = self.child.id();
+            let mut live = LIVE_PROCESSES
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if let Some(index) = live.iter().position(|listed| *listed == id) {
+                live.swap_remove(index);
+            }
+        }
+    }
+}
+
 impl Drop for Process {
     /// Stops and reaps only the compiler process this handle started.
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.forget();
     }
 }
 

@@ -51,7 +51,15 @@ pub(crate) fn configure(app: &mut App) {
     #[cfg(not(target_arch = "wasm32"))]
     let systems = systems.after(crate::ui_runtime::drive_world_inventory_keys);
     app.add_plugins(client_audio::ClientAudioPlugin)
-        .add_systems(Update, systems);
+        .add_systems(Update, systems)
+        .add_systems(
+            Update,
+            (
+                // After the pump, so a sound it starts cannot queue a decode behind the release.
+                client_audio::audio::pressure::release_sound_memory.after(pump_audio),
+                client_audio::audio::pressure::suspend_audio_output,
+            ),
+        );
 }
 
 pub(crate) fn drive_inventory_audio(

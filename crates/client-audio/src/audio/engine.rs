@@ -239,6 +239,14 @@ impl AudioEngine {
         self.bank.as_ref()
     }
 
+    /// Releases decoded sounds for `pressure`, returning the cached bytes dropped; see
+    /// [`SoundBank::release_decoded`].
+    pub fn release_decoded(&mut self, pressure: memory_pressure::MemoryPressure) -> usize {
+        self.bank
+            .as_mut()
+            .map_or(0, |bank| bank.release_decoded(pressure))
+    }
+
     /// Uniform sample in `[0, 1)` from an internal SplitMix64 stream.
     pub fn unit(&mut self) -> f32 {
         self.rng = self.rng.wrapping_add(0x9e37_79b9_7f4a_7c15);

@@ -85,6 +85,7 @@ members = [
     "crates/world",
     "crates/simulation-clock",
     "crates/env-compat",
+    "crates/memory-pressure",
     "crates/update-manifest",
     "crates/update-installer",
     "tools/architecture",
