@@ -31,8 +31,11 @@ static EVENTS: OnceLock<Sender<String>> = OnceLock::new();
 static COUNTERS: Mutex<Counters> = Mutex::new(Counters::new());
 /// Set once the platform's own memory figures can be read.
 static PLATFORM_READY: AtomicBool = AtomicBool::new(false);
-/// Functions listing helper processes started outside [`children`], such as shader compilers.
-static CHILD_SOURCES: Mutex<Vec<fn() -> Vec<u32>>> = Mutex::new(Vec::new());
+/// Lists the process ids of helper processes started outside [`children`].
+type ChildSource = fn() -> Vec<u32>;
+
+/// Sources of helper processes started outside [`children`], such as shader compilers.
+static CHILD_SOURCES: Mutex<Vec<ChildSource>> = Mutex::new(Vec::new());
 
 /// Starts the reporter thread; later calls do nothing. Until it is started, [`report`] is a
 /// no-op, so tools and tests that never start it log nothing.
@@ -80,7 +83,7 @@ pub fn platform_ready() {
 /// Adds `source`, which lists process ids of helper processes the client started without
 /// [`children`], to every later line's `children` group. A process listed more than once is
 /// reported once, and ids of exited processes are skipped.
-pub fn add_child_source(source: fn() -> Vec<u32>) {
+pub fn add_child_source(source: ChildSource) {
     CHILD_SOURCES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
