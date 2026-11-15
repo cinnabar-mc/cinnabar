@@ -71,14 +71,20 @@ impl PreparedFile {
     }
 }
 
-/// Extracts independently only when every possible admitted size fits the remaining budget.
+/// Extracts independently only when every expected admitted size fits the remaining budget.
 /// Large input batches and tight budgets stay lazy and ordered; parser trees never queue here.
+/// A geometry's normalized size is unknown until it is parsed, so it counts as a whole batch
+/// or as its authored size if that is larger; ordered admission checks the real size again.
 pub(super) fn prepare_batch(files: &mut [PreparedFile], remaining: SourceBudget) {
     let bytes = files
         .iter()
         .map(|file| match file.length {
             Some(length) => length.unwrap_or(0),
-            None => assets::MAX_ENTITY_SOURCE_BYTES,
+            None => file
+                .source
+                .bytes
+                .len()
+                .max(assets::ENTITY_SOURCE_BATCH_BYTES),
         })
         .sum::<usize>();
     let input_bytes = files
@@ -87,7 +93,7 @@ pub(super) fn prepare_batch(files: &mut [PreparedFile], remaining: SourceBudget)
         .sum::<usize>();
     if files.len() > remaining.count
         || bytes > remaining.bytes
-        || input_bytes > assets::MAX_ENTITY_SOURCE_BYTES
+        || input_bytes > assets::ENTITY_SOURCE_BATCH_BYTES
     {
         return;
     }

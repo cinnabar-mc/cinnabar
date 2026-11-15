@@ -323,6 +323,13 @@ impl InstallLayout {
         self.user_data_root.join("resource-packs/global")
     }
 
+    /// Unpacked resource packs read in place on every Apply, as Bedrock's
+    /// `development_resource_packs`.
+    #[must_use]
+    pub fn development_resource_packs_dir(&self) -> PathBuf {
+        self.user_data_root.join("development_resource_packs")
+    }
+
     /// Mod components imported through Settings.
     #[must_use]
     pub fn mods_dir(&self) -> PathBuf {

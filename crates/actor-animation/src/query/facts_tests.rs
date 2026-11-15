@@ -53,6 +53,55 @@ fn equipped_tag_queries_use_both_admitted_hands_and_any_pinned_tag() {
 }
 
 #[test]
+fn equipped_tag_queries_match_registry_declared_tags_and_require_all_of_them() {
+    let facts = assets::facts::ItemFacts::builtin().unwrap();
+    let context = ActorTickContext {
+        held_item_facts: [
+            *facts.by_identifier("minecraft:iron_sword").unwrap(),
+            Default::default(),
+        ],
+        held_item_tags: [
+            Arc::from(["fixture:weapon".into(), "fixture:greatsword".into()]),
+            Arc::default(),
+        ],
+        ..Default::default()
+    };
+    let arguments = |slot: &str, tags: &[&str]| -> Vec<MolangValue> {
+        std::iter::once(slot)
+            .chain(tags.iter().copied())
+            .map(|text| MolangValue::String(text.into()))
+            .collect()
+    };
+    let main = "slot.weapon.mainhand";
+    for (slot, tags, any, all) in [
+        (main, &["fixture:weapon"][..], 1.0, 1.0),
+        (main, &["fixture:weapon", "fixture:greatsword"], 1.0, 1.0),
+        (main, &["fixture:weapon", "minecraft:is_sword"], 1.0, 1.0),
+        (main, &["fixture:weapon", "fixture:bow"], 1.0, 0.0),
+        (main, &["fixture:bow"], 0.0, 0.0),
+        (main, &[], 0.0, 0.0),
+        ("slot.weapon.offhand", &["fixture:weapon"], 0.0, 0.0),
+    ] {
+        let arguments = arguments(slot, tags);
+        assert_eq!(
+            read(&context, Q::EquippedItemAnyTag, &arguments),
+            any,
+            "any of {tags:?} in {slot}"
+        );
+        assert_eq!(
+            read(&context, Q::EquippedItemAllTags, &arguments),
+            all,
+            "all of {tags:?} in {slot}"
+        );
+    }
+}
+
+#[test]
+fn an_evaluated_actor_counts_as_on_screen() {
+    assert_eq!(read(&ActorTickContext::default(), Q::IsOnScreen, &[]), 1.0);
+}
+
+#[test]
 fn armour_queries_preserve_material_indices_tint_and_glider_admission() {
     let facts = assets::facts::ItemFacts::builtin().unwrap();
     for (identifier, expected) in [

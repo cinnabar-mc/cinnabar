@@ -16,6 +16,9 @@ struct Step {
     rotation: [f32; 3],
 }
 
+/// Index of the owner-named mode in `Step::offsets`.
+const OWNER_NAMED: usize = 1;
+
 // Instruction payload has no nested allocations outside the accounted boxed slice.
 const _: () = assert!(!std::mem::needs_drop::<Step>());
 
@@ -48,15 +51,17 @@ impl Composition {
                         bone.pivot[2],
                     ],
                 ];
+                let mut offsets = pivots.map(|pivot| {
+                    std::array::from_fn(|axis| {
+                        pivot[axis] - bone.parent.map_or(0.0, |parent| bones[parent].pivot[axis])
+                    })
+                });
+                // A bone following its owner's bone starts a frame of its own.
+                offsets[OWNER_NAMED] = [0.0; 3];
                 steps.push(Step {
                     output: index,
                     parent: bone.parent,
-                    offsets: pivots.map(|pivot| {
-                        std::array::from_fn(|axis| {
-                            pivot[axis]
-                                - bone.parent.map_or(0.0, |parent| bones[parent].pivot[axis])
-                        })
-                    }),
+                    offsets,
                     rotation: bone.rotation,
                 });
                 emitted[index] = true;
@@ -135,7 +140,7 @@ impl Composition {
             }
             let mode = match bones[index].attachable_root {
                 AttachableRootFrame::Actor => 0,
-                AttachableRootFrame::MatchingOwnerName => 1,
+                AttachableRootFrame::MatchingOwnerName => OWNER_NAMED,
                 AttachableRootFrame::BindingExpression => 2,
             };
             let translation = std::array::from_fn(|axis| {
@@ -146,10 +151,14 @@ impl Composition {
                 };
                 step.offsets[mode][axis] + offset
             });
-            let root_rotation = if mode == 1 { [0.0; 3] } else { step.rotation };
+            let root_rotation = if mode == OWNER_NAMED {
+                [0.0; 3]
+            } else {
+                step.rotation
+            };
             let [x, y, z] = std::array::from_fn(|axis| root_rotation[axis] + delta.rotation[axis]);
             let rotation = quat_from_euler([-x, -y, z]);
-            let transform = if let Some(parent) = step.parent {
+            let transform = if let Some(parent) = step.parent.filter(|_| mode != OWNER_NAMED) {
                 let parent = output[parent];
                 let parent_scale = total_scale(&parent);
                 let scaled = std::array::from_fn(|axis| translation[axis] * parent_scale[axis]);

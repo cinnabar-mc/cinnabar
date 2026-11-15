@@ -9,10 +9,15 @@ is present. First-person rendering evaluates the owner’s
 skeleton first. The attachable's scripts, controllers,
 render controllers and animations then select its own geometry, texture and pose.
 Attachable setup composes the selected parent's matrix before the item's channels.
-An unmatched, unbound root stays in the owner's actor frame; a root matching an
-owner bone inherits that bone's matrix. Unbound descendants inherit their root's selection,
-including when a render controller selects alternate geometry. Expression-bound
-roots retain the existing item-slot route; arbitrary binding expressions are incomplete.
+An unmatched, unbound root stays in the owner's actor frame. Every bone matching an
+owner bone inherits that bone's matrix, whether it is a root or has a parent of its own:
+the pinned `geometry.player.armor.base` parents its arms and legs under `body`, its
+attachables pose none of them, and the worn pieces still swing with the wearer. Other
+descendants inherit the frame of their nearest ancestor that follows an owner bone, or
+their root's selection, including when a render controller selects alternate geometry.
+Expression-bound roots retain the existing item-slot route; arbitrary binding expressions
+are incomplete. Whether native also carries an owner-named bone's own authored parent
+animation into it is unverified; here it does not.
 
 Third-person held models evaluate with the owning actor's perspective, use timing,
 and render delta. Their placed poses follow both interpolation endpoints of the

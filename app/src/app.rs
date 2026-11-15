@@ -319,8 +319,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render_scene::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
-    let global_pack_root = layout.global_resource_packs_dir();
-    let minecraft_import_config_root = layout.user_config_root.clone();
+    let global_pack_roots = crate::global_resources::Roots {
+        packs: layout.global_resource_packs_dir(),
+        development: layout.development_resource_packs_dir(),
+        config: layout.user_config_root.clone(),
+    };
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     pack_runtime::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     let far_terrain_dir = layout.far_terrain_cache_dir();
@@ -804,12 +807,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::block_selection::configure(&mut app);
     crate::primitive_shapes::configure(&mut app);
     app.init_resource::<client_presentation::presentation::viewmodel::HandAdapter>();
-    crate::global_resources::configure(
-        &mut app,
-        global_pack_root,
-        minecraft_import_config_root,
-        args.import_packs,
-    );
+    crate::global_resources::configure(&mut app, global_pack_roots, args.import_packs);
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     app.configure_sets(

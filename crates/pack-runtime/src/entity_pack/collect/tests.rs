@@ -746,7 +746,7 @@ fn geometry_collection_bounds_parallel_parse_input() {
             assert_eq!(super::unshadowed_geometry(&view).len(), 6);
             let peak = super::PEAK_GEOMETRY_BATCH_BYTES.get();
             assert!(
-                peak <= (assets::MAX_ENTITY_SOURCE_BYTES as u64).max(largest),
+                peak <= (assets::ENTITY_SOURCE_BATCH_BYTES as u64).max(largest),
                 "parsed {peak} geometry input bytes in one parallel batch"
             );
         });

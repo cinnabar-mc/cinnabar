@@ -12,9 +12,31 @@ use {crate::runtime::network::PackReload, client_shell::menu::MenuRuntime};
 
 const WORKER_UNAVAILABLE: &str = "The resource pack worker is unavailable. Restart the client after correcting the resource pack storage error.";
 
+/// Folders the pack worker owns or reads.
+pub(crate) struct Roots {
+    /// Imported pack archives and the saved selection.
+    pub packs: PathBuf,
+    /// Unpacked packs read in place, as Bedrock's `development_resource_packs`.
+    pub development: PathBuf,
+    /// Settings read by the Minecraft profile import.
+    pub config: PathBuf,
+}
+
+#[cfg(test)]
+impl Roots {
+    /// Uses `packs` as pack storage with the other folders below it.
+    pub(crate) fn under(packs: &std::path::Path) -> Self {
+        Self {
+            packs: packs.to_owned(),
+            development: packs.join("development_resource_packs"),
+            config: packs.join("config"),
+        }
+    }
+}
+
 /// Creates the import worker; no filesystem or ZIP work runs on a frame.
-pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, files: Vec<PathBuf>) {
-    app.insert_resource(worker::Worker::new(root, config_root, files))
+pub(crate) fn configure(app: &mut App, roots: Roots, files: Vec<PathBuf>) {
+    app.insert_resource(worker::Worker::new(roots, files))
         .add_systems(
             Update,
             drive.before(crate::runtime::network::reload_resource_packs),

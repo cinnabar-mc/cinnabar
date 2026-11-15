@@ -142,3 +142,25 @@ fn component_registry_tag_encodings_reach_the_numeric_hand_query() {
         }
     }
 }
+
+#[test]
+fn server_defined_registry_tags_are_retained_for_hand_tag_queries() {
+    let mut bytes = vec![10, 0, 10];
+    name(&mut bytes, "components");
+    bytes.push(10);
+    name(&mut bytes, "minecraft:tags");
+    tags(&mut bytes, "tags", &["fixture:weapon", "fixture:bow"]);
+    bytes.extend([0, 0, 0]);
+    let registry = protocol::test_support::items::component_item_registry_payload(
+        "fixture:longbow",
+        10_001,
+        bytes,
+    );
+    let mut items = crate::item::ItemStateStore::diagnostic();
+    assert!(items.declared_tags(10_001).is_empty());
+    assert!(items.apply_registry(registry));
+    let declared = items.declared_tags(10_001);
+    let declared: Vec<&str> = declared.iter().map(AsRef::as_ref).collect();
+    assert_eq!(declared, ["fixture:weapon", "fixture:bow"]);
+    assert!(items.declared_tags(10_002).is_empty());
+}

@@ -630,7 +630,10 @@ fn patch_material_json(base: &mut Value, upper: &Value) {
     }
 }
 
-/// Splits `items` into parallel batches bounded by workers and one source's byte budget;
+// An entity source may be as large as any file a pack can hold.
+const _: () = assert!(assets::MAX_ENTITY_SOURCE_BYTES as u64 == resource_pack::MAX_FILE_BYTES);
+
+/// Splits `items` into parallel batches bounded by workers and the batch byte budget;
 /// a larger item runs alone.
 fn bounded_batches<T>(mut items: &[T], size: impl Fn(&T) -> u64) -> Vec<&[T]> {
     let mut batches = Vec::new();
@@ -640,7 +643,7 @@ fn bounded_batches<T>(mut items: &[T], size: impl Fn(&T) -> u64) -> Vec<&[T]> {
         let mut len = end;
         for (index, item) in items[..end].iter().enumerate() {
             let next = bytes.saturating_add(size(item));
-            if index > 0 && next > assets::MAX_ENTITY_SOURCE_BYTES as u64 {
+            if index > 0 && next > assets::ENTITY_SOURCE_BATCH_BYTES as u64 {
                 len = index;
                 break;
             }

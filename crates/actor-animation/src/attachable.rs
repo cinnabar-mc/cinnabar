@@ -148,7 +148,8 @@ pub struct AttachableRigSnapshot<'a> {
     layer_skeletons: &'a BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
 }
 
-/// The skeletal frame inherited by an attachable root and all its descendants.
+/// The skeletal frame inherited by an attachable bone: its own when it follows an owner bone,
+/// otherwise that of its nearest ancestor that does, or of its root.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AttachableBoneParent<'a> {
     Actor,
@@ -157,7 +158,8 @@ pub enum AttachableBoneParent<'a> {
 }
 
 impl<'a> AttachableRigSnapshot<'a> {
-    /// Resolves the selected geometry's root without allocating or copying its pose.
+    /// Resolves the frame a bone of the selected geometry is placed in, without allocating
+    /// or copying its pose.
     pub fn bone_parent(&self, geometry: u32, index: usize) -> Option<AttachableBoneParent<'a>> {
         let (bones, names) = if geometry == self.geometry {
             (self.bones, self.bone_names)
@@ -168,7 +170,9 @@ impl<'a> AttachableRigSnapshot<'a> {
         let mut root = index;
         for _ in 0..bones.len() {
             let bone = bones.get(root)?;
-            if let Some(parent) = bone.parent {
+            if let Some(parent) = bone.parent
+                && !matches!(bone.attachable_root, AttachableRootFrame::MatchingOwnerName)
+            {
                 root = parent;
                 continue;
             }
@@ -479,17 +483,22 @@ impl AttachablesRuntime {
 
 /// Vanilla attachable setup distinguishes expression bindings from owner-name
 /// matches. Only the latter clear the authored default TRS; animation restores the
-/// former's bone defaults afterward.
+/// former's bone defaults afterward. Every bone named after an owner bone follows that
+/// bone, parented or not: the stock player armour hangs its limbs under `body` with no
+/// pose of its own and still swings with the wearer. An expression on a parented bone
+/// keeps its authored parent.
 pub(super) fn bind_roots(
     bones: &mut [RuntimeBone],
     names: &[Box<str>],
     owner: crate::attachment::OwnerSkeleton<'_>,
 ) {
     for (bone, name) in bones.iter_mut().zip(names) {
-        bone.attachable_root = if bone.parent.is_some() {
-            AttachableRootFrame::Actor
-        } else if bone.has_binding_expression {
-            AttachableRootFrame::BindingExpression
+        bone.attachable_root = if bone.has_binding_expression {
+            if bone.parent.is_some() {
+                AttachableRootFrame::Actor
+            } else {
+                AttachableRootFrame::BindingExpression
+            }
         } else if owner.has(name) {
             AttachableRootFrame::MatchingOwnerName
         } else {

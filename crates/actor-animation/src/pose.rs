@@ -580,10 +580,13 @@ fn compose_bone(
             bone.rotation,
         ),
     };
+    // A bone following its owner's bone starts a frame of its own, apart from its parent.
+    let parent = bone
+        .parent
+        .filter(|_| !matches!(bone.attachable_root, AttachableRootFrame::MatchingOwnerName));
     // Pivots are already in the X-mirrored rig frame; authored offsets and angles are not.
     let translation = std::array::from_fn(|axis| {
-        let parent_pivot = bone
-            .parent
+        let parent_pivot = parent
             .and_then(|parent| bones.get(parent))
             .map_or(0.0, |parent| parent.pivot[axis]);
         let offset = if axis == 0 {
@@ -596,7 +599,7 @@ fn compose_bone(
     let [x, y, z] = std::array::from_fn(|axis| root_rotation[axis] + delta.rotation[axis]);
     // Authored X and Y angles turn against the right-hand rule in the mirrored frame.
     let rotation = quat_from_euler([-x, -y, z]);
-    let transform = if let Some(parent_index) = bone.parent {
+    let transform = if let Some(parent_index) = parent {
         let parent = compose_bone(parent_index, bones, local, targets, transforms, visiting)?;
         let parent_scale = total_scale(&parent);
         let scaled = std::array::from_fn(|axis| translation[axis] * parent_scale[axis]);

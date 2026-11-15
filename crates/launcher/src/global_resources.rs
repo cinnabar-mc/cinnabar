@@ -39,12 +39,17 @@ pub struct Snapshot {
     pub active_expanded: bool,
     pub busy: bool,
     pub message: String,
+    /// Whether an active pack is read from the development folder, so Apply can reload edits.
+    pub development_active: bool,
 }
 
 impl Snapshot {
-    /// Whether the Apply changes action is enabled for the staged selection.
+    /// Whether the Apply changes action is enabled: for a changed selection, or to reload active
+    /// development packs whose folders may have changed.
     pub fn can_apply(&self) -> bool {
-        !self.busy && self.has_pending_changes()
+        !self.busy
+            && (self.has_pending_changes()
+                || (self.development_active && self.applied_selection.is_some()))
     }
 
     /// Reports edits relative to the last acknowledged runtime stack.
@@ -72,6 +77,32 @@ impl Default for Snapshot {
             active_expanded: true,
             busy: false,
             message: String::new(),
+            development_active: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_reloads_active_development_packs_once_startup_has_applied() {
+        let mut snapshot = Snapshot {
+            development_active: true,
+            ..Snapshot::default()
+        };
+        assert!(
+            !snapshot.can_apply(),
+            "startup preparation is still running"
+        );
+        snapshot.applied_selection = Some(Vec::new());
+        assert!(snapshot.can_apply());
+        assert!(!snapshot.has_pending_changes());
+        snapshot.busy = true;
+        assert!(!snapshot.can_apply());
+        snapshot.busy = false;
+        snapshot.development_active = false;
+        assert!(!snapshot.can_apply());
     }
 }

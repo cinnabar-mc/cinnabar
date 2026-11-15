@@ -308,20 +308,23 @@ impl ActorStore {
                     .get(&actor.unique_id)
                     .copied()
                     .unwrap_or_default();
-                let held_item_facts = [
+                let held_network_ids = [
                     protocol::ActorHandedness::Right,
                     protocol::ActorHandedness::Left,
                 ]
                 .map(|hand| {
-                    let network_id = if is_local {
+                    if is_local {
                         local_held_network_ids[usize::from(hand == protocol::ActorHandedness::Left)]
                     } else {
                         items
                             .get_in_hand(lifetime, hand)
                             .map_or(0, |equipment| equipment.item.identity.network_id)
-                    };
-                    items.animation_fact(network_id)
+                    }
                 });
+                let held_item_facts =
+                    held_network_ids.map(|network_id| items.animation_fact(network_id));
+                let held_item_tags =
+                    held_network_ids.map(|network_id| items.declared_tags(network_id));
                 // A declared use animation component overrides the item's native one.
                 let main_hand_use_animation = held_item_facts[0]
                     .use_animation
@@ -344,6 +347,7 @@ impl ActorStore {
                     hand_charged,
                     main_hand,
                     held_item_facts,
+                    held_item_tags,
                     main_hand_use_animation,
                     main_hand_metadata,
                     held_variants: if is_local {

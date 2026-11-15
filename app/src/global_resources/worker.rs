@@ -3,7 +3,9 @@
 use bevy::prelude::Resource;
 use launcher::global_resources::{Action, Snapshot};
 use launcher_host::desktop::picker::{self, Filter};
-use resource_pack::{GlobalPackLibrary, LibraryError, PACK_IMPORT_EXTENSIONS, ValidatedPackStack};
+use resource_pack::{
+    ActivePack, GlobalPackLibrary, LibraryError, PACK_IMPORT_EXTENSIONS, ValidatedPackStack,
+};
 use std::{path::PathBuf, sync::Arc};
 
 const PACKS: Filter = Filter {
@@ -54,10 +56,10 @@ pub(super) struct Worker {
 
 impl Worker {
     /// Starts one worker, shared by initial imports, file drops and settings actions.
-    pub fn new(root: PathBuf, config_root: PathBuf, files: Vec<PathBuf>) -> Self {
+    pub fn new(roots: super::Roots, files: Vec<PathBuf>) -> Self {
         let (commands, incoming) = crossbeam_channel::unbounded();
         let (outgoing, events) = crossbeam_channel::unbounded();
-        std::thread::spawn(move || run(root, config_root, files, incoming, outgoing));
+        std::thread::spawn(move || run(roots, files, incoming, outgoing));
         Self {
             commands,
             events,
@@ -92,14 +94,19 @@ impl Worker {
 
 /// Opens storage and processes commands until the app drops the sender.
 fn run(
-    root: PathBuf,
-    config_root: PathBuf,
+    roots: super::Roots,
     files: Vec<PathBuf>,
     incoming: crossbeam_channel::Receiver<Command>,
     outgoing: crossbeam_channel::Sender<Event>,
 ) {
+    let super::Roots {
+        packs: root,
+        development,
+        config: config_root,
+    } = roots;
     let mut minecraft_import = launcher_host::minecraft_import::Service::new(config_root);
     let mut import_commit_pending = None;
+    let mut applied = Applied::default();
     let mut snapshot = Snapshot::default();
     let icon_root = root.join("icons");
     let mut library = match GlobalPackLibrary::open(root, engine_version()) {
@@ -110,6 +117,7 @@ fn run(
             return;
         }
     };
+    library.set_development_root(development);
     library.set_device_memory(launcher_host::memory::physical_bytes());
     super::icons::refresh(&library, &mut snapshot, &icon_root);
     // Outlives the startup apply, whose acknowledgement would otherwise clear it unseen.
@@ -119,14 +127,21 @@ fn run(
             library.missing_packs().join(", ")
         )
     });
+    if let Some(problems) = development_problems(&library) {
+        missing_notice = Some(match missing_notice {
+            Some(notice) => format!("{notice}\n{problems}"),
+            None => problems,
+        });
+    }
     snapshot.message = missing_notice.clone().unwrap_or_default();
     match library.preview() {
         Ok(stack) => {
-            let _ = outgoing.send(Event::Apply(
+            applied.send(
+                &outgoing,
                 stack,
                 library.active().to_vec(),
                 ApplyOrigin::Startup,
-            ));
+            );
         }
         Err(error) => snapshot.message = error.to_string(),
     }
@@ -158,7 +173,18 @@ fn run(
         );
         if let Command::Commit(selection) = &command {
             snapshot.applied_selection = Some(selection.clone());
+            applied.acknowledge(selection);
         }
+        // Settings actions see development folders as they are now, as Bedrock lists them.
+        let rescanned = matches!(&command, Command::Action { .. }) && library.scan_development();
+        changes_lists |= rescanned;
+        let applying = matches!(
+            &command,
+            Command::Action {
+                action: Action::Apply,
+                ..
+            }
+        );
         let performs_work = matches!(
             &command,
             Command::MinecraftImport(_)
@@ -189,11 +215,12 @@ fn run(
                 changes_lists = changed;
                 if let Some(stack) = outcome.stack {
                     import_commit_pending = Some(library.active().to_vec());
-                    let _ = outgoing.send(Event::Apply(
+                    applied.send(
+                        &outgoing,
                         stack,
                         library.active().to_vec(),
                         ApplyOrigin::User,
-                    ));
+                    );
                 }
                 let _ = outgoing.send(Event::MinecraftImport(
                     outcome.snapshot,
@@ -233,10 +260,20 @@ fn run(
                     Ok(())
                 }
             },
-            Command::Action { action, .. } => act(&mut library, &mut snapshot, action, &outgoing),
+            Command::Action { action, .. } => {
+                act(&mut library, &mut snapshot, action, &outgoing, &mut applied)
+            }
         };
         if let Err(error) = result {
             snapshot.message = error.to_string();
+        } else if rescanned
+            && !applying
+            && let Some(problems) = development_problems(&library)
+        {
+            snapshot.message = problems;
+        }
+        if rescanned {
+            super::icons::refresh(&library, &mut snapshot, &icon_root);
         }
         snapshot.busy = false;
         if changes_lists {
@@ -345,17 +382,78 @@ fn engine_version() -> [u32; 3] {
 fn refresh(library: &GlobalPackLibrary, snapshot: &mut Snapshot) {
     snapshot.memory_tier = library.device_memory_tier();
     snapshot.selection = library.active().to_vec();
+    snapshot.development_active = library
+        .active()
+        .iter()
+        .any(|active| library.is_development(active.id));
     snapshot.active = library
         .active()
         .iter()
         .filter_map(|active| library.metadata(active).cloned())
         .collect();
     snapshot.available = library
-        .available()
-        .iter()
+        .installed()
         .filter(|pack| !library.active().iter().any(|active| active.id == pack.id))
         .cloned()
         .collect();
+}
+
+/// Names development folders the last scan could not list, for the settings message.
+fn development_problems(library: &GlobalPackLibrary) -> Option<String> {
+    let rejected = library.development_rejections();
+    (!rejected.is_empty()).then(|| {
+        format!(
+            "Some development resource packs were skipped: {}",
+            rejected.join("; ")
+        )
+    })
+}
+
+/// The stack the runtime last acknowledged, so an Apply that would reload identical contents
+/// is skipped instead of covering the screen again.
+#[derive(Default)]
+struct Applied {
+    sent: Option<(Vec<ActivePack>, Arc<ValidatedPackStack>)>,
+    current: Option<Arc<ValidatedPackStack>>,
+}
+
+impl Applied {
+    /// Publishes a stack to the runtime and remembers it until the runtime acknowledges it.
+    fn send(
+        &mut self,
+        outgoing: &crossbeam_channel::Sender<Event>,
+        stack: Arc<ValidatedPackStack>,
+        selection: Vec<ActivePack>,
+        origin: ApplyOrigin,
+    ) {
+        self.sent = Some((selection.clone(), Arc::clone(&stack)));
+        let _ = outgoing.send(Event::Apply(stack, selection, origin));
+    }
+
+    /// Records the runtime's acknowledgement of the most recently sent `selection`.
+    fn acknowledge(&mut self, selection: &[ActivePack]) {
+        if self
+            .sent
+            .as_ref()
+            .is_some_and(|(sent, _)| sent == selection)
+        {
+            self.current = self.sent.take().map(|(_, stack)| stack);
+        }
+    }
+
+    /// Whether the runtime already shows `stack` for `selection`, its last acknowledged one.
+    fn shows(
+        &self,
+        snapshot: &Snapshot,
+        selection: &[ActivePack],
+        stack: &ValidatedPackStack,
+    ) -> bool {
+        snapshot.applied_selection.as_deref() == Some(selection)
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|current| current.same_contents(stack))
+    }
 }
 
 /// Imports all resource halves and reports skipped behavior or unsupported entries.
@@ -387,6 +485,7 @@ fn act(
     snapshot: &mut Snapshot,
     action: Action,
     outgoing: &crossbeam_channel::Sender<Event>,
+    applied: &mut Applied,
 ) -> Result<(), LibraryError> {
     if !matches!(
         action,
@@ -470,11 +569,16 @@ fn act(
                 let _zone = bevy::log::info_span!("pack_apply.preview").entered();
                 library.preview()?
             };
-            let _ = outgoing.send(Event::Apply(
+            if applied.shows(snapshot, library.active(), &stack) {
+                snapshot.message = "Resource packs are already up to date.".into();
+                return Ok(());
+            }
+            applied.send(
+                outgoing,
                 stack,
                 library.active().to_vec(),
                 ApplyOrigin::User,
-            ));
+            );
             snapshot.message = "Preparing resource packs…".into();
         }
         Action::Import => unreachable!("file picker handled by worker"),
@@ -490,3 +594,6 @@ mod disconnect_tests;
 
 #[cfg(test)]
 mod drop_tests;
+
+#[cfg(test)]
+mod development_tests;

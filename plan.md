@@ -862,7 +862,9 @@ incomplete. An attachable whose item names no worn slot, such as a server cosmet
 whichever armor slot the server places it, as native does, with its own controllers, authored
 pose and texture meshes. Armor that names another slot stays hidden there, which is unverified
 against native. The UI player preview still paints worn attachables onto armor boxes
-instead of drawing their own models; that remains a confirmed gap. A pack's attachables have no binding or texture count limit, and all their art
+instead of drawing their own models; that remains a confirmed gap. One entity source, whether a document or an image, may be as large as any pack file
+(64 MiB); no smaller native per-file limit has been identified, and that bound itself is
+unverified against native. A pack's attachables have no binding or texture count limit, and all their art
 is decoded and placed at join. Native queues each texture when it is first requested, and
 no native count limit has been found, so this is not yet matched: decoded art past
 Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred loading
@@ -884,9 +886,12 @@ its chosen model in list order, posed by bone name from the rig. A player's own 
 default model, which the skin replaces, so a pack's cosmetic controllers listed ahead of the
 body draw beside it with their catalog textures. When only such models pass, the player
 still draws its skin body, whose slot capes, hats, flames and equipment read; native draws no
-default body then, which remains incomplete. Attachable roots take the first passing
-controller model that has the parent bone, then the body, as native
-`attemptToSetParentBoneMapping` does. A player's body layer keeps
+default body then, which remains incomplete. Attachable bones named after an owner bone,
+parented or not, take the first passing controller model that has that bone, then the
+body, as native `attemptToSetParentBoneMapping` does; their unnamed descendants follow
+them, so pack armour modelled on the full player skeleton moves with each limb. Incomplete:
+an attachable's own animation on the authored parent of an owner-named bone does not reach
+that bone, which is unverified against native. A player's body layer keeps
 the body slot and draws before controller models listed ahead of it, which differs from native
 list order only where a blended model overlaps the body. Other entities still choose their
 primary rig controller at compilation, the UI paperdoll and first-person hand draw only the body, how native substitutes a
@@ -903,6 +908,13 @@ acceptance remains incomplete.
   limit was found in parse or compile, so that capacity remains unverified parity work. The quad
   split diagonal and any native tessellator limit are unverified; so is the native behaviour on
   1.26.60 and later, read only on 26.30 and 1.26.50.26.
+  `query.equipped_item_any_tag` and `query.equipped_item_all_tags` read the main-hand and
+  off-hand items' pinned tags and the tags the session item registry declared by name, so player
+  definitions that select animations by server-defined item tags keep their scripts and roots.
+  `query.is_on_screen` reads 1 for every evaluated actor. Incomplete: armor slots, the no-tag
+  form, tag-name case folding and a culling-aware `is_on_screen` are unverified against native
+  behavior; `query.is_jumping` and `query.has_head_gear` still read 0, and live acceptance with
+  a tag-driven player pack remains open.
   Geometry with matching resolved inheritance chains and identical animation or controller
   definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
   controllers) still reject the rig: native file load order is unverified.
@@ -1890,6 +1902,17 @@ encoding has no Java equivalent, Java animation metadata, models, block states, 
 entity and GUI textures beyond armour and the HUD, and OptiFine features other than the
 overworld sky are ignored. Import from Java launcher folders and live rendering acceptance with
 real Java packs remain open.
+Unpacked Bedrock packs in the user data `development_resource_packs` folder, one per subfolder
+(linked folders included), are listed beside imported packs without being copied into storage.
+Each Apply archives the selected folders again, so edits apply without importing or changing the
+manifest version; Apply stays enabled while a development pack is active, and leaving Global
+Resources applies it, but an Apply whose contents match the acknowledged stack sends nothing to the
+runtime. Settings actions rescan the folder; a selected pack whose folder is gone leaves the
+selection, and folders without a usable resource manifest are named in the settings message.
+Incomplete: Bedrock rereads development packs when a world loads, while Cinnabar rereads them only
+on Apply; precedence over an imported pack with the same UUID (the development pack wins) and the
+import size limits applied to each folder are not verified against version-matched behavior;
+there is no Storage button to open the folder, and live acceptance remains open.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware

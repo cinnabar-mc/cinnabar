@@ -84,6 +84,8 @@ pub struct CanonicalItemRegistryRecord {
     /// Compiled facts after applying the current registry's component payload.
     pub armour: assets::item::armour::ItemArmour,
     pub durability: assets::item::durability::ItemDurability,
+    /// Tags the registry entry declared, including server-defined ones.
+    pub tags: Arc<[Arc<str>]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -455,6 +457,14 @@ impl ItemStateStore {
         *facts.get(network_id)
     }
 
+    /// The tags the current registry declared for a numeric item identity; none when unknown.
+    pub(crate) fn declared_tags(&self, network_id: i32) -> Arc<[Arc<str>]> {
+        self.registry
+            .get(&network_id)
+            .map(|record| Arc::clone(&record.tags))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn apply_registry(&mut self, registry: ItemRegistryEvent) -> bool {
         let Some(facts) = inventory::SessionItemFacts::from_registry(
             assets::facts::ItemFacts::builtin().expect("valid pinned item facts"),
@@ -725,6 +735,7 @@ fn registry_record(
         components: entry.components.clone(),
         armour: armour::resolve(entry, assets),
         durability: resolve_item_durability(entry, assets),
+        tags: Arc::clone(&entry.item_tags),
     }
 }
 

@@ -55,8 +55,7 @@ fn queued_import_requests_finish_when_library_initialization_fails() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("global_packs.json"), b"malformed").unwrap();
         run(
-            root.path().to_owned(),
-            root.path().join("config"),
+            crate::global_resources::Roots::under(root.path()),
             Vec::new(),
             incoming,
             outgoing,

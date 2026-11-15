@@ -24,8 +24,7 @@ fn collect_events(root: PathBuf, queued: Vec<Command>) -> Vec<Event> {
     }
     drop(commands);
     run(
-        root.clone(),
-        root.join("config"),
+        crate::global_resources::Roots::under(&root),
         Vec::new(),
         incoming,
         outgoing,
@@ -420,7 +419,14 @@ fn reordered_cards_and_variant_dialogs_follow_the_same_pack() {
 
     snapshot.details_expanded = Some((true, 1));
     snapshot.settings = Some(1);
-    act(&mut library, &mut snapshot, Action::MoveUp(1), &outgoing).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::MoveUp(1),
+        &outgoing,
+        &mut Applied::default(),
+    )
+    .unwrap();
     refresh(&library, &mut snapshot);
     assert_eq!(snapshot.active[0].id, first.id);
     assert_eq!(snapshot.details_expanded, Some((true, 0)));
@@ -429,7 +435,14 @@ fn reordered_cards_and_variant_dialogs_follow_the_same_pack() {
 
     snapshot.details_expanded = Some((true, 1));
     snapshot.settings = Some(1);
-    act(&mut library, &mut snapshot, Action::MoveDown(0), &outgoing).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::MoveDown(0),
+        &outgoing,
+        &mut Applied::default(),
+    )
+    .unwrap();
     refresh(&library, &mut snapshot);
     assert_eq!(snapshot.active[0].id, second.id);
     assert_eq!(snapshot.details_expanded, Some((true, 0)));
@@ -437,7 +450,14 @@ fn reordered_cards_and_variant_dialogs_follow_the_same_pack() {
     assert_eq!(snapshot.selected, Some((true, 1)));
 
     snapshot.details_expanded = Some((false, 0));
-    act(&mut library, &mut snapshot, Action::MoveUp(1), &outgoing).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::MoveUp(1),
+        &outgoing,
+        &mut Applied::default(),
+    )
+    .unwrap();
     assert_eq!(snapshot.details_expanded, Some((false, 0)));
 }
 
@@ -458,12 +478,20 @@ fn changed_pack_lists_clear_indexed_card_and_dialog_state() {
         &mut snapshot,
         Action::SelectAvailable(0),
         &outgoing,
+        &mut Applied::default(),
     )
     .unwrap();
     assert_eq!(snapshot.selected, Some((false, 0)));
     snapshot.details_expanded = Some((false, 0));
     snapshot.settings = Some(0);
-    act(&mut library, &mut snapshot, Action::Activate(0), &outgoing).unwrap();
+    act(
+        &mut library,
+        &mut snapshot,
+        Action::Activate(0),
+        &outgoing,
+        &mut Applied::default(),
+    )
+    .unwrap();
     assert_eq!(snapshot.selected, None);
     assert_eq!(snapshot.details_expanded, None);
     assert_eq!(snapshot.settings, None);
@@ -474,6 +502,7 @@ fn changed_pack_lists_clear_indexed_card_and_dialog_state() {
         &mut snapshot,
         Action::SelectActive(0),
         &outgoing,
+        &mut Applied::default(),
     )
     .unwrap();
     assert_eq!(snapshot.selected, Some((true, 0)));
@@ -484,6 +513,7 @@ fn changed_pack_lists_clear_indexed_card_and_dialog_state() {
         &mut snapshot,
         Action::Deactivate(0),
         &outgoing,
+        &mut Applied::default(),
     )
     .unwrap();
     assert_eq!(snapshot.selected, None);
@@ -527,6 +557,7 @@ fn variant_dialog_closes_only_after_a_successful_selection() {
         &mut snapshot,
         Action::Subpack(high),
         &outgoing,
+        &mut Applied::default(),
     )
     .unwrap();
     assert_eq!(snapshot.settings, None);
@@ -540,7 +571,8 @@ fn variant_dialog_closes_only_after_a_successful_selection() {
             &mut library,
             &mut snapshot,
             Action::Subpack(high),
-            &outgoing
+            &outgoing,
+            &mut Applied::default(),
         )
         .is_err()
     );
@@ -820,8 +852,7 @@ fn a_failed_save_still_records_the_runtime_acknowledgement() {
     let worker_root = root.clone();
     let worker = std::thread::spawn(move || {
         run(
-            worker_root.clone(),
-            worker_root.join("config"),
+            crate::global_resources::Roots::under(&worker_root),
             Vec::new(),
             incoming,
             outgoing,
@@ -868,8 +899,7 @@ fn review_commands_from_one_snapshot_keep_both_panel_toggles() {
     }
     drop(commands);
     run(
-        root.clone(),
-        root.join("config"),
+        crate::global_resources::Roots::under(&root),
         Vec::new(),
         incoming,
         outgoing,

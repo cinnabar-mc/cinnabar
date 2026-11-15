@@ -76,6 +76,23 @@ fn graphics_and_pack_setting_queries_are_admitted() {
 }
 
 #[test]
+fn held_item_tag_and_on_screen_queries_keep_player_weapon_scripts() {
+    for source in [
+        "q.equipped_item_all_tags('slot.weapon.mainhand', 'repro:weapon')",
+        "v.armed && q.equipped_item_all_tags('slot.weapon.mainhand', 'repro:bow', 'repro:weapon')",
+        "v.armed && q.equipped_item_any_tag('slot.weapon.mainhand', 'repro:sword', 'repro:mace')",
+        "query.is_alive && !query.is_sleeping && query.is_on_screen",
+    ] {
+        assert!(compiles(source), "{source}");
+    }
+    let entries = [
+        "v.armed = q.equipped_item_all_tags('slot.weapon.mainhand', 'repro:weapon');",
+        "v.skill_time = q.has_property('repro:time') ? q.property('repro:time') : 0.0;",
+    ];
+    assert_eq!(retained_assignments(&entries), entries.len());
+}
+
+#[test]
 fn server_pre_animation_retains_visibility_after_optional_item_and_property_branches() {
     let mut compiler = MolangCompiler::default();
     let entries = [

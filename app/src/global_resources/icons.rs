@@ -14,7 +14,7 @@ pub(super) fn refresh(library: &GlobalPackLibrary, snapshot: &mut Snapshot, root
     if std::fs::create_dir_all(root).is_err() {
         return;
     }
-    let packs = library.available().iter().chain(
+    let packs = library.installed().chain(
         library
             .active()
             .iter()

@@ -127,6 +127,16 @@ runtime publication. Replacing an active or outstanding-preview UUID requires
 Deactivate and Apply first, to prevent replacing the archive underneath an
 unacknowledged selection. This restriction is not asserted as vanilla parity.
 
+`set_development_root` adds the user data `development_resource_packs` folder:
+each subfolder holding a resource manifest is listed by `installed` beside the
+imported packs and archived again from disk by every `preview`, so edits need no
+reimport or version change. A development pack shadows an imported pack with the
+same UUID. `scan_development` rereads the folder before settings actions and drops
+selected packs whose folder is gone. `Snapshot::development_active` keeps Apply
+enabled for reloading, and the worker skips an Apply whose stack has the same
+contents as the one the runtime last acknowledged. Bedrock rereads development packs
+on world load instead; that timing difference is unverified parity work.
+
 Vanilla declares dotted controller variables such as `$button.remove` and
 `$button.move_left` at `V:ui/settings_sections/general_section.json:1568` and
 `:1607`; their consumers include `V:ui/resource_packs_screen.json:181` and `:2272`.

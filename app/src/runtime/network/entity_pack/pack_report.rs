@@ -475,3 +475,171 @@ fn diagnose_references(name: &str, files: &[(Box<str>, Vec<u8>)]) {
         "  refs {name}: undefined_controllers={missing_controllers:?} textures_not_collected_by_dir={missing_textures:?}"
     );
 }
+
+/// Env-gated: `CINNABAR_PACKCACHE_DIR` names a directory of cached packs, stacked in file-name
+/// order; prints the render layers the local player draws in a UI renderer and in the HUD doll.
+#[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "the entity pack report prints the local player's UI layers on stderr"
+)]
+fn report_local_player_ui_layers() {
+    use std::sync::Arc;
+
+    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        eprintln!(
+            "skipping report_local_player_ui_layers: fixture unavailable; requires CINNABAR_PACKCACHE_DIR containing offline cached packs"
+        );
+        return;
+    };
+    let (Some(refs), Ok(vanilla)) = (local_vanilla_refs(), std::fs::read(local_entity_path()))
+    else {
+        eprintln!(
+            "skipping report_local_player_ui_layers: fixture unavailable; requires the pinned compiled entity carrier from make assets"
+        );
+        return;
+    };
+    let vanilla = Arc::new(assets::RuntimeEntityAssets::decode(&vanilla).unwrap());
+    let Some(view) = super::super::local_pack::local_pack_view_at(std::path::Path::new(&dir))
+    else {
+        return;
+    };
+    let files = pack_runtime::entity_pack::collect::collect_files(&view, Some(&refs), None);
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .expect("the cached packs contain entity assets");
+    let entities =
+        Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities.clone()).unwrap());
+    let candidates = compiled
+        .bindings
+        .iter()
+        .map(|binding| binding.geometry_candidate)
+        .collect();
+    let position = [100.0, 66.0, 200.0];
+    let mut world = chunk_pipeline::WorldStream::new_with_asset_sets(
+        protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: position,
+            world_spawn_position: [0, 64, 0],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(assets::RuntimeAssets::diagnostic()),
+        Arc::clone(&vanilla),
+        position,
+        None,
+    );
+    world.set_pack_entities(Some((Arc::clone(&entities), candidates)));
+    world
+        .submit(
+            1,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: protocol::ActorKind::Player {
+                    uuid: [0; 16],
+                    username: "Offline".into(),
+                },
+                position,
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+        )
+        .unwrap();
+    world.sync_local_player_pose(&client_world::LocalPlayerFeed {
+        game_mode: None,
+        uuid: [0; 16],
+        prefer_client_skin: false,
+        username: "Offline".into(),
+        skin: protocol::PlayerSkin::Unavailable(
+            protocol::PlayerSkinUnavailable::InvalidDimensions,
+        ),
+        position,
+        velocity: [0.0; 3],
+        on_ground: true,
+        yaw: 30.0,
+        head_yaw: 30.0,
+        pitch: 0.0,
+        main_hand: None,
+        off_hand: None,
+        equipment_count: 0,
+        held_network_ids: [0; 2],
+        held_variants: Default::default(),
+        main_hand_metadata: 0,
+        main_hand_slot: 0,
+        main_hand_stack_id: None,
+        bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+        java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+        flying: false,
+        gliding: false,
+        swimming: false,
+        spinning: false,
+        fall_fly_ticks: 0,
+        teleported: false,
+        first_person: true,
+        view_bobbing: true,
+        sneaking: false,
+        sprinting: false,
+        item_use: Default::default(),
+    });
+    world.advance_actor_interpolation_ticks(160);
+    let local = world.authority().local_player_ui();
+    let Some(rig) = local.rig() else {
+        eprintln!("local player has no rig");
+        return;
+    };
+    eprintln!(
+        "local rig: rig={:?} fallback={:?} bones={} skin_geometry={}",
+        rig.rig,
+        rig.fallback,
+        rig.current.len(),
+        rig.skin_geometry.is_some(),
+    );
+    for (context, layers) in [
+        ("world", Some(rig.render.to_vec())),
+        ("ui", local.layers().map(|layers| layers.render.to_vec())),
+        (
+            "paper_doll",
+            local
+                .paper_doll_layers()
+                .map(|layers| layers.render.to_vec()),
+        ),
+    ] {
+        let Some(layers) = layers else {
+            eprintln!("{context}: no layers");
+            continue;
+        };
+        eprintln!("{context}: {} layers", layers.len());
+        for layer in layers {
+            let catalog = if layer.pack { &entities } else { &vanilla };
+            let scales = layer
+                .pose
+                .iter()
+                .map(|bone| bone.axis_scale)
+                .collect::<Vec<_>>();
+            eprintln!(
+                "  {context} layer: texture={} geometry={:?} slot={} material={:?} hidden={:?} uv_anim={:?} color={:?} pose_scales={scales:?}",
+                catalog.sources()[layer.source as usize].path,
+                layer
+                    .geometry
+                    .map(|index| &catalog.geometries()[index as usize].identifier),
+                layer.texture_slot,
+                layer.material,
+                layer.hidden_bones,
+                layer.uv_anim,
+                layer.color,
+            );
+        }
+    }
+}

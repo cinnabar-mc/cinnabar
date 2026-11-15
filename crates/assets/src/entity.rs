@@ -95,7 +95,14 @@ pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
 pub const MAX_ENTITY_ASSET_PATH_BYTES: usize = 512;
 pub const MAX_ENTITY_IDENTIFIER_BYTES: usize = 512;
-pub const MAX_ENTITY_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+/// Byte bound of one entity source, which is a pack file's own bound: no smaller native
+/// per-file limit has been identified. Image decoding stays bounded by
+/// `MAX_ENTITY_TEXTURE_DIMENSION` and the pixel budgets.
+pub const MAX_ENTITY_SOURCE_BYTES: usize = 64 * 1024 * 1024;
+/// Input bytes of entity sources prepared together; a larger source is prepared alone.
+pub const ENTITY_SOURCE_BATCH_BYTES: usize = 8 * 1024 * 1024;
+/// Byte bound of one Molang expression.
+pub const MAX_MOLANG_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_ENTITY_TOTAL_SOURCE_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_CATALOG_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_GEOMETRY_BONES: usize = 2_048;

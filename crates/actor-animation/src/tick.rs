@@ -50,6 +50,9 @@ pub struct ActorTickContext {
     pub off_hand: Option<Arc<str>>,
     /// Negotiated facts for main hand and off hand, copied at context admission.
     pub held_item_facts: [assets::facts::ItemFact; 2],
+    /// Tags the session's item registry declared for the main-hand and off-hand items, which
+    /// include server-defined tags outside the pinned vocabulary.
+    pub held_item_tags: [Arc<[Arc<str>]>; 2],
     /// Stack facts beside each hand's identifier whose change re-equips it.
     pub held_variants: [StackVariant; 2],
     /// The main-hand stack's data value.

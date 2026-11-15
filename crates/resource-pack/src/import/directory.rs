@@ -1,4 +1,5 @@
-//! Copies a user pack directory into a bounded in-memory archive for ordinary validation.
+//! Copies a user pack directory into a bounded in-memory archive for ordinary validation. The
+//! chosen folder may itself be a link, as development packs often are; links below it are refused.
 
 use crate::{
     AdmissionError, LibraryError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK,
@@ -12,7 +13,7 @@ use std::{
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 /// Rejects links and non-regular files while preserving each pack's relative paths.
-pub(super) fn archive(root: &Path) -> Result<Vec<u8>, LibraryError> {
+pub(crate) fn archive(root: &Path) -> Result<Vec<u8>, LibraryError> {
     let mut writer = ZipWriter::new(BoundedArchive::default());
     let mut entries = 0usize;
     let mut total = 0u64;
@@ -66,10 +67,14 @@ fn append(
         if crate::parser::canonical_path(name.as_bytes()).is_none() {
             return Err(AdmissionError::InvalidFileData.into());
         }
+        // A fixed timestamp keeps the archive digest a function of the folder's contents, so an
+        // unchanged development pack is recognised as unchanged.
         writer
             .start_file(
                 name,
-                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+                SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Deflated)
+                    .last_modified_time(zip::DateTime::default()),
             )
             .map_err(|_| AdmissionError::MalformedZip)?;
         let bytes = io::copy(&mut fs::File::open(path)?.take(MAX_FILE_BYTES + 1), writer)?;

@@ -22,7 +22,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 mod cached;
 pub use cached::{CachedPackMetadata, cached_pack_metadata};
-mod directory;
+pub(crate) mod directory;
 mod java;
 mod selection;
 pub use selection::{
@@ -314,7 +314,7 @@ fn read_candidate(
 }
 
 /// Accepts content-only indexes but never requests or derives marketplace keys.
-fn reject_encrypted_index(bytes: &[u8]) -> Result<(), LibraryError> {
+pub(crate) fn reject_encrypted_index(bytes: &[u8]) -> Result<(), LibraryError> {
     let root: Value = parse_jsonc(bytes).map_err(|_| LibraryError::Encrypted)?;
     if root["content"].as_array().is_some_and(|entries| {
         entries
@@ -327,7 +327,7 @@ fn reject_encrypted_index(bytes: &[u8]) -> Result<(), LibraryError> {
 }
 
 /// Reads manifest display fields after the shared identity/module validation.
-fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
+pub(crate) fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
     let root: Value = parse_jsonc(bytes).map_err(LibraryError::PackJson)?;
     if root["modules"].as_array().is_some_and(|modules| {
         !modules.iter().any(|module| module["type"] == "resources")
@@ -390,7 +390,7 @@ fn read_entry(
 }
 
 /// Resolves known English fallback keys; PackManifest and Pack load pack localization.
-fn localize_metadata(metadata: &mut InstalledPack, bytes: &[u8]) {
+pub(crate) fn localize_metadata(metadata: &mut InstalledPack, bytes: &[u8]) {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return;
     };

@@ -337,7 +337,10 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::BaseSwingDuration if arguments.is_empty() => context
             .main_hand_swing_seconds
             .unwrap_or(super::motion::ACTOR_SWING_TICKS as f32 * ACTOR_TICK_DURATION.as_secs_f32()),
-        Q::EquippedItemAnyTag => truth(equipped_item_any_tag(context, arguments)),
+        Q::EquippedItemAnyTag => truth(equipped_item_tags(context, arguments, false)),
+        Q::EquippedItemAllTags => truth(equipped_item_tags(context, arguments, true)),
+        // Culling does not reach animation, so every evaluated actor counts as on screen.
+        Q::IsOnScreen => 1.0,
         Q::KineticWeaponDelay => context
             .main_hand_kinetic
             .map_or(0.0, |timing| timing.delay_ticks as f32),
@@ -542,21 +545,35 @@ fn armor_color_slot(context: &ActorTickContext, slot: Option<f32>, channel: Opti
     }
 }
 
-/// Tests admitted tag masks for the slot named by this Molang query.
-fn equipped_item_any_tag(context: &ActorTickContext, arguments: &[MolangValue]) -> bool {
+/// Tests the tags of the item in the slot this Molang query names: pinned tags by their admitted
+/// mask and tags the session's item registry declared by name. `all` requires every listed tag,
+/// otherwise one suffices; a query that lists no tag is false.
+fn equipped_item_tags(context: &ActorTickContext, arguments: &[MolangValue], all: bool) -> bool {
     let Some(MolangValue::String(slot)) = arguments.first() else {
         return false;
     };
-    let fact = match slot.as_ref() {
-        "slot.weapon.mainhand" => &context.held_item_facts[0],
-        "slot.weapon.offhand" => &context.held_item_facts[1],
+    let hand = match slot.as_ref() {
+        "slot.weapon.mainhand" => 0,
+        "slot.weapon.offhand" => 1,
         _ => return false,
     };
+    let fact = &context.held_item_facts[hand];
+    let declared = &context.held_item_tags[hand];
     let facts = assets::facts::ItemFacts::builtin().expect("valid pinned item facts");
-    arguments.iter().skip(1).any(|argument| match argument {
-        MolangValue::String(name) => facts.tag(name).is_some_and(|tag| fact.tags.contains(tag)),
+    let has = |argument: &MolangValue| match argument {
+        MolangValue::String(name) => {
+            facts.tag(name).is_some_and(|tag| fact.tags.contains(tag))
+                || declared.iter().any(|tag| tag.as_ref() == name.as_ref())
+        }
         _ => false,
-    })
+    };
+    let tags = &arguments[1..];
+    !tags.is_empty()
+        && if all {
+            tags.iter().all(has)
+        } else {
+            tags.iter().any(has)
+        }
 }
 
 /// The equipped item a hand argument names: 0 or `'main_hand'` (the default), 1 or

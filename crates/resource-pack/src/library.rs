@@ -13,6 +13,7 @@ use std::{
 };
 use uuid::Uuid;
 
+mod development;
 mod storage;
 
 const CATALOG_FILE: &str = "global_packs.json";
@@ -129,6 +130,7 @@ pub struct GlobalPackLibrary {
     active: Vec<ActivePack>,
     memory_tier: u32,
     missing: Vec<String>,
+    development: development::Development,
 }
 
 impl GlobalPackLibrary {
@@ -157,6 +159,7 @@ impl GlobalPackLibrary {
             active,
             memory_tier: 0,
             missing,
+            development: Default::default(),
         })
     }
 
@@ -175,8 +178,11 @@ impl GlobalPackLibrary {
         self.memory_tier
     }
 
-    /// Resolves the immutable archive version referenced by a selection.
+    /// Resolves a selection to its development pack, or else to the imported archive revision.
     pub fn metadata(&self, active: &ActivePack) -> Option<&InstalledPack> {
+        if let Some(pack) = self.development_pack(active.id) {
+            return Some(&pack.metadata);
+        }
         self.catalog
             .available
             .iter()
@@ -184,9 +190,21 @@ impl GlobalPackLibrary {
             .find(|pack| pack.id == active.id && pack.revision == active.revision)
     }
 
-    /// Lists installed resource packs, including active packs.
+    /// Lists imported resource packs, including active packs.
     pub fn available(&self) -> &[InstalledPack] {
         &self.catalog.available
+    }
+
+    /// Lists every pack the player can activate: development packs first, then the imported
+    /// packs they do not shadow.
+    pub fn installed(&self) -> impl Iterator<Item = &InstalledPack> {
+        let development = self.development.packs.iter().map(|pack| &pack.metadata);
+        let imported = self
+            .catalog
+            .available
+            .iter()
+            .filter(move |pack| !self.is_development(pack.id));
+        development.chain(imported)
     }
 
     /// Lists the staged selection, highest priority first.
@@ -289,8 +307,12 @@ impl GlobalPackLibrary {
         }
     }
 
-    /// Reads one installed pack's own icon without activating it or consulting overlays.
+    /// Reads one installed pack's own icon without activating it or consulting overlays. A
+    /// development pack's icon is read from its folder.
     pub fn pack_icon(&self, metadata: &InstalledPack) -> Result<Option<Box<[u8]>>, LibraryError> {
+        if let Some(pack) = self.development_pack(metadata.id) {
+            return pack.icon();
+        }
         let bytes = read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?;
         let (pack, _) = validate_archive_parts(
             metadata.id,
@@ -306,9 +328,7 @@ impl GlobalPackLibrary {
     /// Adds a pack at the top of the staged stack, without duplicating it.
     pub fn activate(&mut self, id: Uuid) -> Result<(), LibraryError> {
         let pack = self
-            .catalog
-            .available
-            .iter()
+            .installed()
             .find(|pack| pack.id == id)
             .ok_or(LibraryError::UnknownPack)?;
         if pack
@@ -323,14 +343,12 @@ impl GlobalPackLibrary {
         if self.active.len() >= MAX_PACKS {
             return Err(AdmissionError::TooManyPacks.into());
         }
-        self.active.insert(
-            0,
-            ActivePack {
-                id,
-                subpack: tiers::select(&pack.subpacks, self.memory_tier).to_owned(),
-                revision: pack.revision,
-            },
-        );
+        let selection = ActivePack {
+            id,
+            subpack: tiers::select(&pack.subpacks, self.memory_tier).to_owned(),
+            revision: pack.revision,
+        };
+        self.active.insert(0, selection);
         Ok(())
     }
 
@@ -417,17 +435,18 @@ impl GlobalPackLibrary {
             {
                 return Err(LibraryError::NewerEngine);
             }
+            let development = self.development_pack(active.id);
             let bytes = if let Some((_, bytes)) = prepared {
                 bytes.clone()
             } else {
-                match read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES) {
+                let read = match development {
+                    Some(pack) => pack.archive(),
+                    None => read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES),
+                };
+                match read {
                     Ok(bytes) => bytes,
                     // Bedrock ignores a configured pack it cannot find; the others still apply.
-                    Err(LibraryError::Io(error))
-                        if error.kind() == std::io::ErrorKind::NotFound =>
-                    {
-                        continue;
-                    }
+                    Err(error) if is_not_found(&error) => continue,
                     Err(error) => return Err(error),
                 }
             };
@@ -439,7 +458,11 @@ impl GlobalPackLibrary {
                 None,
                 Arc::clone(&reads),
                 crate::manifest::IdentityPolicy::Manifest(Version(metadata.version)),
-            )?;
+            )
+            .map_err(|error| match development {
+                Some(pack) if prepared.is_none() => pack.error(error.into()),
+                _ => error.into(),
+            })?;
             let next = ValidatedPackStack {
                 packs: vec![pack].into_boxed_slice(),
                 rejections: Box::default(),
@@ -499,6 +522,15 @@ fn encode_catalog(catalog: &Catalog) -> Result<Vec<u8>, LibraryError> {
         return Err(LibraryError::CatalogTooLarge);
     }
     Ok(bytes)
+}
+
+/// Whether a pack read failed only because its file or folder no longer exists.
+fn is_not_found(error: &LibraryError) -> bool {
+    match error {
+        LibraryError::Io(error) => error.kind() == std::io::ErrorKind::NotFound,
+        LibraryError::PackFile { source, .. } => is_not_found(source),
+        _ => false,
+    }
 }
 
 /// Caps reads before allocating, including files that grow during the read.

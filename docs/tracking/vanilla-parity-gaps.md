@@ -303,7 +303,9 @@ Queries referenced by the vanilla pack's entity, controller, animation and rende
 | Heuristic | is_grazing (eating flag, unmeasured), standing_scale (unsmoothed 0/1) |
 | World / item state | sleep_rotation (bed `direction` state under the sleeper, quarter turns; origin unmeasured), item_is_charged (crossbow `chargedItem` NBT kept on the canonical stack), has_cape (skin carries a valid cape image), property (SyncActorProperty names resolved per entity type; enums read as their value name) |
 | Armor | armor_texture_slot, armor_color_slot (equipment store; chainmail, turtle, elytra indices unmeasured) |
-| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (evaluated at tick boundaries by design), armor_material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
+| Item tags | equipped_item_any_tag, equipped_item_all_tags (main-hand and off-hand slots only: pinned tags by their admitted mask, plus tags the session item registry declared by name, so server-defined tags match; armor slots and the no-tag form unmeasured) |
+| Constant | is_on_screen (1; culling does not reach animation, so every evaluated actor counts as on screen) |
+| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (evaluated at tick boundaries by design), armor_material_slot, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
 
 Engine-fed variables: attack_time, gliding_speed_value, is_holding_right/left, is_sneaking,
 is_blocking, damage_nearby_mobs, is_first_person, player_x_rotation, bob_animation, swim_amount,

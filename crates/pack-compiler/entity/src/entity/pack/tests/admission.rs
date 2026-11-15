@@ -288,3 +288,35 @@ fn rejected_geometry_is_prepared_once_when_a_retry_admits_it() {
     }
     assert_eq!(SOURCE_PARSES.get(), 2);
 }
+
+#[test]
+fn sources_larger_than_one_batch_are_admitted() {
+    let large = assets::ENTITY_SOURCE_BATCH_BYTES + 1;
+    let mut files = budgeted_definitions();
+    files.truncate(1);
+    let mut definition = files[0].1.clone();
+    let retained = b"fixture:retained";
+    let at = definition
+        .windows(retained.len())
+        .position(|window| window == retained)
+        .unwrap();
+    definition[at..at + retained.len()].copy_from_slice(b"fixture:enlarged");
+    definition.resize(large, b' ');
+    files.push(("entity/large.json".into(), definition));
+    files.push(("textures/entity/map.png".into(), vec![0; large]));
+    let compiled = compile_with_budget(files, &|| false, SourceBudget::default())
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(compiled.skipped.oversized, 0);
+    for path in ["entity/large.json", "textures/entity/map.png"] {
+        assert!(
+            compiled
+                .assets
+                .sources
+                .iter()
+                .any(|source| source.path.as_ref() == path),
+            "{path} was dropped"
+        );
+    }
+}
