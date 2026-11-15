@@ -286,6 +286,8 @@ mod tests {
         list(&mut store, default_with_cape());
         spawn_listed_player(&mut store);
         unlist(&mut store);
+        // A repeated removal finds the appearance already unlisted and keeps it too.
+        unlist(&mut store);
         assert!(store.unlisted_players.contains_key(&UUID));
         assert!(store.pending_default_skins.contains_key(&UUID));
 

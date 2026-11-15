@@ -53,7 +53,9 @@ impl ActorStore {
     /// on, while the matching actor exists; otherwise the request is dropped with it.
     pub(super) fn unlist_player(&mut self, uuid: &[u8; 16]) {
         let Some(profile) = self.players.remove(uuid) else {
-            self.pending_default_skins.remove(uuid);
+            if !self.unlisted_players.contains_key(uuid) {
+                self.pending_default_skins.remove(uuid);
+            }
             return;
         };
         if appearance_in_use(
