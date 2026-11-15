@@ -146,6 +146,8 @@ impl MenuRuntime {
             MenuAction::AddJavaAccount
             | MenuAction::SwitchJavaAccount(_)
             | MenuAction::RemoveJavaAccount
+            | MenuAction::ConfirmRemoveJavaAccount(_)
+            | MenuAction::OpenJavaSignInLink
             | MenuAction::CancelJavaAccount => {
                 self.show_notice("Java accounts are not available in this browser tab.");
             }

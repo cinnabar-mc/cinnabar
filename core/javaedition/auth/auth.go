@@ -45,6 +45,9 @@ type Services struct {
 	LoginURL   string
 	ProfileURL string
 	JoinURL    string
+	// SkinProfileURL is the public profile endpoint skins are read from; the profile id
+	// follows it.
+	SkinProfileURL string
 	// Now reads the clock a session's expiry is measured on; nil uses time.Now.
 	Now func() time.Time
 }

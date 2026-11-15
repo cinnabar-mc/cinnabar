@@ -1924,9 +1924,14 @@ registration"), so Java accounts are a second kind of account, independent of th
 ones: each is a device-code sign-in through the Nintendo Switch edition's Microsoft app, which
 the services accept, saved with its Java profile. The Accounts dialog lists both kinds, adds
 either, selects the Java account Java joins use and removes it; the core owns the accounts
-through `java_accounts.v1`. An online-mode join without a usable Java account starts adding
-one and fails with the code to enter. Each account's Java session is reused until it nears
-its expiry, and a server's own login refusal reaches the player as its text.
+through `java_accounts.v1`, asks before removing one and opens the sign-in link. Each
+account shows its skin's face and hat, read from the session service and kept for a day. An
+online-mode join without a usable Java account starts adding one and fails with the code to
+enter. Each account's Java session is reused until it nears its expiry; a refresh Microsoft
+does not answer keeps the sign-in and asks the player to reconnect, and only a refusal asks
+for a new code. Cores sharing the accounts directory add through their own unfinished sign-in
+files and move finished ones into place under both tokens' locks. A server's own login
+refusal reaches the player as its text. The web client offers no Java accounts.
 
 Incomplete:
 
@@ -1964,8 +1969,6 @@ Incomplete:
   checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
   where Java uses its modified form, which differs for NUL and for characters outside the
   basic plane.
-- The Java sign-in has no Open link button: the player types the address the dialog shows.
-  Java accounts show no skin picture, and the web client has none.
 - Server lists cannot ping Java servers.
 
 ## Phase 7 — Local worlds

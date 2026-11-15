@@ -6,6 +6,8 @@
 pub struct JavaAccount {
     pub id: String,
     pub name: String,
+    /// The account's head picture, once the core has read it.
+    pub picture_path: Option<String>,
 }
 
 /// The progress of adding a Java account.
@@ -38,6 +40,10 @@ pub struct JavaAccounts {
     pub add: JavaAccountAdd,
     /// Set when the core could not be asked; the last good list stays shown.
     pub error: Option<String>,
+    /// Set where the install has no Java accounts, as in a browser tab, so none are offered.
+    pub unavailable: bool,
+    /// Set while the core reads account pictures, so the open dialog asks again.
+    pub pictures_pending: bool,
 }
 
 impl JavaAccounts {
@@ -62,11 +68,14 @@ impl JavaAccounts {
                 .map(|account| JavaAccount {
                     id: account.id,
                     name: account.name,
+                    picture_path: (!account.picture.is_empty()).then_some(account.picture),
                 })
                 .collect(),
             selected: (!reply.selected.is_empty()).then_some(reply.selected),
             add,
             error: None,
+            unavailable: false,
+            pictures_pending: reply.pictures_pending,
         }
     }
 
@@ -89,6 +98,7 @@ mod tests {
             accounts: vec![bridge::JavaAccount {
                 id: "a".into(),
                 name: "Alex".into(),
+                picture: "/install/auth/java-accounts/a-head.png".into(),
             }],
             selected: "a".into(),
             add: bridge::JavaAccountAdd {
@@ -97,9 +107,15 @@ mod tests {
                 user_code: "TESTCODE".into(),
                 reason: String::new(),
             },
+            pictures_pending: true,
         };
         let accounts = JavaAccounts::from_reply(reply);
         assert_eq!(accounts.selected_index(), Some(0));
+        assert_eq!(
+            accounts.accounts[0].picture_path.as_deref(),
+            Some("/install/auth/java-accounts/a-head.png")
+        );
+        assert!(accounts.pictures_pending);
         assert!(accounts.add.in_progress());
         assert_eq!(
             accounts.add,
@@ -118,5 +134,7 @@ mod tests {
         });
         assert_eq!(failed.add, JavaAccountAdd::Failed("No Java".into()));
         assert_eq!(failed.selected, None);
+        assert_eq!(failed.accounts, []);
+        assert!(!failed.pictures_pending);
     }
 }

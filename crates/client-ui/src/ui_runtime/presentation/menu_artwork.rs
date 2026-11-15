@@ -727,6 +727,14 @@ pub fn view_paths(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
                 })
                 .filter_map(|account| account.picture_path.clone()),
         )
+        .chain(
+            view.feeds
+                .java_accounts
+                .accounts
+                .iter()
+                .filter(|_| view.dialog == Some(launcher::menu::MenuDialog::Accounts))
+                .filter_map(|account| account.picture_path.clone()),
+        )
         .map(|path| (path, THUMBNAIL_SIDE));
     let thumbnails = view
         .featured

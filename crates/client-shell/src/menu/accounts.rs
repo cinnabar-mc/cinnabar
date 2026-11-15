@@ -85,6 +85,8 @@ impl MenuRuntime {
         if let std::borrow::Cow::Owned(profile) = self.presented_profile() {
             feeds.profile = profile;
         }
+        // A browser tab has no core to keep Java accounts in.
+        feeds.java_accounts.unavailable = self.external.is_some();
         feeds
     }
 
@@ -138,6 +140,8 @@ impl MenuRuntime {
             | MenuAction::AddJavaAccount
             | MenuAction::SwitchJavaAccount(_)
             | MenuAction::RemoveJavaAccount
+            | MenuAction::ConfirmRemoveJavaAccount(_)
+            | MenuAction::OpenJavaSignInLink
             | MenuAction::CancelJavaAccount
             | MenuAction::SignOut => true,
             _ => false,
@@ -234,6 +238,12 @@ impl MenuRuntime {
     }
 
     pub(super) fn dismiss_accounts(&mut self) {
+        if matches!(self.dialog, Some(MenuDialog::RemoveJavaAccount(_))) {
+            // Declining the removal returns to the accounts it was asked from.
+            self.dialog = Some(MenuDialog::Accounts);
+            self.focused = 0;
+            return;
+        }
         if self.dialog == Some(MenuDialog::Accounts) && self.feeds.account_adding {
             self.cancel_add_account();
         }

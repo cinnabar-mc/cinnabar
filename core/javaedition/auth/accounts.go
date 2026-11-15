@@ -89,7 +89,10 @@ type AccountsConfig struct {
 // replaced atomically and reread on every call.
 type Accounts struct {
 	config AccountsConfig
-	work   sync.WaitGroup
+	// lifetime ends with Close, stopping the head pictures being read.
+	lifetime context.Context
+	stop     context.CancelFunc
+	work     sync.WaitGroup
 
 	mu sync.Mutex
 	// selected is the open keychain of the selected account, and selectedID its id.
@@ -99,6 +102,8 @@ type Accounts struct {
 	adding *Keychain
 	add    AddState
 	closed bool
+	// heads holds each account's head picture reads.
+	heads map[string]headFetch
 }
 
 // OpenAccounts returns the accounts kept in config.Dir. Close stops their background work.
@@ -109,7 +114,11 @@ func OpenAccounts(config AccountsConfig) *Accounts {
 	if config.Now == nil {
 		config.Now = time.Now
 	}
-	return &Accounts{config: config, add: AddState{State: bridgecontract.JavaAccountAddIdle}}
+	lifetime, stop := context.WithCancel(context.Background())
+	return &Accounts{
+		config: config, lifetime: lifetime, stop: stop,
+		add: AddState{State: bridgecontract.JavaAccountAddIdle}, heads: map[string]headFetch{},
+	}
 }
 
 // Close stops the sign-ins under way and closes the open keychains.
@@ -125,6 +134,7 @@ func (a *Accounts) Close() {
 	if adding != nil {
 		adding.Close()
 	}
+	a.stop()
 	a.work.Wait()
 }
 
@@ -206,6 +216,9 @@ func (a *Accounts) Remove(ctx context.Context, id string) error {
 	a.mu.Unlock()
 	if closing != nil {
 		closing.Close()
+	}
+	if err := os.Remove(a.headPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		a.config.Logger.Warn("Java Edition account picture not removed", "error", err)
 	}
 	return authcache.Remove(ctx, a.tokenPath(id), os.Remove)
 }

@@ -45,10 +45,12 @@ fn two_accounts() -> JavaAccounts {
             JavaAccount {
                 id: "a".into(),
                 name: "Alex".into(),
+                picture_path: None,
             },
             JavaAccount {
                 id: "s".into(),
                 name: "Steve".into(),
+                picture_path: None,
             },
         ],
         selected: Some("a".into()),
@@ -75,7 +77,8 @@ fn opening_accounts_lists_the_java_accounts() {
     assert_eq!(menu.feeds.java_accounts, two_accounts());
 }
 
-/// Selecting and removing name the account the dialog shows, by its id.
+/// Selecting and removing name the account the dialog shows, by its id; removal is sent only
+/// once its question is confirmed.
 #[test]
 fn java_account_actions_name_the_accounts() {
     let mut menu = menu();
@@ -84,6 +87,9 @@ fn java_account_actions_name_the_accounts() {
     menu.feeds.java_accounts = two_accounts();
     menu.activate(MenuAction::SwitchJavaAccount(1));
     menu.activate(MenuAction::RemoveJavaAccount);
+    assert_eq!(menu.dialog, Some(MenuDialog::RemoveJavaAccount(0)));
+    menu.activate(MenuAction::ConfirmRemoveJavaAccount(0));
+    assert_eq!(menu.dialog, Some(MenuDialog::Accounts));
     menu.activate(MenuAction::AddJavaAccount);
     menu.activate(MenuAction::CancelJavaAccount);
     menu.sync_java_accounts(&mut control, Instant::now());
@@ -97,6 +103,35 @@ fn java_account_actions_name_the_accounts() {
             bridge::JavaAccountAction::Cancel,
         ]
     );
+}
+
+/// Declining the removal question removes nothing and returns to the accounts, and a stale
+/// confirmation for another account is ignored.
+#[test]
+fn declining_a_java_account_removal_keeps_it() {
+    let mut menu = menu();
+    let mut control = FakeAccount::default();
+    menu.activate(MenuAction::OpenAccounts);
+    menu.feeds.java_accounts = two_accounts();
+    menu.activate(MenuAction::RemoveJavaAccount);
+    menu.activate(MenuAction::ConfirmRemoveJavaAccount(1));
+    menu.activate(MenuAction::DismissDialog);
+    assert_eq!(menu.dialog, Some(MenuDialog::Accounts));
+    menu.sync_java_accounts(&mut control, Instant::now());
+    assert_eq!(control.sent, [bridge::JavaAccountAction::List]);
+}
+
+/// The removal question names the account it removes.
+#[test]
+fn the_removal_question_names_the_account() {
+    let mut menu = menu();
+    menu.activate(MenuAction::OpenAccounts);
+    menu.feeds.java_accounts = two_accounts();
+    menu.activate(MenuAction::RemoveJavaAccount);
+    let view = menu.view();
+    let popup = launcher::menu::dialogs::dialog(&view, MenuDialog::RemoveJavaAccount(0), &|_| None);
+    assert!(popup.body.contains("Alex"), "{}", popup.body);
+    assert_eq!(popup.confirm, MenuAction::ConfirmRemoveJavaAccount(0));
 }
 
 /// While a Java sign-in waits for its code, the open dialog asks for its progress once a
@@ -177,4 +212,36 @@ fn an_unreachable_core_keeps_the_list_and_reports_it() {
     menu.sync_java_accounts(&mut control, Instant::now());
     assert_eq!(menu.feeds.java_accounts.accounts.len(), 2);
     assert_eq!(menu.feeds.java_accounts.error.as_deref(), Some(UNREACHABLE));
+}
+
+/// A browser tab has no core to keep Java accounts, so its menu offers none.
+#[test]
+fn a_browser_tab_offers_no_java_accounts() {
+    let mut menu = menu();
+    assert!(!menu.view().feeds.java_accounts.unavailable);
+    menu.use_external_services(Vec::new(), 0);
+    assert!(menu.view().feeds.java_accounts.unavailable);
+}
+
+/// While the core reads account pictures, the open dialog asks again for them.
+#[test]
+fn pictures_being_read_are_polled_while_the_dialog_is_open() {
+    let mut menu = menu();
+    let mut control = FakeAccount::default();
+    menu.activate(MenuAction::OpenAccounts);
+    let start = Instant::now();
+    menu.sync_java_accounts(&mut control, start);
+    control.answer = Some(Ok(JavaAccounts {
+        pictures_pending: true,
+        ..two_accounts()
+    }));
+    menu.sync_java_accounts(&mut control, start + ADD_POLL);
+    assert_eq!(
+        control.sent.len(),
+        2,
+        "pictures being read were not asked for"
+    );
+    control.answer = Some(Ok(two_accounts()));
+    menu.sync_java_accounts(&mut control, start + ADD_POLL * 3);
+    assert_eq!(control.sent.len(), 2, "polled once the pictures were read");
 }

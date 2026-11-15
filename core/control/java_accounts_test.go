@@ -20,6 +20,7 @@ type fakeJavaAccounts struct {
 func (f *fakeJavaAccounts) List() ([]JavaAccount, string, error) { return f.accounts, f.selected, nil }
 func (f *fakeJavaAccounts) Add() JavaAccountAdd                  { return f.add }
 func (f *fakeJavaAccounts) CancelAdd()                           { f.cancelled = true }
+func (f *fakeJavaAccounts) PicturesPending() bool                { return false }
 
 func (f *fakeJavaAccounts) BeginAdd(context.Context) error {
 	f.add = JavaAccountAdd{State: bridgecontract.JavaAccountAddAwaitingCode, VerificationURI: "https://www.microsoft.com/link", UserCode: "TESTCODE"}

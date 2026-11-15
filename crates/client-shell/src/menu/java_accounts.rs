@@ -41,6 +41,7 @@ pub(super) fn presentation_accounts() -> JavaAccounts {
             .map(|(id, name)| JavaAccount {
                 id: (*id).into(),
                 name: (*name).into(),
+                picture_path: None,
             })
             .collect(),
         selected: Some(PRESENTATION_ACCOUNTS[0].0.into()),
@@ -87,10 +88,36 @@ impl MenuRuntime {
                 Some(account) => bridge::JavaAccountAction::Select(account.id.clone()),
                 None => return,
             },
-            MenuAction::RemoveJavaAccount => match &accounts.selected {
-                Some(id) => bridge::JavaAccountAction::Remove(id.clone()),
-                None => return,
-            },
+            MenuAction::RemoveJavaAccount => {
+                let selected = accounts.selected.as_ref().and_then(|id| {
+                    accounts
+                        .accounts
+                        .iter()
+                        .position(|account| &account.id == id)
+                });
+                if let Some(index) = selected {
+                    self.dialog = Some(MenuDialog::RemoveJavaAccount(index));
+                    self.focused = 0;
+                }
+                return;
+            }
+            MenuAction::ConfirmRemoveJavaAccount(index)
+                if self.dialog == Some(MenuDialog::RemoveJavaAccount(index)) =>
+            {
+                match accounts.accounts.get(index) {
+                    Some(account) => bridge::JavaAccountAction::Remove(account.id.clone()),
+                    None => return,
+                }
+            }
+            MenuAction::OpenJavaSignInLink => {
+                if let JavaAccountAdd::AwaitingCode { uri, .. } = &accounts.add
+                    && uri.starts_with("https://")
+                {
+                    #[cfg(not(test))]
+                    launcher_host::desktop::open_url(uri);
+                }
+                return;
+            }
             _ => return,
         };
         self.dialog = Some(MenuDialog::Accounts);
@@ -99,7 +126,7 @@ impl MenuRuntime {
     }
 
     /// Installs the worker's answers, sends queued actions, and asks for an add's progress
-    /// while the dialog shows it.
+    /// or the pictures being read while the dialog shows them.
     pub(super) fn sync_java_accounts(&mut self, control: &mut dyn AccountControl, now: Instant) {
         let answer = control.java_accounts();
         if answer.is_some() {
@@ -115,8 +142,9 @@ impl MenuRuntime {
             Some(Err(())) => self.feeds.java_accounts.error = Some(UNREACHABLE.into()),
             None => {}
         }
-        let watching =
-            self.dialog == Some(MenuDialog::Accounts) && self.feeds.java_accounts.add.in_progress();
+        let java = &self.feeds.java_accounts;
+        let watching = self.dialog == Some(MenuDialog::Accounts)
+            && (java.add.in_progress() || java.pictures_pending);
         let ui = &mut self.java_accounts;
         if !watching {
             // An answer lost with a replaced worker must not keep the next watch from polling.

@@ -468,6 +468,12 @@ pub(super) const STATES: &[State] = &[
         fixture: || out_of_game::accounts(true),
     },
     State {
+        name: "accounts-java-remove",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::remove_java_account,
+    },
+    State {
         name: "storage-delete",
         size: SIZE,
         gui_scale: GUI_SCALE,
