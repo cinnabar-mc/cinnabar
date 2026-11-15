@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -212,5 +213,18 @@ func TestJavaJoinShowsTheServersRefusal(t *testing.T) {
 	_, err := dialJavaForTest(t, server, nil)
 	if text := disconnectText(t, err); !strings.Contains(text, "You are banned") {
 		t.Fatalf("disconnect text = %q", text)
+	}
+}
+
+// A sign-in Microsoft did not refresh and an account changed during the join each tell the
+// player to reconnect, rather than to add an account.
+func TestJavaJoinErrorAsksToReconnect(t *testing.T) {
+	for _, err := range []error{
+		fmt.Errorf("%w: dial tcp: connection refused", auth.ErrServicesUnreachable),
+		errJavaAccountChanged,
+	} {
+		if text := disconnectText(t, javaJoinError(err)); !strings.Contains(text, "Reconnect") {
+			t.Errorf("disconnect text for %v = %q", err, text)
+		}
 	}
 }

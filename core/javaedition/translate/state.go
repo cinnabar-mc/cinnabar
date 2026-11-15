@@ -41,6 +41,9 @@ type state struct {
 	yaw, pitch float32
 	// respawning is set between a respawn in the same dimension and the position after it.
 	respawning bool
+	// board is the scoreboard the server keeps, of which the Bedrock client shows the
+	// displayed objectives.
+	board scoreboard
 	// teleport is the eye position of a server teleport the client has not reached yet.
 	teleport *mgl32.Vec3
 	// report decides which movement packet each client tick becomes.
@@ -76,6 +79,7 @@ func newState() state {
 		health:    20,
 		food:      20,
 		abilities: abilities{flySpeed: 0.05, walkSpeed: 0.1},
+		board:     newScoreboard(),
 	}
 }
 

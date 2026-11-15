@@ -160,6 +160,7 @@ pub(super) fn accounts(adding_java: bool) -> Fixture {
         .map(|(id, name)| JavaAccount {
             id: id.into(),
             name: name.into(),
+            picture_path: None,
         })
         .into(),
         selected: Some("00000000000000000000000000000001".into()),
@@ -171,9 +172,18 @@ pub(super) fn accounts(adding_java: bool) -> Fixture {
         } else {
             JavaAccountAdd::Idle
         },
-        error: None,
+        ..Default::default()
     };
     Fixture::Menu(Box::new(view))
+}
+
+/// Shows the question before removing the selected placeholder Java account.
+pub(super) fn remove_java_account() -> Fixture {
+    let Fixture::Menu(mut view) = accounts(false) else {
+        unreachable!()
+    };
+    view.dialog = Some(MenuDialog::RemoveJavaAccount(0));
+    Fixture::Menu(view)
 }
 
 /// Shows the saved-server removal confirmation.

@@ -1910,7 +1910,8 @@ Implemented: the core joins a `java/<host>[:<port>]` target and translates the s
 Bedrock packets ([`core/javaedition`](core/javaedition/translate/session.go)): login with
 encryption, Java Edition sign-in for online-mode servers, chunks and block changes with
 fence, pane, wall and stair connections, the player's position, health, hunger, experience,
-abilities, game mode, time and rain, chat, the player list, remote players, mobs and
+abilities, game mode, time and rain, chat, the player list, scoreboards in the sidebar, list and
+below-name slots with their team prefixes and suffixes, remote players, mobs and
 objects with their movement, held items and status flags, and the player inventory. From the
 client it translates movement, sprinting and sneaking, mining, block placement and item use,
 attacks and entity interaction, the held slot, chat, commands and respawning. Tests cover a
@@ -1923,9 +1924,14 @@ registration"), so Java accounts are a second kind of account, independent of th
 ones: each is a device-code sign-in through the Nintendo Switch edition's Microsoft app, which
 the services accept, saved with its Java profile. The Accounts dialog lists both kinds, adds
 either, selects the Java account Java joins use and removes it; the core owns the accounts
-through `java_accounts.v1`. An online-mode join without a usable Java account starts adding
-one and fails with the code to enter. Each account's Java session is reused until it nears
-its expiry, and a server's own login refusal reaches the player as its text.
+through `java_accounts.v1`, asks before removing one and opens the sign-in link. Each
+account shows its skin's face and hat, read from the session service and kept for a day. An
+online-mode join without a usable Java account starts adding one and fails with the code to
+enter. Each account's Java session is reused until it nears its expiry; a refresh Microsoft
+does not answer keeps the sign-in and asks the player to reconnect, and only a refusal asks
+for a new code. Cores sharing the accounts directory add through their own unfinished sign-in
+files and move finished ones into place under both tokens' locks. A server's own login
+refusal reaches the player as its text. The web client offers no Java accounts.
 
 Implemented: on a Java session the local player follows 1.7.10 movement. The core names the
 edition in the session handoff, and the simulator then runs `java-sim` behind the player
@@ -1974,14 +1980,12 @@ Incomplete:
   nether is 128 blocks high, so Java nether blocks above that are not shown.
 - Remote player skins and capes, entity armour, most entity metadata, paintings, experience
   orbs, item frames, effects, attributes of the local player beyond health, sounds,
-  particles, explosions, block-break progress, scoreboards, teams, titles, maps, statistics,
+  particles, explosions, block-break progress, team colours on name tags, titles, maps, statistics,
   tab completion and plugin channels other than the brand are not translated.
 - The death, respawn and dimension-change sequences are translated but have only been
   checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
   where Java uses its modified form, which differs for NUL and for characters outside the
   basic plane.
-- The Java sign-in has no Open link button: the player types the address the dialog shows.
-  Java accounts show no skin picture, and the web client has none.
 - Server lists cannot ping Java servers.
 
 ## Phase 7 — Local worlds

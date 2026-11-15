@@ -84,6 +84,7 @@ pub enum MenuDialog {
     Exit,
     DeathQuit,
     RemoveSaved(usize),
+    RemoveJavaAccount(usize),
     /// Confirms leaving the joined Realm with this service id.
     LeaveRealm(u32),
     RemoveShaderPack(u16, u64),
@@ -136,8 +137,12 @@ pub enum MenuAction {
     AddJavaAccount,
     /// Selects the Java account at this position for Java joins.
     SwitchJavaAccount(usize),
-    /// Removes the selected Java account.
+    /// Asks to remove the selected Java account.
     RemoveJavaAccount,
+    /// Removes the Java account at this position, as the removal question confirms.
+    ConfirmRemoveJavaAccount(usize),
+    /// Opens the Java account sign-in's verification link in the browser.
+    OpenJavaSignInLink,
     /// Stops the Java account sign-in under way.
     CancelJavaAccount,
     Inbox(inbox::Action),

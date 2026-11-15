@@ -25,6 +25,8 @@ var ErrNoJavaAccount = errors.New("no such Java Edition account")
 type JavaAccount struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Picture is the path of the account's head picture, when it has one.
+	Picture string `json:"picture,omitempty"`
 }
 
 // JavaAccountAdd is the progress of adding a Java account. State is a JavaAccountAdd value
@@ -44,6 +46,8 @@ type JavaAccounts interface {
 	CancelAdd()
 	Select(id string) error
 	Remove(ctx context.Context, id string) error
+	// PicturesPending reports pictures being read, which a later list returns.
+	PicturesPending() bool
 }
 
 // javaAccountsResultV1 answers every java_accounts.v1 action with the state after it.
@@ -52,6 +56,8 @@ type javaAccountsResultV1 struct {
 	Accounts      []JavaAccount  `json:"accounts"`
 	Selected      string         `json:"selected,omitempty"`
 	Add           JavaAccountAdd `json:"add"`
+	// PicturesPending asks the caller to list again for pictures being read.
+	PicturesPending bool `json:"pictures_pending,omitempty"`
 }
 
 // SetJavaAccounts enables java_accounts.v1.
@@ -103,6 +109,11 @@ func (server *Server) serveJavaAccounts(conn net.Conn, id uint64, raw json.RawMe
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	list, selected, err := accounts.List()
+	if err == nil && !accounts.PicturesPending() {
+		// A picture read that finished after the list was taken is in a second one, so a reply
+		// never lacks a picture while reporting none pending.
+		list, selected, err = accounts.List()
+	}
 	if err != nil {
 		server.logServiceFailure(methodJavaAccounts, err)
 		return reply.fail(codeServiceFailed, "Service unavailable")
@@ -115,5 +126,7 @@ func (server *Server) serveJavaAccounts(conn net.Conn, id uint64, raw json.RawMe
 		Accounts:      list,
 		Selected:      selected,
 		Add:           accounts.Add(),
+		// Read after listing, which starts the reads of missing pictures.
+		PicturesPending: accounts.PicturesPending(),
 	})
 }

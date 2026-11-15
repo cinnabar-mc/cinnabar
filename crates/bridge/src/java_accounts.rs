@@ -4,11 +4,14 @@ use serde::Deserialize;
 #[cfg(not(target_arch = "wasm32"))]
 use serde::Serialize;
 
-/// A saved Java Edition account: its Java profile id and name.
+/// A saved Java Edition account: its Java profile id and name, and the path of its head
+/// picture once the core has read it.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct JavaAccount {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub picture: String,
 }
 
 /// The progress of adding an account. `state` is one of the contract's `JAVA_ACCOUNT_ADD_*`
@@ -33,6 +36,9 @@ pub struct JavaAccounts {
     pub selected: String,
     #[serde(default)]
     pub add: JavaAccountAdd,
+    /// Set while the core reads account pictures, which a later list returns.
+    #[serde(default)]
+    pub pictures_pending: bool,
 }
 
 /// One `java_accounts.v1` action.

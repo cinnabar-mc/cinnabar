@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,13 +19,21 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 )
 
-// Files of an accounts directory: the index of accounts, and the token of a sign-in the
-// player has not finished. Each account's token is "<id>.json".
+// Files of an accounts directory: the index of accounts and its lock. Each account's token is
+// "<id>.json", and each unfinished sign-in's token "pending-<random>.json", so cores sharing
+// the directory never share one.
 const (
-	accountsIndexFile = "accounts.json"
-	accountsLockFile  = "accounts.lock"
-	pendingTokenFile  = "pending.json"
+	accountsIndexFile  = "accounts.json"
+	accountsLockFile   = "accounts.lock"
+	pendingTokenPrefix = "pending-"
 )
+
+// stalePendingAge is how old an unfinished sign-in's files are once no add can still use
+// them: past a device code's lifetime and the profile read after it, as after a core crashed.
+const stalePendingAge = time.Hour
+
+// errAddCancelled reports an add cancelled before its account was filed.
+var errAddCancelled = errors.New("the Java Edition account add was cancelled")
 
 // indexLockTimeout bounds the wait for another process changing the accounts file.
 const indexLockTimeout = 10 * time.Second
@@ -79,7 +89,10 @@ type AccountsConfig struct {
 // replaced atomically and reread on every call.
 type Accounts struct {
 	config AccountsConfig
-	work   sync.WaitGroup
+	// lifetime ends with Close, stopping the head pictures being read.
+	lifetime context.Context
+	stop     context.CancelFunc
+	work     sync.WaitGroup
 
 	mu sync.Mutex
 	// selected is the open keychain of the selected account, and selectedID its id.
@@ -89,6 +102,8 @@ type Accounts struct {
 	adding *Keychain
 	add    AddState
 	closed bool
+	// heads holds each account's head picture reads.
+	heads map[string]headFetch
 }
 
 // OpenAccounts returns the accounts kept in config.Dir. Close stops their background work.
@@ -96,7 +111,14 @@ func OpenAccounts(config AccountsConfig) *Accounts {
 	if config.Logger == nil {
 		config.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Accounts{config: config, add: AddState{State: bridgecontract.JavaAccountAddIdle}}
+	if config.Now == nil {
+		config.Now = time.Now
+	}
+	lifetime, stop := context.WithCancel(context.Background())
+	return &Accounts{
+		config: config, lifetime: lifetime, stop: stop,
+		add: AddState{State: bridgecontract.JavaAccountAddIdle}, heads: map[string]headFetch{},
+	}
 }
 
 // Close stops the sign-ins under way and closes the open keychains.
@@ -112,6 +134,7 @@ func (a *Accounts) Close() {
 	if adding != nil {
 		adding.Close()
 	}
+	a.stop()
 	a.work.Wait()
 }
 
@@ -194,6 +217,9 @@ func (a *Accounts) Remove(ctx context.Context, id string) error {
 	if closing != nil {
 		closing.Close()
 	}
+	if err := os.Remove(a.headPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		a.config.Logger.Warn("Java Edition account picture not removed", "error", err)
+	}
 	return authcache.Remove(ctx, a.tokenPath(id), os.Remove)
 }
 
@@ -241,9 +267,10 @@ func (a *Accounts) BeginAdd(ctx context.Context) (*SignInRequired, error) {
 			a.mu.Unlock()
 			return nil, fmt.Errorf("%w: %v", ErrSignInUnavailable, err)
 		}
+		a.removeStalePending()
 		var keychain *Keychain
 		keychain = NewKeychain(KeychainConfig{
-			Path: filepath.Join(a.config.Dir, pendingTokenFile), App: a.config.App,
+			Path: filepath.Join(a.config.Dir, pendingTokenPrefix+rand.Text()+".json"), App: a.config.App,
 			Services: a.config.Services, Logger: a.config.Logger, Now: a.config.Now,
 			OnSignedIn:     func() { a.finishAdd(keychain) },
 			OnSignInFailed: func(error) { a.failAdd(keychain) },
@@ -339,9 +366,13 @@ func (a *Accounts) finishAdd(adding *Keychain) {
 		return
 	}
 	if err == nil {
-		err = a.file(session.Profile)
+		err = a.file(adding, session.Profile)
 	}
 	a.discard(adding)
+	if errors.Is(err, errAddCancelled) {
+		// CancelAdd already reset the add's state.
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.adding != adding {
@@ -362,8 +393,8 @@ func (a *Accounts) finishAdd(adding *Keychain) {
 }
 
 // file moves the finished sign-in's token to the account's own file and records the account
-// as the selected one.
-func (a *Accounts) file(profile Profile) error {
+// as the selected one, unless the add was cancelled first. It returns errAddCancelled then.
+func (a *Accounts) file(adding *Keychain, profile Profile) error {
 	target := a.tokenPath(profile.ID)
 	a.mu.Lock()
 	var closing *Keychain
@@ -374,11 +405,22 @@ func (a *Accounts) file(profile Profile) error {
 	if closing != nil {
 		closing.Close()
 	}
-	// A rename keeps the private permissions the token cache gave the file.
-	if err := os.Rename(filepath.Join(a.config.Dir, pendingTokenFile), target); err != nil {
-		return err
-	}
 	return a.updateIndex(func(index *accountsIndex) error {
+		// Checked under the accounts lock, so a cancel either comes first and files nothing
+		// or comes after the account was added.
+		a.mu.Lock()
+		cancelled := a.adding != adding
+		a.mu.Unlock()
+		if cancelled {
+			return errAddCancelled
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), profileReadTimeout)
+		defer cancel()
+		// Both tokens' leases keep a refresh of either, in any core, out of the move; a rename
+		// keeps the private permissions the token cache gave the file.
+		if err := authcache.Move(ctx, adding.config.Path, target); err != nil {
+			return err
+		}
 		account := Account{ID: profile.ID, Name: profile.Name}
 		if i := index.position(profile.ID); i >= 0 {
 			index.Accounts[i] = account
@@ -388,6 +430,26 @@ func (a *Accounts) file(profile Profile) error {
 		index.Selected = profile.ID
 		return nil
 	})
+}
+
+// removeStalePending deletes unfinished sign-ins' files that no add can still use, such as
+// those a crashed core left.
+func (a *Accounts) removeStalePending() {
+	entries, err := os.ReadDir(a.config.Dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		// "pending.json" is the single unfinished sign-in file of earlier builds.
+		if !strings.HasPrefix(entry.Name(), pendingTokenPrefix) && !strings.HasPrefix(entry.Name(), "pending.json") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || a.config.Now().Sub(info.ModTime()) < stalePendingAge {
+			continue
+		}
+		_ = os.Remove(filepath.Join(a.config.Dir, entry.Name()))
+	}
 }
 
 // keychain opens the keychain of the token at path.

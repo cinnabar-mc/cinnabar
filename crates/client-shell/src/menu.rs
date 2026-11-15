@@ -597,6 +597,8 @@ impl MenuRuntime {
             MenuAction::AddJavaAccount
             | MenuAction::SwitchJavaAccount(_)
             | MenuAction::RemoveJavaAccount
+            | MenuAction::ConfirmRemoveJavaAccount(_)
+            | MenuAction::OpenJavaSignInLink
             | MenuAction::CancelJavaAccount => self.activate_java_account(action),
             MenuAction::SelectServerTab(tab) => {
                 self.server_tab = tab;

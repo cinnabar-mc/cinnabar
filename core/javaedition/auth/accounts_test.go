@@ -74,8 +74,8 @@ func TestAccountsAddSavesAndSelectsTheProfile(t *testing.T) {
 	if _, err := os.Stat(accounts.tokenPath(notchID)); err != nil {
 		t.Fatalf("the account's token was not saved: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(accounts.config.Dir, pendingTokenFile)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the unfinished sign-in's token remains: %v", err)
+	if pending, _ := filepath.Glob(filepath.Join(accounts.config.Dir, pendingTokenPrefix+"*.json")); len(pending) != 0 {
+		t.Fatalf("the unfinished sign-in's token remains: %v", pending)
 	}
 	account, keychain, ok := accounts.Selected()
 	if !ok || account.Name != "Notch" {
@@ -235,5 +235,77 @@ func TestAccountsAnUnreadableIndexStartsOver(t *testing.T) {
 	}
 	if data, err := os.ReadFile(path); err != nil || !json.Valid(data) {
 		t.Fatalf("accounts file after the change = %q, %v", data, err)
+	}
+}
+
+// Cores sharing the accounts directory each add through their own unfinished sign-in file.
+func TestAccountsConcurrentAddsUseTheirOwnFiles(t *testing.T) {
+	fake := newFakeServices(t)
+	first := newTestAccounts(t, newFakeApp(), fake.services())
+	second := OpenAccounts(AccountsConfig{Dir: first.config.Dir, App: newFakeApp(), Services: fake.services()})
+	t.Cleanup(second.Close)
+	for _, accounts := range []*Accounts{first, second} {
+		if _, err := accounts.BeginAdd(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if first.adding.config.Path == second.adding.config.Path {
+		t.Fatalf("both adds use %s", first.adding.config.Path)
+	}
+}
+
+// An add cancelled before its account is filed files nothing, even with its profile read.
+func TestAccountsFilingACancelledAddFilesNothing(t *testing.T) {
+	fake := newFakeServices(t)
+	accounts := newTestAccounts(t, newFakeApp(), fake.services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	adding := accounts.adding
+	if err := os.WriteFile(adding.config.Path, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	accounts.CancelAdd()
+	if err := accounts.file(adding, Profile{ID: notchID, Name: "Notch"}); !errors.Is(err, errAddCancelled) {
+		t.Fatalf("filing a cancelled add = %v", err)
+	}
+	if list, _, _ := accounts.List(); len(list) != 0 {
+		t.Fatalf("a cancelled add was filed: %+v", list)
+	}
+	if _, err := os.Stat(accounts.tokenPath(notchID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a cancelled add's token was moved: %v", err)
+	}
+}
+
+// Starting an add deletes unfinished sign-ins old enough that no add can still use them.
+func TestAccountsAddRemovesStaleUnfinishedSignIns(t *testing.T) {
+	fake := newFakeServices(t)
+	now := time.Now()
+	accounts := OpenAccounts(AccountsConfig{
+		Dir: t.TempDir(), App: newFakeApp(), Services: fake.services(),
+		Now: func() time.Time { return now },
+	})
+	t.Cleanup(accounts.Close)
+	stale := filepath.Join(accounts.config.Dir, pendingTokenPrefix+"crashed.json")
+	recent := filepath.Join(accounts.config.Dir, pendingTokenPrefix+"other-core.json")
+	for _, path := range []string{stale, recent} {
+		if err := os.WriteFile(path, []byte("token"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(stale, now.Add(-2*stalePendingAge), now.Add(-2*stalePendingAge)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(recent, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a stale unfinished sign-in remains: %v", err)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Fatalf("another core's unfinished sign-in was deleted: %v", err)
 	}
 }

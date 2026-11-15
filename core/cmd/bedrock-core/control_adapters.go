@@ -221,10 +221,12 @@ func (c javaAccountsControl) List() ([]control.JavaAccount, string, error) {
 	accounts, selected, err := c.accounts.List()
 	wire := make([]control.JavaAccount, len(accounts))
 	for i, account := range accounts {
-		wire[i] = control.JavaAccount{ID: account.ID, Name: account.Name}
+		wire[i] = control.JavaAccount{ID: account.ID, Name: account.Name, Picture: c.accounts.HeadPath(account.ID)}
 	}
 	return wire, selected, err
 }
+
+func (c javaAccountsControl) PicturesPending() bool { return c.accounts.HeadsPending() }
 
 func (c javaAccountsControl) Add() control.JavaAccountAdd {
 	add := c.accounts.AddState()

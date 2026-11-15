@@ -31,6 +31,8 @@ pub(super) struct JavaAccountsUi {
     /// Whether an action was sent and its answer has not arrived, so no poll piles up behind a
     /// core that is slow to answer.
     awaiting: bool,
+    /// The id of the account the removal question asks about, which a changed list follows.
+    removing: Option<String>,
 }
 
 /// The placeholder Java accounts presentation mode shows instead of the install's.
@@ -41,6 +43,7 @@ pub(super) fn presentation_accounts() -> JavaAccounts {
             .map(|(id, name)| JavaAccount {
                 id: (*id).into(),
                 name: (*name).into(),
+                picture_path: None,
             })
             .collect(),
         selected: Some(PRESENTATION_ACCOUNTS[0].0.into()),
@@ -87,10 +90,42 @@ impl MenuRuntime {
                 Some(account) => bridge::JavaAccountAction::Select(account.id.clone()),
                 None => return,
             },
-            MenuAction::RemoveJavaAccount => match &accounts.selected {
-                Some(id) => bridge::JavaAccountAction::Remove(id.clone()),
-                None => return,
-            },
+            MenuAction::RemoveJavaAccount => {
+                let selected = accounts.selected.as_ref().and_then(|id| {
+                    accounts
+                        .accounts
+                        .iter()
+                        .position(|account| &account.id == id)
+                });
+                if let Some(index) = selected {
+                    self.java_accounts.removing = accounts.selected.clone();
+                    self.dialog = Some(MenuDialog::RemoveJavaAccount(index));
+                    self.focused = 0;
+                }
+                return;
+            }
+            MenuAction::ConfirmRemoveJavaAccount(index)
+                if self.dialog == Some(MenuDialog::RemoveJavaAccount(index)) =>
+            {
+                match (
+                    accounts.accounts.get(index),
+                    self.java_accounts.removing.take(),
+                ) {
+                    (Some(account), Some(id)) if account.id == id => {
+                        bridge::JavaAccountAction::Remove(id)
+                    }
+                    _ => return,
+                }
+            }
+            MenuAction::OpenJavaSignInLink => {
+                if let JavaAccountAdd::AwaitingCode { uri, .. } = &accounts.add
+                    && uri.starts_with("https://")
+                {
+                    #[cfg(not(test))]
+                    launcher_host::desktop::open_url(uri);
+                }
+                return;
+            }
             _ => return,
         };
         self.dialog = Some(MenuDialog::Accounts);
@@ -98,8 +133,30 @@ impl MenuRuntime {
         self.java_accounts.queued.push(request);
     }
 
+    /// Keeps the removal question on the account it asked about when a new list moves it, and
+    /// returns to the accounts once that account is gone.
+    fn follow_removed_account(&mut self) {
+        let Some(MenuDialog::RemoveJavaAccount(_)) = self.dialog else {
+            return;
+        };
+        let accounts = &self.feeds.java_accounts.accounts;
+        let position = self
+            .java_accounts
+            .removing
+            .as_ref()
+            .and_then(|id| accounts.iter().position(|account| &account.id == id));
+        self.dialog = Some(match position {
+            Some(index) => MenuDialog::RemoveJavaAccount(index),
+            None => {
+                self.java_accounts.removing = None;
+                self.focused = 0;
+                MenuDialog::Accounts
+            }
+        });
+    }
+
     /// Installs the worker's answers, sends queued actions, and asks for an add's progress
-    /// while the dialog shows it.
+    /// or the pictures being read while the dialog shows them.
     pub(super) fn sync_java_accounts(&mut self, control: &mut dyn AccountControl, now: Instant) {
         let answer = control.java_accounts();
         if answer.is_some() {
@@ -111,12 +168,16 @@ impl MenuRuntime {
             return;
         }
         match answer {
-            Some(Ok(accounts)) => self.feeds.java_accounts = accounts,
+            Some(Ok(accounts)) => {
+                self.feeds.java_accounts = accounts;
+                self.follow_removed_account();
+            }
             Some(Err(())) => self.feeds.java_accounts.error = Some(UNREACHABLE.into()),
             None => {}
         }
-        let watching =
-            self.dialog == Some(MenuDialog::Accounts) && self.feeds.java_accounts.add.in_progress();
+        let java = &self.feeds.java_accounts;
+        let watching = self.dialog == Some(MenuDialog::Accounts)
+            && (java.add.in_progress() || java.pictures_pending);
         let ui = &mut self.java_accounts;
         if !watching {
             // An answer lost with a replaced worker must not keep the next watch from polling.
