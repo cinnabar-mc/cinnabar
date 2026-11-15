@@ -383,8 +383,6 @@ impl Player {
     }
 
     /// Runs one client tick and appends the packets the client sends for it to `packets`.
-    ///
-    /// Nothing happens, and nothing is sent, while the player's column is not loaded.
     pub fn tick(
         &mut self,
         world: &impl World,
@@ -394,9 +392,6 @@ impl Player {
     ) {
         self.yaw = input.yaw;
         self.pitch = input.pitch;
-        if !world.block_exists(floor(self.x), 0, floor(self.z)) {
-            return;
-        }
         self.update_liquid_state(world);
         self.living_update(world, input, status, packets);
         self.report_motion(packets);
