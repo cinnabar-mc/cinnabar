@@ -77,6 +77,13 @@ func TestSpawnedPlayersWearTheirSignedSkinAndCape(t *testing.T) {
 		t.Fatalf("resource patch = %s", skin.SkinResourcePatch)
 	}
 
+	// A listed player spawned again already has its skin, so nothing is downloaded or sent.
+	ts.serve(&java.DestroyEntities{EntityIDs: []int32{9}})
+	ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: []java.ProfileProperty{services.Signed(payload)}})
+	if !ts.skinLoadsDone() {
+		t.Fatal("a skin the client has was loaded again")
+	}
+
 	// A player who left and spawns again is listed with the default skin, then gets the
 	// cached one.
 	ts.serve(&java.PlayerListItem{Name: "Alex", Online: false})

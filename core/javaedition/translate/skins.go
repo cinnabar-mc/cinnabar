@@ -13,20 +13,23 @@ import (
 var classicGeometry = []byte(`{"geometry":{"default":"geometry.humanoid.custom"}}`)
 
 // skinLoad is a skin download under way for a listed player; a newer load or the player
-// leaving the list supersedes it.
+// leaving the list supersedes it. key is the textures key it reads, empty for the local
+// player's own profile.
 type skinLoad struct {
 	id         uuid.UUID
+	key        string
 	generation uint64
 }
 
 // loadSkin downloads the textures another player's profile names, off the packet path, and
 // sends the player's skin once they arrive. Until then, and if they never do, the player
-// keeps the default skin.
+// keeps the default skin. Textures the client already has for the player are not sent again.
 func (s *Session) loadSkin(id uuid.UUID, name string, properties []java.ProfileProperty) {
-	if s.skins == nil || len(properties) == 0 {
+	key := skins.TexturesKey(properties)
+	if s.skins == nil || key == "" || s.state.skinKeys[id] == key {
 		return
 	}
-	load := s.startSkinLoad(id)
+	load := s.startSkinLoad(id, key)
 	go s.finishSkinLoad(load, name, func() (skins.Images, error) { return s.skins.Profile(s.lifetime, properties) })
 }
 
@@ -36,14 +39,14 @@ func (s *Session) loadOwnSkin(id uuid.UUID, name string) {
 	if s.skins == nil || s.profileID == "" {
 		return
 	}
-	load := s.startSkinLoad(id)
+	load := s.startSkinLoad(id, "")
 	go s.finishSkinLoad(load, name, func() (skins.Images, error) { return s.skins.Own(s.lifetime, s.profileID) })
 }
 
-// startSkinLoad records a new load for id, superseding any earlier one; s.mu is held.
-func (s *Session) startSkinLoad(id uuid.UUID) skinLoad {
+// startSkinLoad records a new load of key for id, superseding any earlier one; s.mu is held.
+func (s *Session) startSkinLoad(id uuid.UUID, key string) skinLoad {
 	s.state.skinGeneration++
-	load := skinLoad{id: id, generation: s.state.skinGeneration}
+	load := skinLoad{id: id, key: key, generation: s.state.skinGeneration}
 	s.state.skinLoads[id] = load.generation
 	return load
 }
@@ -51,6 +54,10 @@ func (s *Session) startSkinLoad(id uuid.UUID) skinLoad {
 // finishSkinLoad runs fetch and, if the load is still current, sends the skin to the client.
 func (s *Session) finishSkinLoad(load skinLoad, name string, fetch func() (skins.Images, error)) {
 	images, err := fetch()
+	if s.lifetime.Err() != nil {
+		// The session closed; there is no client left to send the skin to.
+		return
+	}
 	if err != nil {
 		s.log.Warn("Java Edition player skin not loaded", "player", name, "error", err)
 	}
@@ -61,6 +68,9 @@ func (s *Session) finishSkinLoad(load skinLoad, name string, fetch func() (skins
 	}
 	apply := current && (images.Skin != nil || images.Cape != nil)
 	if apply {
+		if load.key != "" {
+			s.state.skinKeys[load.id] = load.key
+		}
 		s.queue(&packet.PlayerSkin{UUID: load.id, Skin: javaSkin(images)})
 	}
 	s.mu.Unlock()
@@ -69,9 +79,11 @@ func (s *Session) finishSkinLoad(load skinLoad, name string, fetch func() (skins
 	}
 }
 
-// forgetSkin abandons a player's skin download when it leaves the list; s.mu is held.
+// forgetSkin abandons a player's skin download and forgets its sent textures when it leaves
+// the list, since a new entry starts with the default skin; s.mu is held.
 func (s *Session) forgetSkin(id uuid.UUID) {
 	delete(s.state.skinLoads, id)
+	delete(s.state.skinKeys, id)
 }
 
 // javaSkin is the Bedrock skin of downloaded textures: a classic 64x32 skin, or the default

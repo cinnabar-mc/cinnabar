@@ -190,12 +190,19 @@ func (f *Fetcher) Own(ctx context.Context, id string) (Images, error) {
 
 // hasTextures reports whether properties hold a textures property.
 func hasTextures(properties []java.ProfileProperty) bool {
+	return TexturesKey(properties) != ""
+}
+
+// TexturesKey identifies the textures property the 1.7.10 client would read from properties,
+// its value and signature, or returns "" when there is none. Equal keys name the same
+// textures.
+func TexturesKey(properties []java.ProfileProperty) string {
 	for _, property := range properties {
 		if property.Name == texturesProperty {
-			return true
+			return property.Value + "\x00" + property.Signature
 		}
 	}
-	return false
+	return ""
 }
 
 // images downloads and prepares the textures, each independently.
