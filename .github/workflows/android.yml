@@ -14,9 +14,13 @@ on:
   schedule:
     - cron: "41 */6 * * *"
   workflow_dispatch:
+    inputs:
+      runner:
+        description: github (hosted) or self (the temporary self-hosted test runner)
+        default: github
 
 concurrency:
-  group: android-${{ github.event.pull_request.number || github.ref }}
+  group: android-${{ github.event.pull_request.number || github.ref }}-${{ inputs.runner || 'github' }}
   cancel-in-progress: true
 
 permissions:
@@ -25,7 +29,7 @@ permissions:
 jobs:
   apk:
     name: Build arm64 APK
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner == 'self' && fromJSON('["self-hosted","cinnabar-xd-android"]') || 'ubuntu-24.04' }}
     timeout-minutes: 180
     env:
       # The profile releases ship, with shell profiling and native symbols for simpleperf.
@@ -40,17 +44,21 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.99.0
+        if: runner.environment == 'github-hosted'
         with:
           targets: aarch64-linux-android
       - uses: actions/setup-go@v6
+        if: runner.environment == 'github-hosted'
         with:
           go-version: 'stable'
           cache: false
       - uses: actions/setup-java@v5
+        if: runner.environment == 'github-hosted'
         with:
           distribution: temurin
           java-version: '17'
       - name: Install the pinned Android SDK packages and cargo-ndk
+        if: runner.environment == 'github-hosted'
         run: |
           pin() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' packaging/android/runtime.json "$1"; }
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
@@ -59,6 +67,7 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
           cargo install cargo-ndk --version "$(pin cargo_ndk)" --locked
       - name: Install Android build dependencies
+        if: runner.environment == 'github-hosted'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends librsvg2-bin cmake ninja-build gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
