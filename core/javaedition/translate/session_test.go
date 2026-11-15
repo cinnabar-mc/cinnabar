@@ -1187,3 +1187,37 @@ func TestJavaAttributeEncodingsMatchTheSharedFixture(t *testing.T) {
 	}
 	checkFixture(t, javaAttributesFixture, append(fixture, '\n'))
 }
+
+// A sprint the client keeps through a respawn is reported again for the new player, as the
+// 1.7.10 client's new player reports its sprint afresh, though the client sends no new start.
+func TestASprintKeptThroughARespawnIsReportedAgain(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+	eye := float32(64 + networkOffset)
+	input := func(flags ...int) *packet.PlayerAuthInput {
+		pk := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, eye, 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
+		for _, flag := range flags {
+			pk.InputData.Set(flag)
+		}
+		return pk
+	}
+	ts.write(input(packet.InputFlagStartSprinting))
+	if action := expect[*java.ClientEntityAction](ts); action.Action != actionStartSprinting {
+		t.Fatalf("action = %+v", action)
+	}
+	ts.serve(&java.Respawn{Dimension: -1, LevelType: "default"})
+	var probe *packet.NetworkStackLatency
+	for _, pk := range ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true}) {
+		if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+			probe = latency
+		}
+	}
+	expect[*java.ClientPlayerPositionLook](ts)
+	ts.write(&packet.NetworkStackLatency{Timestamp: probe.Timestamp * probeTimestampScale})
+	ts.write(input())
+	if action := expect[*java.ClientEntityAction](ts); action.Action != actionStartSprinting {
+		t.Fatalf("after the respawn = %+v", action)
+	}
+}

@@ -202,9 +202,9 @@ func (s *Session) respawn(pk *java.Respawn) {
 	st.dimension, st.gameMode, st.difficulty = int8(pk.Dimension), pk.GameMode, pk.Difficulty
 	st.report, st.breaking = motionReport{}, nil
 	st.respawnRequested = false
-	// The new 1.7.10 player is not sprinting and has the default movement speed until the
-	// server sends otherwise.
-	st.sprinting = false
+	// The new 1.7.10 player has reported no sprint and has the default movement speed until
+	// the server sends otherwise. The client's own sprint state carries over: a sprint it
+	// keeps is reported for the new player, and one it ends arrives as a stop.
 	s.resetMovementSpeed()
 	// The 1.7.10 client's new player has no effects; the server sends the ones that last.
 	for effect := range st.effects {
