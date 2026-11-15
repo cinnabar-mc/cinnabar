@@ -71,6 +71,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends librsvg2-bin cmake ninja-build gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+      - name: Use the self-hosted runner's Android toolchain
+        if: runner.environment == 'self-hosted'
+        run: bash "$HOME/.cache/android-build/job-env.sh"
       # build-apk.sh signs with target/android/test.keystore and creates it when missing.
       - name: Restore this branch's test signing key
         id: test-key
