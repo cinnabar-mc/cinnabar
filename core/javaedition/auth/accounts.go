@@ -34,6 +34,9 @@ const profileReadTimeout = time.Minute
 // profileIDPattern is a Java profile id as the services return it: 32 hexadecimal digits.
 var profileIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
+// ErrAddInProgress reports an add whose code was entered and whose profile is being read.
+var ErrAddInProgress = errors.New("a Java Edition account is being added")
+
 // ErrNoAccount reports an account id that is not saved.
 var ErrNoAccount = errors.New("no such Java Edition account")
 
@@ -229,7 +232,7 @@ func (a *Accounts) BeginAdd(ctx context.Context) (*SignInRequired, error) {
 	if a.add.State == bridgecontract.JavaAccountAddSigningIn {
 		// The code was entered; a new one would never be accepted.
 		a.mu.Unlock()
-		return nil, fmt.Errorf("%w: the Java profile is still being read", ErrSignInUnavailable)
+		return nil, ErrAddInProgress
 	}
 	adding := a.adding
 	if adding == nil {
@@ -269,7 +272,7 @@ func (a *Accounts) BeginAdd(ctx context.Context) (*SignInRequired, error) {
 // Reasons an add failed, as the Accounts dialog shows them.
 const (
 	addStartFailed   = "The Java sign-in could not be started. Try again."
-	addCodeFailed    = "The code expired or the sign-in was declined. Try again."
+	addCodeFailed    = "The sign-in did not finish: the code expired, it was declined, or it could not be saved. Try again."
 	addFilingFailed  = "The Java account could not be added. Try again."
 	addNoJavaEdition = "This Microsoft account does not own Java Edition."
 )
@@ -410,10 +413,8 @@ func (a *Accounts) readIndex() (accountsIndex, error) {
 	}
 	var index accountsIndex
 	if err := json.Unmarshal(data, &index); err != nil {
-		// An unreadable file would lock the player out of every account; it is kept aside
-		// and the accounts start over.
-		a.config.Logger.Warn("Java Edition accounts file unreadable; starting over", "error", err)
-		_ = os.Rename(filepath.Join(a.config.Dir, accountsIndexFile), filepath.Join(a.config.Dir, accountsIndexFile+".corrupt"))
+		// An unreadable file would lock the player out of every account, so it reads as no
+		// accounts; the next change keeps it aside under the lock.
 		return accountsIndex{}, nil
 	}
 	valid := index.Accounts[:0]
@@ -439,6 +440,7 @@ func (a *Accounts) updateIndex(change func(*accountsIndex) error) error {
 		return err
 	}
 	defer func() { _ = lease.Close() }()
+	a.keepUnreadableIndex()
 	index, err := a.readIndex()
 	if err != nil {
 		return err
@@ -451,6 +453,18 @@ func (a *Accounts) updateIndex(change func(*accountsIndex) error) error {
 		return err
 	}
 	return writeFileAtomic(filepath.Join(a.config.Dir, accountsIndexFile), data)
+}
+
+// keepUnreadableIndex moves an accounts file that does not parse aside, so the change about
+// to be written does not discard it unseen. The caller holds the directory's lock.
+func (a *Accounts) keepUnreadableIndex() {
+	path := filepath.Join(a.config.Dir, accountsIndexFile)
+	data, err := os.ReadFile(path)
+	if err != nil || json.Valid(data) {
+		return
+	}
+	a.config.Logger.Warn("Java Edition accounts file unreadable; keeping it aside and starting over")
+	_ = os.Rename(path, path+".corrupt")
 }
 
 func (index accountsIndex) find(id string) (Account, bool) {

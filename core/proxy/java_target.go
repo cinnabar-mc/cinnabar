@@ -133,6 +133,8 @@ func javaJoinError(err error) error {
 		message = "This Java server needs a Java account. Add one in Accounts, then reconnect."
 	case errors.Is(err, errJavaProfileRenamed):
 		message = "Your Java profile was renamed since it was added. Reconnect to join."
+	case errors.Is(err, auth.ErrAddInProgress):
+		message = "Your Java account is being added. Reconnect in a moment."
 	case errors.Is(err, auth.ErrSignInUnavailable):
 		message = "The Java Edition sign-in could not be started. Reconnect to try again."
 	case errors.As(err, &status) && status.Operation == auth.OperationJoin:

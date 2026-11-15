@@ -194,7 +194,7 @@ func TestAccountsCancelWhileReadingTheProfile(t *testing.T) {
 	close(app.finish)
 	signingIn := func() bool { return accounts.AddState().State == bridgecontract.JavaAccountAddSigningIn }
 	testwait.Eventually(t, 5*time.Second, "the profile to be read", signingIn)
-	if _, err := accounts.BeginAdd(context.Background()); !errors.Is(err, ErrSignInUnavailable) {
+	if _, err := accounts.BeginAdd(context.Background()); !errors.Is(err, ErrAddInProgress) {
 		t.Fatalf("an add while reading the profile = %v", err)
 	}
 	if started, _ := app.counts(); started != 1 {
@@ -211,8 +211,9 @@ func TestAccountsCancelWhileReadingTheProfile(t *testing.T) {
 	}
 }
 
-// An unreadable accounts file is kept aside and the accounts start over, so the player can
-// add an account again.
+// An unreadable accounts file reads as no accounts, so the player can add one again. A read
+// leaves the file alone, since another process may be replacing it; the next change keeps it
+// aside under the lock.
 func TestAccountsAnUnreadableIndexStartsOver(t *testing.T) {
 	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
 	path := filepath.Join(accounts.config.Dir, accountsIndexFile)
@@ -223,7 +224,16 @@ func TestAccountsAnUnreadableIndexStartsOver(t *testing.T) {
 	if err != nil || len(list) != 0 || selected != "" {
 		t.Fatalf("list = %+v, %q, %v", list, selected, err)
 	}
+	if _, err := os.Stat(path + ".corrupt"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a read moved the file aside: %v", err)
+	}
+	if err := accounts.updateIndex(func(*accountsIndex) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(path + ".corrupt"); err != nil {
-		t.Fatalf("the unreadable file was not kept aside: %v", err)
+		t.Fatalf("the change did not keep the unreadable file aside: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || !json.Valid(data) {
+		t.Fatalf("accounts file after the change = %q, %v", data, err)
 	}
 }
