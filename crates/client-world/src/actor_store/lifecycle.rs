@@ -453,6 +453,7 @@ impl ActorStore {
         self.clear_links();
         self.players.clear();
         self.unlisted_players.clear();
+        self.pending_default_skins.clear();
         self.synthetic_local_uuid = None;
         self.synthetic_local_skin = None;
         self.local_skin_fingerprints.clear();

@@ -232,6 +232,87 @@ mod tests {
         );
     }
 
+    /// The listed player's actor, which keeps its appearance after the roster entry goes.
+    fn spawn_listed_player(store: &mut ActorStore) {
+        let sequence = store.latest_sequence() + 1;
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 2,
+                kind: protocol::ActorKind::Player {
+                    uuid: UUID,
+                    username: "Alex".into(),
+                },
+                position: [0.0, 64.0, 0.0],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            }),
+        );
+    }
+
+    fn unlist(store: &mut ActorStore) {
+        let sequence = store.latest_sequence() + 1;
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid: UUID }]),
+            }),
+        );
+    }
+
+    /// A player whose actor outlives its roster entry still shows its appearance, so its
+    /// request waits with it and gets the cape once the default arrives; the request goes when
+    /// the actor does.
+    #[test]
+    fn a_request_waits_while_an_unlisted_actor_shows_it() {
+        static INSTALLED: AtomicBool = AtomicBool::new(false);
+        fn later() -> Option<SkinRgba8> {
+            INSTALLED.load(Ordering::Relaxed).then(legacy_pixels)
+        }
+        let mut store = ActorStore::new(1, 0);
+        store.set_legacy_default_skin(later);
+        list(&mut store, default_with_cape());
+        spawn_listed_player(&mut store);
+        unlist(&mut store);
+        assert!(store.unlisted_players.contains_key(&UUID));
+        assert!(store.pending_default_skins.contains_key(&UUID));
+
+        INSTALLED.store(true, Ordering::Relaxed);
+        assert!(store.resolve_pending_default_skins());
+        let PlayerSkin::Standard(skin) = &store.unlisted_players[&UUID].skin else {
+            panic!("the unlisted appearance gets the default skin");
+        };
+        assert!(skin.cape.is_some(), "and its cape");
+
+        // Once the actor goes, nothing keeps a request for it.
+        INSTALLED.store(false, Ordering::Relaxed);
+        list(&mut store, default_with_cape());
+        unlist(&mut store);
+        let sequence = store.latest_sequence() + 1;
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::Remove(protocol::ActorRemoveEvent {
+                dimension: 0,
+                unique_id: 1,
+            }),
+        );
+        assert!(!store.unlisted_players.contains_key(&UUID));
+        assert!(store.pending_default_skins.is_empty());
+    }
+
     /// A real skin that replaces a pending request is not overwritten when the default
     /// texture arrives.
     #[test]

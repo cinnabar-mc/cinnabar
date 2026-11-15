@@ -185,8 +185,9 @@ impl ActorStore {
         true
     }
 
-    /// Removes a profile and releases its retained skin charge.
+    /// Removes a profile and releases its retained skin charge and any default skin request.
     pub(super) fn remove_profile(&mut self, uuid: &[u8; 16]) {
+        self.pending_default_skins.remove(uuid);
         if let Some(profile) = self
             .players
             .remove(uuid)
