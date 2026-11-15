@@ -247,6 +247,11 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		switch pk.Animation {
 		case animationSwingArm:
 			s.queue(&packet.Animate{ActionType: packet.AnimateActionSwingArm, EntityRuntimeID: runtimeID(pk.EntityID)})
+			if pk.EntityID == st.entityID {
+				// NetHandlerPlayClient.handleAnimation swings the local player through
+				// EntityClientPlayerMP.swingItem, which reports the swing back.
+				s.probeClient(probe{swing: true})
+			}
 		case animationHurt:
 			s.queue(&packet.ActorEvent{EntityRuntimeID: runtimeID(pk.EntityID), EventType: packet.ActorEventHurt})
 		}

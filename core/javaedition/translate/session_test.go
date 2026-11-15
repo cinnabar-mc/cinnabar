@@ -1257,3 +1257,34 @@ func TestASprintEndedAcrossARespawnSendsNothing(t *testing.T) {
 		t.Fatalf("an ended sprint sent %+v", action)
 	}
 }
+
+// A swing the server plays on the local player is reported back once the client plays it, as
+// EntityClientPlayerMP.swingItem does; a held slot outside the hotbar is ignored, as
+// handleHeldItemChange ignores it. Anti-bot verifications check both.
+func TestServerSwingsAreEchoedAndBadSlotsIgnored(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+
+	var probe *packet.NetworkStackLatency
+	for _, pk := range ts.serve(&java.Animation{EntityID: 7, Animation: animationSwingArm}) {
+		if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+			probe = latency
+		}
+	}
+	if probe == nil {
+		t.Fatal("the swing sent no probe")
+	}
+	ts.write(&packet.NetworkStackLatency{Timestamp: probe.Timestamp * probeTimestampScale})
+	if swing := expect[*java.ClientAnimation](ts); swing.EntityID != 7 || swing.Animation != 1 {
+		t.Fatalf("swing echo = %+v", swing)
+	}
+
+	ts.send(&java.HeldItemChange{Slot: 9})
+	ts.serve(&java.HeldItemChange{Slot: 4})
+	ts.write(&packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, float32(64 + networkOffset), 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)})
+	if held := expect[*java.ClientHeldItemChange](ts); held.Slot != 4 {
+		t.Fatalf("held slot = %+v", held)
+	}
+}
