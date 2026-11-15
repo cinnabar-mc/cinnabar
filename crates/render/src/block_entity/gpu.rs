@@ -590,7 +590,9 @@ fn queue_solid(
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<BlockEntityView>,
 ) {
-    if gpu.solid.count == 0 && gpu.portal.count == 0 {
+    if gpu.solid.count == 0 && gpu.portal.count == 0
+        || crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::BLOCK_ENTITIES)
+    {
         return;
     }
     let functions = draw_functions.read();

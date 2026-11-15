@@ -123,7 +123,7 @@ fn drawn(world: &World, view: Entity) -> bool {
 /// Draws the stock sky, stars and finite pack cube into `pass`, which targets `view`'s scene
 /// colour and depth with its viewport set, before any world geometry can cover them.
 pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderPass<'w>) {
-    if !drawn(world, view) {
+    if !drawn(world, view) || crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::SKY) {
         return;
     }
     let (Some(camera), Some(msaa), Some(offset)) = (
@@ -157,7 +157,13 @@ pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderP
     pass.set_bind_group(0, bind_group, &[offset.offset]);
     pass.draw(0..3, 0..1);
     for (stars, skybox) in [(true, false), (false, true)] {
-        if skybox && !gpu.skybox_active {
+        if stars && crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::STARS) {
+            continue;
+        }
+        if skybox
+            && (!gpu.skybox_active
+                || crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::PACK_SKYBOX))
+        {
             continue;
         }
         let key = AtmospherePipelineKey {

@@ -730,6 +730,9 @@ struct QueueItemParams<'w, 's> {
 }
 
 fn queue_items(mut commands: Commands, mut params: QueueItemParams<'_, '_>) {
+    if crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::BLOCK_ENTITIES) {
+        return;
+    }
     if params.scene.instances.is_empty()
         && params.scene.dynamic.is_empty()
         && !params
