@@ -999,3 +999,69 @@ func TestExplosionsDestroyBlocksAndPushThePlayer(t *testing.T) {
 		t.Fatalf("second push = %+v", event)
 	}
 }
+
+// After a server teleport, movement the client simulated before it applied the teleport is
+// held back, even close to the target, until the client answers the probe sent after it.
+func TestMovementFromBeforeATeleportIsHeldBack(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.loadColumn(0, 0)
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+	eye := float32(64 + networkOffset)
+	input := func(z float32) *packet.PlayerAuthInput {
+		return &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, eye, z}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
+	}
+	ts.write(input(0.5))
+	expect[*java.ClientPlayerPosition](ts)
+
+	var probe *packet.NetworkStackLatency
+	for _, pk := range ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.7, OnGround: true}) {
+		if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+			probe = latency
+		}
+	}
+	if probe == nil {
+		t.Fatal("the teleport sent no probe")
+	}
+	if reply := expect[*java.ClientPlayerPositionLook](ts); reply.Z != 0.7 {
+		t.Fatalf("teleport reply = %+v", reply)
+	}
+	// A tick from before the teleport, a hair from its target.
+	ts.write(input(0.6))
+	ts.write(&packet.NetworkStackLatency{Timestamp: probe.Timestamp * probeTimestampScale})
+	ts.write(input(0.7))
+	next, err := ts.server.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved, ok := next.(*java.ClientPlayerPosition); !ok || math.Abs(moved.Z-0.7) > 1e-6 {
+		t.Fatalf("the first movement after the teleport = %+v, want the teleport position", next)
+	}
+}
+
+// Letting go of a use early is reported; a use that runs its course, such as a finished meal,
+// ends without a packet, as in the 1.7.10 client.
+func TestOnlyAnEarlyReleaseIsReported(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "joined"})
+	if chat := expect[*java.ClientChatMessage](ts); chat.Message != "joined" {
+		t.Fatalf("chat = %+v", chat)
+	}
+	ts.write(&packet.InventoryTransaction{TransactionData: &protocol.ReleaseItemTransactionData{ActionType: protocol.ReleaseItemActionConsume}})
+	ts.write(&packet.InventoryTransaction{TransactionData: &protocol.ReleaseItemTransactionData{ActionType: protocol.ReleaseItemActionRelease}})
+	next, err := ts.server.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dig, ok := next.(*java.ClientPlayerDigging); !ok || dig.Status != digRelease {
+		t.Fatalf("first packet = %+v, want the early release only", next)
+	}
+	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "marker"})
+	if next, err := ts.server.Read(); err != nil {
+		t.Fatal(err)
+	} else if chat, ok := next.(*java.ClientChatMessage); !ok || chat.Message != "marker" {
+		t.Fatalf("a finished use was reported: %+v", next)
+	}
+}

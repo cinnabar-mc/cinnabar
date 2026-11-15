@@ -1945,7 +1945,9 @@ every condition that ends a sprint), and the sprint they decide is what the serv
 The server's movement speed snapshots, which carry Speed and Slowness, reach `java-sim`
 whole, with each one replacing the attribute on the tick it arrives as in the game. Rejected
 transactions and keep-alives reach the client as latency probes, which it answers after
-applying every earlier packet, so the server gets its answers in the 1.7.10 order.
+applying every earlier packet, so the server gets its answers in the 1.7.10 order. After a
+server teleport, movement the client simulated before applying it is held back until it
+answers a probe sent after the teleport, as the 1.7.10 client never reports such a position.
 
 Incomplete:
 
@@ -1953,8 +1955,11 @@ Incomplete:
   spawned, loaded its chunks, walked, sprinted, jumped and chatted without a movement warning,
   and a public online-mode network through the Java Edition sign-in, where it reached the
   lobby and walked. Its anticheat flagged the movement before transactions were answered and
-  sprinting followed the 1.7.10 rules; the fixes have not yet been checked against an
-  anticheat. Combat, teleports and inventories have not been exercised in the client.
+  sprinting followed the 1.7.10 rules. Since then, the packets the client sends while walking,
+  sprinting, sprint-jumping and blocking with a sword, and while recovering from server
+  setbacks, were compared with the real 1.7.10 client's on a server running NoCheatPlus and
+  are identical bit for bit; that NoCheatPlus setup flags both clients alike, so it is no
+  verdict on its own, and other anticheats have not been tried. Combat, teleports and inventories have not been exercised in the client.
 - Server positions reach the client in single precision: a teleport or the join position
   crosses in the Bedrock movement packet, with the feet lifted onto the ground when rounding
   sinks them into it, so the client stands up to one single-precision step from where the

@@ -28,6 +28,9 @@ type state struct {
 	// nextProbe the last timestamp given.
 	probes    map[int64]probe
 	nextProbe int64
+	// teleportProbe is the probe that follows the latest server teleport while the client has
+	// not answered it; the client's movement until then predates the teleport.
+	teleportProbe int64
 	// speedSequence numbers the movement speed snapshots sent to the client.
 	speedSequence uint32
 	// pushSequence numbers the explosion pushes sent to the client, and pushes holds the

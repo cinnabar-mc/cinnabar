@@ -149,7 +149,11 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 			}
 			return s.send(&java.ClientUseEntity{EntityID: javaEntityID(data.TargetEntityRuntimeID), Action: action})
 		case *protocol.ReleaseItemTransactionData:
-			return s.send(&java.ClientPlayerDigging{Status: digRelease, Face: 255})
+			// PlayerControllerMP.onStoppedUsingItem reports letting go of a use early; a use
+			// that runs its course, such as a finished meal, ends without a packet.
+			if data.ActionType == protocol.ReleaseItemActionRelease {
+				return s.send(&java.ClientPlayerDigging{Status: digRelease, Face: 255})
+			}
 		}
 	case *packet.PlayerAction:
 		if pk.ActionType == protocol.PlayerActionRespawn {
@@ -224,6 +228,10 @@ func (s *Session) chat(message string) error {
 func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 	st := &s.state
 	if !st.spawned {
+		return nil
+	}
+	if st.teleportProbe != 0 {
+		// The client has not yet applied the latest teleport; this tick predates it.
 		return nil
 	}
 	if st.teleport != nil {

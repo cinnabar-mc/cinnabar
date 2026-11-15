@@ -234,7 +234,7 @@ func (s *Session) positionAndLook(pk *java.PlayerPositionAndLook) error {
 	st.yaw, st.pitch = pk.Yaw, pk.Pitch
 	st.look.set(pk.Yaw)
 	eye := mgl32.Vec3{float32(pk.X), float32(feet + networkOffset), float32(pk.Z)}
-	st.teleport = &eye
+	spawned := st.spawned
 	s.publish(pk.X, pk.Z)
 	if st.respawning {
 		st.respawning = false
@@ -249,6 +249,17 @@ func (s *Session) positionAndLook(pk *java.PlayerPositionAndLook) error {
 		Mode:            packet.MoveModeTeleport,
 		OnGround:        pk.OnGround,
 	})
+	if spawned {
+		// The 1.7.10 client applies a teleport before its next tick, so it never reports a
+		// position from before it. The client's movement already in flight does; it is held
+		// back until the client answers a probe sent after the teleport.
+		st.teleport = nil
+		st.teleportProbe = s.probeClient(probe{teleport: true})
+	} else {
+		// A loading client may answer no probe yet; its first movement near the spawn
+		// position is the first from after it.
+		st.teleport = &eye
+	}
 	if !st.spawned {
 		st.spawned = true
 		s.queueVitals()
