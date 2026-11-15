@@ -841,6 +841,7 @@ fn begin_gpu_frame(
     #[cfg(not(any(target_os = "windows", test)))]
     let frame_id = profiler.frame_id();
     timestamps.begin(frame_id, |id, frame, whole_frame| {
+        crate::chunk::diag::ab::record(id, frame);
         profiler.record_gpu_frame(frame);
         #[cfg(any(target_os = "windows", test))]
         if let (Some(adaptive), Some(policy)) = (adaptive.as_mut(), policy.as_ref()) {
@@ -856,6 +857,7 @@ fn begin_gpu_frame(
         #[cfg(not(any(target_os = "windows", test)))]
         let _ = (id, whole_frame);
     });
+    crate::chunk::diag::ab::note_frame(frame_id);
 }
 
 fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>, queue: Res<RenderQueue>) {
