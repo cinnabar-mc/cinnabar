@@ -23,6 +23,10 @@ type state struct {
 	joined bool
 	// spawned is set once the client has been told to leave its loading screen.
 	spawned bool
+	// probes holds the latency probes the client has not answered, by timestamp, and
+	// nextProbe the last timestamp given.
+	probes    map[int64]probe
+	nextProbe int64
 
 	entityID   int32
 	dimension  int8
@@ -72,6 +76,7 @@ type abilities struct {
 
 func newState() state {
 	return state{
+		probes:    map[int64]probe{},
 		world:     newWorld(dimensionOverworld),
 		radius:    8,
 		entities:  map[int32]*entity{},
