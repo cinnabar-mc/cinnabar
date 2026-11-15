@@ -42,6 +42,8 @@ impl MenuRuntime {
             return;
         }
         self.reload_accounts();
+        // A failed add's reason belongs to the dialog that showed it, however it was left.
+        self.dismiss_java_accounts();
         self.refresh_java_accounts();
         self.dialog = Some(MenuDialog::Accounts);
         self.focused = 0;

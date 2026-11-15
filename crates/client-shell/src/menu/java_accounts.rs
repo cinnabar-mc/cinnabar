@@ -119,7 +119,9 @@ impl MenuRuntime {
             self.dialog == Some(MenuDialog::Accounts) && self.feeds.java_accounts.add.in_progress();
         let ui = &mut self.java_accounts;
         if !watching {
+            // An answer lost with a replaced worker must not keep the next watch from polling.
             ui.next_poll = None;
+            ui.awaiting = false;
         } else if !ui.awaiting && ui.next_poll.is_none_or(|next| now >= next) {
             ui.next_poll = Some(now + ADD_POLL);
             if ui.queued.is_empty() {
