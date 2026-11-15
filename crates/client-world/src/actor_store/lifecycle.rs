@@ -653,6 +653,10 @@ impl ActorStore {
                                 spawned.as_ref(),
                             );
                             capacity_rejected |= !admitted;
+                            if !admitted {
+                                // No profile holds the request, so none waits for the default.
+                                self.pending_default_skins.remove(uuid);
+                            }
                             if admitted && self.synthetic_local_uuid == Some(*uuid) {
                                 self.synthetic_local_uuid = None;
                             }

@@ -95,13 +95,24 @@ mod tests {
     }
 
     fn list(store: &mut ActorStore, skin: PlayerSkin) -> ActorApplyResult {
+        list_as(store, UUID, 1, skin)
+    }
+
+    /// Lists player `uuid` with entity unique id `unique_id`, at the next sequence.
+    fn list_as(
+        store: &mut ActorStore,
+        uuid: [u8; 16],
+        unique_id: i64,
+        skin: PlayerSkin,
+    ) -> ActorApplyResult {
+        let sequence = store.latest_sequence() + 1;
         store.apply(
             1,
-            1,
+            sequence,
             ActorEvent::PlayerList(PlayerListUpdateEvent {
                 entries: Arc::from([PlayerListEntry::Add {
-                    uuid: UUID,
-                    unique_id: 1,
+                    uuid,
+                    unique_id,
                     username: "Alex".into(),
                     verified: true,
                     xuid: "".into(),
@@ -169,6 +180,56 @@ mod tests {
         assert!(store.resolve_pending_default_skins());
         assert_default_with_cape(&store);
         assert!(!store.resolve_pending_default_skins(), "applied once");
+    }
+
+    /// The default texture never arrives on a client without it, so requests must not outlive
+    /// the players they were for: unlisted players, players the roster refused and unknown
+    /// players keep none.
+    #[test]
+    fn pending_requests_end_with_their_players() {
+        fn never() -> Option<SkinRgba8> {
+            None
+        }
+        let mut store = ActorStore::with_limits(1, 0, 4, 1, 1 << 20);
+        store.set_legacy_default_skin(never);
+
+        assert_eq!(
+            list(&mut store, default_with_cape()),
+            ActorApplyResult::Updated
+        );
+        assert_eq!(store.pending_default_skins.len(), 1);
+        let sequence = store.latest_sequence() + 1;
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid: UUID }]),
+            }),
+        );
+        assert!(
+            store.pending_default_skins.is_empty(),
+            "an unlisted player keeps a request"
+        );
+
+        // The roster holds one player, so a second is refused.
+        list(&mut store, default_with_cape());
+        assert_eq!(
+            list_as(&mut store, [4; 16], 2, default_with_cape()),
+            ActorApplyResult::CapacityRejected
+        );
+        assert!(
+            !store.pending_default_skins.contains_key(&[4; 16]),
+            "a refused player keeps a request"
+        );
+
+        assert_eq!(
+            store.apply_skin_update([5; 16], default_with_cape()),
+            ActorApplyResult::MissingActor
+        );
+        assert!(
+            !store.pending_default_skins.contains_key(&[5; 16]),
+            "an unknown player keeps a request"
+        );
     }
 
     /// A real skin that replaces a pending request is not overwritten when the default

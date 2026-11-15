@@ -7,6 +7,11 @@ impl ActorStore {
         uuid: [u8; 16],
         skin: PlayerSkin,
     ) -> ActorApplyResult {
+        if !self.players.contains_key(&uuid) && !self.unlisted_players.contains_key(&uuid) {
+            // An unknown player keeps no default skin request either.
+            self.pending_default_skins.remove(&uuid);
+            return ActorApplyResult::MissingActor;
+        }
         let skin = self.resolve_default_skin(uuid, skin);
         let Some(profile) = self
             .players

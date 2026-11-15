@@ -49,8 +49,10 @@ impl ActorStore {
         }
     }
 
-    /// Removes the roster entry, keeping its appearance while the matching actor exists.
+    /// Removes the roster entry, keeping its appearance while the matching actor exists, and
+    /// drops any default skin request it was waiting on.
     pub(super) fn unlist_player(&mut self, uuid: &[u8; 16]) {
+        self.pending_default_skins.remove(uuid);
         let Some(profile) = self.players.remove(uuid) else {
             return;
         };

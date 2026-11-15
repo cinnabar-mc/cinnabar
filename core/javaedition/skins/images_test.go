@@ -3,6 +3,7 @@ package skins
 import (
 	"image"
 	"image/color"
+	"math"
 	"testing"
 )
 
@@ -45,23 +46,31 @@ func TestLegacyCapeIsFittedTo64x32(t *testing.T) {
 	}
 }
 
-// Each 64x32 texel takes the source texel under its centre, as nearest filtering samples it:
-// a 128x64 cape shows its odd columns and rows, not its even ones.
+// Each 64x32 texel takes the source texel under its centre, as the 1.7.10 client's nearest
+// filtering samples a cape uploaded at its own size: for larger, smaller and
+// non-power-of-two capes alike, not the texel at the cell's left or top edge.
 func TestLegacyCapeSamplesTexelCentres(t *testing.T) {
-	source := image.NewNRGBA(image.Rect(0, 0, 128, 64))
-	for y := range 64 {
-		for x := range 128 {
-			if x%2 == 1 && y%2 == 1 {
-				source.SetNRGBA(x, y, color.NRGBA{G: 0xff, A: 0xff})
-			} else {
-				source.SetNRGBA(x, y, color.NRGBA{R: 0xff, A: 0xff})
+	for _, size := range []image.Point{{128, 64}, {22, 17}, {96, 48}, {40, 20}} {
+		// Each source texel records its own coordinates.
+		source := image.NewNRGBA(image.Rect(0, 0, size.X, size.Y))
+		for y := range size.Y {
+			for x := range size.X {
+				source.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), A: 0xff})
 			}
 		}
-	}
-	cape := legacyCape(source)
-	for _, at := range []image.Point{{0, 0}, {10, 5}, {63, 31}} {
-		if got := cape.NRGBAAt(at.X, at.Y); got != (color.NRGBA{G: 0xff, A: 0xff}) {
-			t.Fatalf("texel %v = %v, want the source texel under its centre", at, got)
+		cape := legacyCape(source)
+		for y := range TextureHeight {
+			for x := range TextureWidth {
+				want := color.NRGBA{
+					R: uint8(math.Floor((float64(x) + 0.5) * float64(size.X) / TextureWidth)),
+					G: uint8(math.Floor((float64(y) + 0.5) * float64(size.Y) / TextureHeight)),
+					A: 0xff,
+				}
+				if got := cape.NRGBAAt(x, y); got != want {
+					t.Fatalf("%dx%d cape: texel (%d, %d) shows source (%d, %d), want (%d, %d)",
+						size.X, size.Y, x, y, got.R, got.G, want.R, want.G)
+				}
+			}
 		}
 	}
 }
