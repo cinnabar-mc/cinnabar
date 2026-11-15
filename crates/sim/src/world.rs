@@ -740,15 +740,19 @@ impl CollisionWorld for PaletteWorld<'_> {
         self.require_movement_origin(feet)
     }
 
-    /// Records the column's revision, or its absence where movement terrain has a boundary
-    /// for it, so a replay notices the column arriving.
+    /// Records the column's revision, or its absence: movement terrain records the boundary
+    /// revision, so a replay notices the column arriving, and other terrain fails the
+    /// observation, as any unavailable read does.
     fn require_column(&self, chunk_x: i32, chunk_z: i32) -> Result<(), WorldQueryError> {
         let key = ChunkKey::new(self.dimension, chunk_x, chunk_z);
         if self.store.collision_revision(key).is_none() {
-            if let Some(boundary) = self.unloaded_boundary_revision(key) {
-                let _ = self.record_column_read(Ok(boundary));
-            }
-            return Err(WorldQueryError::UnloadedChunk(key));
+            let absent = WorldQueryError::UnloadedChunk(key);
+            // Either outcome is latched in the observation, which reports it when it ends.
+            let _ = self.record_column_read(
+                self.unloaded_boundary_revision(key)
+                    .ok_or_else(|| absent.clone()),
+            );
+            return Err(absent);
         }
         self.column_revision(key).map(|_| ())
     }

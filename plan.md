@@ -1985,7 +1985,9 @@ Incomplete:
 - The client receives a column later than the core sends it, so a Java tick waits until the
   column under the player has arrived, where the 1.7.10 client, having already applied it,
   would tick. Where the server never sends that column at all, the player waits instead of
-  sinking.
+  sinking. A column the server unloads reaches the client as an empty column, which it cannot
+  tell from one sent empty, so gravity still applies over it; vanilla servers never unload the
+  column a player stands in.
 - On a Java session the client keeps its own flight rules and gives `java-sim` the
   resulting flying state, so the 1.7.10 double-tap jump timer does not decide flight.
   Bedrock's swimming and crawling poses can still engage. Reach, the pick ray and the

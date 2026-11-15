@@ -129,6 +129,50 @@ mod tests {
         assert_eq!(observed, Err(WorldQueryError::UnloadedChunk(missing)));
     }
 
+    /// A required column that arrived is part of the identity; one that did not fails the
+    /// observation, as other unavailable reads do.
+    #[test]
+    fn a_required_column_is_observed_or_fails_the_observation() {
+        let (store, registry) = fixture();
+        let observed = PaletteWorld::new(&store, &registry, 0, Default::default())
+            .observe(|world| world.require_column(1, 1))
+            .unwrap();
+        assert_eq!(observed.value, Ok(()));
+        let expected = WorldCollisionIdentity::new(
+            registry.identity(),
+            [store.collision_revision(ChunkKey::new(0, 1, 1)).unwrap()],
+        )
+        .unwrap();
+        assert_eq!(observed.identity, expected);
+        let missing = ChunkKey::new(0, 5, 5);
+        let absent = PaletteWorld::new(&store, &registry, 0, Default::default())
+            .observe(|world| world.require_column(5, 5).is_ok());
+        assert_eq!(absent, Err(WorldQueryError::UnloadedChunk(missing)));
+    }
+
+    /// Movement terrain records a missing column's absence, so the identity changes when the
+    /// column arrives and a replay of the waiting tick notices.
+    #[test]
+    fn movement_terrain_records_a_required_columns_arrival() {
+        let (mut store, registry) = fixture();
+        let observe = |store: &ChunkStore| {
+            PaletteWorld::for_movement(store, &registry, 0)
+                .observe(|world| world.require_column(5, 5))
+                .unwrap()
+        };
+        let waiting = observe(&store);
+        assert_eq!(
+            waiting.value,
+            Err(WorldQueryError::UnloadedChunk(ChunkKey::new(0, 5, 5)))
+        );
+        let key = SubChunkKey::new(0, 5, 0, 5);
+        store.apply_request_mode_air(key).unwrap();
+        store.mark_sub_chunk_loaded(key).unwrap();
+        let arrived = observe(&store);
+        assert_eq!(arrived.value, Ok(()));
+        assert_ne!(waiting.identity, arrived.identity);
+    }
+
     #[test]
     fn palette_observation_retains_the_revision_before_an_authoritative_write() {
         let (mut store, registry) = fixture();
