@@ -282,7 +282,7 @@ func (a *Accounts) BeginAdd(ctx context.Context) (*SignInRequired, error) {
 			Path: filepath.Join(a.config.Dir, pendingTokenPrefix+rand.Text()+".json"), App: a.config.App,
 			Services: a.config.Services, Logger: a.config.Logger, Now: a.config.Now,
 			OnSignedIn:     func() { a.finishAdd(keychain) },
-			OnSignInFailed: func(error) { a.failAdd(keychain) },
+			OnSignInFailed: func(code string, _ error) { a.failAdd(keychain, code) },
 		})
 		a.adding, adding = keychain, keychain
 	}
@@ -296,6 +296,10 @@ func (a *Accounts) BeginAdd(ctx context.Context) (*SignInRequired, error) {
 			err = fmt.Errorf("%w: the sign-in was cancelled", ErrSignInUnavailable)
 		}
 		return nil, err
+	}
+	if a.add.State == bridgecontract.JavaAccountAddSigningIn {
+		// The code was entered while this call waited; showing it again would mislead.
+		return nil, ErrAddInProgress
 	}
 	if err != nil {
 		a.add = AddState{State: bridgecontract.JavaAccountAddFailed, Reason: addStartFailed}
@@ -316,20 +320,30 @@ const (
 // CancelAdd stops the sign-in under way, even while its profile is being read, and forgets
 // its token.
 func (a *Accounts) CancelAdd() {
+	// Under the accounts lock, so a cancel and the filing of a finished add are ordered: one
+	// that returns has kept the account from being added. The lock is released before the
+	// keychain closes, as its filing may be waiting for it.
+	ctx, cancel := context.WithTimeout(context.Background(), indexLockTimeout)
+	lease, lockErr := a.lockIndex(ctx)
+	cancel()
 	a.mu.Lock()
 	adding := a.adding
 	a.adding = nil
 	a.add = AddState{State: bridgecontract.JavaAccountAddIdle}
 	a.mu.Unlock()
+	if lockErr == nil {
+		_ = lease.Close()
+	}
 	if adding != nil {
 		a.discard(adding)
 	}
 }
 
 // failAdd records a sign-in that ended without a token, such as an expired code.
-func (a *Accounts) failAdd(adding *Keychain) {
+func (a *Accounts) failAdd(adding *Keychain, code string) {
 	a.mu.Lock()
-	if a.adding != adding {
+	if a.adding != adding || a.add.State != bridgecontract.JavaAccountAddAwaitingCode || a.add.UserCode != code {
+		// A sign-in the add moved past, such as one replaced by a newer code.
 		a.mu.Unlock()
 		return
 	}
@@ -524,7 +538,9 @@ func (a *Accounts) updateIndex(change func(*accountsIndex) error) error {
 		return err
 	}
 	defer func() { _ = lease.Close() }()
-	a.keepUnreadableIndex()
+	if err := a.keepUnreadableIndex(); err != nil {
+		return err
+	}
 	index, err := a.readIndex()
 	if err != nil {
 		return err
@@ -550,14 +566,21 @@ func (a *Accounts) lockIndex(ctx context.Context) (io.Closer, error) {
 
 // keepUnreadableIndex moves an accounts file that does not parse aside, so the change about
 // to be written does not discard it unseen. The caller holds the directory's lock.
-func (a *Accounts) keepUnreadableIndex() {
+func (a *Accounts) keepUnreadableIndex() error {
 	path := filepath.Join(a.config.Dir, accountsIndexFile)
 	data, err := os.ReadFile(path)
-	if err != nil || json.Valid(data) {
-		return
+	if err != nil {
+		return nil
+	}
+	// The same test readIndex applies, so a file it reads as empty is never overwritten unseen.
+	if json.Unmarshal(data, new(accountsIndex)) == nil {
+		return nil
 	}
 	a.config.Logger.Warn("Java Edition accounts file unreadable; keeping it aside and starting over")
-	_ = os.Rename(path, path+".corrupt")
+	if err := os.Rename(path, path+".corrupt"); err != nil {
+		return fmt.Errorf("keep the unreadable Java Edition accounts file: %w", err)
+	}
+	return nil
 }
 
 func (index accountsIndex) find(id string) (Account, bool) {

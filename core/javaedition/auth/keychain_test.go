@@ -30,6 +30,8 @@ type fakeApp struct {
 	declined bool
 	// refreshErr, when not nil, fails every refresh of a saved token.
 	refreshErr error
+	// onDeviceAuth, when set, runs while a device code is requested.
+	onDeviceAuth func()
 
 	mu         sync.Mutex
 	deviceAuth int
@@ -39,6 +41,9 @@ type fakeApp struct {
 func newFakeApp() *fakeApp { return &fakeApp{finish: make(chan struct{})} }
 
 func (a *fakeApp) DeviceAuth(context.Context) (*oauth2.DeviceAuthResponse, error) {
+	if a.onDeviceAuth != nil {
+		a.onDeviceAuth()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.deviceAuth++
