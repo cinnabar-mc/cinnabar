@@ -394,12 +394,10 @@ fn a_java_tick_over_an_unreadable_world_fails_without_changing_the_state() {
     simulator
         .tick(&mut settled, input, &readable)
         .expect("a readable world ticks");
-    let cases: [(&str, Fails); 4] = [
+    let cases: [(&str, Fails); 3] = [
         ("one failed read", |_, read| read == 0),
         ("two failed reads", |_, read| read < 2),
         ("every read fails", |_, _| true),
-        // The player stands at Y 64, so only the loaded-column probe reads Y 0.
-        ("the column probe fails", |block, _| block[1] == 0),
     ];
     for (name, fails) in cases {
         let world = FailingWorld {
@@ -494,4 +492,48 @@ fn an_explosion_push_adds_to_the_motion_once() {
         (pushed.y - still.y - 0.5 * drag * drag * drag).abs() < 1.0e-9,
         "a push held over three ticks was applied more than once"
     );
+}
+
+/// Where the server sent no column, the Java player still ticks and falls under full gravity,
+/// as the 1.7.10 client does, whose chunk provider reports every column as existing.
+#[test]
+fn a_java_player_falls_where_no_column_was_sent() {
+    struct NoColumns;
+    impl CollisionWorld for NoColumns {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(Vec::new()))
+        }
+        fn primary_block(&self, _block: [i32; 3]) -> Result<Option<u32>, WorldQueryError> {
+            Ok(None)
+        }
+    }
+    let simulator = Simulator::default();
+    let mut state = PlayerState::new(Vec3::new(0.5, 100.0, 0.5));
+    let input = MovementInput {
+        java_physics: true,
+        ..MovementInput::default()
+    };
+    let mut motion = Vec::new();
+    for _ in 0..3 {
+        motion.push(
+            simulator
+                .tick(&mut state, input, &NoColumns)
+                .expect("a tick")
+                .velocity
+                .y,
+        );
+    }
+    // 1.7.10 gravity: (motion - 0.08) * 0.98f each tick, from rest.
+    let drag = f64::from(0.98_f32);
+    let mut expected = 0.0;
+    for (tick, actual) in motion.iter().enumerate() {
+        expected = (expected - 0.08) * drag;
+        assert!(
+            (actual - expected).abs() < 1e-12,
+            "tick {tick}: motion {actual}, want {expected}"
+        );
+    }
 }

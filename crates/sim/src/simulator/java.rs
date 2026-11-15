@@ -111,8 +111,11 @@ impl<W: CollisionWorld> World for JavaWorld<'_, W> {
         block
     }
 
-    fn chunk_loaded(&self, chunk_x: i32, chunk_z: i32) -> bool {
-        self.network_id(chunk_x << 4, 0, chunk_z << 4).is_some()
+    /// Every column exists to the 1.7.10 client: its `ChunkProviderClient.chunkExists` always
+    /// answers true, so its player ticks, falls under full gravity and collides with air where
+    /// the server sent no column.
+    fn chunk_loaded(&self, _chunk_x: i32, _chunk_z: i32) -> bool {
+        true
     }
 }
 
