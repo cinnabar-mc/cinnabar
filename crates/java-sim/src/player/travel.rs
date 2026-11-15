@@ -160,8 +160,12 @@ impl Player {
         if self.collided_horizontally && self.on_ladder(world) {
             self.motion[1] = LADDER_CLIMB_VELOCITY;
         }
-        // The loaded check truncates the position toward zero rather than flooring it.
-        if world.block_exists(self.x as i32, 0, self.z as i32) {
+        // Gravity applies only over a column the server sent; elsewhere the player sinks at a
+        // fixed speed. The check truncates the position toward zero rather than flooring it.
+        let (column_x, column_z) = (self.x as i32, self.z as i32);
+        if world.block_exists(column_x, 0, column_z)
+            && world.chunk_loaded(column_x >> 4, column_z >> 4)
+        {
             self.motion[1] -= GRAVITY;
         } else {
             self.motion[1] = if self.y > 0.0 { UNLOADED_FALL } else { 0.0 };

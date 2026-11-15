@@ -81,6 +81,10 @@ impl CollisionWorld for CollisionSnapshot {
         self.world().ensure_movement_origin(feet)
     }
 
+    fn require_column(&self, chunk_x: i32, chunk_z: i32) -> Result<(), WorldQueryError> {
+        self.world().require_column(chunk_x, chunk_z)
+    }
+
     fn registry_identity(&self) -> CollisionRegistryIdentity {
         self.data.registry.identity()
     }

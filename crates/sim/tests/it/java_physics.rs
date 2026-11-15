@@ -378,7 +378,7 @@ impl CollisionWorld for FailingWorld {
 }
 
 /// A tick over a world it cannot read fails and leaves the state as it was, however many
-/// reads failed and whether they were block reads or the loaded-column probe.
+/// reads failed.
 #[test]
 fn a_java_tick_over_an_unreadable_world_fails_without_changing_the_state() {
     let input = MovementInput {
@@ -494,46 +494,113 @@ fn an_explosion_push_adds_to_the_motion_once() {
     );
 }
 
-/// Where the server sent no column, the Java player still ticks and falls under full gravity,
-/// as the 1.7.10 client does, whose chunk provider reports every column as existing.
-#[test]
-fn a_java_player_falls_where_no_column_was_sent() {
-    struct NoColumns;
-    impl CollisionWorld for NoColumns {
-        fn collision_boxes(
-            &self,
-            _query: Aabb,
-        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
-            Ok(CollisionQuery::synthetic(Vec::new()))
-        }
-        fn primary_block(&self, _block: [i32; 3]) -> Result<Option<u32>, WorldQueryError> {
-            Ok(None)
+/// Air everywhere, in columns that have arrived only where `sent` says so.
+struct Columns {
+    sent: fn(i32, i32) -> bool,
+}
+
+impl CollisionWorld for Columns {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    fn primary_block(&self, _block: [i32; 3]) -> Result<Option<u32>, WorldQueryError> {
+        Ok(Some(AIR_HASH))
+    }
+
+    fn require_column(&self, chunk_x: i32, chunk_z: i32) -> Result<(), WorldQueryError> {
+        if (self.sent)(chunk_x, chunk_z) {
+            Ok(())
+        } else {
+            Err(WorldQueryError::UnloadedChunk(world::ChunkKey {
+                dimension: 0,
+                x: chunk_x,
+                z: chunk_z,
+            }))
         }
     }
+}
+
+/// The vertical motion of three Java ticks from rest at `feet` over `world`.
+fn fall(world: &Columns, feet: Vec3) -> Vec<f64> {
     let simulator = Simulator::default();
-    let mut state = PlayerState::new(Vec3::new(0.5, 100.0, 0.5));
+    let mut state = PlayerState::new(feet);
     let input = MovementInput {
         java_physics: true,
         ..MovementInput::default()
     };
-    let mut motion = Vec::new();
-    for _ in 0..3 {
-        motion.push(
+    (0..3)
+        .map(|_| {
             simulator
-                .tick(&mut state, input, &NoColumns)
+                .tick(&mut state, input, world)
                 .expect("a tick")
                 .velocity
-                .y,
-        );
-    }
-    // 1.7.10 gravity: (motion - 0.08) * 0.98f each tick, from rest.
+                .y
+        })
+        .collect()
+}
+
+/// A column the server sent with nothing but empty sections, as an anti-bot verification's
+/// world is, is loaded: the player falls through it under 1.7.10 gravity,
+/// `(motion - 0.08) * 0.98f` each tick.
+#[test]
+fn a_java_player_falls_through_an_empty_column_under_full_gravity() {
     let drag = f64::from(0.98_f32);
     let mut expected = 0.0;
-    for (tick, actual) in motion.iter().enumerate() {
+    for (tick, actual) in fall(&Columns { sent: |_, _| true }, Vec3::new(8.5, 300.0, 8.5))
+        .into_iter()
+        .enumerate()
+    {
         expected = (expected - 0.08) * drag;
         assert!(
             (actual - expected).abs() < 1e-12,
             "tick {tick}: motion {actual}, want {expected}"
         );
     }
+}
+
+/// Gravity reads the column at the position truncated toward zero. Where that column was
+/// never sent, the 1.7.10 player sinks at a fixed 0.1 a tick before drag instead, as
+/// `EntityLivingBase.moveEntityWithHeading` sets it over the client's empty chunk.
+#[test]
+fn a_java_player_sinks_at_a_fixed_speed_over_a_column_never_sent() {
+    // At x = -0.5 the feet stand in column -1, which arrived, and truncation names column 0,
+    // which did not.
+    let motion = fall(
+        &Columns {
+            sent: |chunk_x, _| chunk_x < 0,
+        },
+        Vec3::new(-0.5, 100.0, 8.5),
+    );
+    let sink = -0.1 * f64::from(0.98_f32);
+    for (tick, actual) in motion.into_iter().enumerate() {
+        assert!(
+            (actual - sink).abs() < 1e-12,
+            "tick {tick}: motion {actual}, want {sink}"
+        );
+    }
+}
+
+/// Until the column under the player arrives the Java tick waits, failing with the column's
+/// absence and leaving the state as it was.
+#[test]
+fn a_java_tick_waits_for_the_players_column() {
+    let simulator = Simulator::default();
+    let feet = PlayerState::new(Vec3::new(8.5, 100.0, 8.5));
+    let mut state = feet.clone();
+    let input = MovementInput {
+        java_physics: true,
+        ..MovementInput::default()
+    };
+    let result = simulator.tick(&mut state, input, &Columns { sent: |_, _| false });
+    assert!(
+        matches!(
+            result,
+            Err(sim::SimulationError::World(WorldQueryError::UnloadedChunk(
+                _
+            )))
+        ),
+        "the tick did not wait: {result:?}"
+    );
+    assert_eq!(state, feet, "the waiting tick changed the state");
 }

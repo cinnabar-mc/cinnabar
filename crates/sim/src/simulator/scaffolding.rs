@@ -382,6 +382,10 @@ impl<W: CollisionWorld + ?Sized> CollisionWorld for ScaffoldingView<'_, W> {
         self.inner.ensure_movement_origin(feet)
     }
 
+    fn require_column(&self, chunk_x: i32, chunk_z: i32) -> Result<(), WorldQueryError> {
+        self.inner.require_column(chunk_x, chunk_z)
+    }
+
     fn begin_tick(&self, tick: u64) {
         self.inner.begin_tick(tick);
     }

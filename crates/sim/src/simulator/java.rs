@@ -111,11 +111,18 @@ impl<W: CollisionWorld> World for JavaWorld<'_, W> {
         block
     }
 
-    /// Every column exists to the 1.7.10 client: its `ChunkProviderClient.chunkExists` always
-    /// answers true, so its player ticks, falls under full gravity and collides with air where
-    /// the server sent no column.
-    fn chunk_loaded(&self, _chunk_x: i32, _chunk_z: i32) -> bool {
-        true
+    /// Whether the column has arrived, whatever sections it holds: a column sent with only
+    /// empty sections is loaded, and the player falls through it under full gravity.
+    fn chunk_loaded(&self, chunk_x: i32, chunk_z: i32) -> bool {
+        match self.world.require_column(chunk_x, chunk_z) {
+            Ok(()) => true,
+            Err(WorldQueryError::UnloadedChunk(_)) => false,
+            Err(error) => {
+                let first = self.failure.take().unwrap_or(error);
+                self.failure.set(Some(first));
+                true
+            }
+        }
     }
 }
 
@@ -131,6 +138,14 @@ pub(super) fn tick(
         .tick
         .checked_add(1)
         .ok_or(SimulationError::TickOverflow)?;
+    // The 1.7.10 client has applied a column by the time it ticks over it, but this client
+    // takes longer to receive one than the core takes to send it. Until the player's own
+    // column arrives the tick waits, rather than sinking the player through a column the
+    // server did send.
+    world.require_column(
+        state.position.x.floor() as i32 >> 4,
+        state.position.z.floor() as i32 >> 4,
+    )?;
     let (yaw, pitch) = (input.yaw_degrees as f32, input.pitch_degrees as f32);
     let java_world = JavaWorld {
         world,
