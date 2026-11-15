@@ -2112,6 +2112,11 @@ Flathub submission remain incomplete.
   while constraining the storage budget. Proprietary Adreno Vulkan drivers use direct terrain
   draws after indirect draws produced empty frames on Adreno 619 and 750. Both devices pass the
   coverage, occlusion and reupload fixtures with this fallback; PowerVR GE8320 also passes.
+  On an Adreno 650 phone the batched unit path draws 18% faster than the per-section fallback
+  once its solid and cutout sections draw nearest first (26.0 against 21.6 fps), so disabling
+  batching there is a regression; both paths still trail vanilla's 113 fps, and the remaining
+  gap is per-fragment terrain shading rather than submission
+  ([evidence](docs/evidence/android-terrain-draw-path.md)).
   Mali-G57, Mali-G78, Mali-G715 and PowerVR DXT fixture pipeline compilation failed before
   completed frames. Shader translation now separates logical Function/Private allocations from
   host buffer layouts and preserves either advertised image-robustness feature. Composed terrain
