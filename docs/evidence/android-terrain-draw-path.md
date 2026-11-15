@@ -1,15 +1,17 @@
 # Android terrain draw path on Adreno 650
 
-On a Galaxy S20 FE 5G, the batched terrain unit path draws opaque terrain 18% faster than the
-per-section fallback after the ordering fix in [#3070](https://github.com/cinnabar-mc/cinnabar/pull/3070)
-(`08446aa3ae`): 26.0 against 21.6 frames per second, and 38.3 against 45.4 ms median GPU frame
-time, with both paths drawing 296 sections. Before #3070 the same comparison, run as separate
-processes, put the per-section path ahead. Disabling batching on proprietary Adreno Vulkan is
-therefore a regression after #3070, not a workaround.
+On a Galaxy S20 FE 5G, the batched terrain unit path sustains 20% more frames per second on
+opaque terrain than the per-section fallback after the ordering fix in
+[#3070](https://github.com/cinnabar-mc/cinnabar/pull/3070) (`08446aa3ae`): 26.0 against 21.6
+frames per second, and a median GPU frame time 18% shorter, 38.3 against 45.4 ms, with both
+paths drawing 296 sections. Before #3070 the same comparison, run as separate processes, put
+the per-section path ahead. Disabling batching on proprietary Adreno Vulkan is therefore a
+regression after #3070, not a workaround.
 
 Vanilla Bedrock 1.26.60 measures 113.1 fps at a comparable pose and the same video settings on
 the same device, so these numbers attribute one cause of the phone gap. They are not a parity
-claim, and the remaining gap is fragment shading rather than submission.
+claim. The remaining gap is not submission, and the next candidate, per-fragment terrain
+shading, is not yet measured in isolation.
 
 ## Method
 
@@ -50,6 +52,10 @@ Units averaged 26.0 fps (38.3 ms median GPU) against 21.6 fps (45.4 ms) for per-
 Every units phase beat both following and preceding direct phases; the smallest pair gap is
 phase 3 against phase 4, 24.2 against 22.3 fps.
 
+The measurement build's absolute numbers only serve this paired comparison. A clean production
+build of the same commit, with no toggle, measured 23.9 fps at the same pose, within the drift
+range below.
+
 ## Restart-based comparison before #3070
 
 At `0882bd81a0`, three back-to-back process pairs on the same pose and settings:
@@ -61,19 +67,25 @@ At `0882bd81a0`, three back-to-back process pairs on the same pose and settings:
 | 3 | 23.2 | 24.0 |
 
 Absolute values move by more than the effect between sessions, so only the direction within a
-pair is used: per-section draws were 3–22% faster than batching without the ordering fix, and
-are 9–33% slower with it (the interleaved table above).
+pair is used: per-section draws were 3–22% faster than batching without the ordering fix, and,
+with it, 8–25% slower than the units phase before each of them (the interleaved table above).
+The cross-session magnitude is not a comparable measure of the ordering change; the 20% figure
+comes from the interleaved run.
 
 ## Remaining gap
 
 The batched path now issues three unit draws, and both paths draw solid terrain front-to-back in
 the early depth pass. The per-section path still submits about 400 draws and keeps cutout
 sections in visibility order; both differences remain after the batched path started ordering
-sections nearest first. Both paths share the same terrain shader and full render resolution, so
-the bulk of the remaining 38 ms is per-fragment work: a texture-array sample, a per-fragment
-biome tint with transfer-function `pow` calls, the native lightmap fetch and distance fog. That
-is also why vanilla's simpler terrain shader still draws the same scene in 8.8 ms. Neither draw
-path closes that gap.
+sections nearest first. Submission therefore does not explain the remaining gap to vanilla's
+113 fps, but this comparison does not establish what does.
+
+The unverified candidate is per-fragment work in the terrain shader that both paths share: a
+texture-array sample, a per-fragment biome tint with transfer-function `pow` calls, the native
+lightmap fetch and distance fog. Vanilla's simpler terrain shader draws the same scene in 8.8 ms
+per frame at 113.1 fps, which is consistent with that attribution but is not evidence for it.
+Isolating the cost of that fragment work is missing acceptance evidence, so this attribution
+stays provisional.
 
 Related: reduced render resolution is not a workaround on this device. At 10% render scale the
 FSR1 EASU/RCAS upscale to 2400×1080 dominated the frame, and the F3 overlay read 58.1 ms of GPU
