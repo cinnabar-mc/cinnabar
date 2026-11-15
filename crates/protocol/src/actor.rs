@@ -32,7 +32,8 @@ pub(crate) use skin_update::normalize_skin_update;
 mod status;
 use skin::normalize_player_skin;
 pub use skin::{
-    PlayerSkin, PlayerSkinUnavailable, normalize_classic_skin_rgba8, normalize_custom_skin_rgba8,
+    PlayerSkin, PlayerSkinUnavailable, is_client_default_skin, normalize_classic_skin_rgba8,
+    normalize_custom_skin_rgba8,
 };
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{

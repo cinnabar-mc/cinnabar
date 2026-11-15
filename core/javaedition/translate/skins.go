@@ -68,8 +68,7 @@ func (s *Session) startSkinLoad(load skinLoad) skinLoad {
 }
 
 // finishSkinLoad runs fetch and, if the load is still current, sends the skin to the client.
-// A player whose new textures give no skin gets the default skin back; a cape alone cannot be
-// drawn without skin pixels, so it is dropped.
+// A player whose new textures give neither a skin nor a cape gets the default skin back.
 func (s *Session) finishSkinLoad(load skinLoad, fetch func() (skins.Images, error)) {
 	defer s.skinWork.Done()
 	images, err := fetch()
@@ -85,7 +84,7 @@ func (s *Session) finishSkinLoad(load skinLoad, fetch func() (skins.Images, erro
 	_, wearing := s.state.skinKeys[load.id]
 	switch {
 	case !current:
-	case images.Skin != nil:
+	case images.Skin != nil || images.Cape != nil:
 		if load.key != "" {
 			s.state.skinKeys[load.id] = load.key
 		}
@@ -114,13 +113,15 @@ func (s *Session) forgetSkin(id uuid.UUID) {
 	delete(s.state.skinKeys, id)
 }
 
-// javaSkin is the Bedrock skin of downloaded textures, which hold a skin: a classic 64x32
-// skin, with the cape when there is one.
+// javaSkin is the Bedrock skin of downloaded textures: a classic 64x32 skin, or the default
+// skin when only a cape was downloaded, with the cape when there is one.
 func javaSkin(images skins.Images) protocol.Skin {
 	skin := defaultSkin()
-	skin.SkinID = "java-" + images.SkinHash
-	skin.SkinImageWidth, skin.SkinImageHeight = skins.TextureWidth, skins.TextureHeight
-	skin.SkinData = images.Skin
+	if images.Skin != nil {
+		skin.SkinID = "java-" + images.SkinHash
+		skin.SkinImageWidth, skin.SkinImageHeight = skins.TextureWidth, skins.TextureHeight
+		skin.SkinData = images.Skin
+	}
 	if images.Cape != nil {
 		skin.CapeID = images.CapeHash
 		skin.CapeImageWidth, skin.CapeImageHeight = skins.TextureWidth, skins.TextureHeight
@@ -130,9 +131,9 @@ func javaSkin(images skins.Images) protocol.Skin {
 	return skin
 }
 
-// defaultSkin carries no pixels, so the client draws its own default skin, Steve from the
-// installed pack, as the 1.7.10 client draws its steve.png for a player without textures.
-// A cape needs skin pixels to be drawn with, so a player wearing the default skin shows none.
+// defaultSkin carries no pixels, so the client draws its own default skin: on a Java session,
+// the Steve of the installed pack in the 64x32 layout, as the 1.7.10 client draws its steve.png
+// for a player without a skin, with any cape the skin carries.
 func defaultSkin() protocol.Skin {
 	return protocol.Skin{SkinID: "java-default", SkinResourcePatch: classicGeometry, Trusted: true}
 }

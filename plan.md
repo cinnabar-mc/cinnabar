@@ -1920,12 +1920,15 @@ chunk decoders reading the translation.
 
 Implemented: player skins and capes ([`javaedition/skins`](core/javaedition/skins/fetcher.go)).
 As in the 1.7.10 client, another player's textures count only when the session service signed
-them; the core checks the signature against the keys the services publish, downloads the skin
-and cape off the packet path with bounded size, time and concurrency, caches them by address,
-and sends them as a 64x32 classic skin once they arrive. The local player wears the selected
-Java account's skin, read unsigned from the session service. Players without signed textures,
-offline-mode servers and failed downloads keep the client's default skin, Steve from the
-installed pack.
+them with the key that client bundles; the core trusts only the listed key whose SHA-256 is
+that key's, downloads the skin and cape off the packet path with bounded size, time and
+concurrency, caches them by address, and sends them as a 64x32 classic skin once they arrive.
+The local player wears the selected Java account's skin, read unsigned from the session
+service. Players without signed textures, offline-mode servers and failed downloads wear the
+client's default skin, and a player with only a cape wears it over that skin. On a Java session
+the client draws that default as 1.7.10 does: the installed pack's Steve in the 64x32 layout,
+without its second layers and with mirrored limbs
+([`default_skin`](crates/client-world/src/actor_store/default_skin.rs)).
 
 Implemented: Java accounts ([`javaedition/auth`](core/javaedition/auth/accounts.go)). The
 Java Edition services refuse tokens from the account's Bedrock sign-in ("Invalid app
@@ -2016,10 +2019,8 @@ Incomplete:
   nether is 128 blocks high, so Java nether blocks above that are not shown.
 - Skins have been seen in the client on an offline-mode vanilla server, with the default skin
   and, through a proxy that added a public profile's signed textures to a spawn packet, with
-  a downloaded skin and cape; not yet on an online-mode server. The default is the Bedrock
-  pack's 64x64 Steve, not the 1.7.10 64x32 one, and a player wearing it shows no cape, because
-  the client draws a cape only with skin pixels. Signatures are accepted from any profile
-  property key the services list, where the 1.7.10 client knows only its bundled key.
+  a downloaded skin and cape and with a cape over the default skin; not yet on an online-mode
+  server.
 - Entity armour, most entity metadata, paintings, experience
   orbs, item frames, effects of other entities, attributes other than the local player's
   movement speed, sounds, particles, explosion effects, block-break progress, team colours on

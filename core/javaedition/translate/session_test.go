@@ -282,6 +282,13 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 	if last := stream[len(stream)-1]; last.ID() != packet.IDPlayerSkin {
 		stream = append(stream, ts.skinAfter(nil))
 	}
+	// A player with a cape over the default skin gets it without skin pixels.
+	capeOnly := skinstest.Payload("", services.Texture("cape", 64, 32, color.NRGBA{B: 0xc0, A: 0xff}))
+	serve(&java.SpawnPlayer{EntityID: 10, UUID: "00000000-0000-4000-8000-00000000000a", Name: "Notch", X: 12 * 32, Y: 1 * 32, Z: 4 * 32,
+		Properties: []java.ProfileProperty{services.Signed(capeOnly)}})
+	if last := stream[len(stream)-1]; last.ID() != packet.IDPlayerSkin {
+		stream = append(stream, ts.skinAfter(nil))
+	}
 	moved := serve(&java.EntityRelativeMove{EntityID: 9, DX: 16, DY: 0, DZ: -32})
 	if actor := moved[0].(*packet.MoveActorAbsolute); actor.Position != (mgl32.Vec3{8.5, float32(1 + networkOffset), 3}) {
 		t.Fatalf("remote player moved to %v", actor.Position)

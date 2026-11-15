@@ -219,22 +219,18 @@ func TestTheLatestSpawnedTexturesWin(t *testing.T) {
 	ts.checkNoSkinUpdate()
 }
 
-// A cape without a skin cannot be drawn, and its update would leave the client on the skin the
-// player wore before, so the player gets the default skin back instead.
-func TestACapeWithoutASkinGivesTheDefaultSkinBack(t *testing.T) {
+// A cape over the default skin is sent without skin pixels, so the client draws it over its own
+// default skin, as the 1.7.10 client draws a cape over Steve.
+func TestACapeOverTheDefaultSkinIsSent(t *testing.T) {
 	services := skinstest.Start(t)
 	ts := startTestSessionWith(t, Options{Skins: services.Fetcher()})
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
-	skin := []java.ProfileProperty{services.Signed(skinstest.Payload(services.Texture("skin", 64, 32, color.NRGBA{R: 0xff, A: 0xff}), ""))}
 	cape := []java.ProfileProperty{services.Signed(skinstest.Payload("", services.Texture("cape", 64, 32, color.NRGBA{B: 0xff, A: 0xff})))}
-	ts.skinAfter(ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: skin}))
-	ts.serve(&java.DestroyEntities{EntityIDs: []int32{9}})
-	reset := ts.listAfter(ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: cape}))
-	for _, pk := range reset {
-		if _, ok := pk.(*packet.PlayerSkin); ok {
-			t.Fatal("a cape-only skin update was sent")
-		}
+	update := ts.skinAfter(ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: cape}))
+	if len(update.Skin.SkinData) != 0 || update.Skin.SkinImageWidth != 0 {
+		t.Fatalf("a cape-only skin carries %d skin bytes", len(update.Skin.SkinData))
 	}
-	checkDefaultSkin(t, listedSkin(t, reset))
-	ts.waitSkins()
+	if len(update.Skin.CapeData) != 64*32*4 || update.Skin.CapeID != "cape" {
+		t.Fatalf("cape = %d bytes, id %q", len(update.Skin.CapeData), update.Skin.CapeID)
+	}
 }

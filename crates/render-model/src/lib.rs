@@ -57,9 +57,10 @@ pub use actor::{
     geometry_bone_pivots, geometry_from_geometry_index, geometry_from_runtime_assets,
     install_default_player_skin, is_equipment_rig_id, is_layer_geometry_rig_id,
     is_pack_equipment_rig_id, is_pack_rig_id, is_skin_rig_id, item_mesh_rig_id, layer_geometries,
-    layer_geometry_rig_id, normalize_actor_skin, pack_equipment_rig_id, pack_geometries,
-    pack_rig_id, prepare_actor_skin_cached, resolve_geometry_bones, sampled_locator_transform,
-    skin_geometry, skin_rig_id, standard_biped_overlay_vertices, standard_biped_vertices,
+    layer_geometry_rig_id, legacy_default_skin_rgba8, legacy_skin_layout, normalize_actor_skin,
+    pack_equipment_rig_id, pack_geometries, pack_rig_id, prepare_actor_skin_cached,
+    resolve_geometry_bones, sampled_locator_transform, skin_geometry, skin_rig_id,
+    standard_biped_overlay_vertices, standard_biped_vertices,
 };
 pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,

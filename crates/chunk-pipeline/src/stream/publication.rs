@@ -260,6 +260,12 @@ impl WorldStream {
         self.authority.sync_local_vehicle_pose(feed)
     }
 
+    /// Marks the session as a Java Edition one, whose players without a skin wear the 64x32
+    /// default skin with their cape.
+    pub fn set_java_session(&mut self, java: bool) {
+        self.authority.set_java_session(java);
+    }
+
     /// Publishes a client-selected appearance against the retained local player profile.
     pub fn update_local_player_skin(&mut self, profile: &client_world::PlayerProfile) -> bool {
         self.authority

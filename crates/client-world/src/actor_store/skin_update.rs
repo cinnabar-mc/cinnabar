@@ -7,6 +7,7 @@ impl ActorStore {
         uuid: [u8; 16],
         skin: PlayerSkin,
     ) -> ActorApplyResult {
+        let skin = self.resolve_default_skin(skin);
         let Some(profile) = self
             .players
             .get_mut(&uuid)

@@ -225,7 +225,7 @@ pub(super) fn apply(
         ]
     };
     timings.mark(bootstrap_timing::BootstrapPhase::Session);
-    let stream = super::bootstrap_world::build(
+    let mut stream = super::bootstrap_world::build(
         super::bootstrap_world::StreamBootstrap {
             world: bootstrap,
             custom_blocks: &custom_blocks,
@@ -249,6 +249,7 @@ pub(super) fn apply(
         },
         &mut timings,
     );
+    stream.set_java_session(java_edition);
     let resolved = stream.resolved_server_position();
     #[cfg(feature = "acceptance")]
     if acceptance.enabled() {

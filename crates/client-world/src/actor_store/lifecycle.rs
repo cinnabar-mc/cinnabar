@@ -139,6 +139,7 @@ impl ActorStore {
             synthetic_local_skin: None,
             local_skin_fingerprints: Default::default(),
             synthetic_local_skin_pending: false,
+            java_session: false,
             synthetic_local_revision: 0,
             local_first_person: false,
             local_view_dirty: false,
@@ -645,7 +646,7 @@ impl ActorStore {
                                     username: username.clone(),
                                     verified: *verified,
                                     xuid: xuid.clone(),
-                                    skin: skin.clone(),
+                                    skin: self.resolve_default_skin(skin.clone()),
                                 },
                                 spawned.as_ref(),
                             );

@@ -260,6 +260,12 @@ impl WorldAuthority {
         }
     }
 
+    /// Marks the session as a Java Edition one, whose players without a skin wear the 64x32
+    /// default skin with their cape.
+    pub fn set_java_session(&mut self, java: bool) {
+        self.actors.set_java_session(java);
+    }
+
     /// Replaces the local appearance while preserving the server's roster identity.
     pub fn update_local_player_skin(&mut self, skin: protocol::PlayerSkin) -> bool {
         let Some(actor) = self.actors.get(self.local_player_runtime_id) else {

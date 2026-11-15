@@ -9,7 +9,7 @@ use bytes::Bytes;
 use protocol::decode_batch;
 
 use crate::login::GameData;
-use crate::{ActorEvent, PlayerListEntry, PlayerSkin};
+use crate::{ActorEvent, PlayerListEntry, PlayerSkin, is_client_default_skin};
 
 const SESSION: &[u8] = include_bytes!("../../fixtures/java_session.bin");
 const ITEM_REGISTRY: &[u8] = include_bytes!("../../fixtures/java_item_registry.bin");
@@ -37,6 +37,9 @@ fn translated_java_session_decodes_in_order() {
             PacketId::SetTime,
             PacketId::Text,
             PacketId::UpdateAttributes,
+            PacketId::PlayerList,
+            PacketId::AddPlayer,
+            PacketId::PlayerSkin,
             PacketId::PlayerList,
             PacketId::AddPlayer,
             PacketId::PlayerSkin,
@@ -105,7 +108,8 @@ fn translated_player_positions_carry_the_network_offset() {
 }
 
 /// A Java player is listed without skin pixels, so the client draws its own default skin,
-/// then gets the signed skin and cape the core downloaded as a 64x32 classic skin.
+/// then gets the signed skin and cape the core downloaded as a 64x32 classic skin. A player
+/// with only a cape gets it without skin pixels, to be drawn over the client's default skin.
 #[test]
 fn translated_java_skins_reach_the_client() {
     let session = decode(SESSION);
@@ -125,25 +129,35 @@ fn translated_java_skins_reach_the_client() {
         panic!("one added entry");
     };
     assert!(
-        matches!(skin, PlayerSkin::Unavailable(_)),
-        "the listed skin is the client's default, got {skin:?}"
+        is_client_default_skin(skin),
+        "the listed skin asks for the client's default, got {skin:?}"
     );
 
-    let update = session
-        .iter()
-        .find_map(|packet| match &*packet.data {
-            packets::Packet::PlayerSkin(update) => Some(update.clone()),
-            _ => None,
-        })
-        .expect("the stream sends the downloaded skin");
-    let ActorEvent::Skin { skin, .. } = crate::actor::normalize_skin_update(update) else {
-        panic!("a skin update decodes to a skin event");
-    };
-    let PlayerSkin::Standard(skin) = skin else {
-        panic!("the downloaded skin is usable, got {skin:?}");
+    let mut updates = session.iter().filter_map(|packet| match &*packet.data {
+        packets::Packet::PlayerSkin(update) => {
+            let ActorEvent::Skin { skin, .. } = crate::actor::normalize_skin_update(update.clone())
+            else {
+                panic!("a skin update decodes to a skin event");
+            };
+            Some(skin)
+        }
+        _ => None,
+    });
+    let PlayerSkin::Standard(downloaded) = updates.next().expect("the downloaded skin") else {
+        panic!("the downloaded skin is usable");
     };
     // The 64x32 skin is expanded to the 64x64 layout with mirrored limbs.
-    assert_eq!((skin.width, skin.height), (64, 64));
-    let cape = skin.cape.expect("the cape is kept");
+    assert_eq!((downloaded.width, downloaded.height), (64, 64));
+    let cape = downloaded.cape.expect("the cape is kept");
+    assert_eq!((cape.width, cape.height), (64, 32));
+
+    let cape_only = updates.next().expect("the cape over the default skin");
+    assert!(is_client_default_skin(&cape_only), "got {cape_only:?}");
+    let PlayerSkin::Standard(cape_only) = cape_only else {
+        unreachable!()
+    };
+    let cape = cape_only
+        .cape
+        .expect("the cape is kept without skin pixels");
     assert_eq!((cape.width, cape.height), (64, 32));
 }
