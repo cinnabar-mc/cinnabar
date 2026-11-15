@@ -280,8 +280,10 @@ func (a *Accounts) saveHead(id string) error {
 	}
 	// Under the accounts lock, so a removal either comes first and nothing is written, or
 	// comes after and deletes the picture with the account.
-	// The read's context ends with Close, so a shutdown does not wait out the lock.
-	lease, err := a.lockIndex(ctx)
+	// Its own wait, so a slow download leaves it its full time; it ends with Close too.
+	lockCtx, cancelLock := context.WithTimeout(a.lifetime, indexLockTimeout)
+	defer cancelLock()
+	lease, err := a.lockIndex(lockCtx)
 	if err != nil {
 		return err
 	}
