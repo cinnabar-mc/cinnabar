@@ -414,7 +414,7 @@ func (s *Session) queueAbilities() {
 	set(protocol.AbilityMayFly, st.abilities.allowFlying)
 	set(protocol.AbilityInstantBuild, st.abilities.creative)
 	s.queue(&packet.UpdateAbilities{AbilityData: protocol.AbilityData{
-		EntityUniqueID:     int64(st.entityID),
+		EntityUniqueID:     uniqueID(st.entityID),
 		PlayerPermissions:  packet.PermissionLevelMember,
 		CommandPermissions: protocol.CommandPermissionLevelAny,
 		Layers: []protocol.AbilityLayer{{
