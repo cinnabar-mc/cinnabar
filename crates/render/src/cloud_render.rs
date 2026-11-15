@@ -535,6 +535,9 @@ fn queue_clouds(
     )>,
     pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
+    if crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::CLOUDS) {
+        return;
+    }
     if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
         return;
     }

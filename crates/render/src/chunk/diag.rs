@@ -61,6 +61,9 @@ pub(in crate::chunk) struct TerrainDiag {
     /// layout) and the vertex shader reads descriptors directly, two dependent storage-load
     /// levels instead of four.
     pub(in crate::chunk) flat_units: bool,
+    /// `diag_frame=MASK` removes non-terrain work around the opaque and hand passes; see
+    /// [`FrameSkip`].
+    pub(in crate::chunk) frame: u32,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,
     /// (h) `diag_counts=1`: logs terrain draw, instance and vertex counts every 120 frames.
@@ -82,6 +85,7 @@ static STATE: RwLock<TerrainDiag> = RwLock::new(TerrainDiag {
     shade: 0,
     vary: 0,
     flat_units: false,
+    frame: 0,
     units_off: false,
     counts: false,
 });
@@ -119,6 +123,7 @@ pub(in crate::chunk) fn refresh() {
         shade: number("SHADE").min(10) as u8,
         vary: number("VARY").min(4) as u8,
         flat_units: flag("FLAT_UNITS"),
+        frame: number("FRAME"),
         units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
         counts: flag("COUNTS"),
     };
@@ -127,6 +132,36 @@ pub(in crate::chunk) fn refresh() {
         println!("CINNABAR_TERRAIN_DIAG {next:?}");
         *state = next;
     }
+}
+
+/// Bits of `diag_frame`, each removing one piece of non-terrain world work for phone timing.
+/// Pixels are wrong while any is set.
+pub(crate) struct FrameSkip;
+
+impl FrameSkip {
+    /// The sky: stock sky triangle, stars and pack skybox.
+    pub(crate) const SKY: u32 = 1;
+    /// Clouds.
+    pub(crate) const CLOUDS: u32 = 2;
+    /// Entities (actors) in the opaque phase.
+    pub(crate) const ENTITIES: u32 = 4;
+    /// Block entities and dropped items in the opaque phase.
+    pub(crate) const BLOCK_ENTITIES: u32 = 8;
+    /// Both first-person hand passes.
+    pub(crate) const HANDS: u32 = 16;
+    /// The opaque pass discards depth instead of storing it; later depth readers see garbage.
+    pub(crate) const OPAQUE_DEPTH_DISCARD: u32 = 32;
+    /// The hand passes clear colour instead of loading the scene (the scene is lost).
+    pub(crate) const HAND_CLEAR: u32 = 64;
+    /// Only the pack skybox (frag_depth writer), keeping the stock sky and stars.
+    pub(crate) const PACK_SKYBOX: u32 = 128;
+    /// Only the star geometry, which draws by day too (its fragments then discard).
+    pub(crate) const STARS: u32 = 256;
+}
+
+/// Whether `diag_frame` currently removes `bit` (a [`FrameSkip`] constant).
+pub(crate) fn frame_skips(bit: u32) -> bool {
+    current().frame & bit != 0
 }
 
 /// Whether this frame logs counts (every 120 frames while `diag_counts` is on).

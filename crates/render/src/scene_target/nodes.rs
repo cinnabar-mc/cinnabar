@@ -61,7 +61,13 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         || target.get_color_attachment(),
         |scene| scene.color_attachment(target, false),
     );
-    let depth = depth.get_attachment(StoreOp::Store);
+    let depth = depth.get_attachment(
+        if crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::OPAQUE_DEPTH_DISCARD) {
+            StoreOp::Discard
+        } else {
+            StoreOp::Store
+        },
+    );
     let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution).map(
         |viewport| {
             crate::render_bounds::viewport(&viewport, crate::render_bounds::extent(color.view))

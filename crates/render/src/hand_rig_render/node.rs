@@ -29,7 +29,9 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     coverage: crate::shaderpack::native_actors::NativeActorCoverage,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
-    if !crate::shaderpack::native_pass_enabled(world, view_entity, AFTER_PACK) {
+    if !crate::shaderpack::native_pass_enabled(world, view_entity, AFTER_PACK)
+        || crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::HANDS)
+    {
         return Ok(());
     }
     let (target, scene_target, msaa, enhanced, pack_view) = query.into_inner();
@@ -73,11 +75,16 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     });
     let final_world_draw =
         !encoded && !(render_model::enhanced_rendering_enabled() && enhanced) && msaa.samples() > 1;
-    let attachments = [Some(if final_world_draw {
+    let mut attachments = [Some(if final_world_draw {
         scene_target.final_attachment(target.main_texture_view())
     } else {
         scene_target.color_attachment(target, encoded)
     })];
+    if crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::HAND_CLEAR)
+        && let Some(attachment) = attachments[0].as_mut()
+    {
+        attachment.ops.load = LoadOp::Clear(wgpu::Color::BLACK);
+    }
     let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("first-person animated rig"),
         color_attachments: &attachments,

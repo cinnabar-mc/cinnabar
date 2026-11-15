@@ -66,6 +66,18 @@ mod upload_staging;
 
 // This standalone UI fixture installs no camera-effect scene. Production's
 // post-hand camera pass is exercised by the render library and live client.
+/// The scene passes read diagnostic switches; this harness never sets any.
+mod chunk {
+    pub(crate) mod diag {
+        pub(crate) struct FrameSkip;
+        impl FrameSkip {
+            pub(crate) const OPAQUE_DEPTH_DISCARD: u32 = 32;
+        }
+        pub(crate) fn frame_skips(_: u32) -> bool {
+            false
+        }
+    }
+}
 mod screen_overlay_render {
     pub(crate) fn draw_before_hud(
         _: bevy::prelude::Entity,

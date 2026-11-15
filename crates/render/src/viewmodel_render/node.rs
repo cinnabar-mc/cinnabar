@@ -79,7 +79,16 @@ pub(crate) fn hand_view<const AFTER_PACK: bool>(
         gate.reject(token);
         return Ok(());
     };
-    let attachments = [Some(scene_target.color_attachment(target, false))];
+    if crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::HANDS) {
+        gate.reject(token);
+        return Ok(());
+    }
+    let mut attachments = [Some(scene_target.color_attachment(target, false))];
+    if crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::HAND_CLEAR)
+        && let Some(attachment) = attachments[0].as_mut()
+    {
+        attachment.ops.load = LoadOp::Clear(wgpu::Color::BLACK);
+    }
     let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera-local neutral empty hand"),
         color_attachments: &attachments,
