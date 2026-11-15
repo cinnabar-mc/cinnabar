@@ -517,7 +517,9 @@ func (a *Accounts) readIndex() (accountsIndex, error) {
 
 // updateIndex applies change to the accounts file under the directory's lock.
 func (a *Accounts) updateIndex(change func(*accountsIndex) error) error {
-	lease, err := a.lockIndex()
+	ctx, cancel := context.WithTimeout(context.Background(), indexLockTimeout)
+	defer cancel()
+	lease, err := a.lockIndex(ctx)
 	if err != nil {
 		return err
 	}
@@ -538,12 +540,12 @@ func (a *Accounts) updateIndex(change func(*accountsIndex) error) error {
 }
 
 // lockIndex takes the accounts directory's lock, which every change to the accounts file and
-// every write that depends on an account still being listed holds.
-func (a *Accounts) lockIndex() (io.Closer, error) {
+// every write that depends on an account still being listed holds, waiting until ctx ends.
+func (a *Accounts) lockIndex(ctx context.Context) (io.Closer, error) {
 	if err := os.MkdirAll(a.config.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	return lockfile.Acquire(filepath.Join(a.config.Dir, accountsLockFile), indexLockTimeout)
+	return lockfile.AcquireContext(ctx, filepath.Join(a.config.Dir, accountsLockFile))
 }
 
 // keepUnreadableIndex moves an accounts file that does not parse aside, so the change about
