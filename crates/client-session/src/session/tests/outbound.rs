@@ -907,6 +907,7 @@ fn gameplay_packet_families_share_a_batch_in_admission_order() {
         interaction_model: protocol::PlayerInteractionModel::Crosshair,
         vehicle: None,
         java_position: None,
+        java_sink: None,
     })
     .unwrap();
     let transaction = protocol::click_air_packet(

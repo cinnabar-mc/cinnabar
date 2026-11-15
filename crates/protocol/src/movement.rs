@@ -180,6 +180,10 @@ pub struct PlayerAuthInputSnapshot {
     /// precision in the delta and camera-orientation fields, which a Java session's
     /// translator has no other use for; see [`java_position_remainders`].
     pub java_position: Option<[f64; 3]>,
+    /// The 1.7.10 camera sink on a Java Edition session, which its server reads in the
+    /// reported stance. The wire carries it in the analogue move vector's first component,
+    /// which a Java session's translator has no other use for.
+    pub java_sink: Option<f32>,
 }
 
 /// The vehicle a client-predicted input moves.
@@ -280,7 +284,8 @@ pub fn player_auth_input_with_mining_request(
             .java_position
             .into_iter()
             .flatten()
-            .all(f64::is_finite);
+            .all(f64::is_finite)
+        && snapshot.java_sink.is_none_or(f32::is_finite);
     if !finite {
         return Err(PlayerAuthInputError::NonFiniteState);
     }
@@ -365,7 +370,10 @@ pub fn player_auth_input_with_mining_request(
         client_predicted_vehicle: snapshot
             .vehicle
             .map(|vehicle| ActorUniqueID(vehicle.unique_id)),
-        analog_move_vector: snapshot.analogue_move_vector.into(),
+        analog_move_vector: snapshot
+            .java_sink
+            .map_or(snapshot.analogue_move_vector, |sink| [sink, 0.0])
+            .into(),
         camera_orientation: java_remainders
             .map_or(snapshot.camera_orientation, |(_, second)| second)
             .into(),

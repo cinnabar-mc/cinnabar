@@ -74,6 +74,39 @@ fn parse() -> HashMap<u32, JavaLegacyBlock> {
     by_hash
 }
 
+/// `id`, damage, Bedrock item, Bedrock id, Bedrock metadata per row.
+const ITEMS: &str = include_str!("../../../../core/javaedition/legacy/items.tsv");
+
+/// The 1.7.10 item ids registered as `ItemSword`: wooden, stone, iron, golden and diamond.
+const SWORD_IDS: [u16; 5] = [268, 272, 267, 283, 276];
+
+/// Whether the Bedrock item `identifier` is one the translator sends for a 1.7.10 sword, which
+/// blocks while the use button is held.
+#[must_use]
+pub fn java_legacy_sword(identifier: &str) -> bool {
+    java_legacy_swords().contains(&identifier)
+}
+
+/// The Bedrock items the translator sends for 1.7.10 swords.
+fn java_legacy_swords() -> &'static [&'static str] {
+    static SWORDS: OnceLock<Vec<&'static str>> = OnceLock::new();
+    SWORDS.get_or_init(|| {
+        let mut swords: Vec<&'static str> = ITEMS
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .filter_map(|line| {
+                let mut fields = line.split('\t');
+                let id: u16 = fields.next()?.parse().ok()?;
+                let bedrock = fields.nth(1)?;
+                SWORD_IDS.contains(&id).then_some(bedrock)
+            })
+            .collect();
+        swords.sort_unstable();
+        swords.dedup();
+        swords
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +137,16 @@ mod tests {
             })
         );
         assert!(java_legacy_states().count() > 1500);
+    }
+}
+
+#[cfg(test)]
+mod sword_tests {
+    /// Every 1.7.10 sword is in the translator's item table, each as its own Bedrock item.
+    #[test]
+    fn every_java_sword_has_a_bedrock_item() {
+        assert_eq!(super::java_legacy_swords().len(), super::SWORD_IDS.len());
+        assert!(super::java_legacy_sword("minecraft:diamond_sword"));
+        assert!(!super::java_legacy_sword("minecraft:bow"));
     }
 }

@@ -81,7 +81,7 @@ fn a_java_session_moves_the_player_as_java_sim_does() {
         for _ in 0..ticks {
             let input = MovementInput {
                 forward: f64::from(u8::from(forward)),
-                sprinting: sprint,
+                sprint_key: sprint,
                 jumping: jump,
                 ..MovementInput::default()
             };
@@ -229,35 +229,67 @@ fn a_server_teleport_keeps_the_java_player() {
 
 /// The client decides sprinting and reports it to the server, so the movement follows that
 /// decision: a sprint that ends while forward stays held slows to a walk.
+/// Sprinting follows the 1.7.10 rules, and only the sprint they decide reaches the server:
+/// the sprint key alone does not sprint, a sprint outlasts the key until forward is released,
+/// and a hungry player cannot sprint.
 #[test]
-fn a_sprint_that_ends_with_forward_held_slows_to_a_walk() {
-    let run = |sprint_ticks: usize| {
-        let mut physics = grounded_controller();
-        physics.set_java_physics(true);
-        let mut path = Vec::new();
-        for tick in 0..80 {
-            let input = MovementInput {
-                forward: 1.0,
-                sprinting: tick < sprint_ticks,
-                ..MovementInput::default()
-            };
-            step(&mut physics, input, ModeIntent::default(), &TranslatedFloor);
-            path.push(feet(&physics)[2]);
-        }
-        path
+fn sprinting_follows_the_1_7_10_rules() {
+    let mut physics = grounded_controller();
+    physics.set_java_physics(true);
+    let mut previous = crate::movement::encoding::HeldInput::default();
+    let mut tick = |physics: &mut super::LocalPhysicsController,
+                    forward: bool,
+                    sprint_key: bool,
+                    food_level: Option<u8>| {
+        let input = MovementInput {
+            forward: f64::from(u8::from(forward)),
+            sprint_key,
+            food_level,
+            ..MovementInput::default()
+        };
+        let sample = step(physics, input, ModeIntent::default(), &TranslatedFloor);
+        let flags = crate::movement::encoding::input_flags(&sample, previous);
+        previous = crate::movement::encoding::HeldInput::from(&sample);
+        (
+            sample.processed.sprinting,
+            flags.bits() & protocol::PlayerInputFlags::START_SPRINTING.bits() != 0,
+            flags.bits() & protocol::PlayerInputFlags::STOP_SPRINTING.bits() != 0,
+        )
     };
-    let (stopped, walked) = (run(20), run(0));
-    assert!(
-        stopped[19] > walked[19] + 0.5,
-        "the sprint covered no extra ground"
+    for _ in 0..5 {
+        assert_eq!(
+            tick(&mut physics, false, true, None),
+            (false, false, false),
+            "standing with the sprint key"
+        );
+    }
+    assert_eq!(
+        tick(&mut physics, true, true, None),
+        (true, true, false),
+        "forward with the sprint key"
     );
-    let step_of = |path: &[f64]| path[79] - path[78];
-    assert!(
-        (step_of(&stopped) - step_of(&walked)).abs() < 1.0e-9,
-        "the player still moves {} a tick, a walk moves {}",
-        step_of(&stopped),
-        step_of(&walked)
+    for _ in 0..5 {
+        assert_eq!(
+            tick(&mut physics, true, false, None),
+            (true, false, false),
+            "the sprint outlasts the key"
+        );
+    }
+    assert_eq!(
+        tick(&mut physics, false, false, None),
+        (false, false, true),
+        "releasing forward ends it"
     );
+
+    let mut hungry = grounded_controller();
+    hungry.set_java_physics(true);
+    for _ in 0..5 {
+        assert_eq!(
+            tick(&mut hungry, true, true, Some(6)),
+            (false, false, false),
+            "a hungry player sprints"
+        );
+    }
 }
 
 /// A respawn moves the player like a teleport, but the 1.7.10 client replaces its player
@@ -411,4 +443,30 @@ fn a_replayed_tick_carries_its_new_exact_position() {
             replayed.position
         );
     }
+}
+
+/// A sneaking Java tick reports the 1.7.10 camera sink, which the stance sent to the server
+/// leaves out; standing reports none.
+#[test]
+fn a_sneaking_java_tick_reports_its_camera_sink() {
+    let mut physics = grounded_controller();
+    physics.set_java_physics(true);
+    let standing = step(
+        &mut physics,
+        MovementInput::default(),
+        ModeIntent::default(),
+        &TranslatedFloor,
+    );
+    assert_eq!(standing.processed.java_sink, Some(0.0));
+    let sneaking = step(
+        &mut physics,
+        MovementInput {
+            sneaking: true,
+            ..MovementInput::default()
+        },
+        ModeIntent::default(),
+        &TranslatedFloor,
+    );
+    // EntityPlayerSP sets the sink to 0.2, and moveEntity decays it by 0.4 in the same tick.
+    assert_eq!(sneaking.processed.java_sink, Some(0.2_f32 * 0.4));
 }

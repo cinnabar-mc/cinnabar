@@ -52,7 +52,9 @@ type motionReport struct {
 }
 
 // next returns the packets for one client tick and remembers what they report.
-func (r *motionReport) next(entityID int32, x, minY, z float64, yaw, pitch float32, onGround, sprinting, sneaking bool) []java.Packet {
+// sink is the camera sink below the standing eye height, which the stance, the 1.7.10
+// client's posY, leaves out.
+func (r *motionReport) next(entityID int32, x, minY, z float64, sink float32, yaw, pitch float32, onGround, sprinting, sneaking bool) []java.Packet {
 	var packets []java.Packet
 	if sprinting != r.sprinting {
 		action := int8(actionStopSprinting)
@@ -73,7 +75,7 @@ func (r *motionReport) next(entityID int32, x, minY, z float64, yaw, pitch float
 	dx, dy, dz := x-r.x, minY-r.minY, z-r.z
 	moved := dx*dx+dy*dy+dz*dz > 9.0e-4 || r.ticksSincePosition >= 20
 	turned := float64(yaw-r.yaw) != 0 || float64(pitch-r.pitch) != 0
-	stance := minY + eyeHeight
+	stance := minY + eyeHeight - float64(sink)
 	switch {
 	case moved && turned:
 		packets = append(packets, &java.ClientPlayerPositionLook{X: x, Y: minY, Stance: stance, Z: z, Yaw: yaw, Pitch: pitch, OnGround: onGround})
@@ -116,7 +118,7 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 	case *packet.PlayerAuthInput:
 		return s.authInput(pk)
 	case *packet.Animate:
-		if pk.ActionType == packet.AnimateActionSwingArm {
+		if pk.ActionType == packet.AnimateActionSwingArm && swingsOnJava(pk.SwingSource) {
 			return s.send(&java.ClientAnimation{EntityID: st.entityID, Animation: 1})
 		}
 	case *packet.Text:
@@ -127,14 +129,20 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 		return s.chat(pk.CommandLine)
 	case *packet.MobEquipment:
 		if pk.WindowID == protocol.WindowIDInventory && pk.HotBarSlot < 9 {
+			// The 1.7.10 client reports the slot at its next sync, at the start of a tick or
+			// before a click, and only when it changed.
 			st.heldSlot = int16(pk.HotBarSlot)
-			return s.send(&java.ClientHeldItemChange{Slot: st.heldSlot})
 		}
 	case *packet.InventoryTransaction:
 		switch data := pk.TransactionData.(type) {
 		case *protocol.UseItemTransactionData:
 			return s.useItem(data)
 		case *protocol.UseItemOnEntityTransactionData:
+			// PlayerControllerMP.attackEntity and interactWithEntitySendPacket sync the held
+			// slot first.
+			if err := s.syncHeldSlot(); err != nil {
+				return err
+			}
 			action := int8(useEntityInteract)
 			if data.ActionType == protocol.UseItemOnEntityActionAttack {
 				action = useEntityAttack
@@ -145,17 +153,54 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 		}
 	case *packet.PlayerAction:
 		if pk.ActionType == protocol.PlayerActionRespawn {
-			return s.send(&java.ClientStatus{Action: clientStatusRespawn})
+			return s.requestRespawn()
 		}
 	case *packet.Respawn:
 		if pk.State == packet.RespawnStateClientReadyToSpawn {
-			return s.send(&java.ClientStatus{Action: clientStatusRespawn})
+			return s.requestRespawn()
 		}
 	case *packet.ContainerClose:
 		s.queue(&packet.ContainerClose{WindowID: pk.WindowID, ContainerType: pk.ContainerType})
 		return s.send(&java.ClientCloseWindow{WindowID: int8(pk.WindowID)})
 	}
 	return nil
+}
+
+// swingsOnJava reports whether the 1.7.10 client sends a swing for a Bedrock swing of this
+// source. It swings for every attack press and after a block it right-clicked, and the
+// translator sends its swings while mining itself; it never swings for item uses in the air,
+// throws, drops or interactions with entities.
+func swingsOnJava(source uint8) bool {
+	switch source {
+	case packet.AnimateSwingSourceMine, packet.AnimateSwingSourceUseItem, packet.AnimateSwingSourceThrowItem,
+		packet.AnimateSwingSourceDropItem, packet.AnimateSwingSourceInteract, packet.AnimateSwingSourceEvent:
+		return false
+	default:
+		return true
+	}
+}
+
+// syncHeldSlot reports the held slot when it differs from the one last reported, as
+// PlayerControllerMP.syncCurrentPlayItem does. A slot the server set is reported back once,
+// as the 1.7.10 client does after a held item change.
+func (s *Session) syncHeldSlot() error {
+	st := &s.state
+	if st.heldSlot == st.reportedSlot {
+		return nil
+	}
+	st.reportedSlot = st.heldSlot
+	return s.send(&java.ClientHeldItemChange{Slot: st.heldSlot})
+}
+
+// requestRespawn asks the server to respawn the dead player once; the Bedrock client asks in
+// two packets, the 1.7.10 death screen's button in one.
+func (s *Session) requestRespawn() error {
+	st := &s.state
+	if st.respawnRequested {
+		return nil
+	}
+	st.respawnRequested = true
+	return s.send(&java.ClientStatus{Action: clientStatusRespawn})
 }
 
 // chat sends a chat message or command, cut to the length a 1.7.10 server accepts. The
@@ -188,10 +233,40 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 		}
 		st.teleport = nil
 	}
-	x, feet, z := exactPosition(pk)
+	x, feet, z, exact := exactPosition(pk)
 	st.position = [3]float64{x, feet, z}
-	st.yaw, st.pitch = pk.Yaw, pk.Pitch
+	yaw := st.look.unwrap(pk.Yaw)
+	st.yaw, st.pitch = yaw, pk.Pitch
 	s.publish(x, z)
+	// Minecraft.runTick first syncs the held slot, then handles the tick's clicks, mining and
+	// item use, and only then updates the player, which sends its flight, sprint, sneak and
+	// movement packets.
+	if err := s.syncHeldSlot(); err != nil {
+		return err
+	}
+	wasBreaking := st.breaking != nil
+	if actions, ok := pk.BlockActions.Value(); ok {
+		for _, action := range actions {
+			if err := s.blockAction(action); err != nil {
+				return err
+			}
+		}
+	}
+	if wasBreaking || st.breaking != nil {
+		// Minecraft.func_147115_a swings every tick the player mines, after damaging the block.
+		if err := s.send(&java.ClientAnimation{EntityID: st.entityID, Animation: 1}); err != nil {
+			return err
+		}
+	}
+	if data, ok := pk.ItemInteractionData.Value(); ok {
+		if err := s.useItem(&data); err != nil {
+			return err
+		}
+	}
+	if !st.world.loaded(int32(math.Floor(x)), int32(math.Floor(z))) {
+		// EntityClientPlayerMP skips its whole update while its column is not loaded.
+		return nil
+	}
 	// The 1.7.10 client reports a flight toggle before the tick's movement.
 	if starts, stops := pk.InputData.Load(packet.InputFlagStartFlying), pk.InputData.Load(packet.InputFlagStopFlying); starts != stops {
 		st.abilities.flying = starts
@@ -206,22 +281,18 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 	// Bedrock input has no ground flag. On a Java session the client's physics reports
 	// standing on the ground as the vertical collision flag.
 	onGround := pk.InputData.Load(packet.InputFlagVerticalCollision)
-	packets := st.report.next(st.entityID, x, feet, z, pk.Yaw, pk.Pitch, onGround,
-		pk.InputData.Load(packet.InputFlagSprinting), pk.InputData.Load(packet.InputFlagSneaking))
-	if err := s.send(packets...); err != nil {
-		return err
+	// The sprinting flag is the sprint key; the player's sprint state changes only with the
+	// start and stop flags, which on a Java session follow the 1.7.10 sprint rules.
+	sprinting := st.report.sprinting
+	if pk.InputData.Load(packet.InputFlagStartSprinting) {
+		sprinting = true
 	}
-	if actions, ok := pk.BlockActions.Value(); ok {
-		for _, action := range actions {
-			if err := s.blockAction(action); err != nil {
-				return err
-			}
-		}
+	if pk.InputData.Load(packet.InputFlagStopSprinting) {
+		sprinting = false
 	}
-	if data, ok := pk.ItemInteractionData.Value(); ok {
-		return s.useItem(&data)
-	}
-	return nil
+	packets := st.report.next(st.entityID, x, feet, z, javaSink(pk, exact), yaw, pk.Pitch, onGround,
+		sprinting, pk.InputData.Load(packet.InputFlagSneaking))
+	return s.send(packets...)
 }
 
 // exactPosition returns the feet position a client tick reports. The packet's position is
@@ -234,15 +305,33 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 // zero orientation component far from the origin, where a step exceeds an ordinary delta,
 // still passes; the core's own client sends remainders on every simulated tick of a Java
 // session, so that case only arises for ticks it does not simulate.
-func exactPosition(pk *packet.PlayerAuthInput) (x, feet, z float64) {
+func exactPosition(pk *packet.PlayerAuthInput) (x, feet, z float64, exact bool) {
 	position := [3]float64{float64(pk.Position[0]), float64(pk.Position[1]) - networkOffset, float64(pk.Position[2])}
+	exact = true
 	for axis := range position {
 		first, second := float64(pk.Delta[axis]), float64(pk.CameraOrientation[axis])
 		if isRemainderPair(first, second) && math.Abs(first+second) <= roundingBound(pk.Position[axis]) {
 			position[axis] += first + second
+		} else {
+			exact = false
 		}
 	}
-	return position[0], position[1], position[2]
+	return position[0], position[1], position[2], exact
+}
+
+// maxSink bounds the camera sink a tick may report: the sneak sink plus the most a step can
+// add before it decays.
+const maxSink = 1.0
+
+// javaSink returns the 1.7.10 camera sink a tick of the client's Java physics reports in its
+// analogue move vector. Only such a tick, recognisable by its exact-position remainders,
+// carries one; any other tick reports none.
+func javaSink(pk *packet.PlayerAuthInput, exact bool) float32 {
+	sink := pk.AnalogueMoveVector[0]
+	if !exact || pk.AnalogueMoveVector[1] != 0 || !(sink >= 0 && sink <= maxSink) {
+		return 0
+	}
+	return sink
 }
 
 // isRemainderPair reports whether second could be what is left of a double after first,
@@ -263,6 +352,10 @@ func roundingBound(value float32) float64 {
 // blockAction translates a mining step to the digging packet a 1.7.10 client sends.
 func (s *Session) blockAction(action protocol.PlayerBlockAction) error {
 	st := &s.state
+	// PlayerControllerMP syncs the held slot before it digs.
+	if err := s.syncHeldSlot(); err != nil {
+		return err
+	}
 	target := [3]int32{action.BlockPos[0], action.BlockPos[1], action.BlockPos[2]}
 	dig := func(status uint8, pos [3]int32) error {
 		if pos[1] < 0 || pos[1] >= worldHeight {
@@ -302,6 +395,10 @@ func (s *Session) blockAction(action protocol.PlayerBlockAction) error {
 
 // useItem translates a block click or an item use in the air.
 func (s *Session) useItem(data *protocol.UseItemTransactionData) error {
+	// PlayerControllerMP syncs the held slot before every use.
+	if err := s.syncHeldSlot(); err != nil {
+		return err
+	}
 	switch data.ActionType {
 	case protocol.UseItemActionClickBlock:
 		y := data.BlockPosition[1]

@@ -227,6 +227,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
         java_position: None,
+        java_sink: None,
     }
 }
 

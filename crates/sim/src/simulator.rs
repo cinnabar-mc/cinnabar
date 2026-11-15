@@ -9,6 +9,11 @@ mod immobile;
 mod input;
 mod inside;
 mod java;
+mod java_speed;
+pub use java_speed::{
+    JavaPush, JavaPushes, JavaSpeedModifier, JavaSpeedSnapshot, MAX_JAVA_PUSHES,
+    MAX_JAVA_SPEED_MODIFIERS,
+};
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
@@ -705,6 +710,8 @@ impl Simulator {
             tick_result: result,
             controls,
             jump_initiated,
+            java_sprinting: None,
+            java_sink: None,
         })
     }
 }

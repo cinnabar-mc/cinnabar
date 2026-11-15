@@ -15,6 +15,12 @@ pub struct ControlledTickResult {
     pub controls: ProcessedControls,
     /// Whether this tick consumed a ground-jump request.
     pub jump_initiated: bool,
+    /// The sprint state a Java tick ended with, as the 1.7.10 rules decided; `None` for a
+    /// Bedrock tick, whose sprint is the input's.
+    pub java_sprinting: Option<bool>,
+    /// How far a Java tick left the camera below the standing eye height: the 1.7.10 sneak
+    /// and step sink, which the server reads in the reported stance; `None` for a Bedrock tick.
+    pub java_sink: Option<f32>,
 }
 
 /// Processes both raw and already-scaled controls entirely in wire precision.

@@ -471,6 +471,12 @@ impl LocalPhysicsController {
 
     /// Selects Java Edition 1.7.10 movement for the session, or Bedrock's. 1.7.10 keeps the
     /// standing box while sneaking, which is the legacy sneaking profile.
+    /// Whether the session follows Java Edition 1.7.10 movement.
+    #[must_use]
+    pub const fn java_physics(&self) -> bool {
+        self.java_physics
+    }
+
     pub fn set_java_physics(&mut self, java: bool) {
         self.java_physics = java;
         if java {

@@ -31,6 +31,14 @@ func (s *Session) handleJava(pk java.Packet) error {
 			return s.sendNow(&java.ClientKeepAlive{Key: pk.Key})
 		}
 		s.probeClient(probe{keepAlive: true, key: pk.Key})
+	case *java.EntityProperties:
+		s.entityProperties(pk)
+	case *java.Explosion:
+		s.explosion(pk)
+	case *java.EntityEffect:
+		s.entityEffect(pk)
+	case *java.RemoveEntityEffect:
+		s.removeEntityEffect(pk)
 	case *java.ConfirmTransaction:
 		// The 1.7.10 client confirms a rejected transaction for any window, the player's
 		// inventory (window 0) included.
@@ -78,6 +86,9 @@ func (s *Session) handleJava(pk java.Packet) error {
 		s.queue(&packet.Disconnect{Message: chatText(pk.Reason)})
 	case *java.UpdateHealth:
 		s.state.health, s.state.food, s.state.saturation = pk.Health, pk.Food, pk.Saturation
+		if pk.Health > 0 {
+			s.state.respawnRequested = false
+		}
 		s.queueVitals()
 	case *java.SetExperience:
 		s.queue(&packet.UpdateAttributes{EntityRuntimeID: runtimeID(s.state.entityID), Attributes: []protocol.Attribute{
@@ -97,6 +108,7 @@ func (s *Session) handleJava(pk java.Packet) error {
 			SpawnPosition: protocol.BlockPos{pk.X, pk.Y, pk.Z},
 		})
 	case *java.HeldItemChange:
+		// Only the held slot changes; the client reports it back at its next sync.
 		s.state.heldSlot = int16(pk.Slot)
 		s.queue(&packet.PlayerHotBar{SelectedHotBarSlot: uint32(pk.Slot), WindowID: protocol.WindowIDInventory, SelectHotBarSlot: true})
 	case *java.PlayerListItem:
@@ -186,6 +198,12 @@ func (s *Session) respawn(pk *java.Respawn) {
 	previous := st.dimension
 	st.dimension, st.gameMode, st.difficulty = int8(pk.Dimension), pk.GameMode, pk.Difficulty
 	st.report, st.breaking = motionReport{}, nil
+	st.respawnRequested = false
+	// The 1.7.10 client's new player has no effects; the server sends the ones that last.
+	for effect := range st.effects {
+		s.queue(&packet.MobEffect{EntityRuntimeID: runtimeID(st.entityID), Operation: packet.MobEffectRemove, EffectType: int32(effect)})
+	}
+	st.effects = map[int8]bool{}
 	if previous != st.dimension {
 		// The client respawns through the dimension change; a same-dimension respawn
 		// before it that never got a position is over.
@@ -214,6 +232,7 @@ func (s *Session) positionAndLook(pk *java.PlayerPositionAndLook) error {
 	feet := pk.Y - eyeHeight
 	st.position = [3]float64{pk.X, feet, pk.Z}
 	st.yaw, st.pitch = pk.Yaw, pk.Pitch
+	st.look.set(pk.Yaw)
 	eye := mgl32.Vec3{float32(pk.X), float32(feet + networkOffset), float32(pk.Z)}
 	st.teleport = &eye
 	s.publish(pk.X, pk.Z)

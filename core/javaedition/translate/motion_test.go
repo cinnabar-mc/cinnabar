@@ -72,8 +72,7 @@ func (p tracePacket) javaPacket(entityID int32) java.Packet {
 }
 
 // Given the positions a recorded 1.7.10 client reached, the movement report chooses the
-// packets that client sent. The camera sink of sneaking and stepping, which shifts the
-// stance, is not known to the report, so ticks with one are compared without it.
+// packets that client sent, the stance with its camera sink of sneaking and stepping too.
 func TestMotionReportMatchesRecordedClientTraces(t *testing.T) {
 	traces, _ := filepath.Glob("../../../crates/java-sim/fixtures/traces/*.jsonl.gz")
 	if len(traces) == 0 {
@@ -109,19 +108,7 @@ func TestMotionReportMatchesRecordedClientTraces(t *testing.T) {
 				}
 			}
 			out := tick.Out
-			got := report.next(entityID, double(out.X), double(out.MinY), double(out.Z), single(tick.In.Yaw), single(tick.In.Pitch), out.Ground, out.Sprint, out.Sneak)
-			if out.Sink != 0 {
-				for _, list := range [][]java.Packet{got, want} {
-					for _, pk := range list {
-						switch pk := pk.(type) {
-						case *java.ClientPlayerPosition:
-							pk.Stance = 0
-						case *java.ClientPlayerPositionLook:
-							pk.Stance = 0
-						}
-					}
-				}
-			}
+			got := report.next(entityID, double(out.X), double(out.MinY), double(out.Z), single(out.Sink), single(tick.In.Yaw), single(tick.In.Pitch), out.Ground, out.Sprint, out.Sneak)
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("%s tick %d: sent %+v, the client sent %+v", filepath.Base(path), ticks, got, want)
 			}
@@ -174,7 +161,7 @@ func TestExactPositionReadsTheClientsRemainders(t *testing.T) {
 			Delta:             mgl32.Vec3{single(6), single(7), single(8)},
 			CameraOrientation: mgl32.Vec3{single(9), single(10), single(11)},
 		}
-		x, feet, z := exactPosition(pk)
+		x, feet, z, _ := exactPosition(pk)
 		if got := [3]uint64{math.Float64bits(x), math.Float64bits(feet), math.Float64bits(z)}; got != want {
 			t.Fatalf("row %q restored as %v, %v, %v", line, x, feet, z)
 		}
@@ -196,7 +183,7 @@ func TestExactPositionIgnoresAnOrdinaryDeltaAndOrientation(t *testing.T) {
 		Delta:             mgl32.Vec3{0.1, -0.0784, 0.2},
 		CameraOrientation: mgl32.Vec3{0.6, 0, 0.8},
 	}
-	x, feet, z := exactPosition(pk)
+	x, feet, z, _ := exactPosition(pk)
 	if x != 8.5 || feet != float64(float32(5.62001))-networkOffset || z != -300.25 {
 		t.Fatalf("position read as %v, %v, %v", x, feet, z)
 	}
@@ -207,7 +194,23 @@ func TestExactPositionIgnoresAnOrdinaryDeltaAndOrientation(t *testing.T) {
 		Delta:             mgl32.Vec3{0.1, -0.0784, 0.2},
 		CameraOrientation: mgl32.Vec3{0.48, -0.6, 0.64},
 	}
-	if x, _, z := exactPosition(far); x != 29999984 || z != -29999984 {
+	if x, _, z, _ := exactPosition(far); x != 29999984 || z != -29999984 {
 		t.Fatalf("far position read as %v, %v", x, z)
+	}
+}
+
+// A tick of the client's Java physics carries its camera sink in the analogue move vector;
+// any other tick, recognised by its missing remainders, reports none.
+func TestJavaSinkComesOnlyFromJavaTicks(t *testing.T) {
+	pk := &packet.PlayerAuthInput{AnalogueMoveVector: mgl32.Vec2{0.2, 0}}
+	if sink := javaSink(pk, true); sink != 0.2 {
+		t.Fatalf("a Java tick's sink = %v", sink)
+	}
+	if sink := javaSink(pk, false); sink != 0 {
+		t.Fatalf("a tick without remainders reported sink %v", sink)
+	}
+	pk.AnalogueMoveVector = mgl32.Vec2{0.7, 0.4}
+	if sink := javaSink(pk, true); sink != 0 {
+		t.Fatalf("a joystick reading was taken for sink %v", sink)
 	}
 }

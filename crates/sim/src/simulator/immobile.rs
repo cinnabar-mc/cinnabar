@@ -38,5 +38,7 @@ pub(super) fn tick(
         },
         controls,
         jump_initiated: false,
+        java_sprinting: None,
+        java_sink: None,
     })
 }

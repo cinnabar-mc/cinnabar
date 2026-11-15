@@ -90,6 +90,9 @@ pub struct ProcessedMovementState {
     /// The feet position after this tick in double precision on a Java Edition session,
     /// whose server reads positions in double precision.
     pub java_position: Option<[f64; 3]>,
+    /// The 1.7.10 camera sink after this tick on a Java Edition session, which the server
+    /// reads in the reported stance.
+    pub java_sink: Option<f32>,
 }
 
 impl ProcessedMovementState {
@@ -122,6 +125,7 @@ impl ProcessedMovementState {
             flight_request: None,
             vehicle: None,
             java_position: None,
+            java_sink: None,
         }
     }
 }

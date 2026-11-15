@@ -80,6 +80,10 @@ pub(crate) fn press(
     };
     let mut press = PressContext {
         refused_destroy: None,
+        java_session: context
+            .physics
+            .as_deref()
+            .is_some_and(|physics| physics.java_physics()),
         actor_life: match picked.crosshair {
             Crosshair::Actor(hit) => stream
                 .authority()

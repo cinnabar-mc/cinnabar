@@ -361,12 +361,18 @@ impl LocalPhysicsController {
                     frame.completed_ticks += 1;
                     self.prediction_sync.tick();
                     // The simulator owns initiation; held inputs alone cannot prove a jump.
+                    // A Java tick decided sprinting by the 1.7.10 rules; that is what the
+                    // server is told and what the client's own sprint state follows.
+                    let sprinting = output.java_sprinting.unwrap_or(input.sprinting);
+                    if output.java_sprinting.is_some() {
+                        self.modes.set_sprinting(sprinting);
+                    }
                     let mut processed = ProcessedMovementState::next(
                         self.processed_jump_arc_active,
                         output.jump_initiated,
                         state.on_ground,
                         input.sneaking,
-                        input.sprinting,
+                        sprinting,
                     );
                     processed.mode = input.mode;
                     processed.pose_flags = Some(self.modes.pose_flags());
@@ -378,6 +384,7 @@ impl LocalPhysicsController {
                     processed.vehicle = self.vehicle.commit(state.tick);
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
+                    processed.java_sink = output.java_sink;
                     processed.java_position = self.java_physics.then_some([
                         state.position.x,
                         state.position.y,

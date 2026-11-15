@@ -64,6 +64,9 @@ pub struct PressContext {
     pub refused_destroy: Option<RefusedDestroy>,
     /// Current target life sampled for this admission attempt, never retained with a queued press.
     pub actor_life: Option<u64>,
+    /// The session is a Java Edition 1.7.10 server, whose client sends a swing first on every
+    /// press, before any attack, however far the previous swing got.
+    pub java_session: bool,
 }
 
 /// A block press whose destroy fails at its start, as vanilla reports it.
@@ -339,12 +342,22 @@ impl MeleeRuntime {
             self.queue.entries.pop_front();
         }
         let mut swing = |outcome: &mut MeleeOutcome, source| {
-            if swings.try_attack_swing(press.tick, press.swing_duration) {
+            let animated = swings.try_attack_swing(press.tick, press.swing_duration);
+            // The 1.7.10 client's swing goes out before the press's other packets, sent below.
+            if animated && !press.java_session {
                 outcome
                     .packets
                     .push(protocol::swing_arm_packet(press.local_runtime_id, source));
             }
         };
+        if press.java_session {
+            // Minecraft.clickMouse swings first on every press, and the swing always sends its
+            // animation packet, then attacks or starts mining.
+            outcome.packets.push(protocol::swing_arm_packet(
+                press.local_runtime_id,
+                SwingSource::Attack,
+            ));
+        }
         if let Some(attack) = press.item_attack.as_ref()
             && let Some(selection) = press.selection.as_ref()
         {

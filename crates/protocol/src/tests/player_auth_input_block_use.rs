@@ -33,6 +33,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
         java_position: None,
+        java_sink: None,
     }
 }
 
@@ -312,6 +313,7 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
         java_position: None,
+        java_sink: None,
     };
     let mut rebuilt =
         protocol::player_auth_input_with_interactions(snapshot, &interactions).unwrap();

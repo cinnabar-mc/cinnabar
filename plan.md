@@ -1940,25 +1940,30 @@ state ([`sim` Java mode](crates/sim/src/simulator/java.rs)), reading each block 
 through the simulator over the core's translation of their worlds, and the physics
 controller's ticks equal `java-sim`'s for the same keys. The movement input carries what its
 single-precision position loses, so the server receives the simulated position exactly.
+Sprinting follows the 1.7.10 rules (the sprint key, the double tap, hunger, item use and
+every condition that ends a sprint), and the sprint they decide is what the server is told.
+The server's movement speed snapshots, which carry Speed and Slowness, reach `java-sim`
+whole, with each one replacing the attribute on the tick it arrives as in the game. Rejected
+transactions and keep-alives reach the client as latency probes, which it answers after
+applying every earlier packet, so the server gets its answers in the 1.7.10 order.
 
 Incomplete:
 
 - The client has joined an offline-mode vanilla 1.7.10 server on the same machine, where it
   spawned, loaded its chunks, walked, sprinted, jumped and chatted without a movement warning,
   and a public online-mode network through the Java Edition sign-in, where it reached the
-  lobby and walked. Combat, teleports, inventories and anticheat behaviour have not been
-  exercised in the client.
+  lobby and walked. Its anticheat flagged the movement before transactions were answered and
+  sprinting followed the 1.7.10 rules; the fixes have not yet been checked against an
+  anticheat. Combat, teleports and inventories have not been exercised in the client.
 - Server positions reach the client in single precision: a teleport or the join position
   crosses in the Bedrock movement packet, with the feet lifted onto the ground when rounding
   sinks them into it, so the client stands up to one single-precision step from where the
   server placed it until it next moves. The client's own positions reach the server in
-  double precision. The camera sink of sneaking and stepping is missing from the reported
-  stance.
-- On a Java session the client keeps its own sprint and flight rules and gives `java-sim`
-  the resulting sprint and flying states, so the 1.7.10 double-tap timers and sprint-ending
-  conditions do not decide them. Hunger and attribute snapshots (Speed and Slowness) are not carried to
-  `java-sim`. Bedrock's swimming and crawling poses can still engage. Reach, the pick ray
-  and the sneaking eye height are still Bedrock's.
+  double precision, with the stance less the camera sink of sneaking and stepping.
+- On a Java session the client keeps its own flight rules and gives `java-sim` the
+  resulting flying state, so the 1.7.10 double-tap jump timer does not decide flight.
+  Bedrock's swimming and crawling poses can still engage. Reach, the pick ray and the
+  sneaking eye height are still Bedrock's.
 - `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
   solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
   with the bounds last computed for any block of their kind; `java-sim` uses each block's own
@@ -1967,8 +1972,11 @@ Incomplete:
   metadata and collides as that. Attribute modifiers of one operation combine in Java 8's
   hash order, without the tree order of a bucket of eight or more, and a move is limited to
   100 blocks per axis in a tick, where the game has no limit.
-- Interaction packets follow the Bedrock client's send order, not the 1.7.10 click handler's
-  (swing before attack, placement before its swing).
+- Each tick's clicks, mining and item use go out before its movement, every attack press
+  swings first, mining swings every tick, and air uses, throws and drops do not swing, as in
+  the 1.7.10 client. Swords block while the use button is held. A block placement's swing
+  keeps the Bedrock client's order relative to the placement. Explosions destroy their blocks
+  and add their push to the player's motion on the next tick.
 - Inventory windows other than the player's, window clicks, crafting, creative inventory,
   enchanting and item NBT (names, enchantments) are not translated. Potions and spawn eggs
   lose their variant.
@@ -1979,9 +1987,10 @@ Incomplete:
 - Biome ids pass through by number, unchecked against the pinned registry. The Bedrock
   nether is 128 blocks high, so Java nether blocks above that are not shown.
 - Remote player skins and capes, entity armour, most entity metadata, paintings, experience
-  orbs, item frames, effects, attributes of the local player beyond health, sounds,
-  particles, explosions, block-break progress, team colours on name tags, titles, maps, statistics,
-  tab completion and plugin channels other than the brand are not translated.
+  orbs, item frames, effects of other entities, attributes other than the local player's
+  movement speed, sounds, particles, explosion effects, block-break progress, team colours on
+  name tags, titles, maps, statistics, tab completion and plugin channels other than the brand
+  are not translated.
 - The death, respawn and dimension-change sequences are translated but have only been
   checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
   where Java uses its modified form, which differs for NUL and for characters outside the

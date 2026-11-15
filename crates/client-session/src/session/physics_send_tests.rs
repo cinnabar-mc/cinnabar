@@ -95,6 +95,7 @@ fn traced_movement_packets(tick: u64) -> (protocol::Packet, protocol::Packet) {
         interaction_model: protocol::PlayerInteractionModel::Crosshair,
         vehicle: None,
         java_position: None,
+        java_sink: None,
     };
     let movement = protocol::player_auth_input(snapshot).unwrap();
     let mut block_actions = protocol::BlockActions::new();

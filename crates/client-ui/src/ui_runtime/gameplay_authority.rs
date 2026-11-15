@@ -274,6 +274,12 @@ impl UiRuntime {
                         self.session.gameplay_hud.note_odd_attribute();
                     }
                 }
+                bridge::contract::JAVA_MOVEMENT_ATTRIBUTE => {
+                    player_runtime.facts.apply_java_movement(attribute);
+                }
+                bridge::contract::JAVA_PUSH_ATTRIBUTE => {
+                    player_runtime.facts.apply_java_push(attribute);
+                }
                 "minecraft:player.saturation" => {
                     self.session.gameplay_hud.set_saturation(attribute.current);
                 }

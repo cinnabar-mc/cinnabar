@@ -63,6 +63,7 @@ fn java_positions_cross_the_wire_exactly() {
             delta: [0.1, -0.078_4, 0.2],
             camera_orientation: [0.0, 0.0, 1.0],
             java_position: Some(feet),
+            java_sink: None,
             ..super::player_auth_input::snapshot()
         })
         .expect("a valid input");
@@ -125,4 +126,24 @@ fn a_bedrock_input_keeps_its_delta_and_camera_orientation() {
     };
     assert_eq!(input.pos_delta.to_array(), [0.1, -0.078_4, 0.2]);
     assert_eq!(input.camera_orientation.to_array(), [0.0, 0.6, 0.8]);
+}
+
+/// A Java tick's camera sink crosses in the analogue move vector, which the translator reads
+/// for the stance; without one the vector stays the player's own.
+#[test]
+fn a_java_sink_crosses_in_the_analogue_move_vector() {
+    let encode = |java_sink| {
+        let packet = player_auth_input(PlayerAuthInputSnapshot {
+            analogue_move_vector: [0.5, -0.25],
+            java_sink,
+            ..super::player_auth_input::snapshot()
+        })
+        .expect("a valid input");
+        let packets::Packet::PlayerAuthInput(input) = &*packet.data else {
+            panic!("the builder returns a PlayerAuthInput");
+        };
+        input.analog_move_vector.to_array()
+    };
+    assert_eq!(encode(Some(0.2)), [0.2, 0.0]);
+    assert_eq!(encode(None), [0.5, -0.25]);
 }

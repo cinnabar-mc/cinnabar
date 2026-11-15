@@ -43,6 +43,7 @@ fn packet() -> protocol::Packet {
             interaction_model: protocol::PlayerInteractionModel::Crosshair,
             vehicle: None,
             java_position: None,
+            java_sink: None,
         },
         &protocol::PlayerAuthInputInteractions {
             block_actions: actions,

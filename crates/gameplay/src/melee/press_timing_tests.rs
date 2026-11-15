@@ -100,6 +100,7 @@ fn press(tick: u64) -> PressContext {
     PressContext {
         refused_destroy: None,
         actor_life: None,
+        java_session: false,
         tick,
         player_position: [0.0, 1.62, 0.0],
         input_mode: PlayerInputMode::Mouse,

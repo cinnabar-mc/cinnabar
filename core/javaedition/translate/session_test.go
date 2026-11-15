@@ -9,12 +9,15 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/javatest"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/legacy"
@@ -320,6 +323,8 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 func TestClientPacketsBecomeJavaPackets(t *testing.T) {
 	ts := startTestSession(t)
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	// The 1.7.10 client sends no movement while its column is not loaded.
+	ts.loadColumn(0, 0)
 	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
 	expect[*java.ClientPlayerPositionLook](ts)
 
@@ -349,8 +354,13 @@ func TestClientPacketsBecomeJavaPackets(t *testing.T) {
 	if idle := expect[*java.ClientPlayer](ts); !idle.OnGround {
 		t.Fatalf("idle = %+v", idle)
 	}
+	// Holding the sprint key is not sprinting: only a start tells the server the player sprints.
+	ts.write(input(mgl32.Vec3{0.5, eye, 0.5}, 30, packet.InputFlagVerticalCollision, packet.InputFlagSprinting))
+	if idle := expect[*java.ClientPlayer](ts); !idle.OnGround {
+		t.Fatalf("holding the sprint key sent %+v", idle)
+	}
 	// Sprinting is announced before the movement it applies to.
-	ts.write(input(mgl32.Vec3{1.5, eye, 0.5}, 30, packet.InputFlagVerticalCollision, packet.InputFlagSprinting))
+	ts.write(input(mgl32.Vec3{1.5, eye, 0.5}, 30, packet.InputFlagVerticalCollision, packet.InputFlagStartSprinting))
 	if action := expect[*java.ClientEntityAction](ts); action.EntityID != 7 || action.Action != actionStartSprinting {
 		t.Fatalf("action = %+v", action)
 	}
@@ -372,9 +382,19 @@ func TestClientPacketsBecomeJavaPackets(t *testing.T) {
 	if place := expect[*java.ClientBlockPlacement](ts); place.X != 3 || place.Y != 63 || place.Z != -2 || place.Face != 1 || place.CursorX != 8 || place.CursorY != 16 || place.CursorZ != 4 {
 		t.Fatalf("placement = %+v", place)
 	}
+	// A new slot is reported at the next tick's sync, before its movement, and only once.
 	ts.write(&packet.MobEquipment{HotBarSlot: 4, WindowID: protocol.WindowIDInventory})
-	if held := expect[*java.ClientHeldItemChange](ts); held.Slot != 4 {
-		t.Fatalf("held = %+v", held)
+	ts.write(&packet.MobEquipment{HotBarSlot: 4, WindowID: protocol.WindowIDInventory})
+	ts.write(input(mgl32.Vec3{1.5, eye, 0.5}, 30, packet.InputFlagVerticalCollision))
+	if next, err := ts.server.Read(); err != nil {
+		t.Fatal(err)
+	} else if held, ok := next.(*java.ClientHeldItemChange); !ok || held.Slot != 4 {
+		t.Fatalf("the tick after a slot change first sent %+v", next)
+	}
+	if next, err := ts.server.Read(); err != nil {
+		t.Fatal(err)
+	} else if _, ok := next.(*java.ClientHeldItemChange); ok {
+		t.Fatalf("the slot was reported twice")
 	}
 	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "hello"})
 	if chat := expect[*java.ClientChatMessage](ts); chat.Message != "hello" {
@@ -387,8 +407,13 @@ func TestClientPacketsBecomeJavaPackets(t *testing.T) {
 	})
 	breaking.InputData.Set(packet.InputFlagPerformBlockActions)
 	ts.write(breaking)
-	if dig := expect[*java.ClientPlayerDigging](ts); dig.Status != digStart || dig.X != 1 || dig.Y != 63 || dig.Face != 1 {
-		t.Fatalf("dig start = %+v", dig)
+	// The tick's mining goes out before its movement, as Minecraft.runTick sends it.
+	tickFirst, err := ts.server.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dig, ok := tickFirst.(*java.ClientPlayerDigging); !ok || dig.Status != digStart || dig.X != 1 || dig.Y != 63 || dig.Face != 1 {
+		t.Fatalf("the tick's first packet = %+v, want the dig start", tickFirst)
 	}
 	if dig := expect[*java.ClientPlayerDigging](ts); dig.Status != digFinish {
 		t.Fatalf("dig finish = %+v", dig)
@@ -400,6 +425,8 @@ func TestClientPacketsBecomeJavaPackets(t *testing.T) {
 func TestMovementWaitsForTheClientToReachATeleport(t *testing.T) {
 	ts := startTestSession(t)
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	// The 1.7.10 client sends no movement while its column is not loaded.
+	ts.loadColumn(0, 0)
 	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
 	expect[*java.ClientPlayerPositionLook](ts)
 	eye := float32(64 + networkOffset)
@@ -610,6 +637,8 @@ func TestAnUnencodablePacketIsAnError(t *testing.T) {
 func TestClientFlightChatLengthAndRadiusChanges(t *testing.T) {
 	ts := startTestSession(t)
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	// The 1.7.10 client sends no movement while its column is not loaded.
+	ts.loadColumn(0, 0)
 	ts.serve(&java.PlayerAbilities{AllowFlying: true, CreativeMode: true, FlySpeed: 0.05, WalkSpeed: 0.1})
 	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
 	expect[*java.ClientPlayerPositionLook](ts)
@@ -748,5 +777,225 @@ func TestProbesAreAnsweredByTheClient(t *testing.T) {
 	ts.write(&packet.NetworkStackLatency{Timestamp: probes[1].Timestamp * probeTimestampScale})
 	if alive := expect[*java.ClientKeepAlive](ts); alive.Key != 99 {
 		t.Fatalf("keep-alive = %+v", alive)
+	}
+}
+
+// The local player's movement speed snapshot reaches the client whole: its base and every
+// modifier with exact amounts, the sprint one too, numbered so a repeated snapshot still
+// counts, as the 1.7.10 client applies each one.
+func TestMovementSpeedSnapshotsReachTheClientWhole(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	speedII := uuid.MustParse("91aeaa56-376b-4498-935b-2f7f68070635")
+	sprint := uuid.MustParse("662a6b8d-da3e-4c1c-8813-96ea6097278d")
+	properties := &java.EntityProperties{EntityID: 7, Properties: []java.EntityProperty{{
+		Key: movementSpeedKey, Value: 0.1, Modifiers: []java.AttributeModifier{
+			{UUID: speedII, Amount: 0.4000000059604645, Operation: 2},
+			{UUID: sprint, Amount: 0.30000001192092896, Operation: 2},
+		},
+	}}}
+	var sequences []float32
+	for range 2 {
+		update, ok := ts.serve(properties)[0].(*packet.UpdateAttributes)
+		if !ok || len(update.Attributes) != 1 || update.Attributes[0].Name != bridgecontract.JavaMovementAttribute {
+			t.Fatalf("properties translated to %+v", update)
+		}
+		snapshot := update.Attributes[0]
+		sequences = append(sequences, snapshot.Value)
+		want := map[string]float64{"base": 0.1, speedII.String(): 0.4000000059604645, sprint.String(): 0.30000001192092896}
+		if len(snapshot.Modifiers) != len(want) {
+			t.Fatalf("modifiers = %+v", snapshot.Modifiers)
+		}
+		for _, modifier := range snapshot.Modifiers {
+			bits, err := strconv.ParseUint(modifier.Name, 16, 64)
+			if err != nil || math.Float64frombits(bits) != want[modifier.ID] {
+				t.Fatalf("modifier %s carries %q, want %v", modifier.ID, modifier.Name, want[modifier.ID])
+			}
+		}
+	}
+	if sequences[0] == sequences[1] {
+		t.Fatalf("a repeated snapshot kept its sequence %v", sequences[0])
+	}
+}
+
+// The local player's potion effects reach the client under the same ids, and a respawn ends
+// them as the 1.7.10 client's new player has none.
+func TestEffectsReachTheClient(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	effect := func(packets []packet.Packet) *packet.MobEffect {
+		t.Helper()
+		for _, pk := range packets {
+			if effect, ok := pk.(*packet.MobEffect); ok {
+				return effect
+			}
+		}
+		t.Fatalf("no effect in %+v", packets)
+		return nil
+	}
+	added := effect(ts.serve(&java.EntityEffect{EntityID: 7, EffectID: 8, Amplifier: 1, Duration: 600}))
+	if added.Operation != packet.MobEffectAdd || added.EffectType != 8 || added.Amplifier != 1 || added.Duration != 600 || added.EntityRuntimeID != runtimeID(7) {
+		t.Fatalf("jump boost = %+v", added)
+	}
+	if again := effect(ts.serve(&java.EntityEffect{EntityID: 7, EffectID: 8, Amplifier: 2, Duration: 300})); again.Operation != packet.MobEffectModify {
+		t.Fatalf("a renewed effect = %+v", again)
+	}
+	if removed := effect(ts.serve(&java.RemoveEntityEffect{EntityID: 7, EffectID: 8})); removed.Operation != packet.MobEffectRemove || removed.EffectType != 8 {
+		t.Fatalf("removal = %+v", removed)
+	}
+	ts.serve(&java.EntityEffect{EntityID: 7, EffectID: 15, Duration: 100})
+	if ended := effect(ts.serve(&java.Respawn{Dimension: 0, LevelType: "default"})); ended.Operation != packet.MobEffectRemove || ended.EffectType != 15 {
+		t.Fatalf("respawn = %+v", ended)
+	}
+}
+
+// loadColumn serves a column with one stone block at its corner.
+func (ts *testSession) loadColumn(x, z int32) {
+	ts.t.Helper()
+	column := newJavaColumn()
+	column.set(0, 0, 0, 1, 0)
+	primary, add, data := column.data()
+	ts.serve(&java.ChunkData{ChunkX: x, ChunkZ: z, GroundUpContinuous: true, PrimaryBitmask: primary, AddBitmask: add, Compressed: compress(ts.t, data)})
+}
+
+// No movement is sent while the player's column is not loaded, as EntityClientPlayerMP skips
+// its update there; clicks still go out.
+func TestNoMovementOutsideLoadedColumns(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+	idle := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, float32(64 + networkOffset), 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
+	ts.write(idle)
+	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "marker"})
+	if next, err := ts.server.Read(); err != nil {
+		t.Fatal(err)
+	} else if chat, ok := next.(*java.ClientChatMessage); !ok || chat.Message != "marker" {
+		t.Fatalf("movement outside a loaded column sent %+v", next)
+	}
+	ts.loadColumn(0, 0)
+	ts.write(idle)
+	if next, err := ts.server.Read(); err != nil {
+		t.Fatal(err)
+	} else {
+		switch next.(type) {
+		case *java.ClientPlayer, *java.ClientPlayerPosition, *java.ClientPlayerLook, *java.ClientPlayerPositionLook:
+		default:
+			t.Fatalf("the tick in a loaded column sent %+v", next)
+		}
+	}
+}
+
+// The 1.7.10 client's yaw turns without bound, so crossing the Bedrock client's ±180° wrap
+// reads as a small turn, not a full circle.
+func TestYawTurnsWithoutWrapping(t *testing.T) {
+	var look yawUnwrapper
+	look.set(170)
+	for _, step := range []struct{ raw, want float32 }{{179, 179}, {-179, 181}, {-170, 190}, {170, 170}} {
+		if got := look.unwrap(step.raw); got != step.want {
+			t.Fatalf("yaw after %v = %v, want %v", step.raw, got, step.want)
+		}
+	}
+	look.set(725)
+	if got := look.unwrap(6); got != 726 {
+		t.Fatalf("yaw after a teleport to 725 = %v, want 726", got)
+	}
+}
+
+// The Bedrock client asks to respawn in two packets; the server hears one request.
+func TestRespawnIsRequestedOnce(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.write(&packet.PlayerAction{ActionType: protocol.PlayerActionRespawn})
+	ts.write(&packet.Respawn{State: packet.RespawnStateClientReadyToSpawn})
+	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "marker"})
+	if status := expect[*java.ClientStatus](ts); status.Action != clientStatusRespawn {
+		t.Fatalf("status = %+v", status)
+	}
+	if next, err := ts.server.Read(); err != nil {
+		t.Fatal(err)
+	} else if chat, ok := next.(*java.ClientChatMessage); !ok || chat.Message != "marker" {
+		t.Fatalf("a second respawn request went out: %+v", next)
+	}
+}
+
+// Swings reach the server as the 1.7.10 client sends them: for an attack, never for a throw,
+// and on every tick of mining after that tick's digging.
+func TestSwingsFollowTheJavaClient(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.loadColumn(0, 0)
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+	next := func() java.Packet {
+		t.Helper()
+		pk, err := ts.server.Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pk
+	}
+	ts.write(&packet.Animate{ActionType: packet.AnimateActionSwingArm, SwingSource: packet.AnimateSwingSourceThrowItem})
+	ts.write(&packet.Animate{ActionType: packet.AnimateActionSwingArm, SwingSource: packet.AnimateSwingSourceAttack})
+	if swing, ok := next().(*java.ClientAnimation); !ok || swing.Animation != 1 {
+		t.Fatalf("the attack swing = %+v", swing)
+	}
+	eye := float32(64 + networkOffset)
+	mining := func(actions ...protocol.PlayerBlockAction) *packet.PlayerAuthInput {
+		pk := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, eye, 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
+		pk.InputData.Set(packet.InputFlagVerticalCollision)
+		if len(actions) > 0 {
+			pk.BlockActions = protocol.Option(actions)
+			pk.InputData.Set(packet.InputFlagPerformBlockActions)
+		}
+		return pk
+	}
+	ts.write(mining(protocol.PlayerBlockAction{Action: protocol.PlayerActionStartBreak, BlockPos: protocol.BlockPos{0, 0, 0}, Face: 1}))
+	if dig, ok := next().(*java.ClientPlayerDigging); !ok || dig.Status != digStart {
+		t.Fatalf("the mining tick first sent %+v", dig)
+	}
+	if _, ok := next().(*java.ClientAnimation); !ok {
+		t.Fatal("the mining tick sent no swing after its dig")
+	}
+	next()
+	ts.write(mining())
+	if _, ok := next().(*java.ClientAnimation); !ok {
+		t.Fatal("a tick of continued mining sent no swing")
+	}
+}
+
+// An explosion destroys its blocks and gives the client the push it adds to the player's
+// motion, numbered so each one applies once, with the recent ones repeated.
+func TestExplosionsDestroyBlocksAndPushThePlayer(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.loadColumn(0, 0)
+	push := func(packets []packet.Packet) protocol.Attribute {
+		t.Helper()
+		for _, pk := range packets {
+			if update, ok := pk.(*packet.UpdateAttributes); ok && update.Attributes[0].Name == bridgecontract.JavaPushAttribute {
+				return update.Attributes[0]
+			}
+		}
+		t.Fatalf("no push in %+v", packets)
+		return protocol.Attribute{}
+	}
+	first := ts.serve(&java.Explosion{X: 0.5, Y: 0.5, Z: 0.5, Records: []java.ExplosionRecord{{}}, PlayerMotionX: 0.25, PlayerMotionY: 0.5})
+	destroyed := false
+	for _, pk := range first {
+		if update, ok := pk.(*packet.UpdateBlock); ok && update.Position == (protocol.BlockPos{0, 0, 0}) {
+			destroyed = true
+		}
+	}
+	if !destroyed {
+		t.Fatalf("the explosion's block was not destroyed: %+v", first)
+	}
+	event := push(first)
+	if event.Value != 1 || len(event.Modifiers) != 3 || event.Modifiers[0].ID != "1:x" || event.Modifiers[0].Amount != 0.25 || event.Modifiers[1].Amount != 0.5 {
+		t.Fatalf("first push = %+v", event)
+	}
+	event = push(ts.serve(&java.Explosion{X: 100, Y: 100, Z: 100, PlayerMotionZ: -1}))
+	if event.Value != 2 || len(event.Modifiers) != 6 || event.Modifiers[5].ID != "2:z" || event.Modifiers[5].Amount != -1 {
+		t.Fatalf("second push = %+v", event)
 	}
 }

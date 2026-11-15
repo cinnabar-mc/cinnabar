@@ -114,6 +114,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         world.insert_resource(crate::item_use::ModItemUsePolicy { pulse: true });
     }
     let press = PressContext {
+        java_session: false,
         refused_destroy: None,
         actor_life: None,
         tick: 101,

@@ -190,13 +190,11 @@ fn read_trace(path: &Path) -> String {
 /// the simulator's inputs do not carry (abilities, attribute snapshots, hunger).
 fn replay(path: &Path, hashes: &HashMap<(u16, u8), u32>) -> Result<Option<usize>, String> {
     let text = read_trace(path);
-    if [
-        "\"abilities\":{\"allow_flying\":true",
-        "\"attributes\"",
-        "\"food\":",
-    ]
-    .iter()
-    .any(|event| text.lines().skip(1).any(|line| line.contains(event)))
+    // Flight is still decided by the client's own rules, so traces that grant it are left out.
+    if text
+        .lines()
+        .skip(1)
+        .any(|line| line.contains("\"abilities\":{\"allow_flying\":true"))
     {
         return Ok(None);
     }
@@ -224,6 +222,8 @@ fn replay(path: &Path, hashes: &HashMap<(u16, u8), u32>) -> Result<Option<usize>
     let simulator = Simulator::default();
     let mut jump_boost = None;
     let mut blindness = false;
+    let mut food_level = None;
+    let mut java_speed: Option<sim::JavaSpeedSnapshot> = None;
     let mut ticks = 0;
     for line in lines {
         let tick: Value = serde_json::from_str(line).expect("tick");
@@ -250,6 +250,15 @@ fn replay(path: &Path, hashes: &HashMap<(u16, u8), u32>) -> Result<Option<usize>
                     _ => {}
                 }
             }
+            if let Some(food) = event.get("food").and_then(Value::as_i64) {
+                food_level = u8::try_from(food).ok();
+            }
+            if let Some(attributes) = event.get("attributes") {
+                java_speed = Some(speed_snapshot(
+                    attributes,
+                    java_speed.map_or(1, |held| held.sequence + 1),
+                ));
+            }
             match event.get("remove_effect").and_then(Value::as_i64) {
                 Some(8) => jump_boost = None,
                 Some(15) => blindness = false,
@@ -267,18 +276,29 @@ fn replay(path: &Path, hashes: &HashMap<(u16, u8), u32>) -> Result<Option<usize>
             pitch_degrees: f64::from(float(&keys["pitch"])),
             jumping: flag(&keys["j"]),
             sneaking: flag(&keys["s"]),
-            // The client's own rules decide sprinting on a Java session; the replay supplies
-            // the state the recorded client held through the tick.
-            sprinting: flag(&tick["out"]["sprint"]),
+            // The 1.7.10 rules decide sprinting from the sprint key, as the recorded client did.
+            sprint_key: flag(&keys["p"]),
+            food_level,
+            java_speed,
             java_physics: true,
             ..MovementInput::default()
         };
         input.using_consumable = flag(&keys["use"]);
         input.effects.jump_boost = jump_boost;
         input.effects.blindness = blindness;
-        let result = simulator
-            .tick(&mut state, input, &world)
+        let output = simulator
+            .tick_with_controls(&mut state, input, &world)
             .map_err(|error| format!("{}: {error}", path.display()))?;
+        if output.java_sprinting != Some(flag(&tick["out"]["sprint"])) {
+            return Err(format!(
+                "{} tick {}: the recorded client's sprint is {}, simulated {:?}",
+                path.display(),
+                tick["t"],
+                flag(&tick["out"]["sprint"]),
+                output.java_sprinting
+            ));
+        }
+        let result = output.tick_result;
         let out = &tick["out"];
         let expected = [
             double(&out["x"]),
@@ -310,6 +330,26 @@ fn replay(path: &Path, hashes: &HashMap<(u16, u8), u32>) -> Result<Option<usize>
         ticks += 1;
     }
     Ok(Some(ticks))
+}
+
+/// A trace's attribute snapshot as the client's facts decode it from the core.
+fn speed_snapshot(attributes: &Value, sequence: u32) -> sim::JavaSpeedSnapshot {
+    let mut snapshot = sim::JavaSpeedSnapshot {
+        sequence,
+        base: double(&attributes["base"]),
+        ..Default::default()
+    };
+    for modifier in attributes["mods"].as_array().into_iter().flatten() {
+        let half = |index: usize| modifier["uuid"][index].as_i64().expect("uuid") as u64;
+        let index = usize::from(snapshot.modifier_count);
+        snapshot.modifiers[index] = sim::JavaSpeedModifier {
+            id: (u128::from(half(0)) << 64) | u128::from(half(1)),
+            amount: double(&modifier["amount"]),
+            operation: modifier["op"].as_u64().expect("operation") as u8,
+        };
+        snapshot.modifier_count += 1;
+    }
+    snapshot
 }
 
 /// Whether the read of a block fails, given how many reads came before it.
@@ -407,5 +447,51 @@ fn recorded_java_traces_replay_through_the_simulator() {
         replayed >= 10,
         "only {replayed} of {} traces were replayed",
         traces.len()
+    );
+}
+
+/// An explosion push adds to the Java player's motion on the next tick, once, as
+/// NetHandlerPlayClient.handleExplosion adds it; a push from before the player is ignored.
+#[test]
+fn an_explosion_push_adds_to_the_motion_once() {
+    let world = TranslatedWorld {
+        blocks: HashMap::new(),
+    };
+    let simulator = Simulator::default();
+    let falling = |pushes: Option<sim::JavaPushes>, ticks: usize| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 100.0, 0.5));
+        let mut input = MovementInput {
+            java_physics: true,
+            ..MovementInput::default()
+        };
+        simulator.tick(&mut state, input, &world).expect("a tick");
+        input.java_pushes = pushes;
+        let mut velocity = Vec3::default();
+        for _ in 0..ticks {
+            velocity = simulator
+                .tick(&mut state, input, &world)
+                .expect("a tick")
+                .velocity;
+        }
+        velocity
+    };
+    let mut push = sim::JavaPushes::default();
+    push.pushes[0] = sim::JavaPush {
+        sequence: 1,
+        motion: [0.0, 0.5, 0.0],
+    };
+    push.count = 1;
+    // The 1.7.10 drag, a float widened to a double.
+    let drag = f64::from(0.98_f32);
+    let (still, pushed) = (falling(None, 1), falling(Some(push), 1));
+    // The push enters before the tick's gravity and drag, which scale it once.
+    assert!(
+        (pushed.y - still.y - 0.5 * drag).abs() < 1.0e-9,
+        "pushed {pushed:?}, without the push {still:?}"
+    );
+    let (still, pushed) = (falling(None, 3), falling(Some(push), 3));
+    assert!(
+        (pushed.y - still.y - 0.5 * drag * drag * drag).abs() < 1.0e-9,
+        "a push held over three ticks was applied more than once"
     );
 }

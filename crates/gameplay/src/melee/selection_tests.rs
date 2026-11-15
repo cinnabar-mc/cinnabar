@@ -22,6 +22,7 @@ fn reject_block_press(
     let press = PressContext {
         refused_destroy: None,
         actor_life: None,
+        java_session: false,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,
@@ -216,6 +217,7 @@ fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
     let press = PressContext {
         refused_destroy: None,
         actor_life: None,
+        java_session: false,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,
@@ -424,6 +426,7 @@ fn press_at(sample: crate::movement::InteractionSample) -> PressContext {
     PressContext {
         refused_destroy: None,
         actor_life: None,
+        java_session: false,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,

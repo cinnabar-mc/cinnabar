@@ -458,6 +458,12 @@ impl LocomotionState {
             }
             input.immobile = facts.immobile;
             input.vertical_physics = facts.vertical_physics;
+            // A Java tick decides sprinting itself by the 1.7.10 rules, from these.
+            input.sprint_key = controlled.sprint_down;
+            input.food_level = facts.food_level;
+            input.may_fly = facts.can_fly;
+            input.java_speed = facts.java_speed;
+            input.java_pushes = facts.java_pushes;
             input.movement_speed = movement_speed.requested_prediction_speed(input.sprinting);
             let liquid = movement_speed.liquid();
             input.underwater_movement_speed = liquid.underwater;

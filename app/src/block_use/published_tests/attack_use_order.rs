@@ -39,6 +39,7 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
     melee.resolve(
         crosshair,
         &gameplay::melee::PressContext {
+            java_session: false,
             refused_destroy: None,
             actor_life: None,
             tick: 102,

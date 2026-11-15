@@ -11,6 +11,7 @@ use protocol::PlayerInputMode;
 fn press(input_mode: PlayerInputMode) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
+        java_session: false,
         refused_destroy: None,
         actor_life: None,
         tick: 101,
@@ -66,6 +67,7 @@ fn standalone_attack_packets_precede_their_tick_player_auth_input() {
         let outcome = runtime.resolve(
             crosshair,
             &PressContext {
+                java_session: false,
                 tick,
                 ..press(PlayerInputMode::Mouse)
             },
@@ -143,6 +145,7 @@ fn catchup_attacks_and_misses_precede_the_first_input_with_its_previous_pose() {
         runtime.observe_input(true, false);
         let sample = runtime.press_sample(crosshair, &ticker, 3, 1).unwrap();
         let press = PressContext {
+            java_session: false,
             tick: sample.tick,
             player_position: sample.position,
             ..press(PlayerInputMode::Mouse)
@@ -227,6 +230,7 @@ fn frame_attacks_follow_completed_inputs_and_precede_the_next_tick_and_swing() {
         let sample = runtime.between_ticks_press(&ticker).unwrap();
         assert_eq!((sample.tick, sample.position), (103, preceding));
         let press = PressContext {
+            java_session: false,
             tick: sample.tick,
             player_position: sample.position,
             ..press(PlayerInputMode::Mouse)

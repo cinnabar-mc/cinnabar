@@ -5,6 +5,7 @@ import (
 	"github.com/google/uuid"
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"math"
 )
 
 // eyeHeight is how far the 1.7.10 player position sits above the feet.
@@ -27,6 +28,22 @@ type state struct {
 	// nextProbe the last timestamp given.
 	probes    map[int64]probe
 	nextProbe int64
+	// speedSequence numbers the movement speed snapshots sent to the client.
+	speedSequence uint32
+	// pushSequence numbers the explosion pushes sent to the client, and pushes holds the
+	// recent ones each push event repeats.
+	pushSequence uint32
+	pushes       []push
+	// effects holds the local player's active potion effects.
+	effects map[int8]bool
+	// reportedSlot is the held slot last reported to the server, as PlayerControllerMP
+	// remembers it.
+	reportedSlot int16
+	// respawnRequested is set once the dead player asked to respawn, until the server
+	// respawns it.
+	respawnRequested bool
+	// look turns the client's yaw into the 1.7.10 client's unbounded yaw.
+	look yawUnwrapper
 
 	entityID   int32
 	dimension  int8
@@ -77,6 +94,7 @@ type abilities struct {
 func newState() state {
 	return state{
 		probes:    map[int64]probe{},
+		effects:   map[int8]bool{},
 		world:     newWorld(dimensionOverworld),
 		radius:    8,
 		entities:  map[int32]*entity{},
@@ -109,4 +127,31 @@ func unlistedUniqueID(id uuid.UUID) int64 {
 // javaEntityID is the Java entity id behind a Bedrock runtime id from runtimeID.
 func javaEntityID(runtime uint64) int32 {
 	return int32(uint32(runtime - 1))
+}
+
+// yawUnwrapper keeps the yaw the 1.7.10 client would report, which turns without bound,
+// from the Bedrock client's yaw, which wraps at ±180°: crossing it must not read as a
+// 360° turn.
+type yawUnwrapper struct {
+	yaw, raw float32
+	known    bool
+}
+
+// unwrap returns the unbounded yaw for the client's next yaw.
+func (u *yawUnwrapper) unwrap(raw float32) float32 {
+	if !u.known {
+		u.yaw, u.raw, u.known = raw, raw, true
+		return raw
+	}
+	turn := raw - u.raw
+	turn -= 360 * float32(math.Floor(float64(turn+180)/360))
+	u.yaw += turn
+	u.raw = raw
+	return u.yaw
+}
+
+// set places the yaw where the server put it.
+func (u *yawUnwrapper) set(yaw float32) {
+	u.yaw, u.known = yaw, true
+	u.raw = yaw - 360*float32(math.Floor(float64(yaw+180)/360))
 }

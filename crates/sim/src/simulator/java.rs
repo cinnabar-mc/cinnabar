@@ -7,7 +7,7 @@
 
 use std::cell::Cell;
 
-use java_sim::player::{Abilities, Effects, Input, Player, Status};
+use java_sim::player::{Abilities, Effects, Input, Modifier, Operation, Player, Status};
 use java_sim::{Block, WORLD_HEIGHT, World};
 
 use super::{
@@ -38,8 +38,7 @@ const FACING_OFFSETS: [[i32; 3]; 6] = [
 /// How far a server position can sink the feet into the ground: positions reach the client
 /// in single precision, whose error at world coordinates stays well below this.
 const PLACEMENT_TOLERANCE: f64 = 1.0e-3;
-/// Food level of a player who may sprint; the client's own sprint decision already
-/// accounts for hunger.
+/// Food level of a player the server has not yet told its hunger: a full bar.
 const FED: i32 = 20;
 
 /// The Java player behind a state, with the position and velocity it last wrote there.
@@ -49,6 +48,10 @@ pub(super) struct Shadow {
     player: Player,
     position: Vec3,
     velocity: Vec3,
+    /// The sequence of the server speed snapshot last applied to the player's attribute.
+    speed_sequence: Option<u32>,
+    /// The sequence of the last explosion push added to the player's motion.
+    push_sequence: u32,
 }
 
 /// A `java-sim` world over the client's collision world. Unloaded and unknown blocks read
@@ -147,6 +150,12 @@ pub(super) fn tick(
                 player,
                 position: state.position,
                 velocity: state.velocity,
+                speed_sequence: None,
+                // A new player takes no push from before it.
+                push_sequence: input
+                    .java_pushes
+                    .and_then(|pushes| pushes.pushes().last().map(|push| push.sequence))
+                    .unwrap_or(0),
             }
         }
     };
@@ -168,12 +177,52 @@ pub(super) fn tick(
             .set_velocity(state.velocity.x, state.velocity.y, state.velocity.z);
     }
 
+    for push in input
+        .java_pushes
+        .iter()
+        .flat_map(|pushes| pushes.pushes().to_vec())
+    {
+        // NetHandlerPlayClient.handleExplosion adds the push to the player's motion.
+        if push.sequence > shadow.push_sequence {
+            let [x, y, z] = shadow.player.motion();
+            shadow
+                .player
+                .set_velocity(x + push.motion[0], y + push.motion[1], z + push.motion[2]);
+            shadow.push_sequence = push.sequence;
+        }
+    }
+    if let Some(snapshot) = input.java_speed
+        && shadow.speed_sequence != Some(snapshot.sequence)
+    {
+        // A new server snapshot of the movement speed, with Speed and Slowness among its
+        // modifiers. Like the 1.7.10 client, it replaces every modifier, the sprint one too,
+        // until the client next changes its sprint state.
+        let modifiers: Vec<Modifier> = snapshot
+            .modifiers()
+            .iter()
+            .filter_map(|modifier| {
+                Some(Modifier {
+                    id: modifier.id,
+                    amount: modifier.amount,
+                    operation: Operation::from_wire(modifier.operation)?,
+                })
+            })
+            .collect();
+        shadow
+            .player
+            .movement_speed_mut()
+            .apply_snapshot(snapshot.base, &modifiers);
+        shadow.speed_sequence = Some(snapshot.sequence);
+    }
+
     let flying = input.mode == MovementMode::Flying;
     // Flight and sprinting start and stop by the client's own rules, which also decide what
     // the server is told, so the Java player never changes either by itself.
     shadow.player.set_abilities(Abilities {
         flying,
-        allow_flying: false,
+        // The 1.7.10 sprint rule lets a player who may fly sprint while hungry; the client's
+        // own flight rules still decide flying.
+        allow_flying: input.may_fly,
         fly_speed: input
             .fly_speed
             .map_or(Abilities::default().fly_speed, |speed| speed as f32),
@@ -191,10 +240,12 @@ pub(super) fn tick(
     }
     let status = Status {
         using_item: input.using_consumable || input.item_use_movement_modifier.is_some(),
-        food_level: FED,
+        food_level: input.food_level.map_or(FED, i32::from),
         effects,
         movement_blocked: input.immobile,
-        sprint_override: Some(input.sprinting),
+        // Sprinting follows the 1.7.10 rules, which the server checks: the sprint key, the
+        // double tap and every condition that ends a sprint.
+        sprint_override: None,
     };
     let keys = Input {
         forward: input.forward > 0.0,
@@ -203,7 +254,7 @@ pub(super) fn tick(
         right: input.strafe < 0.0,
         jump: input.jumping,
         sneak: input.sneaking,
-        sprint: input.sprinting,
+        sprint: input.sprint_key,
         yaw,
         pitch,
     };
@@ -239,6 +290,8 @@ pub(super) fn tick(
         in_water: shadow.player.in_water(),
         ..MovementEnvironment::default()
     };
+    let sprinting = shadow.player.sprinting();
+    let sink = shadow.player.sink();
     state.java = Some(Box::new(shadow));
     Ok(ControlledTickResult {
         tick_result: TickResult {
@@ -256,5 +309,7 @@ pub(super) fn tick(
         },
         controls: controls::process(input),
         jump_initiated: false,
+        java_sprinting: Some(sprinting),
+        java_sink: Some(sink),
     })
 }

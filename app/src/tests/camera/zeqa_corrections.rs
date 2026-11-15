@@ -81,6 +81,7 @@ fn zeqa_correction_burst_preserves_outbound_look() {
             interaction_model: protocol::PlayerInteractionModel::Crosshair,
             vehicle: None,
             java_position: None,
+            java_sink: None,
         })
         .unwrap();
         let sent = protocol::player_auth_input_trace_sample(&packet).unwrap();

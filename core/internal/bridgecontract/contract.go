@@ -109,6 +109,10 @@ const (
 	JavaTargetPrefix = "java/"
 	// JavaEdition: Session handoff edition of a translated Java Edition 1.7.10 server.
 	JavaEdition = "java-1.7.10"
+	// JavaPushAttribute: Attribute carrying a Java Edition 1.7.10 server's recent explosion pushes of the local player, which the client's Java physics adds to its motion.
+	JavaPushAttribute = "cinnabar:java_push"
+	// JavaMovementAttribute: Attribute carrying a Java Edition 1.7.10 server's movement speed for the local player, without the sprint modifier, which the client's Java physics applies itself.
+	JavaMovementAttribute = "cinnabar:java_movement"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.

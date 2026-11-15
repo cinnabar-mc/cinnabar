@@ -497,15 +497,18 @@ impl LocalPhysicsController {
                 jump_fold = ReplayJumpArcFold::seed(true, false, false);
             }
             let (initiated, arc_active) = jump_fold.step(output.jump_initiated, result.on_ground);
+            retained.processed.java_sink = output.java_sink;
             retained.processed.java_position = frame_input.java_physics.then_some([
                 result.position.x,
                 result.position.y,
                 result.position.z,
             ]);
             retained.sneaking = frame_input.sneaking;
-            retained.sprinting = frame_input.sprinting;
+            // A replayed Java tick reports the sprint the 1.7.10 rules decided again.
+            let sprinting = output.java_sprinting.unwrap_or(frame_input.sprinting);
+            retained.sprinting = sprinting;
             retained.processed.sneaking = frame_input.sneaking;
-            retained.processed.sprinting = frame_input.sprinting;
+            retained.processed.sprinting = sprinting;
             retained.processed.mode = frame_input.mode;
             retained.processed.pose_flags = controller_frames
                 .iter()

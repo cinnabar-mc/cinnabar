@@ -161,6 +161,12 @@ pub const JAVA_TARGET_PREFIX: &str = "java/";
 /// Session handoff edition of a translated Java Edition 1.7.10 server.
 pub const JAVA_EDITION: &str = "java-1.7.10";
 
+/// Attribute carrying a Java Edition 1.7.10 server's recent explosion pushes of the local player, which the client's Java physics adds to its motion.
+pub const JAVA_PUSH_ATTRIBUTE: &str = "cinnabar:java_push";
+
+/// Attribute carrying a Java Edition 1.7.10 server's movement speed for the local player, without the sprint modifier, which the client's Java physics applies itself.
+pub const JAVA_MOVEMENT_ATTRIBUTE: &str = "cinnabar:java_movement";
+
 /// Version of the control JSON-RPC envelope.
 pub const JSON_RPC_VERSION: &str = "2.0";
 
