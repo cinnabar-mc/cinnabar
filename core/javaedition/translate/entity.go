@@ -250,7 +250,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 			if pk.EntityID == st.entityID {
 				// NetHandlerPlayClient.handleAnimation swings the local player through
 				// EntityClientPlayerMP.swingItem, which reports the swing back.
-				s.probeClient(probe{swing: true})
+				s.probeClient(probe{swing: true, entity: st.entityID})
 			}
 		case animationHurt:
 			s.queue(&packet.ActorEvent{EntityRuntimeID: runtimeID(pk.EntityID), EventType: packet.ActorEventHurt})

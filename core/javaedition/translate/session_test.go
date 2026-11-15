@@ -763,24 +763,91 @@ func TestTransactionsForOtherWindowsAreNotConfirmed(t *testing.T) {
 }
 
 // A swing the server plays on the local player is reported back once the client plays it, as
-// EntityClientPlayerMP.swingItem does. Anti-bot verifications check it.
-func TestServerSwingsAreEchoed(t *testing.T) {
+// EntityClientPlayerMP.swingItem does; a held slot outside the hotbar is ignored, as
+// handleHeldItemChange ignores it. Anti-bot verifications check both.
+func TestServerSwingsAreEchoedAndBadSlotsIgnored(t *testing.T) {
 	ts := startTestSession(t)
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
 	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
 	expect[*java.ClientPlayerPositionLook](ts)
-
-	var probe *packet.NetworkStackLatency
-	for _, pk := range ts.serve(&java.Animation{EntityID: 7, Animation: animationSwingArm}) {
-		if latency, ok := pk.(*packet.NetworkStackLatency); ok {
-			probe = latency
+	probeIn := func(served []packet.Packet) *packet.NetworkStackLatency {
+		for _, pk := range served {
+			if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+				return latency
+			}
+		}
+		return nil
+	}
+	// untilChat writes a chat marker and returns what the translator sends up to it.
+	untilChat := func(marker string) []java.Packet {
+		ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: marker})
+		var sent []java.Packet
+		for {
+			pk, err := ts.server.Read()
+			if err != nil {
+				t.Fatalf("read from the translator: %v", err)
+			}
+			if chat, ok := pk.(*java.ClientChatMessage); ok && chat.Message == marker {
+				return sent
+			}
+			sent = append(sent, pk)
 		}
 	}
+
+	// servedUntilMarker writes pks and a chat marker and returns what the client receives up
+	// to the marker, for packets that may translate to nothing.
+	servedUntilMarker := func(pks ...java.Packet) []packet.Packet {
+		for _, pk := range append(pks, &java.ChatMessage{Message: `"marker"`}) {
+			if err := ts.server.Write(pk); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var served []packet.Packet
+		for {
+			batch := ts.batch()
+			served = append(served, batch...)
+			for _, pk := range batch {
+				if _, ok := pk.(*packet.Text); ok {
+					return served
+				}
+			}
+		}
+	}
+
+	// Another entity's swing and the player's own hurt animation are not echoed.
+	if probeIn(servedUntilMarker(
+		&java.Animation{EntityID: 8, Animation: animationSwingArm},
+		&java.Animation{EntityID: 7, Animation: animationHurt},
+	)) != nil {
+		t.Fatal("an animation other than the player's swing sent a probe")
+	}
+	probe := probeIn(ts.serve(&java.Animation{EntityID: 7, Animation: animationSwingArm}))
 	if probe == nil {
 		t.Fatal("the swing sent no probe")
+	}
+	// Nothing is echoed before the client has played the swing.
+	for _, pk := range untilChat("before") {
+		if _, ok := pk.(*java.ClientAnimation); ok {
+			t.Fatal("the swing was echoed before the client answered its probe")
+		}
 	}
 	ts.write(&packet.NetworkStackLatency{Timestamp: probe.Timestamp * probeTimestampScale})
 	if swing := expect[*java.ClientAnimation](ts); swing.EntityID != 7 || swing.Animation != 1 {
 		t.Fatalf("swing echo = %+v", swing)
+	}
+
+	for _, pk := range servedUntilMarker(&java.HeldItemChange{Slot: 9}) {
+		if _, ok := pk.(*packet.PlayerHotBar); ok {
+			t.Fatal("a slot outside the hotbar reached the client")
+		}
+	}
+	var hotbar *packet.PlayerHotBar
+	for _, pk := range ts.serve(&java.HeldItemChange{Slot: 4}) {
+		if selected, ok := pk.(*packet.PlayerHotBar); ok {
+			hotbar = selected
+		}
+	}
+	if hotbar == nil || hotbar.SelectedHotBarSlot != 4 {
+		t.Fatalf("a hotbar slot selected %+v", hotbar)
 	}
 }
