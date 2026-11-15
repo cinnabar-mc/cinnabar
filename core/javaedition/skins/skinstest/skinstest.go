@@ -8,8 +8,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -37,6 +39,10 @@ type Services struct {
 	t      testing.TB
 	server *httptest.Server
 	key    *rsa.PrivateKey
+	// other is a key the keys service lists that fetchers do not trust.
+	other *rsa.PrivateKey
+	// keyHash is the SHA-256 of key's DER public key, the one fetchers trust.
+	keyHash [sha256.Size]byte
 
 	mu        sync.Mutex
 	files     map[string][]byte
@@ -58,7 +64,22 @@ func Start(t testing.TB) *Services {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys, _ := json.Marshal(map[string]any{"profilePropertyKeys": []map[string]string{{"publicKey": base64.StdEncoding.EncodeToString(der)}}})
+	s.keyHash = sha256.Sum256(der)
+	// The service lists another key first, as the real one lists keys the 1.7.10 client does
+	// not trust.
+	other, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.other = other
+	otherDER, err := x509.MarshalPKIXPublicKey(&other.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, _ := json.Marshal(map[string]any{"profilePropertyKeys": []map[string]string{
+		{"publicKey": base64.StdEncoding.EncodeToString(otherDER)},
+		{"publicKey": base64.StdEncoding.EncodeToString(der)},
+	}})
 	s.files[KeysHost+"/publickeys"] = keys
 	s.server = httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(s.server.Close)
@@ -68,9 +89,15 @@ func Start(t testing.TB) *Services {
 // Fetcher returns a fetcher whose every request reaches the fake services.
 func (s *Services) Fetcher() *skins.Fetcher {
 	return skins.New(skins.Config{
-		HTTP:    &http.Client{Transport: redirect{s}},
-		KeysURL: "https://" + KeysHost + "/publickeys",
+		HTTP:      s.HTTPClient(),
+		KeysURL:   "https://" + KeysHost + "/publickeys",
+		KeySHA256: hex.EncodeToString(s.keyHash[:]),
 	})
+}
+
+// HTTPClient returns a client whose every request reaches the fake services.
+func (s *Services) HTTPClient() *http.Client {
+	return &http.Client{Transport: redirect{s}}
 }
 
 // redirect sends every request to the test server, keeping the host it named.
@@ -189,10 +216,21 @@ func Payload(skin, cape string) string {
 
 // Signed is the textures property with value, signed by the fake session service.
 func (s *Services) Signed(value string) java.ProfileProperty {
+	return sign(s.t, s.key, value)
+}
+
+// SignedByOther is the textures property with value, signed by a key the keys service lists
+// but fetchers do not trust.
+func (s *Services) SignedByOther(value string) java.ProfileProperty {
+	return sign(s.t, s.other, value)
+}
+
+// sign is the textures property with value, signed by key.
+func sign(t testing.TB, key *rsa.PrivateKey, value string) java.ProfileProperty {
 	digest := sha1.Sum([]byte(value))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, s.key, crypto.SHA1, digest[:])
+	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA1, digest[:])
 	if err != nil {
-		s.t.Fatal(err)
+		t.Fatal(err)
 	}
 	return java.ProfileProperty{Name: "textures", Value: value, Signature: base64.StdEncoding.EncodeToString(signature)}
 }

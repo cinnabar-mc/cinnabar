@@ -82,9 +82,10 @@ func TestUnsignedOrForgedTexturesAreRefused(t *testing.T) {
 	payload := skinstest.Payload(services.Texture("forged", 64, 32, red), "")
 	other := skinstest.Start(t).Signed(payload)
 	for name, property := range map[string]java.ProfileProperty{
-		"unsigned":       {Name: "textures", Value: payload},
-		"another signer": other,
-		"altered":        {Name: "textures", Value: skinstest.Payload("http://textures.minecraft.net/texture/other", ""), Signature: other.Signature},
+		"unsigned":           {Name: "textures", Value: payload},
+		"another signer":     other,
+		"another listed key": services.SignedByOther(payload),
+		"altered":            {Name: "textures", Value: skinstest.Payload("http://textures.minecraft.net/texture/other", ""), Signature: other.Signature},
 	} {
 		images, err := services.Fetcher().Profile(testContext(t), []java.ProfileProperty{property})
 		if err == nil || images.Skin != nil {
@@ -195,5 +196,16 @@ func TestTextureRedirectsStayOnTextureHosts(t *testing.T) {
 		if strings.Contains(request, "internal.example") {
 			t.Fatalf("requested %s", request)
 		}
+	}
+}
+
+// The pinned hash is that of the key the 1.7.10 client bundles; a fetcher with the default
+// configuration trusts no key but that one.
+func TestOnlyThePinnedSessionKeyIsTrusted(t *testing.T) {
+	services := skinstest.Start(t)
+	payload := skinstest.Payload(services.Texture("pinned", 64, 32, red), "")
+	fetcher := skins.New(skins.Config{HTTP: services.HTTPClient(), KeysURL: "https://" + skinstest.KeysHost + "/publickeys"})
+	if _, err := fetcher.Profile(testContext(t), []java.ProfileProperty{services.Signed(payload)}); err == nil {
+		t.Fatal("a key other than the 1.7.10 session key was trusted")
 	}
 }

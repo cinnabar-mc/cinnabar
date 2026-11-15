@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,11 +49,20 @@ const (
 	maxCachedTextures = 256
 )
 
-// Config configures a Fetcher. Zero values select the session service and http.DefaultClient.
+// SessionKeySHA256 is the hex SHA-256 of the DER public key the 1.7.10 client bundles to
+// check textures signatures with (authlib 1.5.21's yggdrasil_session_pubkey.der). Of the keys
+// the keys service lists, only this one is trusted, as the 1.7.10 client trusts only its own.
+const SessionKeySHA256 = "4a3f31581c5b9bce0e53dd79a98d2da53fa5e116c3a16c3c36db991f152b2554"
+
+// Config configures a Fetcher. Zero values select the session service, its 1.7.10 signing
+// key and http.DefaultClient.
 type Config struct {
 	HTTP       *http.Client
 	KeysURL    string
 	ProfileURL string
+	// KeySHA256 is the hex SHA-256 of the only listed DER key trusted to sign textures; empty
+	// selects SessionKeySHA256.
+	KeySHA256 string
 	// Now is the clock that schedules retries; nil uses time.Now.
 	Now func() time.Time
 }
@@ -147,6 +158,9 @@ func New(config Config) *Fetcher {
 	}
 	if config.Now == nil {
 		config.Now = time.Now
+	}
+	if config.KeySHA256 == "" {
+		config.KeySHA256 = SessionKeySHA256
 	}
 	client := http.DefaultClient
 	if config.HTTP != nil {
@@ -329,7 +343,7 @@ func (f *Fetcher) downloadKeys(ctx context.Context) ([]*rsa.PublicKey, error) {
 	var keys []*rsa.PublicKey
 	for _, entry := range listed.ProfilePropertyKeys {
 		der, err := decodeBase64(entry.PublicKey)
-		if err != nil {
+		if sum := sha256.Sum256(der); err != nil || hex.EncodeToString(sum[:]) != f.config.KeySHA256 {
 			continue
 		}
 		parsed, err := x509.ParsePKIXPublicKey(der)
@@ -338,7 +352,7 @@ func (f *Fetcher) downloadKeys(ctx context.Context) ([]*rsa.PublicKey, error) {
 		}
 	}
 	if len(keys) == 0 {
-		return nil, errors.New("java edition signing keys: the service listed no usable key")
+		return nil, errors.New("java edition signing keys: the service did not list the session key")
 	}
 	return keys, nil
 }
