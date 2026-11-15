@@ -14,23 +14,22 @@ pub trait World {
     /// The block at a position, or air when the position is not available.
     fn block(&self, x: i32, y: i32, z: i32) -> Block;
 
-    /// Whether the chunk column at chunk coordinates `(chunk_x, chunk_z)` is loaded.
+    /// Whether the server has sent the chunk column at chunk coordinates `(chunk_x, chunk_z)`:
+    /// the game's `Chunk.isChunkLoaded`, which is false for the empty chunk that stands in for
+    /// a column never sent. Only gravity reads it.
     fn chunk_loaded(&self, chunk_x: i32, chunk_z: i32) -> bool;
 
-    /// Whether a block position lies inside the build height of a loaded column.
-    fn block_exists(&self, x: i32, y: i32, z: i32) -> bool {
-        (0..WORLD_HEIGHT).contains(&y) && self.chunk_loaded(x >> 4, z >> 4)
+    /// Whether a block position lies inside the build height. The client's chunk provider
+    /// reports every column as existing (`ChunkProviderClient.chunkExists`), so this
+    /// `World.blockExists` checks only the height.
+    fn block_exists(&self, _x: i32, y: i32, _z: i32) -> bool {
+        (0..WORLD_HEIGHT).contains(&y)
     }
 
-    /// Whether every column touched by the block range is loaded and the range reaches the
-    /// build height.
+    /// Whether the block range reaches the build height: `World.checkChunksExist`, which on
+    /// the client finds every column existing, as [`World::block_exists`] does.
     fn chunks_exist(&self, min: [i32; 3], max: [i32; 3]) -> bool {
-        if max[1] < 0 || min[1] >= WORLD_HEIGHT {
-            return false;
-        }
-        ((min[0] >> 4)..=(max[0] >> 4)).all(|chunk_x| {
-            ((min[2] >> 4)..=(max[2] >> 4)).all(|chunk_z| self.chunk_loaded(chunk_x, chunk_z))
-        })
+        max[1] >= 0 && min[1] < WORLD_HEIGHT
     }
 
     /// Appends the solid boxes of entities that block movement, such as boats, near `query`.

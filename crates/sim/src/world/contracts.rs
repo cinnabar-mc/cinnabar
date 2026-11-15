@@ -13,6 +13,13 @@ pub trait CollisionWorld {
         Ok(())
     }
 
+    /// Fails with [`WorldQueryError::UnloadedChunk`] until the column at chunk coordinates
+    /// `(chunk_x, chunk_z)` has arrived, whether or not it holds any sections. Worlds without
+    /// streamed terrain have every column.
+    fn require_column(&self, _chunk_x: i32, _chunk_z: i32) -> Result<(), WorldQueryError> {
+        Ok(())
+    }
+
     /// Registry provenance for ticks that read no terrain. Bare shape adapters remain neutral.
     fn registry_identity(&self) -> CollisionRegistryIdentity {
         CollisionQuery::synthetic(()).identity.registry
