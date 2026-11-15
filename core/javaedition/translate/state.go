@@ -91,7 +91,14 @@ func runtimeID(entityID int32) uint64 {
 
 // uniqueID is the Bedrock unique id of a Java entity id, moved up by one like runtimeID.
 func uniqueID(entityID int32) int64 {
-	return int64(entityID) + 1
+	return int64(uint32(entityID)) + 1
+}
+
+// unlistedUniqueID is the unique id of a listed player whose entity the client has not been
+// sent: the 1.7.10 list names no entity. It lies above every id uniqueID gives, so it never
+// names another entity.
+func unlistedUniqueID(id uuid.UUID) int64 {
+	return int64(id.ID()) | 1<<40
 }
 
 // javaEntityID is the Java entity id behind a Bedrock runtime id from runtimeID.

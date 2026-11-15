@@ -672,3 +672,33 @@ func TestAbilitiesTargetTheLocalPlayer(t *testing.T) {
 		t.Fatalf("abilities = %+v, want unique id %d", abilities, start.EntityUniqueID)
 	}
 }
+
+// Player-list entries name the player's entity when it is known, and otherwise an id no
+// entity can have.
+func TestPlayerListEntriesNameTheirEntity(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	listed := func(packets []packet.Packet) protocol.PlayerListEntry {
+		t.Helper()
+		for _, pk := range packets {
+			if list, ok := pk.(*packet.PlayerList); ok && len(list.Entries) == 1 {
+				return list.Entries[0]
+			}
+		}
+		t.Fatalf("no player-list entry in %+v", packets)
+		return protocol.PlayerListEntry{}
+	}
+	spawned := listed(ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: "00000000-0000-4000-8000-000000000009", Name: "Alex"}))
+	if spawned.EntityUniqueID != uniqueID(9) {
+		t.Fatalf("a spawned player's entry names %d, want %d", spawned.EntityUniqueID, uniqueID(9))
+	}
+	unseen := listed(ts.serve(&java.PlayerListItem{Name: "Notch", Online: true}))
+	if unseen.EntityUniqueID <= uniqueID(-1) {
+		t.Fatalf("an unseen player's entry names %d, inside the entity ids", unseen.EntityUniqueID)
+	}
+	// The session logs in as Steve.
+	own := listed(ts.serve(&java.PlayerListItem{Name: "Steve", Online: true}))
+	if own.EntityUniqueID != uniqueID(7) {
+		t.Fatalf("the local player's entry names %d, want %d", own.EntityUniqueID, uniqueID(7))
+	}
+}
