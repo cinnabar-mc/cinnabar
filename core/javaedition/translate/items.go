@@ -13,6 +13,8 @@ const (
 	javaMainStart   = 9
 	javaHotbarStart = 36
 	javaWindowSize  = 45
+	// hotbarSlots is the hotbar's width, the slots a held item can be chosen from.
+	hotbarSlots = javaWindowSize - javaHotbarStart
 	// bedrockInventorySize is the Bedrock inventory: nine hotbar slots, then the main rows.
 	bedrockInventorySize = 36
 )

@@ -761,3 +761,26 @@ func TestTransactionsForOtherWindowsAreNotConfirmed(t *testing.T) {
 		t.Fatalf("a transaction for window 3 was probed: %+v", next)
 	}
 }
+
+// A swing the server plays on the local player is reported back once the client plays it, as
+// EntityClientPlayerMP.swingItem does. Anti-bot verifications check it.
+func TestServerSwingsAreEchoed(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+
+	var probe *packet.NetworkStackLatency
+	for _, pk := range ts.serve(&java.Animation{EntityID: 7, Animation: animationSwingArm}) {
+		if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+			probe = latency
+		}
+	}
+	if probe == nil {
+		t.Fatal("the swing sent no probe")
+	}
+	ts.write(&packet.NetworkStackLatency{Timestamp: probe.Timestamp * probeTimestampScale})
+	if swing := expect[*java.ClientAnimation](ts); swing.EntityID != 7 || swing.Animation != 1 {
+		t.Fatalf("swing echo = %+v", swing)
+	}
+}

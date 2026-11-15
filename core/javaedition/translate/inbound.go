@@ -98,6 +98,11 @@ func (s *Session) handleJava(pk java.Packet) error {
 			SpawnPosition: protocol.BlockPos{pk.X, pk.Y, pk.Z},
 		})
 	case *java.HeldItemChange:
+		// NetHandlerPlayClient.handleHeldItemChange takes only a hotbar slot. Only the held
+		// slot changes; the client reports it back at its next sync.
+		if pk.Slot < 0 || pk.Slot >= hotbarSlots {
+			return nil
+		}
 		s.state.heldSlot = int16(pk.Slot)
 		s.queue(&packet.PlayerHotBar{SelectedHotBarSlot: uint32(pk.Slot), WindowID: protocol.WindowIDInventory, SelectHotBarSlot: true})
 	case *java.PlayerListItem:
