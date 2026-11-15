@@ -28,6 +28,9 @@ const defaultSkinProfileURL = "https://sessionserver.mojang.com/session/minecraf
 // textureHost serves the skin textures the session service names.
 const textureHost = "textures.minecraft.net"
 
+// maxTextureRedirects bounds the redirects followed while reading a skin.
+const maxTextureRedirects = 3
+
 // Head pictures: a skin's 8×8 face with its hat layer, drawn headPictureScale times larger
 // without blurring, kept as "<id>-head.png" beside the account's token.
 const (
@@ -107,11 +110,19 @@ func (s Services) Skin(ctx context.Context, address string) (image.Image, error)
 	if err != nil {
 		return nil, err
 	}
-	client := s.HTTP
-	if client == nil {
-		client = http.DefaultClient
+	client := http.DefaultClient
+	if s.HTTP != nil {
+		client = s.HTTP
 	}
-	response, err := client.Do(request)
+	// A redirect is held to the same rule as the address itself.
+	checked := *client
+	checked.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if len(via) >= maxTextureRedirects || !s.textureAddress(next.URL.String()) {
+			return fmt.Errorf("java edition %s: unsupported texture redirect", OperationSkin)
+		}
+		return nil
+	}
+	response, err := checked.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("java edition %s: %w", OperationSkin, err)
 	}

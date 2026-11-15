@@ -52,6 +52,11 @@ pub(super) fn presentation_accounts() -> JavaAccounts {
 }
 
 impl MenuRuntime {
+    /// Whether this menu has Java accounts to offer; a browser tab has no core to keep them.
+    pub(super) fn java_accounts_available(&self) -> bool {
+        self.external.is_none()
+    }
+
     /// Asks the core for the Java accounts, as opening the Accounts dialog does. Presentation
     /// mode shows placeholders instead, so no real profile can reach a capture.
     pub(super) fn refresh_java_accounts(&mut self) {
@@ -107,14 +112,17 @@ impl MenuRuntime {
             MenuAction::ConfirmRemoveJavaAccount(index)
                 if self.dialog == Some(MenuDialog::RemoveJavaAccount(index)) =>
             {
-                match (
-                    accounts.accounts.get(index),
-                    self.java_accounts.removing.take(),
-                ) {
+                let removing = self.java_accounts.removing.take();
+                match (accounts.accounts.get(index), removing) {
                     (Some(account), Some(id)) if account.id == id => {
                         bridge::JavaAccountAction::Remove(id)
                     }
-                    _ => return,
+                    _ => {
+                        // The question no longer matches the list: return to the accounts.
+                        self.dialog = Some(MenuDialog::Accounts);
+                        self.focused = 0;
+                        return;
+                    }
                 }
             }
             MenuAction::OpenJavaSignInLink => {

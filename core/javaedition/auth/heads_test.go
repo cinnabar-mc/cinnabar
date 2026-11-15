@@ -147,3 +147,20 @@ func TestAccountsDefaultSkinHasNoPicture(t *testing.T) {
 		t.Fatalf("profile read %d times", reads.Load())
 	}
 }
+
+// A skin address that redirects to another host is refused, like that address itself.
+func TestSkinRefusesARedirectToAnotherHost(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	mux.HandleFunc("/skin.png", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://198.51.100.1/skin.png", http.StatusFound)
+	})
+	services := Services{HTTP: server.Client(), SkinProfileURL: server.URL + "/profile/"}
+	if _, err := services.Skin(context.Background(), server.URL+"/skin.png"); err == nil {
+		t.Fatal("a redirect to another host was followed")
+	}
+	if _, err := services.Skin(context.Background(), "http://198.51.100.1/skin.png"); err == nil {
+		t.Fatal("an address on another host was read")
+	}
+}

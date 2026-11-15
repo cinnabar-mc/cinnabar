@@ -457,8 +457,7 @@ impl MenuRuntime {
                             .map(|(index, _)| MenuAction::SwitchJavaAccount(index)),
                     );
                     actions.push(MenuAction::AddAccount);
-                    // A browser tab draws no Java accounts.
-                    if self.external.is_none() {
+                    if self.java_accounts_available() {
                         actions.push(MenuAction::AddJavaAccount);
                         if java.selected.is_some() {
                             actions.push(MenuAction::RemoveJavaAccount);

@@ -85,8 +85,7 @@ impl MenuRuntime {
         if let std::borrow::Cow::Owned(profile) = self.presented_profile() {
             feeds.profile = profile;
         }
-        // A browser tab has no core to keep Java accounts in.
-        feeds.java_accounts.unavailable = self.external.is_some();
+        feeds.java_accounts.unavailable = !self.java_accounts_available();
         feeds
     }
 
