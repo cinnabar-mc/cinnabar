@@ -1221,3 +1221,39 @@ func TestASprintKeptThroughARespawnIsReportedAgain(t *testing.T) {
 		t.Fatalf("after the respawn = %+v", action)
 	}
 }
+
+// A sprint the client ends across a respawn sends no action: the new player never reported
+// it, so its stop is not reported either.
+func TestASprintEndedAcrossARespawnSendsNothing(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+	eye := float32(64 + networkOffset)
+	input := func(flags ...int) *packet.PlayerAuthInput {
+		pk := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, eye, 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
+		for _, flag := range flags {
+			pk.InputData.Set(flag)
+		}
+		return pk
+	}
+	ts.write(input(packet.InputFlagStartSprinting))
+	expect[*java.ClientEntityAction](ts)
+	ts.serve(&java.Respawn{Dimension: -1, LevelType: "default"})
+	var probe *packet.NetworkStackLatency
+	for _, pk := range ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true}) {
+		if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+			probe = latency
+		}
+	}
+	expect[*java.ClientPlayerPositionLook](ts)
+	ts.write(&packet.NetworkStackLatency{Timestamp: probe.Timestamp * probeTimestampScale})
+	ts.write(input(packet.InputFlagStopSprinting))
+	next, err := ts.server.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action, ok := next.(*java.ClientEntityAction); ok {
+		t.Fatalf("an ended sprint sent %+v", action)
+	}
+}
