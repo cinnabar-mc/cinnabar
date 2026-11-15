@@ -495,9 +495,9 @@ fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
 /// The positionally varied material, or under diagnostic `diag_vertex=5`
 /// (`DIAG_NO_QUAD_LOOKUPS`) the packed id itself without the variation lookup.
 fn diag_selected_material_id(material_id: u32, block: vec3<i32>) -> u32 {
-    @if(DIAG_NO_QUAD_LOOKUPS)
+    @if(DIAG_NO_QUAD_LOOKUPS || DIAG_NO_VARIATION_TINT)
     return material_id;
-    @if(!DIAG_NO_QUAD_LOOKUPS)
+    @if(!DIAG_NO_QUAD_LOOKUPS && !DIAG_NO_VARIATION_TINT)
     return positional_material_id(material_id, block);
 }
 
@@ -569,13 +569,13 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.native_ao_face = material_ao_shade(ao * dimming, material.ao_exponent);
     @if(!ENHANCED)
     var face_tint = vec4(0.0);
-    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW && !DIAG_NO_QUAD_LOOKUPS)
+    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW && !DIAG_NO_QUAD_LOOKUPS && !DIAG_NO_VARIATION_TINT)
     face_tint = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
-    @if(!ENHANCED && DIAG_NO_QUAD_LOOKUPS)
+    @if(!ENHANCED && (DIAG_NO_QUAD_LOOKUPS || DIAG_NO_VARIATION_TINT))
     face_tint = vec4(1.0);
     // A one-block face owns a single block's blend, so evaluate it here once rather than per
     // fragment. Mixed records mesh tinted faces one block wide for exactly this.
-    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW && !DIAG_NO_VERTEX_BLEND && !DIAG_NO_QUAD_LOOKUPS)
+    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW && !DIAG_NO_VERTEX_BLEND && !DIAG_NO_QUAD_LOOKUPS && !DIAG_NO_VARIATION_TINT)
     if (face_tint.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
         face_tint = vec4(blended_biome_tint_gamma(
             material.flags & 0x30u,

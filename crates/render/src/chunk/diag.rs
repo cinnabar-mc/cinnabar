@@ -2,6 +2,8 @@
 //! once a second from the `debug.cinnabar.diag_*` Android system property (`adb shell setprop`)
 //! or the matching `CINNABAR_DIAG_*` environment variable, so it can be flipped while the client
 //! runs. Every switch is off by default; its state is logged whenever it changes.
+//! Logs go to stdout, which the Android build forwards to logcat.
+#![allow(clippy::print_stdout)]
 
 use std::sync::{
     RwLock,
@@ -35,7 +37,9 @@ pub(in crate::chunk) struct TerrainDiag {
     /// either stage, so one-block tinted faces in mixed records render untinted;
     /// `diag_vertex=5`: every per-quad record lookup (positional variation, material,
     /// animation frames, masks, biome tint) reads one fixed address instead, keeping the
-    /// per-vertex light, AO, UV and position work: the most a pre-baked per-quad record saves.
+    /// per-vertex light, AO, UV and position work: the most a pre-baked per-quad record saves
+    /// (terrain shows the missing-texture checker); `diag_vertex=6`: the quad's own material
+    /// record (real textures and flags) without the positional-variation loop or biome tint.
     pub(in crate::chunk) vertex: u8,
     /// (g) `diag_max_chunks=N`: draws only sections within N chunks (horizontal) of the camera.
     pub(in crate::chunk) max_chunks: u32,
@@ -112,10 +116,18 @@ pub(in crate::chunk) fn current() -> TerrainDiag {
     *STATE.read().unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// Re-reads the switches every 60 calls (and on the first), logging any change.
+/// Re-reads the switches every 60 calls (and on the first), logging any change. While
+/// `diag_ab` is set, also selects this frame's A or B state.
 pub(in crate::chunk) fn refresh() {
     let frame = FRAME.fetch_add(1, Ordering::Relaxed);
-    if frame % 60 != 0 {
+    if frame.is_multiple_of(60) {
+        ab::reload();
+    }
+    if let Some(state) = ab::state_for(frame) {
+        *STATE.write().unwrap_or_else(|poison| poison.into_inner()) = state;
+        return;
+    }
+    if !frame.is_multiple_of(60) {
         return;
     }
     let next = read();
@@ -123,6 +135,246 @@ pub(in crate::chunk) fn refresh() {
     if frame == 0 || *state != next {
         bevy::log::info!("CINNABAR_TERRAIN_DIAG {next:?}");
         *state = next;
+    }
+}
+
+/// In-process A/B timing: `diag_ab=SPEC` alternates between the ordinary switches (A) and the
+/// same switches with SPEC applied (B), for example `vertex=5,vary=4`, `vertex=5+vary=4` or
+/// `sky:2`, every `diag_ab_frames` frames (default 60), ignoring the first `diag_ab_skip`
+/// frames (default 10) of each half and the first two A/B cycles after the spec changes, while
+/// B's pipeline variants compile. Per-pass GPU times are averaged per state and logged every 5 s as
+/// `CINNABAR_AB`; `CINNABAR_PASS_TIMES` logs the averages of all frames, A/B or not.
+pub(crate) mod ab {
+    use super::{FRAME, TerrainDiag, read, read_with, value};
+    use render_scene::{GpuFrameTimes, RuntimeStage};
+    use std::{
+        collections::VecDeque,
+        sync::{Mutex, RwLock, atomic::Ordering},
+        time::{Duration, Instant},
+    };
+
+    const REPORT_EVERY: Duration = Duration::from_secs(5);
+
+    /// The parsed A/B request and both states it alternates between.
+    struct Plan {
+        spec: String,
+        base: TerrainDiag,
+        b: TerrainDiag,
+        period: u32,
+        skip: u32,
+        /// The refresh count when this spec started; earlier cycles cover first compiles.
+        start: u32,
+    }
+
+    static PLAN: RwLock<Option<Plan>> = RwLock::new(None);
+
+    /// Which state a frame ran in.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Tag {
+        A,
+        B,
+        Skip,
+    }
+
+    /// Sums of per-pass milliseconds over the frames of one state.
+    struct Sums {
+        frames: u32,
+        ms: [f64; RuntimeStage::GPU.len()],
+    }
+
+    impl Sums {
+        const fn new() -> Self {
+            Self {
+                frames: 0,
+                ms: [0.0; RuntimeStage::GPU.len()],
+            }
+        }
+
+        fn add(&mut self, frame: &GpuFrameTimes) {
+            self.frames += 1;
+            for (index, stage) in RuntimeStage::GPU.iter().enumerate() {
+                if let Some(duration) = frame.get(*stage) {
+                    self.ms[index] += duration.as_secs_f64() * 1000.0;
+                }
+            }
+        }
+
+        /// Average milliseconds per frame of stage `index`, over every frame of this state.
+        fn average(&self, index: usize) -> f64 {
+            self.ms[index] / f64::from(self.frames.max(1))
+        }
+    }
+
+    struct Accumulator {
+        /// Frames whose GPU work is still being timed, with the state they ran in.
+        pending: VecDeque<(u64, Tag)>,
+        all: Sums,
+        a: Sums,
+        b: Sums,
+        since: Option<Instant>,
+    }
+
+    static ACCUMULATOR: Mutex<Accumulator> = Mutex::new(Accumulator {
+        pending: VecDeque::new(),
+        all: Sums::new(),
+        a: Sums::new(),
+        b: Sums::new(),
+        since: None,
+    });
+
+    /// Re-reads `diag_ab` and the switches it alternates; logs when the request changes.
+    pub(super) fn reload() {
+        let spec = value("AB").map(|spec| spec.trim().to_owned());
+        let mut plan = PLAN.write().unwrap_or_else(|poison| poison.into_inner());
+        let Some(spec) = spec.filter(|spec| !spec.is_empty()) else {
+            if plan.take().is_some() {
+                println!("CINNABAR_AB stopped");
+            }
+            return;
+        };
+        let overrides = spec
+            .split([',', '+', ';', ' '])
+            .filter_map(|pair| {
+                let (name, value) = pair.split_once(['=', ':'])?;
+                Some((name.trim().to_ascii_uppercase(), value.trim().to_owned()))
+            })
+            .collect::<Vec<_>>();
+        let number = |name: &str, default: u32| {
+            value(name)
+                .and_then(|value| value.trim().parse::<u32>().ok())
+                .unwrap_or(default)
+        };
+        let period = number("AB_FRAMES", 60).max(2);
+        let skip = number("AB_SKIP", 10).min(period - 1);
+        let base = read();
+        let b = read_with(&|name| {
+            overrides
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+                .or_else(|| value(name))
+        });
+        let start = match plan.as_ref() {
+            Some(old) if old.spec == spec && old.period == period && old.skip == skip => old.start,
+            _ => {
+                println!("CINNABAR_AB start spec={spec} frames={period} skip={skip} b={b:?}");
+                FRAME.load(Ordering::Relaxed)
+            }
+        };
+        *plan = Some(Plan {
+            spec,
+            base,
+            b,
+            period,
+            skip,
+            start,
+        });
+    }
+
+    /// The A or B state of `frame` while an A/B request is active.
+    pub(super) fn state_for(frame: u32) -> Option<TerrainDiag> {
+        let plan = PLAN.read().unwrap_or_else(|poison| poison.into_inner());
+        let plan = plan.as_ref()?;
+        Some(if (frame / plan.period) % 2 == 1 {
+            plan.b
+        } else {
+            plan.base
+        })
+    }
+
+    /// Records which state the frame `frame_id` (the GPU timing frame id) is drawn in.
+    pub(crate) fn note_frame(frame_id: u64) {
+        let tag = {
+            let plan = PLAN.read().unwrap_or_else(|poison| poison.into_inner());
+            let Some(plan) = plan.as_ref() else {
+                return;
+            };
+            let frame = FRAME.load(Ordering::Relaxed).wrapping_sub(1);
+            if frame.wrapping_sub(plan.start) < 4 * plan.period || frame % plan.period < plan.skip {
+                Tag::Skip
+            } else if (frame / plan.period) % 2 == 1 {
+                Tag::B
+            } else {
+                Tag::A
+            }
+        };
+        let mut accumulator = ACCUMULATOR
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        accumulator.pending.push_back((frame_id, tag));
+        while accumulator.pending.len() > 64 {
+            accumulator.pending.pop_front();
+        }
+    }
+
+    /// Adds a completed frame's GPU times and logs the averages every five seconds.
+    pub(crate) fn record(frame_id: u64, frame: &GpuFrameTimes) {
+        if frame.iter().next().is_none() {
+            return;
+        }
+        let mut accumulator = ACCUMULATOR
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let accumulator = &mut *accumulator;
+        let mut tag = None;
+        while let Some(&(id, frame_tag)) = accumulator.pending.front() {
+            if id > frame_id {
+                break;
+            }
+            accumulator.pending.pop_front();
+            if id == frame_id {
+                tag = Some(frame_tag);
+            }
+        }
+        accumulator.all.add(frame);
+        match tag {
+            Some(Tag::A) => accumulator.a.add(frame),
+            Some(Tag::B) => accumulator.b.add(frame),
+            _ => {}
+        }
+        let now = Instant::now();
+        let since = *accumulator.since.get_or_insert(now);
+        if now.duration_since(since) < REPORT_EVERY {
+            return;
+        }
+        let name = |stage: RuntimeStage| match stage {
+            RuntimeStage::GpuFrame => "total",
+            stage => stage.name().strip_prefix("gpu_").unwrap_or(stage.name()),
+        };
+        let mut line = format!("CINNABAR_PASS_TIMES frames={}", accumulator.all.frames);
+        for (index, stage) in RuntimeStage::GPU.iter().enumerate() {
+            if accumulator.all.ms[index] > 0.0 {
+                line += &format!(" {}={:.2}", name(*stage), accumulator.all.average(index));
+            }
+        }
+        println!("{line}");
+        let spec = PLAN
+            .read()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+            .map(|plan| plan.spec.clone());
+        if let Some(spec) = spec {
+            let (a, b) = (&accumulator.a, &accumulator.b);
+            let mut line = format!(
+                "CINNABAR_AB spec={spec} a_frames={} b_frames={}",
+                a.frames, b.frames
+            );
+            for (index, stage) in RuntimeStage::GPU.iter().enumerate() {
+                if a.ms[index] > 0.0 || b.ms[index] > 0.0 {
+                    let stage = name(*stage);
+                    line += &format!(
+                        " a_{stage}={:.2} b_{stage}={:.2}",
+                        a.average(index),
+                        b.average(index)
+                    );
+                }
+            }
+            println!("{line}");
+        }
+        accumulator.all = Sums::new();
+        accumulator.a = Sums::new();
+        accumulator.b = Sums::new();
+        accumulator.since = Some(now);
     }
 }
 
@@ -153,6 +405,11 @@ impl FrameSkip {
     pub(crate) const HAND_NO_DRAW: u32 = 512;
 }
 
+/// Prints one diagnostic line for logcat.
+pub(crate) fn log(line: std::fmt::Arguments<'_>) {
+    println!("{line}");
+}
+
 /// `diag_sky` bit 1: the sky draws after opaque geometry.
 pub(crate) fn sky_late() -> bool {
     current().sky & 1 != 0
@@ -175,6 +432,12 @@ pub(crate) fn frame_skips(bit: u32) -> bool {
 
 /// Reads every switch now.
 fn read() -> TerrainDiag {
+    read_with(&value)
+}
+
+/// Builds the switches from `lookup`, which maps an upper-case switch name to its value.
+fn read_with(lookup: &dyn Fn(&str) -> Option<String>) -> TerrainDiag {
+    let value = lookup;
     let number = |name: &str| {
         value(name)
             .and_then(|v| v.trim().parse::<u32>().ok())
@@ -188,7 +451,7 @@ fn read() -> TerrainDiag {
         front_to_back: flag("FRONT_TO_BACK"),
         skip_streams: (number("SKIP_STREAMS") & 15) as u8,
         no_split: flag("NO_SPLIT"),
-        vertex: number("VERTEX").min(5) as u8,
+        vertex: number("VERTEX").min(6) as u8,
         max_chunks: number("MAX_CHUNKS"),
         keep_stride: number("KEEP_STRIDE"),
         sample: number("SAMPLE").min(4) as u8,
@@ -222,7 +485,7 @@ pub(in crate::chunk) fn keeps_section(
             .wrapping_mul(0x9e37_79b1)
             .wrapping_add((section[1] as u32).wrapping_mul(0x85eb_ca77))
             .wrapping_add((section[2] as u32).wrapping_mul(0xc2b2_ae3d));
-        if (hash >> 8) % diag.keep_stride != 0 {
+        if !(hash >> 8).is_multiple_of(diag.keep_stride) {
             return false;
         }
     }
@@ -272,6 +535,7 @@ const VARY_SHIFT: u32 = 14;
 const FRAGMENT_NO_BLEND: u32 = 1 << 17;
 const FLAT_UNITS: u32 = 1 << 18;
 const VERTEX_NO_QUAD_LOOKUPS: u32 = 1 << 19;
+const VERTEX_NO_VARIATION_TINT: u32 = 1 << 20;
 /// Vertex and fragment defines for each `diag_vary` value; the varying interface must agree.
 fn vary_defines(vary: u32) -> (&'static [&'static str], &'static [&'static str]) {
     match vary {
@@ -319,6 +583,7 @@ pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u32 {
         3 => bits |= VERTEX_NO_BLEND,
         4 => bits |= VERTEX_NO_BLEND | FRAGMENT_NO_BLEND,
         5 => bits |= VERTEX_NO_QUAD_LOOKUPS,
+        6 => bits |= VERTEX_NO_VARIATION_TINT,
         _ => {}
     }
     if diag.sample > 0 {
@@ -408,6 +673,13 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u32) -> bool {
                 .vertex
                 .shader_defs
                 .push("DIAG_VERTEX_CULL".into());
+            changed = true;
+        }
+        if bits & VERTEX_NO_VARIATION_TINT != 0 {
+            descriptor
+                .vertex
+                .shader_defs
+                .push("DIAG_NO_VARIATION_TINT".into());
             changed = true;
         }
         if bits & VERTEX_NO_QUAD_LOOKUPS != 0 {

@@ -104,13 +104,13 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
         multiview_mask: None,
     });
     if crate::chunk::diag::count_frame() {
-        println!(
+        crate::chunk::diag::log(format_args!(
             "CINNABAR_HAND_COUNTS rig vertices={} instances={} extent={}x{}",
             gpu.maximum_vertex_count,
             gpu.instance_count.max(1),
             extent.width,
             extent.height
-        );
+        ));
     }
     if crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::HAND_NO_DRAW) {
         return Ok(());

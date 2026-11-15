@@ -53,6 +53,7 @@ fn terrain_spirv_validates_with_mobile_runtime_checks() {
             &["TERRAIN_UNITS", "DIAG_PACKED_VARYINGS"][..],
             &["TERRAIN_UNITS", "DIAG_FLAT_UNITS"][..],
             &["TERRAIN_UNITS", "DIAG_NO_QUAD_LOOKUPS"][..],
+            &["TERRAIN_UNITS", "DIAG_NO_VARIATION_TINT"][..],
             &["TERRAIN_UNITS", "PACKED_TERRAIN", "DIAG_NO_QUAD_LOOKUPS"][..],
             &["TERRAIN_UNITS", "DIAG_FLAT_UNITS", "DIAG_PACKED_VARYINGS"][..],
             &[

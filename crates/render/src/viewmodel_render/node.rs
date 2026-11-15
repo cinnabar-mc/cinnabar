@@ -108,10 +108,10 @@ pub(crate) fn hand_view<const AFTER_PACK: bool>(
         multiview_mask: None,
     });
     if crate::chunk::diag::count_frame() {
-        println!(
+        crate::chunk::diag::log(format_args!(
             "CINNABAR_HAND_COUNTS viewmodel vertices={}",
             gpu.vertex_count
-        );
+        ));
     }
     if !crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::HAND_NO_DRAW) {
         pass.set_render_pipeline(pipeline);
