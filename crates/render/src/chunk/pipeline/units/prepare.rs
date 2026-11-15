@@ -34,6 +34,12 @@ pub(in crate::chunk) fn prepare_units(
     );
     let mut stats = batches.stats;
     let diag = crate::chunk::diag::current();
+    if batches.diag_flat_units != diag.flat_units {
+        batches.diag_flat_units = diag.flat_units;
+        for view in batches.views.values_mut() {
+            view.stale = true;
+        }
+    }
     let counting = crate::chunk::diag::count_frame();
     let mut counts = [crate::chunk::diag::StreamCounts::default(); 4];
     for (&entity, view) in &mut batches.views {
@@ -46,7 +52,9 @@ pub(in crate::chunk) fn prepare_units(
                 #[cfg(feature = "tracy")]
                 let _span =
                     bevy::log::info_span!("terrain.unit_descriptor_deltas", stream).entered();
-                batch.indexed = batch.descriptors.synchronize(sections, lookup, capacity);
+                // `diag_flat_units` keeps the contiguous layout the shader then reads directly.
+                batch.indexed =
+                    !diag.flat_units && batch.descriptors.synchronize(sections, lookup, capacity);
             }
             let early = occlusion
                 .as_ref()

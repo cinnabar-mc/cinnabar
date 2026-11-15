@@ -4,7 +4,7 @@
 //! runs. Every switch is off by default; its state is logged whenever it changes.
 
 use std::sync::{
-    Mutex, RwLock,
+    RwLock,
     atomic::{AtomicU32, Ordering},
 };
 
@@ -30,7 +30,9 @@ pub(in crate::chunk) struct TerrainDiag {
     pub(in crate::chunk) no_split: bool,
     /// (f) `diag_vertex=1`: minimal terrain vertex shader (position only, constant varyings);
     /// `diag_vertex=2`: every terrain vertex is rejected before any fetch (nothing rasterises);
-    /// `diag_vertex=3`: the full vertex shader without the per-vertex mixed biome tint blend.
+    /// `diag_vertex=3`: the full vertex shader without the per-vertex mixed biome tint blend
+    /// (its faces then blend per fragment instead); `diag_vertex=4`: no mixed biome blend in
+    /// either stage, so one-block tinted faces in mixed records render untinted.
     pub(in crate::chunk) vertex: u8,
     /// (g) `diag_max_chunks=N`: draws only sections within N chunks (horizontal) of the camera.
     pub(in crate::chunk) max_chunks: u32,
@@ -55,6 +57,10 @@ pub(in crate::chunk) struct TerrainDiag {
     /// values; 3 only the position chain and one flat word; 4 packed varyings (no
     /// `local_position`, tint in one word).
     pub(in crate::chunk) vary: u8,
+    /// `diag_flat_units=1`: unit pages hold each pass's units contiguously (the non-indexed
+    /// layout) and the vertex shader reads descriptors directly, two dependent storage-load
+    /// levels instead of four.
+    pub(in crate::chunk) flat_units: bool,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,
     /// (h) `diag_counts=1`: logs terrain draw, instance and vertex counts every 120 frames.
@@ -75,6 +81,7 @@ static STATE: RwLock<TerrainDiag> = RwLock::new(TerrainDiag {
     page0: false,
     shade: 0,
     vary: 0,
+    flat_units: false,
     units_off: false,
     counts: false,
 });
@@ -104,13 +111,14 @@ pub(in crate::chunk) fn refresh() {
         front_to_back: flag("FRONT_TO_BACK"),
         skip_streams: (number("SKIP_STREAMS") & 15) as u8,
         no_split: flag("NO_SPLIT"),
-        vertex: number("VERTEX").min(3) as u8,
+        vertex: number("VERTEX").min(4) as u8,
         max_chunks: number("MAX_CHUNKS"),
         keep_stride: number("KEEP_STRIDE"),
         sample: number("SAMPLE").min(4) as u8,
         page0: flag("PAGE0"),
         shade: number("SHADE").min(10) as u8,
         vary: number("VARY").min(4) as u8,
+        flat_units: flag("FLAT_UNITS"),
         units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
         counts: flag("COUNTS"),
     };
@@ -185,6 +193,9 @@ const PAGE0: u32 = 1 << 9;
 const SHADE_SHIFT: u32 = 10;
 /// `diag_vary` occupies three bits from here.
 const VARY_SHIFT: u32 = 14;
+/// `diag_vertex=4`: the fragment drops the per-fragment biome blend too.
+const FRAGMENT_NO_BLEND: u32 = 1 << 17;
+const FLAT_UNITS: u32 = 1 << 18;
 /// Vertex and fragment defines for each `diag_vary` value; the varying interface must agree.
 fn vary_defines(vary: u32) -> (&'static [&'static str], &'static [&'static str]) {
     match vary {
@@ -230,6 +241,7 @@ pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u32 {
         1 => bits |= VERTEX_MIN,
         2 => bits |= VERTEX_CULL,
         3 => bits |= VERTEX_NO_BLEND,
+        4 => bits |= VERTEX_NO_BLEND | FRAGMENT_NO_BLEND,
         _ => {}
     }
     if diag.sample > 0 {
@@ -238,24 +250,27 @@ pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u32 {
     if diag.page0 {
         bits |= PAGE0;
     }
+    if diag.flat_units {
+        bits |= FLAT_UNITS;
+    }
     bits | u32::from(diag.shade) << SHADE_SHIFT | u32::from(diag.vary) << VARY_SHIFT
 }
 
-static VARIANTS: Mutex<Option<HashMap<(CachedRenderPipelineId, u32), CachedRenderPipelineId>>> =
-    Mutex::new(None);
+/// Each render app's diagnostic variants by base pipeline and switch bits. Pipeline ids are only
+/// meaningful within one app's cache, so the map lives in that app's queue system.
+pub(in crate::chunk) type Variants = HashMap<(CachedRenderPipelineId, u32), CachedRenderPipelineId>;
 
 /// The diagnostic variant of the ready pipeline `id`, queued on first use. Returns `id` while
 /// `id` is still compiling or when no switch applies to it.
 pub(in crate::chunk) fn pipeline(
     cache: &PipelineCache,
+    variants: &mut Variants,
     id: CachedRenderPipelineId,
     bits: u32,
 ) -> CachedRenderPipelineId {
     if bits == 0 || cache.get_render_pipeline(id).is_none() {
         return id;
     }
-    let mut variants = VARIANTS.lock().unwrap_or_else(|poison| poison.into_inner());
-    let variants = variants.get_or_insert_with(HashMap::default);
     *variants.entry((id, bits)).or_insert_with(|| {
         let mut descriptor = cache.get_render_pipeline_descriptor(id).clone();
         if apply(&mut descriptor, bits) {
@@ -297,6 +312,10 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u32) -> bool {
             fragment.shader_defs.push("DIAG_PAGE0".into());
             changed = true;
         }
+        if bits & FRAGMENT_NO_BLEND != 0 {
+            fragment.shader_defs.push("DIAG_SHADE_NO_BLEND".into());
+            changed = true;
+        }
         for define in shade_defines(bits >> SHADE_SHIFT & 15) {
             fragment.shader_defs.push((*define).into());
             changed = true;
@@ -312,6 +331,10 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u32) -> bool {
                 .vertex
                 .shader_defs
                 .push("DIAG_VERTEX_CULL".into());
+            changed = true;
+        }
+        if bits & FLAT_UNITS != 0 {
+            descriptor.vertex.shader_defs.push("DIAG_FLAT_UNITS".into());
             changed = true;
         }
         if bits & VERTEX_NO_BLEND != 0 {
