@@ -104,6 +104,10 @@ type KeychainConfig struct {
 	// OnSignedIn, when set, runs on its own goroutine once a device-code sign-in's token is
 	// saved.
 	OnSignedIn func()
+	// OnSignInFailed, when set, runs on its own goroutine when a device-code sign-in ends
+	// without a token for a reason other than being stopped, such as an expired or declined
+	// code.
+	OnSignInFailed func(error)
 }
 
 // Keychain is one account's Java Edition sign-in: a Microsoft sign-in through an app the Java
@@ -369,6 +373,9 @@ func (k *Keychain) finishSignIn(flow context.Context, device *oauth2.DeviceAuthR
 	if err != nil {
 		if flow.Err() == nil {
 			k.config.Logger.Warn("Java Edition sign-in did not finish", "error", err)
+			if k.config.OnSignInFailed != nil {
+				go k.config.OnSignInFailed(err)
+			}
 		}
 		return
 	}

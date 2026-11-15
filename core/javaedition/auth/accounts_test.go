@@ -158,3 +158,72 @@ func TestAccountsSelectAndRemove(t *testing.T) {
 		t.Fatalf("accounts after the rename = %+v", list)
 	}
 }
+
+// A code that expires or is declined ends the add with a reason instead of leaving it
+// waiting, and a new add can start.
+func TestAccountsADeclinedCodeFailsTheAdd(t *testing.T) {
+	app := newFakeApp()
+	app.declined = true
+	accounts := newTestAccounts(t, app, newFakeServices(t).services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	failed := func() bool { return accounts.AddState().State == bridgecontract.JavaAccountAddFailed }
+	testwait.Eventually(t, 5*time.Second, "the add to fail", failed)
+	if reason := accounts.AddState().Reason; reason != addCodeFailed {
+		t.Fatalf("reason = %q", reason)
+	}
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatalf("a new add after the failure = %v", err)
+	}
+	if started, _ := app.counts(); started != 2 {
+		t.Fatalf("%d device codes requested", started)
+	}
+}
+
+// While the entered code's profile is being read, another Add hands out no code that would
+// never be accepted, and Cancel stops the account from being added.
+func TestAccountsCancelWhileReadingTheProfile(t *testing.T) {
+	app := newFakeApp()
+	app.stall = make(chan struct{})
+	accounts := newTestAccounts(t, app, newFakeServices(t).services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	signingIn := func() bool { return accounts.AddState().State == bridgecontract.JavaAccountAddSigningIn }
+	testwait.Eventually(t, 5*time.Second, "the profile to be read", signingIn)
+	if _, err := accounts.BeginAdd(context.Background()); !errors.Is(err, ErrSignInUnavailable) {
+		t.Fatalf("an add while reading the profile = %v", err)
+	}
+	if started, _ := app.counts(); started != 1 {
+		t.Fatalf("%d device codes requested", started)
+	}
+	accounts.CancelAdd()
+	close(app.stall)
+	accounts.work.Wait()
+	if list, _, _ := accounts.List(); len(list) != 0 {
+		t.Fatalf("a cancelled add saved %+v", list)
+	}
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddIdle {
+		t.Fatalf("add state = %+v", state)
+	}
+}
+
+// An unreadable accounts file is kept aside and the accounts start over, so the player can
+// add an account again.
+func TestAccountsAnUnreadableIndexStartsOver(t *testing.T) {
+	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
+	path := filepath.Join(accounts.config.Dir, accountsIndexFile)
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	list, selected, err := accounts.List()
+	if err != nil || len(list) != 0 || selected != "" {
+		t.Fatalf("list = %+v, %q, %v", list, selected, err)
+	}
+	if _, err := os.Stat(path + ".corrupt"); err != nil {
+		t.Fatalf("the unreadable file was not kept aside: %v", err)
+	}
+}

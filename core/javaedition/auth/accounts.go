@@ -226,14 +226,25 @@ func (a *Accounts) BeginAdd(ctx context.Context) (*SignInRequired, error) {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: the accounts are closed", ErrSignInUnavailable)
 	}
+	if a.add.State == bridgecontract.JavaAccountAddSigningIn {
+		// The code was entered; a new one would never be accepted.
+		a.mu.Unlock()
+		return nil, fmt.Errorf("%w: the Java profile is still being read", ErrSignInUnavailable)
+	}
 	adding := a.adding
 	if adding == nil {
 		if err := os.MkdirAll(a.config.Dir, 0o700); err != nil {
+			a.add = AddState{State: bridgecontract.JavaAccountAddFailed, Reason: addStartFailed}
 			a.mu.Unlock()
 			return nil, fmt.Errorf("%w: %v", ErrSignInUnavailable, err)
 		}
 		var keychain *Keychain
-		keychain = a.keychain(filepath.Join(a.config.Dir, pendingTokenFile), func() { a.finishAdd(keychain) })
+		keychain = NewKeychain(KeychainConfig{
+			Path: filepath.Join(a.config.Dir, pendingTokenFile), App: a.config.App,
+			Services: a.config.Services, Logger: a.config.Logger, Now: a.config.Now,
+			OnSignedIn:     func() { a.finishAdd(keychain) },
+			OnSignInFailed: func(error) { a.failAdd(keychain) },
+		})
 		a.adding, adding = keychain, keychain
 	}
 	a.mu.Unlock()
@@ -248,23 +259,49 @@ func (a *Accounts) BeginAdd(ctx context.Context) (*SignInRequired, error) {
 		return nil, err
 	}
 	if err != nil {
-		a.add = AddState{State: bridgecontract.JavaAccountAddFailed, Reason: "The Java sign-in could not be started. Try again."}
+		a.add = AddState{State: bridgecontract.JavaAccountAddFailed, Reason: addStartFailed}
 		return nil, err
 	}
 	a.add = AddState{State: bridgecontract.JavaAccountAddAwaitingCode, VerificationURI: prompt.VerificationURI, UserCode: prompt.UserCode}
 	return prompt, nil
 }
 
-// CancelAdd stops the sign-in under way and forgets its token.
+// Reasons an add failed, as the Accounts dialog shows them.
+const (
+	addStartFailed   = "The Java sign-in could not be started. Try again."
+	addCodeFailed    = "The code expired or the sign-in was declined. Try again."
+	addFilingFailed  = "The Java account could not be added. Try again."
+	addNoJavaEdition = "This Microsoft account does not own Java Edition."
+)
+
+// CancelAdd stops the sign-in under way, even while its profile is being read, and forgets
+// its token.
 func (a *Accounts) CancelAdd() {
 	a.mu.Lock()
 	adding := a.adding
 	a.adding = nil
 	a.add = AddState{State: bridgecontract.JavaAccountAddIdle}
 	a.mu.Unlock()
-	if adding == nil {
+	if adding != nil {
+		a.discard(adding)
+	}
+}
+
+// failAdd records a sign-in that ended without a token, such as an expired code.
+func (a *Accounts) failAdd(adding *Keychain) {
+	a.mu.Lock()
+	if a.adding != adding {
+		a.mu.Unlock()
 		return
 	}
+	a.adding = nil
+	a.add = AddState{State: bridgecontract.JavaAccountAddFailed, Reason: addCodeFailed}
+	a.mu.Unlock()
+	a.discard(adding)
+}
+
+// discard closes an unfinished sign-in's keychain and deletes its token.
+func (a *Accounts) discard(adding *Keychain) {
 	adding.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), profileReadTimeout)
 	defer cancel()
@@ -272,7 +309,7 @@ func (a *Accounts) CancelAdd() {
 }
 
 // finishAdd reads the Java profile of a finished sign-in, files its token under the profile's
-// id and selects the account.
+// id and selects the account, unless the add is cancelled first.
 func (a *Accounts) finishAdd(adding *Keychain) {
 	a.mu.Lock()
 	if a.adding != adding || a.closed {
@@ -285,30 +322,34 @@ func (a *Accounts) finishAdd(adding *Keychain) {
 	defer a.work.Done()
 
 	ctx, cancel := context.WithTimeout(context.Background(), profileReadTimeout)
-	defer cancel()
 	session, err := adding.Session(ctx)
+	cancel()
 	if err == nil && !profileIDPattern.MatchString(session.Profile.ID) {
 		err = fmt.Errorf("java edition profile id %q is malformed", session.Profile.ID)
 	}
 	a.mu.Lock()
-	if a.adding != adding {
-		a.mu.Unlock()
-		return
-	}
-	a.adding = nil
+	cancelled := a.adding != adding
 	a.mu.Unlock()
 	adding.Close()
+	if cancelled {
+		// CancelAdd already discards the token.
+		return
+	}
 	if err == nil {
 		err = a.file(session.Profile)
 	}
-	_ = adding.Forget(ctx)
+	a.discard(adding)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.adding != adding {
+		return
+	}
+	a.adding = nil
 	if err != nil {
 		a.config.Logger.Warn("Java Edition account could not be added", "error", err)
-		reason := "The Java account could not be added. Try again."
+		reason := addFilingFailed
 		if errors.Is(err, ErrNoProfile) {
-			reason = "This Microsoft account does not own Java Edition."
+			reason = addNoJavaEdition
 		}
 		a.add = AddState{State: bridgecontract.JavaAccountAddFailed, Reason: reason}
 		return
@@ -330,11 +371,8 @@ func (a *Accounts) file(profile Profile) error {
 	if closing != nil {
 		closing.Close()
 	}
-	data, err := os.ReadFile(filepath.Join(a.config.Dir, pendingTokenFile))
-	if err != nil {
-		return err
-	}
-	if err := writeFileAtomic(target, data); err != nil {
+	// A rename keeps the private permissions the token cache gave the file.
+	if err := os.Rename(filepath.Join(a.config.Dir, pendingTokenFile), target); err != nil {
 		return err
 	}
 	return a.updateIndex(func(index *accountsIndex) error {
@@ -372,7 +410,11 @@ func (a *Accounts) readIndex() (accountsIndex, error) {
 	}
 	var index accountsIndex
 	if err := json.Unmarshal(data, &index); err != nil {
-		return accountsIndex{}, fmt.Errorf("java edition accounts: %w", err)
+		// An unreadable file would lock the player out of every account; it is kept aside
+		// and the accounts start over.
+		a.config.Logger.Warn("Java Edition accounts file unreadable; starting over", "error", err)
+		_ = os.Rename(filepath.Join(a.config.Dir, accountsIndexFile), filepath.Join(a.config.Dir, accountsIndexFile+".corrupt"))
+		return accountsIndex{}, nil
 	}
 	valid := index.Accounts[:0]
 	for _, account := range index.Accounts {

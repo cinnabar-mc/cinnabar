@@ -1,6 +1,8 @@
 //! The install's Java Edition accounts, which the core owns, through `java_accounts.v1`.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(not(target_arch = "wasm32"))]
+use serde::Serialize;
 
 /// A saved Java Edition account: its Java profile id and name.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -43,6 +45,7 @@ pub enum JavaAccountAction {
     Remove(String),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Serialize)]
 struct Request<'a> {
     action: &'a str,
@@ -50,6 +53,7 @@ struct Request<'a> {
     id: Option<&'a str>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl JavaAccountAction {
     fn request(&self) -> Request<'_> {
         use crate::contract::{
@@ -81,7 +85,7 @@ pub async fn java_accounts(
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 

@@ -23,6 +23,8 @@ type fakeApp struct {
 	revoked bool
 	// stall, when not nil, holds every identity token request until it is closed.
 	stall chan struct{}
+	// declined makes the device-code sign-in end without a token once finish closes.
+	declined bool
 
 	mu         sync.Mutex
 	deviceAuth int
@@ -44,6 +46,9 @@ func (a *fakeApp) DeviceAuth(context.Context) (*oauth2.DeviceAuthResponse, error
 func (a *fakeApp) DeviceAccessToken(ctx context.Context, _ *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
 	select {
 	case <-a.finish:
+		if a.declined {
+			return nil, errors.New("authorization_declined")
+		}
 		return &oauth2.Token{AccessToken: "switch-access", RefreshToken: "switch-refresh", Expiry: time.Now().Add(time.Hour)}, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -54,12 +59,17 @@ func (a *fakeApp) TokenSource(_ context.Context, token *oauth2.Token) oauth2.Tok
 	return oauth2.StaticTokenSource(token)
 }
 
-func (a *fakeApp) IdentityToken(_ context.Context, source oauth2.TokenSource) (string, error) {
+func (a *fakeApp) IdentityToken(ctx context.Context, source oauth2.TokenSource) (string, error) {
 	if _, err := source.Token(); err != nil {
 		return "", err
 	}
 	if a.stall != nil {
-		<-a.stall
+		// Like a real request, a stalled one ends when its keychain closes.
+		select {
+		case <-a.stall:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()

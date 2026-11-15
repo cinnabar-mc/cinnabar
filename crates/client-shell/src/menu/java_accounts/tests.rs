@@ -100,26 +100,71 @@ fn java_account_actions_name_the_accounts() {
 }
 
 /// While a Java sign-in waits for its code, the open dialog asks for its progress once a
-/// second, and stops once it is closed.
+/// second, never with an earlier request still unanswered, and stops once it is closed.
 #[test]
 fn an_add_under_way_is_polled_while_the_dialog_shows_it() {
     let mut menu = menu();
     let mut control = FakeAccount::default();
     menu.activate(MenuAction::OpenAccounts);
-    menu.feeds.java_accounts.add = JavaAccountAdd::AwaitingCode {
-        uri: "https://www.microsoft.com/link".into(),
-        code: "TESTCODE".into(),
+    let waiting = JavaAccounts {
+        add: JavaAccountAdd::AwaitingCode {
+            uri: "https://www.microsoft.com/link".into(),
+            code: "TESTCODE".into(),
+        },
+        ..Default::default()
     };
+    menu.feeds.java_accounts = waiting.clone();
     let start = Instant::now();
     menu.sync_java_accounts(&mut control, start);
-    menu.sync_java_accounts(&mut control, start + ADD_POLL / 2);
     assert_eq!(control.sent, [bridge::JavaAccountAction::List]);
-    menu.sync_java_accounts(&mut control, start + ADD_POLL);
-    assert_eq!(control.sent.len(), 2, "no poll after a second");
+    menu.sync_java_accounts(&mut control, start + ADD_POLL * 2);
+    assert_eq!(
+        control.sent.len(),
+        1,
+        "polled with the last request unanswered"
+    );
 
+    control.answer = Some(Ok(waiting));
+    menu.sync_java_accounts(&mut control, start + ADD_POLL * 2);
+    assert_eq!(control.sent.len(), 2, "no poll once the answer arrived");
+
+    control.answer = Some(Ok(menu.feeds.java_accounts.clone()));
     menu.dialog = None;
-    menu.sync_java_accounts(&mut control, start + ADD_POLL * 3);
+    menu.sync_java_accounts(&mut control, start + ADD_POLL * 5);
     assert_eq!(control.sent.len(), 2, "polled with the dialog closed");
+}
+
+/// Presentation mode shows placeholder Java accounts: the install's accounts are never asked
+/// for, and an answer already on its way does not replace them.
+#[test]
+fn presentation_mode_shows_placeholder_java_accounts() {
+    let mut menu = menu();
+    let mut control = FakeAccount::default();
+    assert!(menu.set_presentation_accounts(true));
+    menu.activate(MenuAction::OpenAccounts);
+    control.answer = Some(Ok(two_accounts()));
+    menu.sync_java_accounts(&mut control, Instant::now());
+    assert!(control.sent.is_empty(), "sent {:?}", control.sent);
+    assert_eq!(menu.feeds.java_accounts, presentation_accounts());
+}
+
+/// A failed add's reason clears when the dialog closes, and the core forgets it too.
+#[test]
+fn closing_the_dialog_clears_a_failed_add() {
+    let mut menu = menu();
+    let mut control = FakeAccount::default();
+    menu.activate(MenuAction::OpenAccounts);
+    menu.feeds.java_accounts.add = JavaAccountAdd::Failed("The code expired.".into());
+    menu.activate(MenuAction::DismissDialog);
+    menu.sync_java_accounts(&mut control, Instant::now());
+    assert_eq!(menu.feeds.java_accounts.add, JavaAccountAdd::Idle);
+    assert_eq!(
+        control.sent,
+        [
+            bridge::JavaAccountAction::List,
+            bridge::JavaAccountAction::Cancel
+        ]
+    );
 }
 
 /// A core that cannot be asked leaves the last list and says so.

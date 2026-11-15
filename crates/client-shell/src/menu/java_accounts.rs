@@ -3,11 +3,18 @@
 
 use std::time::{Duration, Instant};
 
+use launcher::java_accounts::{JavaAccount, JavaAccountAdd, JavaAccounts};
 use launcher_host::account_control::AccountControl;
 use {
     super::MenuRuntime,
     launcher::menu::{MenuAction, MenuDialog},
 };
+
+/// Placeholder Java profiles shown while developer recordings present accounts.
+const PRESENTATION_ACCOUNTS: [(&str, &str); 2] = [
+    ("00000000000000000000000000000001", "BlockBuilder"),
+    ("00000000000000000000000000000002", "SkylineSurfer"),
+];
 
 /// How often the dialog asks for a Java sign-in's progress while it waits for the player.
 const ADD_POLL: Duration = Duration::from_secs(1);
@@ -21,14 +28,50 @@ pub(super) struct JavaAccountsUi {
     queued: Vec<bridge::JavaAccountAction>,
     /// When the progress of an add is next asked for.
     next_poll: Option<Instant>,
+    /// Whether an action was sent and its answer has not arrived, so no poll piles up behind a
+    /// core that is slow to answer.
+    awaiting: bool,
+}
+
+/// The placeholder Java accounts presentation mode shows instead of the install's.
+pub(super) fn presentation_accounts() -> JavaAccounts {
+    JavaAccounts {
+        accounts: PRESENTATION_ACCOUNTS
+            .iter()
+            .map(|(id, name)| JavaAccount {
+                id: (*id).into(),
+                name: (*name).into(),
+            })
+            .collect(),
+        selected: Some(PRESENTATION_ACCOUNTS[0].0.into()),
+        ..Default::default()
+    }
 }
 
 impl MenuRuntime {
-    /// Asks the core for the Java accounts, as opening the Accounts dialog does.
+    /// Asks the core for the Java accounts, as opening the Accounts dialog does. Presentation
+    /// mode shows placeholders instead, so no real profile can reach a capture.
     pub(super) fn refresh_java_accounts(&mut self) {
+        if self.presentation_accounts {
+            self.feeds.java_accounts = presentation_accounts();
+            return;
+        }
         self.java_accounts
             .queued
             .push(bridge::JavaAccountAction::List);
+    }
+
+    /// Clears a failed add's reason once the dialog that showed it closes.
+    pub(super) fn dismiss_java_accounts(&mut self) {
+        if matches!(self.feeds.java_accounts.add, JavaAccountAdd::Failed(_)) {
+            self.feeds.java_accounts.add = JavaAccountAdd::Idle;
+            if !self.presentation_accounts {
+                self.java_accounts
+                    .queued
+                    .push(bridge::JavaAccountAction::Cancel);
+            }
+        }
+        self.feeds.java_accounts.error = None;
     }
 
     /// Queues a Java account action from the Accounts dialog.
@@ -58,7 +101,16 @@ impl MenuRuntime {
     /// Installs the worker's answers, sends queued actions, and asks for an add's progress
     /// while the dialog shows it.
     pub(super) fn sync_java_accounts(&mut self, control: &mut dyn AccountControl, now: Instant) {
-        match control.java_accounts() {
+        let answer = control.java_accounts();
+        if answer.is_some() {
+            self.java_accounts.awaiting = false;
+        }
+        if self.presentation_accounts {
+            // Real accounts never replace the placeholders, and nothing is sent.
+            self.java_accounts.queued.clear();
+            return;
+        }
+        match answer {
             Some(Ok(accounts)) => self.feeds.java_accounts = accounts,
             Some(Err(())) => self.feeds.java_accounts.error = Some(UNREACHABLE.into()),
             None => {}
@@ -68,7 +120,7 @@ impl MenuRuntime {
         let ui = &mut self.java_accounts;
         if !watching {
             ui.next_poll = None;
-        } else if ui.next_poll.is_none_or(|next| now >= next) {
+        } else if !ui.awaiting && ui.next_poll.is_none_or(|next| now >= next) {
             ui.next_poll = Some(now + ADD_POLL);
             if ui.queued.is_empty() {
                 ui.queued.push(bridge::JavaAccountAction::List);
@@ -79,6 +131,7 @@ impl MenuRuntime {
                 self.feeds.java_accounts.error = Some(UNREACHABLE.into());
                 break;
             }
+            ui.awaiting = true;
         }
     }
 }
