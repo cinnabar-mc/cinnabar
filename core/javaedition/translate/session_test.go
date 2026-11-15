@@ -750,3 +750,14 @@ func TestProbesAreAnsweredByTheClient(t *testing.T) {
 		t.Fatalf("keep-alive = %+v", alive)
 	}
 }
+
+// Only a rejected transaction for the player's inventory is confirmed: the 1.7.10 client
+// answers no window it has not opened, and the translator opens none.
+func TestTransactionsForOtherWindowsAreNotConfirmed(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.send(&java.ConfirmTransaction{WindowID: 3, Action: -1, Accepted: false})
+	if next := ts.serve(&java.ChatMessage{Message: `"marker"`}); len(next) != 1 || next[0].ID() != packet.IDText {
+		t.Fatalf("a transaction for window 3 was probed: %+v", next)
+	}
+}

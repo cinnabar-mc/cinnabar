@@ -32,9 +32,10 @@ func (s *Session) handleJava(pk java.Packet) error {
 		}
 		s.probeClient(probe{keepAlive: true, key: pk.Key})
 	case *java.ConfirmTransaction:
-		// The 1.7.10 client confirms a rejected transaction for any window, the player's
-		// inventory (window 0) included.
-		if !pk.Accepted {
+		// NetHandlerPlayClient.handleConfirmTransaction confirms a rejected transaction only
+		// for the player's inventory (window 0) or the open window; the translator opens no
+		// windows, so only window 0 is answered.
+		if !pk.Accepted && pk.WindowID == 0 {
 			s.probeClient(probe{window: int8(pk.WindowID), action: pk.Action})
 		}
 	case *java.JoinGame:
