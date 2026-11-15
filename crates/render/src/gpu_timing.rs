@@ -826,6 +826,9 @@ fn begin_gpu_frame(
     let Some(mut timestamps) = timestamps else {
         return;
     };
+    // Diagnostic `diag_ui_categories` can request the UI split while the client runs.
+    timestamps.ui_categories =
+        pass::ui_profiling_requested() || crate::chunk::diag::ui_categories();
     timestamps.pass_detail = profiler.enabled()
         || timestamps.ui_categories
         || categories.is_some()

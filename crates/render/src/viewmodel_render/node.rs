@@ -107,10 +107,18 @@ pub(crate) fn hand_view<const AFTER_PACK: bool>(
         occlusion_query_set: None,
         multiview_mask: None,
     });
-    pass.set_render_pipeline(pipeline);
-    pass.set_bind_group(0, binding, &[]);
-    pass.set_vertex_buffer(0, vertices.slice(..));
-    pass.draw(0..gpu.vertex_count, 0..1);
+    if crate::chunk::diag::count_frame() {
+        println!(
+            "CINNABAR_HAND_COUNTS viewmodel vertices={}",
+            gpu.vertex_count
+        );
+    }
+    if !crate::chunk::diag::frame_skips(crate::chunk::diag::FrameSkip::HAND_NO_DRAW) {
+        pass.set_render_pipeline(pipeline);
+        pass.set_bind_group(0, binding, &[]);
+        pass.set_vertex_buffer(0, vertices.slice(..));
+        pass.draw(0..gpu.vertex_count, 0..1);
+    }
     if let Some(scene) = world.get_resource::<ViewmodelScene>()
         && let Some(frame) = &scene.frame
         && frame.token == token

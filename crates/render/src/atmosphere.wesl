@@ -137,6 +137,27 @@ const SKY_RING = array<vec2<f32>, 10>(
     vec2(0.809016943, -0.587785304),
 );
 
+// One stored rim point. Diagnostic `diag_sky` bit 2 (`DIAG_SKY_FAST`) reads the same constants
+// through a switch instead of a dynamically indexed array, which some mobile compilers place in
+// per-invocation scratch memory.
+fn sky_ring(index: u32) -> vec2<f32> {
+    @if(DIAG_SKY_FAST)
+    switch index {
+        case 0u: { return vec2(1.0, 0.0); }
+        case 1u: { return vec2(0.809017003, 0.587785244); }
+        case 2u: { return vec2(0.309016973, 0.951056540); }
+        case 3u: { return vec2(-0.309017152, 0.951056480); }
+        case 4u: { return vec2(-0.809017062, 0.587785184); }
+        case 5u: { return vec2(-1.0, -0.0000000874227766); }
+        case 6u: { return vec2(-0.809016764, -0.587785542); }
+        case 7u: { return vec2(-0.309017092, -0.951056480); }
+        case 8u: { return vec2(0.309017122, -0.951056480); }
+        default: { return vec2(0.809016943, -0.587785304); }
+    }
+    @if(!DIAG_SKY_FAST)
+    return SKY_RING[index];
+}
+
 // Returns the oriented area used for angular ordering and fan barycentrics.
 fn sky_cross(a: vec2<f32>, b: vec2<f32>) -> f32 {
     return a.x * b.y - a.y * b.x;
@@ -148,13 +169,13 @@ fn sky_sector(point: vec2<f32>) -> u32 {
     var upper = 5u;
     if (point.y < 0.0) {
         // The fifth stored rim point is slightly below the negative X axis.
-        if (point.x < 0.0 && sky_cross(SKY_RING[5], point) < 0.0) { return 4u; }
+        if (point.x < 0.0 && sky_cross(sky_ring(5), point) < 0.0) { return 4u; }
         lower = 5u;
         upper = 10u;
     }
     while (upper - lower > 1u) {
         let middle = (lower + upper) / 2u;
-        if (sky_cross(SKY_RING[middle], point) >= 0.0) { lower = middle; }
+        if (sky_cross(sky_ring(middle), point) >= 0.0) { lower = middle; }
         else { upper = middle; }
     }
     return lower;
@@ -165,8 +186,8 @@ fn native_sky_fog_weight(ray: vec3<f32>) -> f32 {
     if (ray.y <= 0.0) { return 1.0; }
     let point = ray.xz * (256.0 / 2000.0) / ray.y;
     let index = sky_sector(point);
-    let a = SKY_RING[index];
-    let b = SKY_RING[(index + 1u) % 10u];
+    let a = sky_ring(index);
+    let b = sky_ring((index + 1u) % 10u);
     let determinant = sky_cross(a, b);
     let alpha = sky_cross(point, b) / determinant;
     let beta = sky_cross(a, point) / determinant;
@@ -226,6 +247,9 @@ fn sky_output(colour: vec3<f32>) -> vec4<f32> {
 
 fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let mapping = celestial_uv(ray, direction, SUN_HALF_EXTENT);
+    // `DIAG_SKY_FAST`: outside the sprite the composite adds RGB times zero coverage.
+    @if(DIAG_SKY_FAST)
+    if (mapping.z == 0.0) { return vec4(0.0); }
     let sampled = textureSampleLevel(sun_texture, atmosphere_sampler, mapping.xy, 0.0);
     let visible = celestial_visibility(0.0);
     return vec4(tint_to_gamma(sampled).rgb, sampled.a * mapping.z * visible * celestial_weather_alpha());
@@ -233,6 +257,8 @@ fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
 
 fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let mapping = celestial_uv(ray, direction, MOON_HALF_EXTENT);
+    @if(DIAG_SKY_FAST)
+    if (mapping.z == 0.0) { return vec4(0.0); }
     let phase = u32(atmosphere.moon_direction_phase.w) % 8u;
     let phase_column = phase % 4u;
     let phase_row = phase / 4u;

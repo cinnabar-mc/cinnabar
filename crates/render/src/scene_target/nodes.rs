@@ -117,10 +117,16 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         }
         None => {}
     }
-    if draws_sky {
+    // Diagnostic `diag_sky` bit 1: at far depth with GreaterEqual and no depth write, a sky
+    // drawn after the geometry shades only the samples nothing covered.
+    let late_sky = draws_sky && sky_pass::late(world);
+    if draws_sky && !late_sky {
         sky_pass::draw(world, entity, &mut pass);
     }
     let Some((opaque, cutout)) = phases else {
+        if late_sky {
+            sky_pass::draw(world, entity, &mut pass);
+        }
         span.end(&mut pass);
         return;
     };
@@ -133,6 +139,9 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         && let Err(error) = cutout.render(&mut pass, world, entity)
     {
         bevy::log::error!("Error rendering the cutout scene: {error:?}");
+    }
+    if late_sky {
+        sky_pass::draw(world, entity, &mut pass);
     }
     if scene.is_none()
         && let (Some(pipeline), Some(group), Some(offset)) = (sky_pipeline, sky_group, offset)

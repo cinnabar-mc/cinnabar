@@ -101,6 +101,9 @@ mod atmosphere_render {
         pub(crate) fn host(_: &bevy::prelude::World, _: bevy::prelude::Entity) -> SkyHost {
             SkyHost::Own
         }
+        pub(crate) fn late(_: &bevy::prelude::World) -> bool {
+            false
+        }
         pub(crate) fn draw(
             _: &bevy::prelude::World,
             _: bevy::prelude::Entity,

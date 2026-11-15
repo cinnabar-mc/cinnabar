@@ -77,6 +77,15 @@ pub(crate) fn host(world: &World, view: Entity) -> SkyHost {
     }
 }
 
+/// Whether the opaque host draws the sky after its geometry (diagnostic `diag_sky` bit 1). A
+/// pack skybox keeps the early order: its own depth test is against cleared depth.
+pub(crate) fn late(world: &World) -> bool {
+    crate::chunk::diag::sky_late()
+        && !world
+            .get_resource::<AtmosphereGpu>()
+            .is_some_and(|gpu| gpu.skybox_active)
+}
+
 /// Opens the sky's own pass only for views whose sky no scene pass hosts.
 fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: RenderContext) {
     let view = query.entity();
@@ -145,6 +154,7 @@ pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderP
         hdr: camera.hdr,
         stars: false,
         skybox: false,
+        fast: crate::chunk::diag::sky_fast(),
     };
     let Some(stock) = gpu
         .pipelines
