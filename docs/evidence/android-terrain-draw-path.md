@@ -72,25 +72,58 @@ with it, 8–25% slower than the units phase before each of them (the interleave
 The cross-session magnitude is not a comparable measure of the ordering change; the 20% figure
 comes from the interleaved run.
 
+## GPU pass breakdown
+
+One session at a close-up terrain pose, using the client's opt-in pass profiler
+(`CINNABAR_GPU_CATEGORIES=1`, injected through `wrap.<package>` without rebuilding). The profiler
+splits the opaque pass into category passes with extra loads and stores, so these numbers
+attribute cost inside the frame and are not themselves a frame-time claim. Median of six
+report windows:
+
+| Pass | 100% render | 50% render |
+| --- | ---: | ---: |
+| GPU frame | 25.0 ms | 17.8 ms |
+| opaque, total | 16.9 ms | 6.9 ms |
+| solid terrain | 15.1 ms | 5.9 ms |
+| terrain models | 1.1 ms | 0.6 ms |
+| transparent terrain | 3.4 ms | 3.3 ms |
+| sky | 2.2 ms | 0.6 ms |
+| blit | 1.9 ms | 1.1 ms |
+| hand | 0.3 ms | 0.2 ms |
+
+Solid terrain is three fifths of the GPU frame. It scales with pixels, from 15.1 ms at full
+resolution to 5.9 ms at half width and height; fitting those two points puts about 13 ms of the
+pass on pixel-dependent work, whether shading or overdraw, and about 2 ms on geometry and
+submission. Transparent terrain does not scale at all, 3.4 against 3.3 ms, so it is bound by its
+submitted geometry rather than by fragments. The same pose measured 37.0 fps at full resolution
+and 52.7 fps at half.
+
+Those numbers bound what a shading change can recover: removing every pixel-dependent millisecond
+of the solid pass would leave about 12 ms of frame, still above vanilla's whole 8.8 ms, because
+the transparent, sky, blit and remaining passes would stay. Vanilla is not winning by rendering
+fewer pixels either: its `options.txt` carries `target_resolution:1`.
+
 ## Remaining gap
 
 The batched path now issues three unit draws, and both paths draw solid terrain front-to-back in
 the early depth pass. The per-section path still submits about 400 draws and keeps cutout
 sections in visibility order; both differences remain after the batched path started ordering
-sections nearest first. Submission therefore does not explain the remaining gap to vanilla's
-113 fps, but this comparison does not establish what does.
+sections nearest first. Submission does not explain the remaining gap: the pass breakdown puts
+three fifths of the GPU frame in the solid terrain pass, and most of that is pixel-dependent.
 
 The unverified candidate is per-fragment work in the terrain shader that both paths share: a
 texture-array sample, a per-fragment biome tint with transfer-function `pow` calls, the native
-lightmap fetch and distance fog. Vanilla's simpler terrain shader draws the same scene in 8.8 ms
-per frame at 113.1 fps, which is consistent with that attribution but is not evidence for it.
-Isolating the cost of that fragment work is missing acceptance evidence, so this attribution
-stays provisional.
+lightmap fetch and distance fog. The pass breakdown above shows the pixel-dependent part of the
+solid pass, but it cannot separate shading from overdraw, and no measurement yet isolates one
+shader feature. Vanilla's simpler terrain shader draws the same scene in 8.8 ms per frame at
+113.1 fps, which is consistent with that attribution but is not evidence for it. Isolating the
+cost of that fragment work is missing acceptance evidence, so this attribution stays provisional.
 
-Related: reduced render resolution is not a workaround on this device. At 10% render scale the
-FSR1 EASU/RCAS upscale to 2400×1080 dominated the frame, and the F3 overlay read 58.1 ms of GPU
-time against 35.6 ms at full resolution in one session. The comparisons above all ran at full
-render resolution.
+Related: lower render resolution helps but does not close the gap. Half width and height raised
+the same pose from 37.0 to 52.7 fps, still well under vanilla's 113.1, because the fixed passes
+and the remaining pixel work keep the frame above 17 ms. At 10% render scale the FSR1 EASU/RCAS
+upscale to 2400×1080 dominated instead, 58.1 ms of GPU time against 35.6 ms at full resolution in
+one session, so the comparisons in this document all ran at full render resolution.
 
 ## Measurement hazards
 
