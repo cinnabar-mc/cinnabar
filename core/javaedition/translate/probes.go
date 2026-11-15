@@ -17,8 +17,9 @@ type probe struct {
 	// its movement starts from the teleport, so nothing goes to the server.
 	teleport bool
 	// swing marks a swing the server played on the local player, which the 1.7.10 client
-	// reports back when it plays it.
+	// reports back when it plays it, naming the player entity it had then.
 	swing  bool
+	entity int32
 	key    int32
 	window int8
 	action int16
@@ -58,7 +59,7 @@ func (s *Session) answerProbe(reply *packet.NetworkStackLatency) error {
 		return s.send(&java.ClientKeepAlive{Key: p.key})
 	}
 	if p.swing {
-		return s.send(&java.ClientAnimation{EntityID: st.entityID, Animation: 1})
+		return s.send(&java.ClientAnimation{EntityID: p.entity, Animation: 1})
 	}
 	return s.send(&java.ClientConfirmTransaction{WindowID: p.window, Action: p.action, Accepted: true})
 }
