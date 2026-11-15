@@ -3,7 +3,7 @@
 On a Galaxy S20 FE 5G, the batched terrain unit path sustains 20% more frames per second on
 opaque terrain than the per-section fallback after the ordering fix in
 [#3070](https://github.com/cinnabar-mc/cinnabar/pull/3070) (`08446aa3ae`): 26.0 against 21.6
-frames per second, and a median GPU frame time 18% shorter, 38.3 against 45.4 ms, with both
+frames per second, and a median GPU frame time 16% shorter, 38.3 against 45.4 ms, with both
 paths drawing 296 sections. Before #3070 the same comparison, run as separate processes, put
 the per-section path ahead. Disabling batching on proprietary Adreno Vulkan is therefore a
 regression after #3070, not a workaround.
