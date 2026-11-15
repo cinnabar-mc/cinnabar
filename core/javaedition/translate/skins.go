@@ -68,7 +68,8 @@ func (s *Session) startSkinLoad(load skinLoad) skinLoad {
 }
 
 // finishSkinLoad runs fetch and, if the load is still current, sends the skin to the client.
-// A player whose new textures give nothing usable gets the default skin back.
+// A player whose new textures give no skin gets the default skin back; a cape alone cannot be
+// drawn without skin pixels, so it is dropped.
 func (s *Session) finishSkinLoad(load skinLoad, fetch func() (skins.Images, error)) {
 	defer s.skinWork.Done()
 	images, err := fetch()
@@ -84,7 +85,7 @@ func (s *Session) finishSkinLoad(load skinLoad, fetch func() (skins.Images, erro
 	_, wearing := s.state.skinKeys[load.id]
 	switch {
 	case !current:
-	case images.Skin != nil || images.Cape != nil:
+	case images.Skin != nil:
 		if load.key != "" {
 			s.state.skinKeys[load.id] = load.key
 		}
@@ -113,15 +114,13 @@ func (s *Session) forgetSkin(id uuid.UUID) {
 	delete(s.state.skinKeys, id)
 }
 
-// javaSkin is the Bedrock skin of downloaded textures: a classic 64x32 skin, or the default
-// skin when only a cape was downloaded, with the cape when there is one.
+// javaSkin is the Bedrock skin of downloaded textures, which hold a skin: a classic 64x32
+// skin, with the cape when there is one.
 func javaSkin(images skins.Images) protocol.Skin {
 	skin := defaultSkin()
-	if images.Skin != nil {
-		skin.SkinID = "java-" + images.SkinHash
-		skin.SkinImageWidth, skin.SkinImageHeight = skins.TextureWidth, skins.TextureHeight
-		skin.SkinData = images.Skin
-	}
+	skin.SkinID = "java-" + images.SkinHash
+	skin.SkinImageWidth, skin.SkinImageHeight = skins.TextureWidth, skins.TextureHeight
+	skin.SkinData = images.Skin
 	if images.Cape != nil {
 		skin.CapeID = images.CapeHash
 		skin.CapeImageWidth, skin.CapeImageHeight = skins.TextureWidth, skins.TextureHeight

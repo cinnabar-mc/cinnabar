@@ -42,6 +42,7 @@ type Services struct {
 	files     map[string][]byte
 	redirects map[string]string
 	requests  []string
+	cancelled int
 	block     chan struct{}
 }
 
@@ -84,6 +85,9 @@ func (r redirect) RoundTrip(request *http.Request) (*http.Response, error) {
 		select {
 		case <-block:
 		case <-request.Context().Done():
+			r.s.mu.Lock()
+			r.s.cancelled++
+			r.s.mu.Unlock()
 			return nil, request.Context().Err()
 		}
 	}
@@ -132,6 +136,13 @@ func (s *Services) Requests() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.requests...)
+}
+
+// Cancelled returns how many held requests were cancelled before Block released them.
+func (s *Services) Cancelled() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelled
 }
 
 // Serve makes address, "host/path", answer with data.

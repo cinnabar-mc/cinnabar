@@ -61,10 +61,16 @@ func (ts *testSession) waitSkins() {
 // entry.
 func (ts *testSession) checkNoSkinUpdate() {
 	ts.t.Helper()
-	for _, pk := range ts.serve(&java.TimeUpdate{WorldAge: 1, TimeOfDay: 1}) {
+	checkNoSkinPackets(ts.t, ts.serve(&java.TimeUpdate{WorldAge: 1, TimeOfDay: 1}))
+}
+
+// checkNoSkinPackets fails if packets hold a skin update or player list entry.
+func checkNoSkinPackets(t *testing.T, packets []packet.Packet) {
+	t.Helper()
+	for _, pk := range packets {
 		switch pk.(type) {
 		case *packet.PlayerSkin, *packet.PlayerList:
-			ts.t.Fatalf("unexpected %T", pk)
+			t.Fatalf("unexpected %T", pk)
 		}
 	}
 }
@@ -102,7 +108,8 @@ func TestSpawnedPlayersWearTheirSignedSkinAndCape(t *testing.T) {
 
 	// A listed player spawned again already has its skin, so nothing is downloaded or sent.
 	ts.serve(&java.DestroyEntities{EntityIDs: []int32{9}})
-	ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: []java.ProfileProperty{services.Signed(payload)}})
+	respawned := ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: []java.ProfileProperty{services.Signed(payload)}})
+	checkNoSkinPackets(t, respawned)
 	ts.waitSkins()
 	ts.checkNoSkinUpdate()
 
@@ -210,4 +217,24 @@ func TestTheLatestSpawnedTexturesWin(t *testing.T) {
 	release()
 	ts.waitSkins()
 	ts.checkNoSkinUpdate()
+}
+
+// A cape without a skin cannot be drawn, and its update would leave the client on the skin the
+// player wore before, so the player gets the default skin back instead.
+func TestACapeWithoutASkinGivesTheDefaultSkinBack(t *testing.T) {
+	services := skinstest.Start(t)
+	ts := startTestSessionWith(t, Options{Skins: services.Fetcher()})
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	skin := []java.ProfileProperty{services.Signed(skinstest.Payload(services.Texture("skin", 64, 32, color.NRGBA{R: 0xff, A: 0xff}), ""))}
+	cape := []java.ProfileProperty{services.Signed(skinstest.Payload("", services.Texture("cape", 64, 32, color.NRGBA{B: 0xff, A: 0xff})))}
+	ts.skinAfter(ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: skin}))
+	ts.serve(&java.DestroyEntities{EntityIDs: []int32{9}})
+	reset := ts.listAfter(ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: cape}))
+	for _, pk := range reset {
+		if _, ok := pk.(*packet.PlayerSkin); ok {
+			t.Fatal("a cape-only skin update was sent")
+		}
+	}
+	checkDefaultSkin(t, listedSkin(t, reset))
+	ts.waitSkins()
 }

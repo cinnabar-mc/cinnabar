@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/skins"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/skins/skinstest"
@@ -150,15 +151,29 @@ func TestOwnTexturesAreReadUnsignedFromTheSessionService(t *testing.T) {
 	}
 }
 
-func TestAWaitEndsWithItsContext(t *testing.T) {
+// A download every caller has left is cancelled, so it does not hold a download slot, and a
+// later request starts it again.
+func TestADownloadEveryCallerLeftIsCancelled(t *testing.T) {
 	services := skinstest.Start(t)
+	fetcher := services.Fetcher()
+	property := services.Signed(skinstest.Payload(services.Texture("left", 64, 32, red), ""))
 	release := services.Block()
 	defer release()
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := fetcher.Profile(ctx, []java.ProfileProperty{property})
+		done <- err
+	}()
+	testwait.Eventually(t, testwait.DefaultTimeout, "the keys request", func() bool { return len(services.Requests()) == 1 })
 	cancel()
-	_, err := services.Fetcher().Profile(ctx, []java.ProfileProperty{services.Signed(skinstest.Payload("http://textures.minecraft.net/texture/x", ""))})
-	if !errors.Is(err, context.Canceled) {
+	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the context's", err)
+	}
+	testwait.Eventually(t, testwait.DefaultTimeout, "the abandoned request to be cancelled", func() bool { return services.Cancelled() == 1 })
+	release()
+	if images, err := fetcher.Profile(testContext(t), []java.ProfileProperty{property}); err != nil || images.SkinHash != "left" {
+		t.Fatalf("a later request = %+v, %v", images, err)
 	}
 }
 

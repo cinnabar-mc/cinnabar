@@ -87,22 +87,54 @@ type textureKey struct {
 }
 
 // call is a download shared by everyone asking for the same thing; done closes once value and
-// err are set.
+// err are set. waiters counts the callers waiting for it, under Fetcher.mu, and cancel ends
+// the download once none is left.
 type call[T any] struct {
-	done  chan struct{}
-	value T
-	err   error
+	done    chan struct{}
+	value   T
+	err     error
+	waiters int
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
-// wait returns the call's result, or ctx's error if it ends first.
-func (c *call[T]) wait(ctx context.Context) (T, error) {
+// newCall starts a call with no waiters.
+func newCall[T any]() *call[T] {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &call[T]{done: make(chan struct{}), ctx: ctx, cancel: cancel}
+}
+
+// finish records the call's result and wakes its waiters.
+func (c *call[T]) finish(value T, err error) {
+	c.value, c.err = value, err
+	c.cancel()
+	close(c.done)
+}
+
+// await joins c, which the caller found under f.mu and now releases, and returns its result,
+// or ctx's error if ctx ends first. The last waiter to leave an unfinished call cancels it and
+// runs drop, with f.mu held, so later callers start a new download instead of joining it.
+func await[T any](f *Fetcher, c *call[T], ctx context.Context, drop func()) (T, error) {
+	c.waiters++
+	f.mu.Unlock()
 	select {
 	case <-c.done:
 		return c.value, c.err
 	case <-ctx.Done():
-		var zero T
-		return zero, ctx.Err()
 	}
+	f.mu.Lock()
+	c.waiters--
+	if c.waiters == 0 {
+		select {
+		case <-c.done:
+		default:
+			c.cancel()
+			drop()
+		}
+	}
+	f.mu.Unlock()
+	var zero T
+	return zero, ctx.Err()
 }
 
 // New returns a fetcher with config.
@@ -244,25 +276,29 @@ func textureHash(address string) string {
 }
 
 // signingKeys returns the session service's profile property keys, downloading them once.
-// A failed download is shared by callers until keysRetryDelay passes.
+// A failed download is shared by callers until keysRetryDelay passes; one abandoned by every
+// caller may be retried at once.
 func (f *Fetcher) signingKeys(ctx context.Context) ([]*rsa.PublicKey, error) {
 	f.mu.Lock()
 	current := f.keys
 	if current == nil || f.failedKeys(current) {
-		current = &call[[]*rsa.PublicKey]{done: make(chan struct{})}
+		current = newCall[[]*rsa.PublicKey]()
 		f.keys = current
 		go func() {
-			current.value, current.err = f.downloadKeys()
-			if current.err != nil {
+			keys, err := f.downloadKeys(current.ctx)
+			if err != nil && current.ctx.Err() == nil {
 				f.mu.Lock()
 				f.keysRetry = f.config.Now().Add(keysRetryDelay)
 				f.mu.Unlock()
 			}
-			close(current.done)
+			current.finish(keys, err)
 		}()
 	}
-	f.mu.Unlock()
-	return current.wait(ctx)
+	return await(f, current, ctx, func() {
+		if f.keys == current {
+			f.keys = nil
+		}
+	})
 }
 
 // failedKeys reports whether a finished keys download failed and may be retried; f.mu is
@@ -277,8 +313,8 @@ func (f *Fetcher) failedKeys(keys *call[[]*rsa.PublicKey]) bool {
 }
 
 // downloadKeys reads the profile property keys from the keys service.
-func (f *Fetcher) downloadKeys() ([]*rsa.PublicKey, error) {
-	data, err := f.get(context.Background(), f.config.KeysURL)
+func (f *Fetcher) downloadKeys(ctx context.Context) ([]*rsa.PublicKey, error) {
+	data, err := f.get(ctx, f.config.KeysURL)
 	if err != nil {
 		return nil, err
 	}
@@ -308,12 +344,12 @@ func (f *Fetcher) downloadKeys() ([]*rsa.PublicKey, error) {
 }
 
 // texture returns the prepared texture at key, downloading it unless it is cached or being
-// downloaded. A failed download is forgotten, so a later request tries again.
+// downloaded. A failed or abandoned download is forgotten, so a later request tries again.
 func (f *Fetcher) texture(ctx context.Context, key textureKey) (*image.NRGBA, error) {
 	f.mu.Lock()
 	current, ok := f.textures[key]
 	if !ok {
-		current = &call[*image.NRGBA]{done: make(chan struct{})}
+		current = newCall[*image.NRGBA]()
 		f.textures[key] = current
 		f.order = append(f.order, key)
 		if len(f.order) > maxCachedTextures {
@@ -321,22 +357,21 @@ func (f *Fetcher) texture(ctx context.Context, key textureKey) (*image.NRGBA, er
 			f.order = f.order[1:]
 		}
 		go func() {
-			current.value, current.err = f.downloadTexture(key)
-			if current.err != nil {
+			texture, err := f.downloadTexture(current.ctx, key)
+			if err != nil {
+				f.mu.Lock()
 				f.forget(key, current)
+				f.mu.Unlock()
 			}
-			close(current.done)
+			current.finish(texture, err)
 		}()
 	}
-	f.mu.Unlock()
-	return current.wait(ctx)
+	return await(f, current, ctx, func() { f.forget(key, current) })
 }
 
-// forget drops a failed download from the cache unless a newer one replaced it.
-func (f *Fetcher) forget(key textureKey, failed *call[*image.NRGBA]) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.textures[key] != failed {
+// forget drops a download from the cache unless a newer one replaced it; f.mu is held.
+func (f *Fetcher) forget(key textureKey, dropped *call[*image.NRGBA]) {
+	if f.textures[key] != dropped {
 		return
 	}
 	delete(f.textures, key)
@@ -350,12 +385,12 @@ func (f *Fetcher) forget(key textureKey, failed *call[*image.NRGBA]) {
 
 // downloadTexture reads and prepares one texture. Texture hosts serve HTTPS, so a plain
 // address is read over HTTPS.
-func (f *Fetcher) downloadTexture(key textureKey) (*image.NRGBA, error) {
+func (f *Fetcher) downloadTexture(ctx context.Context, key textureKey) (*image.NRGBA, error) {
 	address := key.address
 	if rest, ok := strings.CutPrefix(address, "http://"); ok {
 		address = "https://" + rest
 	}
-	data, err := f.get(context.Background(), address)
+	data, err := f.get(ctx, address)
 	if err != nil {
 		return nil, err
 	}
