@@ -82,8 +82,13 @@ type state struct {
 	listed map[string]uuid.UUID
 	// skinLoads holds the skin downloads under way for listed players, by the generation
 	// that started them, and skinKeys the textures key of each skin sent.
-	skinLoads      map[uuid.UUID]uint64
-	skinKeys       map[uuid.UUID]string
+	skinLoads map[uuid.UUID]uint64
+	skinKeys  map[uuid.UUID]string
+	// skinsRunning counts the skin downloads under way, at most maxSkinLoads, and skinQueue
+	// holds those waiting for a slot. unsignedSkins counts the unsigned textures refused.
+	skinsRunning   int
+	skinQueue      []queuedSkin
+	unsignedSkins  int
 	skinGeneration uint64
 
 	health     float32

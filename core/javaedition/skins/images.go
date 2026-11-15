@@ -26,15 +26,17 @@ func legacySkin(source image.Image) *image.NRGBA {
 	return skin
 }
 
-// legacyCape fits a downloaded cape to 64x32 by nearest pixel: the 1.7.10 cape model samples
-// its texture in 64x32 texture coordinates whatever the image size.
+// legacyCape fits a downloaded cape to 64x32 as the 1.7.10 client draws it: that client
+// uploads the cape image as it is with nearest filtering, and the cape model samples it in
+// 64x32 texture coordinates whatever the image size, so each 64x32 texel shows the source
+// texel under its centre.
 func legacyCape(source image.Image) *image.NRGBA {
 	cape := image.NewNRGBA(image.Rect(0, 0, TextureWidth, TextureHeight))
 	bounds := source.Bounds()
 	for y := range TextureHeight {
 		for x := range TextureWidth {
-			sx := bounds.Min.X + x*bounds.Dx()/TextureWidth
-			sy := bounds.Min.Y + y*bounds.Dy()/TextureHeight
+			sx := bounds.Min.X + (2*x+1)*bounds.Dx()/(2*TextureWidth)
+			sy := bounds.Min.Y + (2*y+1)*bounds.Dy()/(2*TextureHeight)
 			cape.Set(x, y, source.At(sx, sy))
 		}
 	}

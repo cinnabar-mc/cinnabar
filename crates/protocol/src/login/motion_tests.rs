@@ -4,6 +4,7 @@
 //! non-finite components are semantic skips rather than session failures,
 //! and truncated wire stays fatal per the malformed-wire contract.
 
+use crate::into_world_event;
 use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
 

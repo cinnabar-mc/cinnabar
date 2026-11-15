@@ -11,7 +11,7 @@ use crate::raw_packet::RawPacket;
 use crate::session_transport::{Inbound, SessionTransport};
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, LevelChunkEvent, Packet, ProtocolError,
-    ServerDisconnectEvent, ServerTransferEvent, SessionError, WorldEvent, into_world_event,
+    ServerDisconnectEvent, ServerTransferEvent, SessionError, WorldEvent,
 };
 
 mod base_game_version;
@@ -165,6 +165,16 @@ impl<R: bridge::FrameRead> PlaySession<R> {
     #[must_use]
     pub fn java_edition(&self) -> bool {
         self.java_edition
+    }
+
+    /// How a skin without pixels decodes here: a Java Edition session asks for the client's
+    /// default skin with any cape over it, as 1.7.10 draws one; elsewhere it is unusable.
+    fn empty_skin(&self) -> crate::EmptySkin {
+        if self.java_edition {
+            crate::EmptySkin::ClientDefault
+        } else {
+            crate::EmptySkin::Unavailable
+        }
     }
 
     /// Takes the most recent normalized server-initiated disconnect, if any.
@@ -357,7 +367,12 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 }
                 continue;
             }
-            let decoded = decode_world_raw_with(raw, current_dimension, RawPacket::decode_parts);
+            let decoded = decode_world_raw_for(
+                raw,
+                current_dimension,
+                self.empty_skin(),
+                RawPacket::decode_parts,
+            );
             match decoded {
                 Ok(Some(event)) => return Ok(WorldIngress::Event(event)),
                 Ok(None) => {}
@@ -510,7 +525,12 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                                     }
                                 }
                             }
-                            data => crate::world::dispatch(data, packet.header, current_dimension),
+                            data => crate::world::dispatch(
+                                data,
+                                packet.header,
+                                current_dimension,
+                                self.empty_skin(),
+                            ),
                         };
                         match normalized {
                             Ok(Some(event)) => event,
@@ -693,7 +713,12 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                     continue;
                 }
 
-                let event = match into_world_event(packet, current_dimension) {
+                let event = match crate::world::dispatch(
+                    *packet.data,
+                    packet.header,
+                    current_dimension,
+                    self.empty_skin(),
+                ) {
                     Ok(event) => event,
                     Err(error) => {
                         self.skip_or_fail_current(error.into())?;
@@ -706,7 +731,12 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 continue;
             }
 
-            let decoded = decode_world_raw_with(raw, current_dimension, RawPacket::decode_parts);
+            let decoded = decode_world_raw_for(
+                raw,
+                current_dimension,
+                self.empty_skin(),
+                RawPacket::decode_parts,
+            );
             match decoded {
                 Ok(Some(event)) => {
                     self.pending_ordinary = Some((WorldIngress::Event(event), packet_bytes));
@@ -813,65 +843,6 @@ fn reset_cache_for_immediate_boundary(
     }
 }
 
-/// Normalizes one raw world-lane packet; `decode` supplies the generic payload decode for the
-/// packets no bounded raw decoder owns.
-fn decode_world_raw_with(
-    raw: RawPacket,
-    current_dimension: i32,
-    decode: impl FnOnce(RawPacket) -> Result<(GameHeader, packets::Packet), SessionError>,
-) -> Result<Option<WorldEvent>, ProtocolError> {
-    if raw.id == PacketId::ItemRegistry {
-        // Login has already initialized this session's registry. Vanilla 1.26.60
-        // ignores a repeated item registry once initialized, including an
-        // empty/custom-only repeat. Decode the wire first so malformed repeats remain fatal;
-        // neither the inventory ledger nor actor item store may be rebound here.
-        decode(raw).map_err(crate::codec::world_decode_error)?;
-        return Ok(None);
-    }
-    if raw.id == PacketId::UpdateAbilities {
-        return crate::decode_abilities_update(raw.body())
-            .map(WorldEvent::Abilities)
-            .map(Some);
-    }
-    if raw.id == PacketId::CraftingData {
-        let update = crate::decode_recipe_update(raw.body())
-            .map_err(crate::world::WorldPacketError::from)?;
-        return Ok(Some(WorldEvent::Inventory(crate::InventoryEvent::Recipes(
-            update,
-        ))));
-    }
-    if raw.id == PacketId::UnlockedRecipes {
-        let update = crate::decode_recipe_unlocks(raw.body())
-            .map_err(crate::world::WorldPacketError::from)?;
-        return Ok(Some(WorldEvent::Inventory(
-            crate::InventoryEvent::RecipeUnlocks(update),
-        )));
-    }
-    // Play decodes only the packets world normalization consumes; the rest stay undecoded.
-    if !crate::world::routes_world_packet(raw.id) {
-        return Ok(None);
-    }
-    if raw.id == PacketId::MoveActorAbsolute {
-        return Ok(Some(WorldEvent::Actor(
-            crate::actor::normalize_move_entity_body(raw.body(), current_dimension)
-                .map_err(crate::world::WorldPacketError::from)?,
-        )));
-    }
-    crate::inventory::validate_raw_inventory_packet(&raw)
-        .map_err(crate::world::WorldPacketError::from)?;
-    if raw.id == PacketId::MobEquipment
-        && let Some(equipment) = raw_equipment::decode_empty_mob_equipment(&raw)?
-    {
-        return Ok(Some(WorldEvent::Equipment(equipment)));
-    }
-    if let Some((header, data)) = level_event_generic(&raw) {
-        return Ok(crate::world::dispatch(data, header, current_dimension)?);
-    }
-    let (header, data) = decode(raw).map_err(crate::codec::world_decode_error)?;
-    crate::codec::validate_decoded(&data).map_err(demote_ui_semantic_rejection)?;
-    Ok(crate::world::dispatch(data, header, current_dimension)?)
-}
-
 /// Decodes a raw test packet as the play stream does.
 #[cfg(test)]
 fn decode_test_raw(raw: RawPacket) -> Result<(GameHeader, packets::Packet), SessionError> {
@@ -907,6 +878,10 @@ fn demote_ui_semantic_rejection(error: ProtocolError) -> ProtocolError {
 mod block_event_tests;
 #[cfg(test)]
 mod dimension_ingress_tests;
+mod world_decode;
+use world_decode::decode_world_raw_for;
+#[cfg(test)]
+use world_decode::decode_world_raw_with;
 #[cfg(test)]
 mod experience_ingress_tests;
 #[cfg(test)]
@@ -919,6 +894,8 @@ mod packet_tap_ingress_tests;
 mod packet_trace_tests;
 #[cfg(test)]
 mod raw_inventory_provenance_tests;
+#[cfg(test)]
+mod skin_ingress_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

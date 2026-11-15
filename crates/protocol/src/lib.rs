@@ -59,7 +59,7 @@ pub use actor::{
     ActorInterpolation, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind, ActorTakeItemEvent, HASTE_EFFECT_ID, ITEM_ACTOR_NETWORK_OFFSET,
+    ActorStatusKind, ActorTakeItemEvent, EmptySkin, HASTE_EFFECT_ID, ITEM_ACTOR_NETWORK_OFFSET,
     MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
     MAX_ACTOR_IDENTIFIERS, MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES,
     MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES,

@@ -28,13 +28,13 @@ type Textures struct {
 	Skin, Cape string
 }
 
-// errInsecure reports a textures property whose signature is missing or not the session
-// service's.
-var errInsecure = errors.New("java edition textures: the payload is not signed by the session service")
+// ErrUnsigned reports a textures property whose signature is missing or not by the session
+// key the 1.7.10 client trusts; the player keeps the default skin.
+var ErrUnsigned = errors.New("java edition textures: the payload is not signed by the session service")
 
 // decodeTextures reads the first textures property, as the 1.7.10 client does. With secure
 // set the property must carry a signature that one of keys verifies; otherwise it names no
-// textures and errInsecure is returned. A payload that does not decode, or that names a host
+// textures and ErrUnsigned is returned. A payload that does not decode, or that names a host
 // outside textureDomains, names no textures.
 func decodeTextures(properties []java.ProfileProperty, secure bool, keys []*rsa.PublicKey) (Textures, error) {
 	var property *java.ProfileProperty
@@ -48,7 +48,7 @@ func decodeTextures(properties []java.ProfileProperty, secure bool, keys []*rsa.
 		return Textures{}, nil
 	}
 	if secure && !signed(property.Value, property.Signature, keys) {
-		return Textures{}, errInsecure
+		return Textures{}, ErrUnsigned
 	}
 	data, err := decodeBase64(property.Value)
 	if err != nil {

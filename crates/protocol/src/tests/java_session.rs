@@ -9,7 +9,7 @@ use bytes::Bytes;
 use protocol::decode_batch;
 
 use crate::login::GameData;
-use crate::{ActorEvent, PlayerListEntry, PlayerSkin, is_client_default_skin};
+use crate::{ActorEvent, EmptySkin, PlayerListEntry, PlayerSkin, is_client_default_skin};
 
 const SESSION: &[u8] = include_bytes!("../../fixtures/java_session.bin");
 const ITEM_REGISTRY: &[u8] = include_bytes!("../../fixtures/java_item_registry.bin");
@@ -121,7 +121,8 @@ fn translated_java_skins_reach_the_client() {
         })
         .expect("the stream lists the remote player");
     let ActorEvent::PlayerList(list) =
-        crate::actor::normalize_player_list(listed).expect("the entry decodes")
+        crate::actor::normalize_player_list(listed, EmptySkin::ClientDefault)
+            .expect("the entry decodes")
     else {
         panic!("a player list decodes to a player-list event");
     };
@@ -135,7 +136,8 @@ fn translated_java_skins_reach_the_client() {
 
     let mut updates = session.iter().filter_map(|packet| match &*packet.data {
         packets::Packet::PlayerSkin(update) => {
-            let ActorEvent::Skin { skin, .. } = crate::actor::normalize_skin_update(update.clone())
+            let ActorEvent::Skin { skin, .. } =
+                crate::actor::normalize_skin_update(update.clone(), EmptySkin::ClientDefault)
             else {
                 panic!("a skin update decodes to a skin event");
             };

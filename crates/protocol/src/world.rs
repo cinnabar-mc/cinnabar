@@ -301,18 +301,20 @@ impl From<InventoryPacketError> for WorldPacketError {
 /// Defines world routing and dispatch from one table, so play decodes exactly the packets that
 /// normalization consumes.
 macro_rules! world_packets {
-    ($header:ident, $dimension:ident; $($variant:ident($packet:pat) => $handler:expr,)+) => {
+    ($header:ident, $dimension:ident, $empty_skin:ident; $($variant:ident($packet:pat) => $handler:expr,)+) => {
         /// Whether play decodes `id` for world normalization; other packets stay undecoded.
         pub(crate) fn routes_world_packet(id: PacketId) -> bool {
             matches!(id, $(PacketId::$variant)|+)
         }
 
         /// Normalizes a decoded payload and its header as [`into_world_event`] does, for
-        /// callers that hold the payload unboxed.
+        /// callers that hold the payload unboxed; `empty_skin` is the session's rule for skins
+        /// without pixels.
         pub(crate) fn dispatch(
             data: packets::Packet,
             $header: GameHeader,
             $dimension: i32,
+            $empty_skin: crate::EmptySkin,
         ) -> Result<Option<WorldEvent>, WorldPacketError> {
             let event = match data {
                 $(packets::Packet::$variant($packet) => $handler,)+
@@ -324,16 +326,22 @@ macro_rules! world_packets {
 }
 
 /// Converts a generated packet into the bounded world surface used by the app.
-/// Packets unrelated to world streaming return `Ok(None)`.
+/// Packets unrelated to world streaming return `Ok(None)`. A skin without pixels decodes as on
+/// a Bedrock session ([`crate::EmptySkin::Unavailable`]).
 pub fn into_world_event(
     packet: Packet,
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
-    dispatch(*packet.data, packet.header, current_dimension)
+    dispatch(
+        *packet.data,
+        packet.header,
+        current_dimension,
+        crate::EmptySkin::Unavailable,
+    )
 }
 
 world_packets! {
-    header, current_dimension;
+    header, current_dimension, empty_skin;
     UpdateClientInputLocks(packet) => WorldEvent::Camera(crate::CameraEvent::InputLocks(
         crate::camera::ClientInputLocks::from_bits(packet.input_lock_component_data.0),
     )),
@@ -416,8 +424,10 @@ world_packets! {
     UpdateAttributes(packet) => {
         WorldEvent::Actor(normalize_update_attributes(packet, current_dimension)?)
     },
-    PlayerList(packet) => WorldEvent::Actor(normalize_player_list(packet)?),
-    PlayerSkin(packet) => WorldEvent::Actor(crate::actor::normalize_skin_update(packet)),
+    PlayerList(packet) => WorldEvent::Actor(normalize_player_list(packet, empty_skin)?),
+    PlayerSkin(packet) => {
+        WorldEvent::Actor(crate::actor::normalize_skin_update(packet, empty_skin))
+    },
     AddItemActor(packet) => {
         WorldEvent::Actor(normalize_add_item_actor(packet, current_dimension)?)
     },

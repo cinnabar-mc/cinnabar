@@ -139,7 +139,8 @@ impl ActorStore {
             synthetic_local_skin: None,
             local_skin_fingerprints: Default::default(),
             synthetic_local_skin_pending: false,
-            java_session: false,
+            pending_default_skins: HashMap::new(),
+            legacy_default_skin: render_model::legacy_default_skin_rgba8,
             synthetic_local_revision: 0,
             local_first_person: false,
             local_view_dirty: false,
@@ -639,6 +640,7 @@ impl ActorStore {
                             xuid,
                             skin,
                         } => {
+                            let skin = self.resolve_default_skin(*uuid, skin.clone());
                             let admitted = self.upsert_profile(
                                 *uuid,
                                 PlayerProfile {
@@ -646,7 +648,7 @@ impl ActorStore {
                                     username: username.clone(),
                                     verified: *verified,
                                     xuid: xuid.clone(),
-                                    skin: self.resolve_default_skin(skin.clone()),
+                                    skin,
                                 },
                                 spawned.as_ref(),
                             );

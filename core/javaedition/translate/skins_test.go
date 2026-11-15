@@ -2,7 +2,11 @@ package translate
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"image/color"
+	"log/slog"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -232,5 +236,96 @@ func TestACapeOverTheDefaultSkinIsSent(t *testing.T) {
 	}
 	if len(update.Skin.CapeData) != 64*32*4 || update.Skin.CapeID != "cape" {
 		t.Fatalf("cape = %d bytes, id %q", len(update.Skin.CapeData), update.Skin.CapeID)
+	}
+}
+
+// warnCounter is a log handler that counts warnings.
+type warnCounter struct{ warnings *atomic.Int64 }
+
+func (warnCounter) Enabled(context.Context, slog.Level) bool { return true }
+func (w warnCounter) Handle(_ context.Context, record slog.Record) error {
+	if record.Level == slog.LevelWarn {
+		w.warnings.Add(1)
+	}
+	return nil
+}
+func (w warnCounter) WithAttrs([]slog.Attr) slog.Handler { return w }
+func (w warnCounter) WithGroup(string) slog.Handler      { return w }
+
+// playerUUID is the profile id of the n-th test player.
+func playerUUID(n int) string {
+	return fmt.Sprintf("00000000-0000-4000-8000-%012x", n)
+}
+
+// A session runs at most maxSkinLoads skin downloads at once; the rest wait their turn and all
+// arrive.
+func TestSkinLoadsAreCappedPerSession(t *testing.T) {
+	services := skinstest.Start(t)
+	ts := startTestSessionWith(t, Options{Skins: services.Fetcher()})
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	release := services.Block()
+	defer release()
+	const players = maxSkinLoads + 2
+	for n := range players {
+		payload := skinstest.Payload(services.Texture(fmt.Sprintf("skin%d", n), 64, 32, color.NRGBA{R: uint8(n), A: 0xff}), "")
+		ts.serve(&java.SpawnPlayer{EntityID: int32(20 + n), UUID: playerUUID(20 + n), Name: fmt.Sprintf("P%d", n), Properties: []java.ProfileProperty{services.Signed(payload)}})
+	}
+	ts.session.mu.Lock()
+	running, queued := ts.session.state.skinsRunning, len(ts.session.state.skinQueue)
+	ts.session.mu.Unlock()
+	if running != maxSkinLoads || queued != players-maxSkinLoads {
+		t.Fatalf("%d downloads running and %d queued, want %d and %d", running, queued, maxSkinLoads, players-maxSkinLoads)
+	}
+	release()
+	seen := map[uuid.UUID]bool{}
+	for len(seen) < players {
+		seen[ts.skinAfter(nil).UUID] = true
+	}
+}
+
+// A server sending unsigned textures for many players warns once, not once per player.
+func TestUnsignedSkinsWarnOnce(t *testing.T) {
+	services := skinstest.Start(t)
+	var warnings atomic.Int64
+	ts := startTestSessionWith(t, Options{Skins: services.Fetcher(), Logger: slog.New(warnCounter{&warnings})})
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	for n := range 3 {
+		unsigned := java.ProfileProperty{Name: "textures", Value: skinstest.Payload(fmt.Sprintf("http://textures.minecraft.net/texture/u%d", n), "")}
+		ts.serve(&java.SpawnPlayer{EntityID: int32(20 + n), UUID: playerUUID(20 + n), Name: fmt.Sprintf("P%d", n), Properties: []java.ProfileProperty{unsigned}})
+	}
+	ts.waitSkins()
+	if got := warnings.Load(); got != 1 {
+		t.Fatalf("%d warnings for three unsigned skins, want one", got)
+	}
+}
+
+// Textures that did not all arrive are fetched again when the player spawns again with them.
+func TestAPartlyFailedSkinIsRetried(t *testing.T) {
+	services := skinstest.Start(t)
+	ts := startTestSessionWith(t, Options{Skins: services.Fetcher()})
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	properties := []java.ProfileProperty{services.Signed(skinstest.Payload(
+		services.Texture("skin", 64, 32, color.NRGBA{R: 0xff, A: 0xff}), "http://textures.minecraft.net/texture/late"))}
+	first := ts.skinAfter(ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: properties}))
+	if len(first.Skin.SkinData) == 0 || len(first.Skin.CapeData) != 0 {
+		t.Fatalf("first load: %d skin bytes, %d cape bytes", len(first.Skin.SkinData), len(first.Skin.CapeData))
+	}
+	services.Texture("late", 64, 32, color.NRGBA{B: 0xff, A: 0xff})
+	ts.serve(&java.DestroyEntities{EntityIDs: []int32{9}})
+	respawned := ts.serve(&java.SpawnPlayer{EntityID: 9, UUID: alexUUID, Name: "Alex", Properties: properties})
+	ts.waitSkins()
+	var update *packet.PlayerSkin
+	for _, batch := range [][]packet.Packet{respawned, ts.serve(&java.TimeUpdate{WorldAge: 1, TimeOfDay: 1})} {
+		for _, pk := range batch {
+			if skin, ok := pk.(*packet.PlayerSkin); ok {
+				update = skin
+			}
+		}
+		if update != nil {
+			break
+		}
+	}
+	if update == nil || len(update.Skin.CapeData) == 0 {
+		t.Fatal("the cape that failed was not fetched again")
 	}
 }
