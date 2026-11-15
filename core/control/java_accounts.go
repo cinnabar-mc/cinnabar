@@ -109,6 +109,11 @@ func (server *Server) serveJavaAccounts(conn net.Conn, id uint64, raw json.RawMe
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	list, selected, err := accounts.List()
+	if err == nil && !accounts.PicturesPending() {
+		// A picture read that finished after the list was taken is in a second one, so a reply
+		// never lacks a picture while reporting none pending.
+		list, selected, err = accounts.List()
+	}
 	if err != nil {
 		server.logServiceFailure(methodJavaAccounts, err)
 		return reply.fail(codeServiceFailed, "Service unavailable")

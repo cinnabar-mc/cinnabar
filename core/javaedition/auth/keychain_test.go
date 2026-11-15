@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -313,6 +315,7 @@ func TestKeychainKeepsASignInMicrosoftDidNotRefresh(t *testing.T) {
 	}{
 		{"network", &url.Error{Op: "Post", URL: "https://login.live.com", Err: errors.New("connection refused")}, ErrServicesUnreachable},
 		{"server error", &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusServiceUnavailable}}, ErrServicesUnreachable},
+		{"throttled", &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusTooManyRequests}}, ErrServicesUnreachable},
 		{"refused", &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusBadRequest}, ErrorCode: "invalid_grant"}, ErrNotSignedIn},
 	}
 	for _, test := range cases {
@@ -391,5 +394,43 @@ func TestKeychainClosedSessionSaysSo(t *testing.T) {
 	keychain.Close()
 	if _, err := keychain.Session(context.Background()); !errors.Is(err, ErrKeychainClosed) {
 		t.Fatalf("session of a closed keychain = %v", err)
+	}
+}
+
+// A token file another sign-in replaced, as when the account is added again, is reopened by
+// the next session rather than failing every join after it.
+func TestKeychainReopensAReplacedToken(t *testing.T) {
+	fake := newFakeServices(t)
+	app := newFakeApp()
+	close(app.finish)
+	var offset atomic.Int64
+	dir := t.TempDir()
+	keychain := NewKeychain(KeychainConfig{
+		Path: filepath.Join(dir, "token.json"), App: app, Services: fake.services(),
+		Now: func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
+	})
+	t.Cleanup(keychain.Close)
+	if _, err := keychain.BeginSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	testwait.Eventually(t, 5*time.Second, "the sign-in to finish", keychain.SignedIn)
+	if _, err := keychain.Session(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	again := NewKeychain(KeychainConfig{Path: filepath.Join(dir, "again.json"), App: app, Services: fake.services()})
+	t.Cleanup(again.Close)
+	if _, err := again.BeginSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	testwait.Eventually(t, 5*time.Second, "the second sign-in to finish", again.SignedIn)
+	again.Close()
+	if err := authcache.Move(context.Background(), again.config.Path, keychain.config.Path); err != nil {
+		t.Fatal(err)
+	}
+	// The session expires, so the next one signs in with the replaced token.
+	offset.Store(int64(48 * time.Hour))
+	if _, err := keychain.Session(context.Background()); err != nil {
+		t.Fatalf("session after the token was replaced = %v", err)
 	}
 }

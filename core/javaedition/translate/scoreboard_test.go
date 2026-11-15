@@ -110,3 +110,50 @@ func (ts *testSession) send(pk java.Packet) {
 		ts.t.Fatal(err)
 	}
 }
+
+// An objective shown in two slots stays in the one still showing it when the other moves on,
+// an entry's removal reaches every objective, and a removed team's lines lose its text.
+func TestScoreboardSlotsTeamsAndRemovals(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	for _, name := range []string{"kills", "deaths"} {
+		ts.send(&java.ScoreboardObjective{Name: name, DisplayName: name, Mode: objectiveCreate})
+		ts.send(&java.UpdateScore{ItemName: "Steve", Action: scoreUpdate, Objective: name, Value: 1})
+	}
+	ts.send(&java.Teams{Name: "red", Mode: java.TeamCreate, Prefix: "§c", Players: []string{"Steve"}})
+	ts.serve(&java.DisplayScoreboard{Position: 0, Objective: "kills"})
+	ts.serve(&java.DisplayScoreboard{Position: 1, Objective: "kills"})
+
+	moved := ts.serve(&java.DisplayScoreboard{Position: 1, Objective: "deaths"})
+	var slots []string
+	for _, pk := range moved {
+		if display, ok := pk.(*packet.SetDisplayObjective); ok {
+			slots = append(slots, display.ObjectiveName+"@"+display.DisplaySlot)
+		}
+	}
+	want := []string{"kills@" + packet.ScoreboardSlotList, "deaths@" + packet.ScoreboardSlotSidebar}
+	if len(slots) != 2 || slots[0] != want[0] || slots[1] != want[1] {
+		t.Fatalf("moving the sidebar showed %v, want %v", slots, want)
+	}
+
+	entries := scoreEntries(ts.serve(&java.Teams{Name: "red", Mode: java.TeamRemove}))
+	var redrawn []string
+	for _, entry := range entries {
+		if entry.IdentityType == protocol.ScoreboardIdentityFakePlayer {
+			redrawn = append(redrawn, entry.ObjectiveName+":"+entry.DisplayName)
+		}
+	}
+	if len(redrawn) != 2 {
+		t.Fatalf("removing the team redrew %v", redrawn)
+	}
+	for _, line := range redrawn {
+		if line != "kills:Steve" && line != "deaths:Steve" {
+			t.Fatalf("removing the team redrew %v", redrawn)
+		}
+	}
+
+	entries = scoreEntries(ts.serve(&java.UpdateScore{ItemName: "Steve", Action: scoreRemove}))
+	if len(entries) != 2 || entries[0].IdentityType != protocol.ScoreboardIdentityRemove || entries[1].IdentityType != protocol.ScoreboardIdentityRemove {
+		t.Fatalf("removing the entry translated to %+v", entries)
+	}
+}

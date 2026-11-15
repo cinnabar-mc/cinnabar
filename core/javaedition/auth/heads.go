@@ -25,6 +25,9 @@ const OperationSkin = "skin"
 // follows it.
 const defaultSkinProfileURL = "https://sessionserver.mojang.com/session/minecraft/profile/"
 
+// textureHost serves the skin textures the session service names.
+const textureHost = "textures.minecraft.net"
+
 // Head pictures: a skin's 8×8 face with its hat layer, drawn headPictureScale times larger
 // without blurring, kept as "<id>-head.png" beside the account's token.
 const (
@@ -49,10 +52,11 @@ var (
 // errNoSkin reports a profile that wears a default skin, which has no texture to read.
 var errNoSkin = errors.New("the Java Edition profile wears a default skin")
 
-// headFetch is the state of an account's picture: being read, or when the last read failed.
+// headFetch is the state of an account's picture read: under way, or waiting to retry.
 type headFetch struct {
 	running bool
-	failed  time.Time
+	// retry is when a read may start again after the last one failed.
+	retry time.Time
 }
 
 // SkinURL returns the address of the profile's skin texture. A profile wearing a default skin
@@ -96,8 +100,7 @@ func (s Services) SkinURL(ctx context.Context, id string) (string, error) {
 
 // Skin downloads the skin texture at address.
 func (s Services) Skin(ctx context.Context, address string) (image.Image, error) {
-	parsed, err := url.Parse(address)
-	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+	if !s.textureAddress(address) {
 		return nil, fmt.Errorf("java edition %s: unsupported texture address", OperationSkin)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
@@ -120,11 +123,29 @@ func (s Services) Skin(ctx context.Context, address string) (image.Image, error)
 	if err != nil {
 		return nil, fmt.Errorf("java edition %s: %w", OperationSkin, err)
 	}
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width != 64 || (config.Height != 32 && config.Height != 64) {
+		return nil, fmt.Errorf("java edition %s: malformed texture", OperationSkin)
+	}
 	skin, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("java edition %s: malformed texture", OperationSkin)
 	}
 	return skin, nil
+}
+
+// textureAddress reports whether a skin may be read from address: the texture service over
+// HTTPS, or the host the profiles are read from.
+func (s Services) textureAddress(address string) bool {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme == "https" && parsed.Hostname() == textureHost {
+		return true
+	}
+	profiles, err := url.Parse(orDefault(s.SkinProfileURL, defaultSkinProfileURL))
+	return err == nil && parsed.Scheme == profiles.Scheme && parsed.Host == profiles.Host
 }
 
 // headPicture draws a skin's face with its hat layer over it. The face is opaque, and a hat
@@ -198,7 +219,7 @@ func (a *Accounts) HeadsPending() bool {
 func (a *Accounts) fetchHead(id string) {
 	a.mu.Lock()
 	fetch := a.heads[id]
-	if a.closed || fetch.running || (!fetch.failed.IsZero() && a.config.Now().Sub(fetch.failed) < headRetryDelay) {
+	if a.closed || fetch.running || a.config.Now().Before(fetch.retry) {
 		a.mu.Unlock()
 		return
 	}
@@ -210,14 +231,18 @@ func (a *Accounts) fetchHead(id string) {
 		err := a.saveHead(id)
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		var failed time.Time
+		var fetch headFetch
 		if err != nil {
-			failed = a.config.Now()
-			if !errors.Is(err, errNoSkin) {
+			failed := a.config.Now()
+			fetch.retry = failed.Add(headRetryDelay)
+			if errors.Is(err, errNoSkin) {
+				// A default skin is asked about again only as often as a picture is renewed.
+				fetch.retry = failed.Add(headMaxAge)
+			} else {
 				a.config.Logger.Debug("Java Edition account picture not read", "error", err)
 			}
 		}
-		a.heads[id] = headFetch{failed: failed}
+		a.heads[id] = fetch
 	}()
 }
 

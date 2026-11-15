@@ -245,3 +245,44 @@ fn pictures_being_read_are_polled_while_the_dialog_is_open() {
     menu.sync_java_accounts(&mut control, start + ADD_POLL * 3);
     assert_eq!(control.sent.len(), 2, "polled once the pictures were read");
 }
+
+/// A list that changes under the removal question keeps it on the account it named, and
+/// returns to the accounts once that account is gone.
+#[test]
+fn the_removal_question_follows_its_account() {
+    let mut menu = menu();
+    let mut control = FakeAccount::default();
+    menu.activate(MenuAction::OpenAccounts);
+    menu.feeds.java_accounts = two_accounts();
+    menu.activate(MenuAction::RemoveJavaAccount);
+    let mut moved = two_accounts();
+    moved.accounts.reverse();
+    control.answer = Some(Ok(moved));
+    menu.sync_java_accounts(&mut control, Instant::now());
+    assert_eq!(menu.dialog, Some(MenuDialog::RemoveJavaAccount(1)));
+    menu.activate(MenuAction::ConfirmRemoveJavaAccount(1));
+    menu.sync_java_accounts(&mut control, Instant::now());
+    assert_eq!(
+        control.sent.last(),
+        Some(&bridge::JavaAccountAction::Remove("a".into()))
+    );
+
+    menu.activate(MenuAction::RemoveJavaAccount);
+    let mut gone = two_accounts();
+    gone.accounts.remove(0);
+    control.answer = Some(Ok(gone));
+    menu.sync_java_accounts(&mut control, Instant::now());
+    assert_eq!(menu.dialog, Some(MenuDialog::Accounts));
+}
+
+/// A browser tab's Accounts dialog keeps focus off the Java buttons it does not draw.
+#[test]
+fn a_browser_tab_focuses_no_java_buttons() {
+    let mut menu = menu();
+    menu.use_external_services(Vec::new(), 0);
+    menu.dialog = Some(MenuDialog::Accounts);
+    menu.feeds.java_accounts = two_accounts();
+    let actions = menu.focus_actions();
+    assert!(!actions.contains(&MenuAction::AddJavaAccount));
+    assert!(!actions.contains(&MenuAction::RemoveJavaAccount));
+}

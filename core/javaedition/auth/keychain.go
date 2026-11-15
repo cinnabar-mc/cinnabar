@@ -257,7 +257,12 @@ func (k *Keychain) Session(ctx context.Context) (Session, error) {
 // was replaced meanwhile.
 func (k *Keychain) signInSession(call *sessionSignIn, source oauth2.TokenSource, generation uint64) {
 	defer k.work.Done()
+	opened := source
 	session, source, err := k.newSession(source)
+	if opened != nil && authcache.AccountChanged(err) {
+		// Another sign-in, in this core or another, replaced the token file: open the new one.
+		session, source, err = k.newSession(nil)
+	}
 	k.mu.Lock()
 	if k.generation == generation {
 		switch {
@@ -310,7 +315,7 @@ func (k *Keychain) newSession(source oauth2.TokenSource) (Session, oauth2.TokenS
 	case refusedByMicrosoft(err):
 		// The Microsoft sign-in itself was refused, as for a revoked token.
 		return Session{}, nil, fmt.Errorf("%w: %v", ErrNotSignedIn, err)
-	case k.lastRefresh.Load() != nil && !errors.Is(err, ErrNotSignedIn):
+	case k.lastRefresh.Load() != nil && !refusedByMicrosoft(*k.lastRefresh.Load()) && !errors.Is(err, ErrNotSignedIn):
 		// A refresh of the token Microsoft did not answer leaves the token usable.
 		return Session{}, nil, fmt.Errorf("%w: %w", ErrServicesUnreachable, err)
 	default:
@@ -495,5 +500,14 @@ func refusedByMicrosoft(err error) bool {
 	if !errors.As(err, &refused) {
 		return false
 	}
-	return refused.Response == nil || refused.Response.StatusCode < http.StatusInternalServerError
+	if refused.Response == nil {
+		return true
+	}
+	switch status := refused.Response.StatusCode; {
+	case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests:
+		// A timeout or throttling says nothing about the sign-in itself.
+		return false
+	default:
+		return status < http.StatusInternalServerError
+	}
 }

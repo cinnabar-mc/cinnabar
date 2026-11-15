@@ -16,9 +16,9 @@ func Move(ctx context.Context, from, to string) (err error) {
 	paths := []string{from, to}
 	sort.Strings(paths)
 	for _, path := range paths {
-		lease, err := lockfile.AcquireContext(ctx, path+cacheLockSuffix)
-		if err != nil {
-			return err
+		lease, acquireErr := lockfile.AcquireContext(ctx, path+cacheLockSuffix)
+		if acquireErr != nil {
+			return acquireErr
 		}
 		defer func() { err = errors.Join(err, lease.Close()) }()
 	}

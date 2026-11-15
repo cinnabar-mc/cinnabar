@@ -440,7 +440,8 @@ func (a *Accounts) removeStalePending() {
 		return
 	}
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), pendingTokenPrefix) {
+		// "pending.json" is the single unfinished sign-in file of earlier builds.
+		if !strings.HasPrefix(entry.Name(), pendingTokenPrefix) && !strings.HasPrefix(entry.Name(), "pending.json") {
 			continue
 		}
 		info, err := entry.Info()

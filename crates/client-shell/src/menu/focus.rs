@@ -456,9 +456,13 @@ impl MenuRuntime {
                             .filter(|(_, account)| Some(&account.id) != java.selected.as_ref())
                             .map(|(index, _)| MenuAction::SwitchJavaAccount(index)),
                     );
-                    actions.extend([MenuAction::AddAccount, MenuAction::AddJavaAccount]);
-                    if java.selected.is_some() {
-                        actions.push(MenuAction::RemoveJavaAccount);
+                    actions.push(MenuAction::AddAccount);
+                    // A browser tab draws no Java accounts.
+                    if self.external.is_none() {
+                        actions.push(MenuAction::AddJavaAccount);
+                        if java.selected.is_some() {
+                            actions.push(MenuAction::RemoveJavaAccount);
+                        }
                     }
                     actions.extend([
                         MenuAction::Navigate(MenuScreen::Profile),
