@@ -1910,7 +1910,8 @@ Implemented: the core joins a `java/<host>[:<port>]` target and translates the s
 Bedrock packets ([`core/javaedition`](core/javaedition/translate/session.go)): login with
 encryption, Java Edition sign-in for online-mode servers, chunks and block changes with
 fence, pane, wall and stair connections, the player's position, health, hunger, experience,
-abilities, game mode, time and rain, chat, the player list, remote players, mobs and
+abilities, game mode, time and rain, chat, the player list, scoreboards in the sidebar, list and
+below-name slots with their team prefixes and suffixes, remote players, mobs and
 objects with their movement, held items and status flags, and the player inventory. From the
 client it translates movement, sprinting and sneaking, mining, block placement and item use,
 attacks and entity interaction, the held slot, chat, commands and respawning. Tests cover a
@@ -1957,7 +1958,7 @@ Incomplete:
   nether is 128 blocks high, so Java nether blocks above that are not shown.
 - Remote player skins and capes, entity armour, most entity metadata, paintings, experience
   orbs, item frames, effects, attributes of the local player beyond health, sounds,
-  particles, explosions, block-break progress, scoreboards, teams, titles, maps, statistics,
+  particles, explosions, block-break progress, team colours on name tags, titles, maps, statistics,
   tab completion and plugin channels other than the brand are not translated.
 - The death, respawn and dimension-change sequences are translated but have only been
   checked packet by packet, not in the client. NBT the core writes uses standard UTF-8

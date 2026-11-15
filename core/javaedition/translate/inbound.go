@@ -47,6 +47,14 @@ func (s *Session) handleJava(pk java.Packet) error {
 			timeOfDay = -timeOfDay
 		}
 		s.queue(&packet.SetTime{Time: int32(timeOfDay % 24000)})
+	case *java.ScoreboardObjective:
+		s.scoreboardObjective(pk)
+	case *java.DisplayScoreboard:
+		s.displayScoreboard(pk)
+	case *java.UpdateScore:
+		s.updateScore(pk)
+	case *java.Teams:
+		s.teams(pk)
 	case *java.ChatMessage:
 		message := chatText(pk.Message)
 		if message == "" {
