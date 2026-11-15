@@ -83,8 +83,18 @@ func newState() state {
 	}
 }
 
-// runtimeID is the Bedrock runtime id of a Java entity id. Java ids are non-negative, so
-// they carry over unchanged.
+// runtimeID is the Bedrock runtime id of a Java entity id. Bedrock reserves id 0, which a
+// freshly started 1.7.10 server gives its first entity, so ids move up by one.
 func runtimeID(entityID int32) uint64 {
-	return uint64(uint32(entityID))
+	return uint64(uint32(entityID)) + 1
+}
+
+// uniqueID is the Bedrock unique id of a Java entity id, moved up by one like runtimeID.
+func uniqueID(entityID int32) int64 {
+	return int64(entityID) + 1
+}
+
+// javaEntityID is the Java entity id behind a Bedrock runtime id from runtimeID.
+func javaEntityID(runtime uint64) int32 {
+	return int32(uint32(runtime - 1))
 }

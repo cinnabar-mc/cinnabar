@@ -163,7 +163,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 			Yaw:             degrees(pk.Yaw),
 			HeadYaw:         degrees(pk.Yaw),
 			EntityMetadata:  entityMetadata(pk.Metadata),
-			AbilityData:     protocol.AbilityData{EntityUniqueID: int64(pk.EntityID), Layers: []protocol.AbilityLayer{}},
+			AbilityData:     protocol.AbilityData{EntityUniqueID: uniqueID(pk.EntityID), Layers: []protocol.AbilityLayer{}},
 		})
 	case *java.SpawnMob:
 		identifier, ok := mobTypes[pk.Type]
@@ -173,7 +173,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		s.replace(pk.EntityID)
 		st.entities[pk.EntityID] = &entity{x: pk.X, y: pk.Y, z: pk.Z, yaw: pk.Yaw, pitch: pk.Pitch, head: pk.HeadYaw}
 		s.queue(&packet.AddActor{
-			EntityUniqueID:  int64(pk.EntityID),
+			EntityUniqueID:  uniqueID(pk.EntityID),
 			EntityRuntimeID: runtimeID(pk.EntityID),
 			EntityType:      identifier,
 			Position:        mgl32.Vec3{fixed(pk.X), fixed(pk.Y), fixed(pk.Z)},
@@ -198,7 +198,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		}
 		st.entities[pk.EntityID] = spawned
 		actor := &packet.AddActor{
-			EntityUniqueID:  int64(pk.EntityID),
+			EntityUniqueID:  uniqueID(pk.EntityID),
 			EntityRuntimeID: runtimeID(pk.EntityID),
 			EntityType:      identifier,
 			Position:        mgl32.Vec3{fixed(pk.X), fixed(pk.Y), fixed(pk.Z)},
@@ -214,7 +214,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		for _, id := range pk.EntityIDs {
 			if _, ok := st.entities[id]; ok {
 				delete(st.entities, id)
-				s.queue(&packet.RemoveActor{EntityUniqueID: int64(id)})
+				s.queue(&packet.RemoveActor{EntityUniqueID: uniqueID(id)})
 			}
 		}
 	case *java.EntityRelativeMove:
@@ -274,7 +274,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 func (s *Session) replace(id int32) {
 	if _, ok := s.state.entities[id]; ok {
 		delete(s.state.entities, id)
-		s.queue(&packet.RemoveActor{EntityUniqueID: int64(id)})
+		s.queue(&packet.RemoveActor{EntityUniqueID: uniqueID(id)})
 	}
 }
 
@@ -334,7 +334,7 @@ func (s *Session) entityMetadata(pk *java.EntityMetadata) {
 		}
 		updated.pendingItem = false
 		s.queue(&packet.AddItemActor{
-			EntityUniqueID:  int64(pk.EntityID),
+			EntityUniqueID:  uniqueID(pk.EntityID),
 			EntityRuntimeID: runtimeID(pk.EntityID),
 			Item:            item,
 			Position:        updated.position(),

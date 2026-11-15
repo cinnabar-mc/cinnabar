@@ -137,7 +137,7 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 			if data.ActionType == protocol.UseItemOnEntityActionAttack {
 				action = useEntityAttack
 			}
-			return s.send(&java.ClientUseEntity{EntityID: int32(data.TargetEntityRuntimeID), Action: action})
+			return s.send(&java.ClientUseEntity{EntityID: javaEntityID(data.TargetEntityRuntimeID), Action: action})
 		case *protocol.ReleaseItemTransactionData:
 			return s.send(&java.ClientPlayerDigging{Status: digRelease, Face: 255})
 		}

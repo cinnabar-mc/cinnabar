@@ -134,7 +134,7 @@ func (s *Session) joinGame(pk *java.JoinGame) error {
 	st.gameData = minecraft.GameData{
 		WorldName:               "Java Edition 1.7.10",
 		Difficulty:              int32(pk.Difficulty),
-		EntityUniqueID:          int64(pk.EntityID),
+		EntityUniqueID:          uniqueID(pk.EntityID),
 		EntityRuntimeID:         runtimeID(pk.EntityID),
 		PlayerGameMode:          int32(pk.GameMode),
 		BaseGameVersion:         "*",
@@ -181,7 +181,7 @@ func (s *Session) respawn(pk *java.Respawn) {
 		st.world = newWorld(st.dimension)
 		st.hasPublisher = false
 		for id := range st.entities {
-			s.queue(&packet.RemoveActor{EntityUniqueID: int64(id)})
+			s.queue(&packet.RemoveActor{EntityUniqueID: uniqueID(id)})
 		}
 		st.entities = map[int32]*entity{}
 		s.queue(&packet.ChangeDimension{

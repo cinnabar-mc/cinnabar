@@ -53,7 +53,8 @@ fn translated_java_startup_builds_game_data() {
     let packets::Packet::StartGame(start_game) = &*session[0].data else {
         panic!("the stream starts with StartGame");
     };
-    assert_eq!(start_game.runtime_id.0, 7);
+    // Java entity 7, moved up by one past the id Bedrock reserves.
+    assert_eq!(start_game.runtime_id.0, 8);
     assert!(
         start_game.block_network_ids_are_hashes,
         "blocks are addressed by state hash"

@@ -215,7 +215,7 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 	if !ok || len(joined) != 2 {
 		t.Fatalf("join translated to %d packets, first %T", len(joined), joined[0])
 	}
-	if start.EntityRuntimeID != 7 || !start.UseBlockNetworkIDHashes || start.Dimension != bedrockOverworld {
+	if start.EntityRuntimeID != runtimeID(7) || start.EntityUniqueID != uniqueID(7) || !start.UseBlockNetworkIDHashes || start.Dimension != bedrockOverworld {
 		t.Fatalf("StartGame = runtime %d, hashes %t, dimension %d", start.EntityRuntimeID, start.UseBlockNetworkIDHashes, start.Dimension)
 	}
 	if registry, ok := joined[1].(*packet.ItemRegistry); !ok || len(registry.Items) != len(legacy.Registry()) {
@@ -362,7 +362,7 @@ func TestClientPacketsBecomeJavaPackets(t *testing.T) {
 	if swing := expect[*java.ClientAnimation](ts); swing.EntityID != 7 || swing.Animation != 1 {
 		t.Fatalf("swing = %+v", swing)
 	}
-	ts.write(&packet.InventoryTransaction{TransactionData: &protocol.UseItemOnEntityTransactionData{TargetEntityRuntimeID: 9, ActionType: protocol.UseItemOnEntityActionAttack}})
+	ts.write(&packet.InventoryTransaction{TransactionData: &protocol.UseItemOnEntityTransactionData{TargetEntityRuntimeID: runtimeID(9), ActionType: protocol.UseItemOnEntityActionAttack}})
 	if attack := expect[*java.ClientUseEntity](ts); attack.EntityID != 9 || attack.Action != useEntityAttack {
 		t.Fatalf("attack = %+v", attack)
 	}
@@ -539,7 +539,7 @@ func TestRespawnKeepsTheWorldUnlessTheDimensionChanges(t *testing.T) {
 	}
 	// The mob is still there too: spawning it again replaces it.
 	again := ts.serve(&java.SpawnMob{EntityID: 9, Type: 90})
-	if removed, ok := again[0].(*packet.RemoveActor); !ok || removed.EntityUniqueID != 9 || len(again) != 2 {
+	if removed, ok := again[0].(*packet.RemoveActor); !ok || removed.EntityUniqueID != uniqueID(9) || len(again) != 2 {
 		t.Fatalf("a repeated spawn translated to %+v", again)
 	}
 
@@ -639,5 +639,19 @@ func TestClientFlightChatLengthAndRadiusChanges(t *testing.T) {
 	publisher, ok := granted[1].(*packet.NetworkChunkPublisherUpdate)
 	if radius := granted[0].(*packet.ChunkRadiusUpdated); radius.ChunkRadius != 4 || !ok || publisher.Radius != 64 {
 		t.Fatalf("radius change translated to %+v", granted)
+	}
+}
+
+// A freshly started 1.7.10 server gives its first entity, often the joining player, id 0,
+// which Bedrock reserves; the player's ids stay valid and an attack on entity 0 reaches it.
+func TestEntityZeroGetsValidBedrockIDs(t *testing.T) {
+	ts := startTestSession(t)
+	joined := ts.serve(&java.JoinGame{EntityID: 0, LevelType: "default"})
+	start, ok := joined[0].(*packet.StartGame)
+	if !ok || start.EntityRuntimeID == 0 || start.EntityUniqueID == 0 {
+		t.Fatalf("StartGame for entity 0 = %+v", joined[0])
+	}
+	if javaEntityID(start.EntityRuntimeID) != 0 {
+		t.Fatalf("runtime id %d does not map back to entity 0", start.EntityRuntimeID)
 	}
 }

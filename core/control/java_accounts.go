@@ -109,7 +109,10 @@ func (server *Server) serveJavaAccounts(conn net.Conn, id uint64, raw json.RawMe
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	list, selected, err := accounts.List()
-	if err == nil && !accounts.PicturesPending() {
+	// Read once: a read finishing between two reads would leave a reply that lacks its
+	// picture yet reports none pending.
+	picturesPending := accounts.PicturesPending()
+	if err == nil && !picturesPending {
 		// A picture read that finished after the list was taken is in a second one, so a reply
 		// never lacks a picture while reporting none pending.
 		list, selected, err = accounts.List()
@@ -126,7 +129,7 @@ func (server *Server) serveJavaAccounts(conn net.Conn, id uint64, raw json.RawMe
 		Accounts:      list,
 		Selected:      selected,
 		Add:           accounts.Add(),
-		// Read after listing, which starts the reads of missing pictures.
-		PicturesPending: accounts.PicturesPending(),
+		// Read after the first list, which starts the reads of missing pictures.
+		PicturesPending: picturesPending,
 	})
 }
