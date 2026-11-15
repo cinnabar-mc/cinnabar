@@ -228,6 +228,7 @@ impl MenuRuntime {
             invite: Default::default(),
             realm_membership: Default::default(),
             realm_leave: Default::default(),
+            java_accounts: Default::default(),
             join_requests: Default::default(),
         }
     }

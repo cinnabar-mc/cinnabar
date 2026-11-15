@@ -362,6 +362,8 @@ pub(super) struct MenuItem<'a> {
     pub(super) selected: bool,
     pub(super) enabled: bool,
     pub(super) action: Option<MenuAction>,
+    /// Draws the label as a section heading over the items below it, never focusable.
+    pub(super) heading: bool,
 }
 
 /// A 4.8rem modal menu item, bordered above and at the sides (the list closes the bottom):
@@ -372,6 +374,18 @@ pub(super) fn menu_item(
     b: Bounds,
     item: &MenuItem<'_>,
 ) -> Result<(), PaintError> {
+    if item.heading {
+        let pad = canvas.r(1.6);
+        let top = b[3] - canvas.r(0.8) - canvas.r(CAPTION.line);
+        canvas.text_line(
+            item.label,
+            [b[0] + pad, top],
+            b[2] - b[0] - pad * 2.0,
+            CAPTION,
+            TEXT_DIMMER,
+        )?;
+        return Ok(());
+    }
     let action = item.action.filter(|_| item.enabled);
     let state = canvas.interaction(view, action);
     let motion = canvas.feedback(state, item.enabled, item.selected, Kind::Surface);

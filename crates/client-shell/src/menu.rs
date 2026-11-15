@@ -23,6 +23,7 @@ mod home_promo_tests;
 pub mod inbox;
 mod input;
 mod invite;
+mod java_accounts;
 mod join_requests;
 mod realm_leave;
 mod realm_membership;
@@ -245,6 +246,7 @@ pub struct MenuRuntime {
     invite: invite::InviteUi,
     realm_membership: realm_membership::RealmUi,
     realm_leave: realm_leave::RealmLeaveUi,
+    java_accounts: java_accounts::JavaAccountsUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
 }
@@ -592,6 +594,10 @@ impl MenuRuntime {
             MenuAction::OpenAccounts => self.open_accounts(),
             MenuAction::AddAccount => self.add_account(),
             MenuAction::SwitchAccount(index) => self.switch_account(index),
+            MenuAction::AddJavaAccount
+            | MenuAction::SwitchJavaAccount(_)
+            | MenuAction::RemoveJavaAccount
+            | MenuAction::CancelJavaAccount => self.activate_java_account(action),
             MenuAction::SelectServerTab(tab) => {
                 self.server_tab = tab;
                 self.focused = 0;

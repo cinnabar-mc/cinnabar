@@ -133,6 +133,49 @@ pub(super) fn join_request() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the Accounts dialog with placeholder Bedrock and Java accounts, or adding a Java
+/// account with a placeholder code.
+pub(super) fn accounts(adding_java: bool) -> Fixture {
+    use launcher::java_accounts::{JavaAccount, JavaAccountAdd, JavaAccounts};
+
+    let mut view = MenuView::new(true, "CinnabarDemo".into());
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    view.dialog = Some(MenuDialog::Accounts);
+    view.feeds.accounts = [
+        ("2535400000000001", "CinnabarDemo"),
+        ("2535400000000002", "PixelPioneer"),
+    ]
+    .map(|(id, gamertag)| launcher::accounts::AccountProfile {
+        id: id.into(),
+        gamertag: gamertag.into(),
+        picture_path: None,
+    })
+    .into();
+    view.feeds.account_active_id = Some("2535400000000001".into());
+    view.feeds.java_accounts = JavaAccounts {
+        accounts: [
+            ("00000000000000000000000000000001", "BlockBuilder"),
+            ("00000000000000000000000000000002", "SkylineSurfer"),
+        ]
+        .map(|(id, name)| JavaAccount {
+            id: id.into(),
+            name: name.into(),
+        })
+        .into(),
+        selected: Some("00000000000000000000000000000001".into()),
+        add: if adding_java {
+            JavaAccountAdd::AwaitingCode {
+                uri: "https://example.invalid/link".into(),
+                code: "DEMO-CODE".into(),
+            }
+        } else {
+            JavaAccountAdd::Idle
+        },
+        error: None,
+    };
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows the saved-server removal confirmation.
 pub(super) fn remove_server() -> Fixture {
     let Fixture::Menu(mut view) = dialog(MenuDialog::RemoveSaved(0)) else {

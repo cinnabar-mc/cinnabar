@@ -42,6 +42,7 @@ impl MenuRuntime {
             return;
         }
         self.reload_accounts();
+        self.refresh_java_accounts();
         self.dialog = Some(MenuDialog::Accounts);
         self.focused = 0;
         self.feeds.account_error = None;
@@ -54,6 +55,7 @@ impl MenuRuntime {
     pub fn set_presentation_accounts(&mut self, enabled: bool) -> bool {
         if enabled
             && (self.account_change_pending()
+                || self.feeds.java_accounts.add.in_progress()
                 || self.auth_restart_requested
                 || self.auth_process.as_ref().is_some_and(|process| {
                     matches!(
@@ -70,6 +72,8 @@ impl MenuRuntime {
         self.presentation_accounts = enabled;
         self.feeds.account_error = None;
         self.reload_accounts();
+        self.feeds.java_accounts = Default::default();
+        self.refresh_java_accounts();
         true
     }
 
@@ -129,6 +133,10 @@ impl MenuRuntime {
             | MenuAction::CancelSignIn
             | MenuAction::CloseSignIn
             | MenuAction::AddAccount
+            | MenuAction::AddJavaAccount
+            | MenuAction::SwitchJavaAccount(_)
+            | MenuAction::RemoveJavaAccount
+            | MenuAction::CancelJavaAccount
             | MenuAction::SignOut => true,
             _ => false,
         }
@@ -226,6 +234,9 @@ impl MenuRuntime {
     pub(super) fn dismiss_accounts(&mut self) {
         if self.dialog == Some(MenuDialog::Accounts) && self.feeds.account_adding {
             self.cancel_add_account();
+        }
+        if self.dialog == Some(MenuDialog::Accounts) {
+            self.dismiss_java_accounts();
         }
         self.dialog = None;
         if self.sign_in_focus().is_some() {

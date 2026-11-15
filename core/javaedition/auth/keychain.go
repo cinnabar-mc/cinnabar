@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -17,10 +16,6 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
-
-// CacheFile is the name of the Java Edition sign-in's token file, kept beside the account's
-// own Microsoft token.
-const CacheFile = "java-edition-token.json"
 
 // sessionMargin is how long before its expiry a Java session is replaced.
 const sessionMargin = 10 * time.Minute
@@ -95,7 +90,7 @@ func (switchApp) IdentityToken(ctx context.Context, source oauth2.TokenSource) (
 
 // KeychainConfig configures a Keychain.
 type KeychainConfig struct {
-	// Path is the token file; CachePath derives it from the account's token file.
+	// Path is the token file.
 	Path string
 	// App is the Microsoft app of the sign-in; nil uses SwitchApp.
 	App MicrosoftApp
@@ -106,6 +101,13 @@ type KeychainConfig struct {
 	Logger   *slog.Logger
 	// Now reads the clock; nil uses time.Now.
 	Now func() time.Time
+	// OnSignedIn, when set, runs on its own goroutine once a device-code sign-in's token is
+	// saved.
+	OnSignedIn func()
+	// OnSignInFailed, when set, runs on its own goroutine when a device-code sign-in ends
+	// without a token for a reason other than being stopped, such as an expired or declined
+	// code.
+	OnSignInFailed func(error)
 }
 
 // Keychain is one account's Java Edition sign-in: a Microsoft sign-in through an app the Java
@@ -150,12 +152,6 @@ type sessionSignIn struct {
 	done    chan struct{}
 	session Session
 	err     error
-}
-
-// CachePath returns the Java Edition token file of the account whose Microsoft token is at
-// oauthPath.
-func CachePath(oauthPath string) string {
-	return filepath.Join(filepath.Dir(oauthPath), CacheFile)
 }
 
 // NewKeychain returns the Java Edition sign-in kept at config.Path. Close stops the sign-ins
@@ -377,6 +373,9 @@ func (k *Keychain) finishSignIn(flow context.Context, device *oauth2.DeviceAuthR
 	if err != nil {
 		if flow.Err() == nil {
 			k.config.Logger.Warn("Java Edition sign-in did not finish", "error", err)
+			if k.config.OnSignInFailed != nil {
+				go k.config.OnSignInFailed(err)
+			}
 		}
 		return
 	}
@@ -407,6 +406,9 @@ func (k *Keychain) finishSignIn(flow context.Context, device *oauth2.DeviceAuthR
 		return
 	}
 	k.config.Logger.Info("Java Edition sign-in finished")
+	if k.config.OnSignedIn != nil {
+		go k.config.OnSignedIn()
+	}
 }
 
 // Join registers a server join for the session. A refused session is dropped, so the next

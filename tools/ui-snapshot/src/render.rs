@@ -522,6 +522,11 @@ fn png_fixture(
                         .paint_minecraft_import(&view, size, &mut scrolls, &mut frame)
                         .map_err(|error| error.to_string())?;
                 }
+                if view.dialog == Some(launcher::menu::MenuDialog::Accounts) {
+                    screen
+                        .paint_accounts(&view, size, &artwork, &mut scrolls, &mut frame)
+                        .map_err(|error| error.to_string())?;
+                }
             }
         }
         Fixture::TabList(rows, header) => {

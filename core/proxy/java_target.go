@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
@@ -65,49 +64,45 @@ func (javaUpstream) ResourcePackStack() (minecraft.ResourcePackStackSnapshot, bo
 	return minecraft.ResourcePackStackSnapshot{}, true
 }
 
-// dialJavaUpstream joins a Java server. With a Java Edition sign-in the player joins as its
-// profile, which online-mode servers require; without a usable one the player joins under
-// name, and an online-mode server's request for the session starts the sign-in and fails the
-// join with the code to enter. Failures the player can act on reach the client as disconnect
-// text.
-func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keychain, name string, logger *slog.Logger) (upstreamSession, error) {
+// dialJavaUpstream joins a Java server. The selected Java account logs in as its saved
+// profile, which online-mode servers require. Without one the player joins under name, and an
+// online-mode server's request for the session starts adding an account and fails the join
+// with the code to enter, as does a selected account whose sign-in no longer works. Failures
+// the player can act on reach the client as disconnect text.
+func dialJavaUpstream(ctx context.Context, address string, accounts *auth.Accounts, name string, logger *slog.Logger) (upstreamSession, error) {
 	options := translate.Options{Username: name, Logger: logger}
 	if options.Username == "" {
 		options.Username = javaSignedOutName
 	}
 	options.JoinSession = func(context.Context, string) error { return errJavaNeedsAccount }
-	if keychain != nil {
-		// Only an online-mode server asks for the session. The join's own context bounds the
-		// sign-in then, and no usable sign-in starts a new one.
-		options.JoinSession = func(ctx context.Context, serverHash string) error {
-			session, err := keychain.Session(ctx)
-			if errors.Is(err, auth.ErrNotSignedIn) {
-				prompt, err := keychain.BeginSignIn(ctx)
-				if err != nil {
-					return err
-				}
-				return prompt
-			}
+	if accounts != nil {
+		addAccount := func(ctx context.Context) error {
+			prompt, err := accounts.BeginAdd(ctx)
 			if err != nil {
 				return err
 			}
-			if session.Profile.Name != options.Username {
-				// The sign-in finished after the login named the player, and the server checks
-				// the join against that name.
-				return errJavaSignInLate
-			}
-			return keychain.Join(ctx, session, serverHash)
+			return prompt
 		}
-		if keychain.SignedIn() {
-			// The login names the profile, so the session is read before dialing. The wait is
-			// bounded, so an offline-mode server's join never waits long on the services.
-			signInCtx, cancel := context.WithTimeout(ctx, javaSignInTimeout)
-			session, err := keychain.Session(signInCtx)
-			cancel()
-			if err == nil {
-				options.Username = session.Profile.Name
-			} else {
-				logger.Warn("Java Edition sign-in unavailable before the join", "error", err)
+		options.JoinSession = func(ctx context.Context, _ string) error { return addAccount(ctx) }
+		if account, keychain, ok := accounts.Selected(); ok {
+			options.Username = account.Name
+			options.JoinSession = func(ctx context.Context, serverHash string) error {
+				session, err := keychain.Session(ctx)
+				if errors.Is(err, auth.ErrNotSignedIn) {
+					return addAccount(ctx)
+				}
+				if err != nil {
+					return err
+				}
+				if session.Profile.Name != account.Name {
+					// The profile was renamed since it was saved, and the server checks the join
+					// against the name the login sent.
+					if err := accounts.Rename(account.ID, session.Profile.Name); err != nil {
+						logger.Warn("Java Edition account name not updated", "error", err)
+					}
+					return errJavaProfileRenamed
+				}
+				return keychain.Join(ctx, session, serverHash)
 			}
 		}
 	}
@@ -118,15 +113,12 @@ func dialJavaUpstream(ctx context.Context, address string, keychain *auth.Keycha
 	return javaUpstream{session}, nil
 }
 
-// javaSignInTimeout bounds the sign-in a Java join makes before it dials.
-const javaSignInTimeout = 10 * time.Second
-
-// errJavaSignInLate refuses a join whose Java Edition sign-in finished only after the login
-// had named the player; the next join uses the finished sign-in.
-var errJavaSignInLate = errors.New("the Java Edition sign-in finished after the login named the player")
+// errJavaProfileRenamed refuses a join whose login sent the account's old profile name; the
+// saved name is updated, so the next join sends the new one.
+var errJavaProfileRenamed = errors.New("the Java Edition profile was renamed since it was saved")
 
 // errJavaNeedsAccount refuses an online-mode join of a player who is not signed in.
-var errJavaNeedsAccount = errors.New("joining an online-mode Java server needs a signed-in Microsoft account")
+var errJavaNeedsAccount = errors.New("joining an online-mode Java server needs a Java Edition account")
 
 // javaJoinError gives a failed authentication the disconnect text that tells the player what
 // to do; any other failure keeps its error.
@@ -136,11 +128,11 @@ func javaJoinError(err error) error {
 	var message string
 	switch {
 	case errors.As(err, &prompt):
-		message = fmt.Sprintf("Java Edition needs its own Microsoft sign-in. Go to %s, enter %s, then reconnect.", prompt.VerificationURI, prompt.UserCode)
+		message = fmt.Sprintf("Add a Java account to join this server: go to %s, enter %s, then reconnect.", prompt.VerificationURI, prompt.UserCode)
 	case errors.Is(err, errJavaNeedsAccount):
-		message = "This Java server needs a Java Edition account. Sign in to Cinnabar, then reconnect."
-	case errors.Is(err, errJavaSignInLate):
-		message = "The Java Edition sign-in was still finishing. Reconnect to join."
+		message = "This Java server needs a Java account. Add one in Accounts, then reconnect."
+	case errors.Is(err, errJavaProfileRenamed):
+		message = "Your Java profile was renamed since it was added. Reconnect to join."
 	case errors.Is(err, auth.ErrSignInUnavailable):
 		message = "The Java Edition sign-in could not be started. Reconnect to try again."
 	case errors.As(err, &status) && status.Operation == auth.OperationJoin:

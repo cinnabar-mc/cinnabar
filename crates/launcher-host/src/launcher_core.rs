@@ -139,7 +139,9 @@ fn launcher_command(
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
         .arg("-device-file")
-        .arg(layout.device_profile_file());
+        .arg(layout.device_profile_file())
+        .arg("-java-accounts")
+        .arg(layout.java_accounts_dir());
     // Direct-mode account cores run alongside game cores that own this exclusive lease.
     if lease_game_cache {
         command

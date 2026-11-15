@@ -132,6 +132,14 @@ pub enum MenuAction {
     OpenAccounts,
     AddAccount,
     SwitchAccount(usize),
+    /// Starts the sign-in of a new Java account.
+    AddJavaAccount,
+    /// Selects the Java account at this position for Java joins.
+    SwitchJavaAccount(usize),
+    /// Removes the selected Java account.
+    RemoveJavaAccount,
+    /// Stops the Java account sign-in under way.
+    CancelJavaAccount,
     Inbox(inbox::Action),
     Navigate(MenuScreen),
     OpenExitDialog,
