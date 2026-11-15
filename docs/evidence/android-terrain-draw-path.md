@@ -92,16 +92,20 @@ report windows:
 | hand | 0.3 ms | 0.2 ms |
 
 Solid terrain is three fifths of the GPU frame. It scales with pixels, from 15.1 ms at full
-resolution to 5.9 ms at half width and height; fitting those two points puts about 13 ms of the
-pass on pixel-dependent work, whether shading or overdraw, and about 2 ms on geometry and
-submission. Transparent terrain does not scale at all, 3.4 against 3.3 ms, so it is bound by its
-submitted geometry rather than by fragments. The same pose measured 37.0 fps at full resolution
-and 52.7 fps at half.
+resolution to 5.9 ms at half width and height; a linear fit through those two points attributes
+about 13 ms of the pass to pixel-dependent work, whether shading or overdraw, and about 2 ms to
+geometry and submission. That fit assumes the pass keeps scaling to zero pixels and ignores the
+profiler's extra loads and stores, so it is an estimate, not a bound. Transparent terrain barely
+moves, 3.4 against 3.3 ms, which leaves submitted geometry as the candidate for its cost; fixed
+profiler overhead could contribute too, and no measurement separates them yet. The same pose
+measured 37.0 fps at full resolution and 52.7 fps at half.
 
-Those numbers bound what a shading change can recover: removing every pixel-dependent millisecond
-of the solid pass would leave about 12 ms of frame, still above vanilla's whole 8.8 ms, because
-the transparent, sky, blit and remaining passes would stay. Vanilla is not winning by rendering
-fewer pixels either: its `options.txt` carries `target_resolution:1`.
+Applying that estimate, removing every pixel-dependent millisecond of the solid pass would leave
+around 12 ms of frame, still above vanilla's whole 8.8 ms, because the transparent, sky, blit and
+remaining passes would stay. That arithmetic is provisional for the same reasons. Vanilla's
+`options.txt` carries `target_resolution:1`; this document does not establish what that key
+controls or vanilla's render-target size, so it does not show whether both clients render the
+same number of pixels.
 
 ## Remaining gap
 
