@@ -144,7 +144,7 @@ func TestOwnTexturesAreReadUnsignedFromTheSessionService(t *testing.T) {
 	if err != nil || images.SkinHash != "own" {
 		t.Fatalf("images = %+v, %v", images, err)
 	}
-	want := "https://sessionserver.mojang.com/session/minecraft/profile/" + id + "?unsigned=true"
+	want := skins.DefaultProfileURL + id + "?unsigned=true"
 	if !slices.Contains(services.Requests(), want) {
 		t.Fatalf("requests = %v, want %s", services.Requests(), want)
 	}
@@ -159,5 +159,26 @@ func TestAWaitEndsWithItsContext(t *testing.T) {
 	_, err := services.Fetcher().Profile(ctx, []java.ProfileProperty{services.Signed(skinstest.Payload("http://textures.minecraft.net/texture/x", ""))})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the context's", err)
+	}
+}
+
+func TestTextureRedirectsStayOnTextureHosts(t *testing.T) {
+	services := skinstest.Start(t)
+	services.Texture("moved", 64, 32, red)
+	services.Redirect(skinstest.TextureHost+"/texture/kept", "https://"+skinstest.TextureHost+"/texture/moved")
+	services.Redirect(skinstest.TextureHost+"/texture/away", "https://internal.example/texture/moved")
+	fetcher := services.Fetcher()
+	kept, err := fetcher.Profile(testContext(t), []java.ProfileProperty{services.Signed(skinstest.Payload("http://textures.minecraft.net/texture/kept", ""))})
+	if err != nil || kept.Skin == nil {
+		t.Fatalf("a redirect within the texture host failed: %v", err)
+	}
+	away, err := fetcher.Profile(testContext(t), []java.ProfileProperty{services.Signed(skinstest.Payload("http://textures.minecraft.net/texture/away", ""))})
+	if err == nil || away.Skin != nil {
+		t.Fatal("a redirect to another host was followed")
+	}
+	for _, request := range services.Requests() {
+		if strings.Contains(request, "internal.example") {
+			t.Fatalf("requested %s", request)
+		}
 	}
 }

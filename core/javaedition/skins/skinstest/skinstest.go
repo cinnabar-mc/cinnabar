@@ -16,6 +16,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -37,10 +38,11 @@ type Services struct {
 	server *httptest.Server
 	key    *rsa.PrivateKey
 
-	mu       sync.Mutex
-	files    map[string][]byte
-	requests []string
-	block    chan struct{}
+	mu        sync.Mutex
+	files     map[string][]byte
+	redirects map[string]string
+	requests  []string
+	block     chan struct{}
 }
 
 // Start serves fake services until the test ends.
@@ -50,7 +52,7 @@ func Start(t testing.TB) *Services {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Services{t: t, key: key, files: map[string][]byte{}}
+	s := &Services{t: t, key: key, files: map[string][]byte{}, redirects: map[string]string{}}
 	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	if err != nil {
 		t.Fatal(err)
@@ -65,9 +67,8 @@ func Start(t testing.TB) *Services {
 // Fetcher returns a fetcher whose every request reaches the fake services.
 func (s *Services) Fetcher() *skins.Fetcher {
 	return skins.New(skins.Config{
-		HTTP:       &http.Client{Transport: redirect{s}},
-		KeysURL:    "https://" + KeysHost + "/publickeys",
-		ProfileURL: "https://sessionserver.mojang.com/session/minecraft/profile/",
+		HTTP:    &http.Client{Transport: redirect{s}},
+		KeysURL: "https://" + KeysHost + "/publickeys",
 	})
 }
 
@@ -87,6 +88,7 @@ func (r redirect) RoundTrip(request *http.Request) (*http.Response, error) {
 		}
 	}
 	routed := request.Clone(request.Context())
+	routed.Host = request.URL.Host
 	routed.URL.Scheme = "http"
 	routed.URL.Host = strings.TrimPrefix(r.s.server.URL, "http://")
 	return http.DefaultTransport.RoundTrip(routed)
@@ -95,7 +97,12 @@ func (r redirect) RoundTrip(request *http.Request) (*http.Response, error) {
 func (s *Services) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	data, ok := s.files[r.Host+r.URL.Path]
+	target, redirected := s.redirects[r.Host+r.URL.Path]
 	s.mu.Unlock()
+	if redirected {
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -132,6 +139,13 @@ func (s *Services) Serve(address string, data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.files[address] = data
+}
+
+// Redirect makes address, "host/path", redirect to target.
+func (s *Services) Redirect(address, target string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.redirects[address] = target
 }
 
 // Texture serves a w by h PNG filled with fill at http://textures.minecraft.net/texture/hash
@@ -172,9 +186,13 @@ func (s *Services) Signed(value string) java.ProfileProperty {
 	return java.ProfileProperty{Name: "textures", Value: value, Signature: base64.StdEncoding.EncodeToString(signature)}
 }
 
-// Profile serves the session service's unsigned profile of id, undashed, with value as its
-// textures property.
+// Profile serves the session service's unsigned profile of id, undashed, at
+// skins.DefaultProfileURL, with value as its textures property.
 func (s *Services) Profile(id, value string) {
 	data, _ := json.Marshal(map[string]any{"id": id, "name": "Steve", "properties": []map[string]string{{"name": "textures", "value": value}}})
-	s.Serve("sessionserver.mojang.com/session/minecraft/profile/"+id, data)
+	endpoint, err := url.Parse(skins.DefaultProfileURL + id)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	s.Serve(endpoint.Host+endpoint.Path, data)
 }

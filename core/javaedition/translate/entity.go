@@ -137,7 +137,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		}
 		// The 1.7.10 client reads each spawned player's textures from the profile the server
 		// sent with it.
-		s.loadSkin(id, pk.Name, pk.Properties)
+		s.loadSkin(id, pk.Name, uniqueID(pk.EntityID), pk.Properties)
 		s.replace(pk.EntityID)
 		spawned := &entity{x: pk.X, y: pk.Y, z: pk.Z, yaw: pk.Yaw, pitch: pk.Pitch, head: pk.Yaw, player: true}
 		st.entities[pk.EntityID] = spawned

@@ -65,6 +65,8 @@ type Session struct {
 	profileID      string
 	lifetime       context.Context
 	cancelLifetime context.CancelFunc
+	// skinWork counts skin downloads that have not finished.
+	skinWork sync.WaitGroup
 
 	// batches carries translated packets to ReadBatchRaw. pending is the batch being built by
 	// whichever direction is translating; pendingMu guards it. flushMu is held from taking a

@@ -277,8 +277,11 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 	serve(&java.SpawnPlayer{EntityID: 9, UUID: "00000000-0000-4000-8000-000000000009", Name: "Alex", X: 8 * 32, Y: 1 * 32, Z: 4 * 32, Yaw: 64, CurrentItem: 0,
 		Properties: []java.ProfileProperty{services.Signed(textures)},
 		Metadata:   java.Metadata{{Index: 0, Type: java.MetadataByte, Value: int8(flagSneaking)}}})
-	// The signed skin and cape follow in their own batch once downloaded.
-	stream = append(stream, ts.nextSkin())
+	// The signed skin and cape follow once downloaded, in the spawn's batch if the download
+	// finished before it was flushed.
+	if last := stream[len(stream)-1]; last.ID() != packet.IDPlayerSkin {
+		stream = append(stream, ts.skinAfter(nil))
+	}
 	moved := serve(&java.EntityRelativeMove{EntityID: 9, DX: 16, DY: 0, DZ: -32})
 	if actor := moved[0].(*packet.MoveActorAbsolute); actor.Position != (mgl32.Vec3{8.5, float32(1 + networkOffset), 3}) {
 		t.Fatalf("remote player moved to %v", actor.Position)

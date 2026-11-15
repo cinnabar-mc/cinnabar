@@ -121,9 +121,13 @@ func New(config Config) *Fetcher {
 		client = config.HTTP
 	}
 	checked := *client
+	// A redirect stays on HTTPS and on a texture host or the host first asked.
 	checked.CheckRedirect = func(next *http.Request, via []*http.Request) error {
 		if len(via) > maxRedirects {
 			return errors.New("java edition textures: too many redirects")
+		}
+		if next.URL.Scheme != "https" || (!textureDomain(next.URL.String()) && next.URL.Host != via[0].URL.Host) {
+			return fmt.Errorf("java edition textures: redirect to %s refused", next.URL.Host)
 		}
 		return nil
 	}
@@ -274,9 +278,7 @@ func (f *Fetcher) failedKeys(keys *call[[]*rsa.PublicKey]) bool {
 
 // downloadKeys reads the profile property keys from the keys service.
 func (f *Fetcher) downloadKeys() ([]*rsa.PublicKey, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-	defer cancel()
-	data, err := f.get(ctx, f.config.KeysURL)
+	data, err := f.get(context.Background(), f.config.KeysURL)
 	if err != nil {
 		return nil, err
 	}
@@ -349,13 +351,11 @@ func (f *Fetcher) forget(key textureKey, failed *call[*image.NRGBA]) {
 // downloadTexture reads and prepares one texture. Texture hosts serve HTTPS, so a plain
 // address is read over HTTPS.
 func (f *Fetcher) downloadTexture(key textureKey) (*image.NRGBA, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-	defer cancel()
 	address := key.address
 	if rest, ok := strings.CutPrefix(address, "http://"); ok {
 		address = "https://" + rest
 	}
-	data, err := f.get(ctx, address)
+	data, err := f.get(context.Background(), address)
 	if err != nil {
 		return nil, err
 	}
@@ -377,15 +377,17 @@ func (f *Fetcher) downloadTexture(key textureKey) (*image.NRGBA, error) {
 }
 
 // get reads a response body of at most maxResponseBytes, holding one of the download slots.
+// fetchTimeout bounds the request from when it holds a slot, so waiting for one does not use
+// up its time; slot holders are bounded, so the wait ends.
 func (f *Fetcher) get(ctx context.Context, address string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
 	select {
 	case f.slots <- struct{}{}:
 		defer func() { <-f.slots }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, err
