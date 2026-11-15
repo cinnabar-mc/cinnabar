@@ -148,8 +148,8 @@ type Keychain struct {
 	forgets uint64
 	// unusable marks a saved token that no longer works, until a new sign-in replaces it.
 	unusable bool
-	// saving is set while a finished device sign-in's token is saved and taken.
-	saving bool
+	// saving counts finished device sign-ins whose token is being saved and taken.
+	saving int
 	// lastRefresh is the last failed token refresh of the session sign-in under way, which
 	// tells a Microsoft that did not answer from a refused sign-in.
 	lastRefresh atomic.Pointer[error]
@@ -209,7 +209,7 @@ func (k *Keychain) SignedIn() bool {
 	if k.source != nil {
 		return true
 	}
-	if k.unusable || k.saving {
+	if k.unusable || k.saving > 0 {
 		return false
 	}
 	_, err := os.Stat(k.config.Path)
@@ -405,13 +405,15 @@ func (k *Keychain) finishSignIn(flow context.Context, device *oauth2.DeviceAuthR
 	forgets := k.forgets
 	// The token lands on disk before the keychain takes it; until then the sign-in is not
 	// finished, so a join does not sign in from the file only to have its session dropped.
-	k.saving = err == nil
+	if err == nil {
+		k.saving++
+		defer func() {
+			k.mu.Lock()
+			k.saving--
+			k.mu.Unlock()
+		}()
+	}
 	k.mu.Unlock()
-	defer func() {
-		k.mu.Lock()
-		k.saving = false
-		k.mu.Unlock()
-	}()
 	if err != nil {
 		if flow.Err() == nil {
 			k.config.Logger.Warn("Java Edition sign-in did not finish", "error", err)

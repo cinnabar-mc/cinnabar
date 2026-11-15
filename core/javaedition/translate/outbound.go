@@ -152,6 +152,9 @@ func (s *Session) handleBedrock(pk packet.Packet) error {
 			// PlayerControllerMP.onStoppedUsingItem reports letting go of a use early; a use
 			// that runs its course, such as a finished meal, ends without a packet.
 			if data.ActionType == protocol.ReleaseItemActionRelease {
+				if err := s.syncHeldSlot(); err != nil {
+					return err
+				}
 				return s.send(&java.ClientPlayerDigging{Status: digRelease, Face: 255})
 			}
 		}
@@ -200,7 +203,9 @@ func (s *Session) syncHeldSlot() error {
 // two packets, the 1.7.10 death screen's button in one.
 func (s *Session) requestRespawn() error {
 	st := &s.state
-	if st.respawnRequested {
+	// Only the death screen asks; the Bedrock client also answers a respawn that already
+	// happened, while the player lives.
+	if st.respawnRequested || st.health > 0 {
 		return nil
 	}
 	st.respawnRequested = true
@@ -230,25 +235,31 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 	if !st.spawned {
 		return nil
 	}
-	if st.teleportProbe != 0 {
-		// The client has not yet applied the latest teleport; this tick predates it.
-		return nil
+	// Sprint and flight changes arrive once, as start and stop flags; they apply even on a
+	// tick whose movement is held back, and reach the server with the next movement sent. The
+	// sprinting flag itself is the sprint key, not the sprint.
+	if pk.InputData.Load(packet.InputFlagStartSprinting) {
+		st.sprinting = true
 	}
-	if st.teleport != nil {
+	if pk.InputData.Load(packet.InputFlagStopSprinting) {
+		st.sprinting = false
+	}
+	if starts, stops := pk.InputData.Load(packet.InputFlagStartFlying), pk.InputData.Load(packet.InputFlagStopFlying); starts != stops {
+		st.abilities.flying = starts
+	}
+	// Movement the client simulated before applying the latest teleport is held back.
+	stale := st.teleportProbe != 0
+	if !stale && st.teleport != nil {
 		if pk.Position.Sub(*st.teleport).Len() > teleportReach {
-			// The client has not applied the teleport yet; its position is stale.
-			return nil
+			stale = true
+		} else {
+			st.teleport = nil
 		}
-		st.teleport = nil
 	}
-	x, feet, z, exact := exactPosition(pk)
-	st.position = [3]float64{x, feet, z}
-	yaw := st.look.unwrap(pk.Yaw)
-	st.yaw, st.pitch = yaw, pk.Pitch
-	s.publish(x, z)
-	// Minecraft.runTick first syncs the held slot, then handles the tick's clicks, mining and
-	// item use, and only then updates the player, which sends its flight, sprint, sneak and
-	// movement packets.
+	// Minecraft.runTick syncs the held slot, then handles the tick's clicks and item use, then
+	// continues mining with its swing, and only then updates the player, which sends its
+	// flight, sprint, sneak and movement packets. The clicks are the player's even in a tick
+	// whose movement is held back.
 	if err := s.syncHeldSlot(); err != nil {
 		return err
 	}
@@ -260,24 +271,28 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 			}
 		}
 	}
+	if data, ok := pk.ItemInteractionData.Value(); ok {
+		if err := s.useItem(&data); err != nil {
+			return err
+		}
+	}
 	if wasBreaking || st.breaking != nil {
 		// Minecraft.func_147115_a swings every tick the player mines, after damaging the block.
 		if err := s.send(&java.ClientAnimation{EntityID: st.entityID, Animation: 1}); err != nil {
 			return err
 		}
 	}
-	if data, ok := pk.ItemInteractionData.Value(); ok {
-		if err := s.useItem(&data); err != nil {
-			return err
-		}
-	}
-	if !st.world.loaded(int32(math.Floor(x)), int32(math.Floor(z))) {
-		// EntityClientPlayerMP skips its whole update while its column is not loaded.
+	if stale {
 		return nil
 	}
+	x, feet, z, exact := exactPosition(pk)
+	st.position = [3]float64{x, feet, z}
+	yaw := st.look.unwrap(pk.Yaw)
+	st.yaw, st.pitch = yaw, pk.Pitch
+	s.publish(x, z)
 	// The 1.7.10 client reports a flight toggle before the tick's movement.
-	if starts, stops := pk.InputData.Load(packet.InputFlagStartFlying), pk.InputData.Load(packet.InputFlagStopFlying); starts != stops {
-		st.abilities.flying = starts
+	if st.abilities.flying != st.reportedFlying {
+		st.reportedFlying = st.abilities.flying
 		abilities := st.abilities
 		if err := s.send(&java.ClientPlayerAbilities{
 			Invulnerable: abilities.invulnerable, Flying: abilities.flying, AllowFlying: abilities.allowFlying,
@@ -289,17 +304,8 @@ func (s *Session) authInput(pk *packet.PlayerAuthInput) error {
 	// Bedrock input has no ground flag. On a Java session the client's physics reports
 	// standing on the ground as the vertical collision flag.
 	onGround := pk.InputData.Load(packet.InputFlagVerticalCollision)
-	// The sprinting flag is the sprint key; the player's sprint state changes only with the
-	// start and stop flags, which on a Java session follow the 1.7.10 sprint rules.
-	sprinting := st.report.sprinting
-	if pk.InputData.Load(packet.InputFlagStartSprinting) {
-		sprinting = true
-	}
-	if pk.InputData.Load(packet.InputFlagStopSprinting) {
-		sprinting = false
-	}
 	packets := st.report.next(st.entityID, x, feet, z, javaSink(pk, exact), yaw, pk.Pitch, onGround,
-		sprinting, pk.InputData.Load(packet.InputFlagSneaking))
+		st.sprinting, pk.InputData.Load(packet.InputFlagSneaking))
 	return s.send(packets...)
 }
 

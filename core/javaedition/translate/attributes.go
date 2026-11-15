@@ -13,6 +13,9 @@ import (
 // movementSpeedKey is the 1.7.10 player attribute that Speed, Slowness and sprinting modify.
 const movementSpeedKey = "generic.movementSpeed"
 
+// defaultMovementSpeed is a 1.7.10 player's movement speed before any snapshot.
+const defaultMovementSpeed = 0.1
+
 // speedBaseModifierID names the modifier that carries a snapshot's base value.
 const speedBaseModifierID = "base"
 
@@ -29,18 +32,29 @@ func (s *Session) entityProperties(pk *java.EntityProperties) {
 		return
 	}
 	for _, property := range pk.Properties {
-		if property.Key != movementSpeedKey {
-			continue
+		if property.Key == movementSpeedKey {
+			s.queueMovementSpeed(property)
 		}
-		st.speedSequence = st.speedSequence%(maxSpeedSequence-1) + 1
-		modifiers := []protocol.AttributeModifier{exactModifier(speedBaseModifierID, property.Value, 0)}
-		for _, modifier := range property.Modifiers {
-			modifiers = append(modifiers, exactModifier(modifier.UUID.String(), modifier.Amount, int32(modifier.Operation)))
-		}
-		snapshot := attribute(bridgecontract.JavaMovementAttribute, float32(st.speedSequence), 0, math.MaxFloat32)
-		snapshot.Modifiers = modifiers
-		s.queue(&packet.UpdateAttributes{EntityRuntimeID: runtimeID(st.entityID), Attributes: []protocol.Attribute{snapshot}})
 	}
+}
+
+// resetMovementSpeed gives a new player the default movement speed, as the 1.7.10 client's
+// new player has it until the server sends a snapshot.
+func (s *Session) resetMovementSpeed() {
+	s.queueMovementSpeed(java.EntityProperty{Key: movementSpeedKey, Value: float64(float32(defaultMovementSpeed))})
+}
+
+// queueMovementSpeed sends one movement speed snapshot under a new sequence.
+func (s *Session) queueMovementSpeed(property java.EntityProperty) {
+	st := &s.state
+	st.speedSequence = st.speedSequence%(maxSpeedSequence-1) + 1
+	modifiers := []protocol.AttributeModifier{exactModifier(speedBaseModifierID, property.Value, 0)}
+	for _, modifier := range property.Modifiers {
+		modifiers = append(modifiers, exactModifier(modifier.UUID.String(), modifier.Amount, int32(modifier.Operation)))
+	}
+	snapshot := attribute(bridgecontract.JavaMovementAttribute, float32(st.speedSequence), 0, math.MaxFloat32)
+	snapshot.Modifiers = modifiers
+	s.queue(&packet.UpdateAttributes{EntityRuntimeID: runtimeID(st.entityID), Attributes: []protocol.Attribute{snapshot}})
 }
 
 // exactModifier is a modifier whose name holds amount's bits in hexadecimal, as the client's
@@ -111,7 +125,9 @@ func (s *Session) explosion(pk *java.Explosion) {
 	for _, position := range pk.AffectedBlocks() {
 		s.blockChange(position.X, position.Y, position.Z, block{})
 	}
-	st.pushSequence = st.pushSequence%(maxSpeedSequence-1) + 1
+	// The pushes' numbers travel in their modifiers' ids, so they need not fit the attribute's
+	// single-precision value.
+	st.pushSequence++
 	st.pushes = append(st.pushes, push{sequence: st.pushSequence, motion: [3]float32{pk.PlayerMotionX, pk.PlayerMotionY, pk.PlayerMotionZ}})
 	if len(st.pushes) > maxPushes {
 		st.pushes = st.pushes[len(st.pushes)-maxPushes:]

@@ -547,8 +547,15 @@ func TestRespawnKeepsTheWorldUnlessTheDimensionChanges(t *testing.T) {
 	ts.serve(&java.SpawnMob{EntityID: 9, Type: 90})
 
 	respawned := ts.serve(&java.Respawn{Dimension: 0, LevelType: "default"})
-	if _, ok := respawned[0].(*packet.SetPlayerGameType); !ok || len(respawned) != 1 {
-		t.Fatalf("a respawn in place translated to %d packets, first %T", len(respawned), respawned[0])
+	// The new player's movement speed goes back to the default, then its game mode.
+	if len(respawned) != 2 {
+		t.Fatalf("a respawn in place translated to %d packets", len(respawned))
+	}
+	if speed, ok := respawned[0].(*packet.UpdateAttributes); !ok || speed.Attributes[0].Name != bridgecontract.JavaMovementAttribute || len(speed.Attributes[0].Modifiers) != 1 {
+		t.Fatalf("a respawn in place first translated to %+v", respawned[0])
+	}
+	if _, ok := respawned[1].(*packet.SetPlayerGameType); !ok {
+		t.Fatalf("a respawn in place then translated to %T", respawned[1])
 	}
 	placed := ts.serve(&java.PlayerPositionAndLook{X: 2.5, Y: 1 + eyeHeight, Z: 0.5, OnGround: true})
 	var ready *packet.Respawn
@@ -858,31 +865,23 @@ func (ts *testSession) loadColumn(x, z int32) {
 	ts.serve(&java.ChunkData{ChunkX: x, ChunkZ: z, GroundUpContinuous: true, PrimaryBitmask: primary, AddBitmask: add, Compressed: compress(ts.t, data)})
 }
 
-// No movement is sent while the player's column is not loaded, as EntityClientPlayerMP skips
-// its update there; clicks still go out.
-func TestNoMovementOutsideLoadedColumns(t *testing.T) {
+// Movement is sent even while the player's column is not loaded: the 1.7.10 client's
+// ChunkProviderClient reports every chunk as existing, so EntityClientPlayerMP never skips
+// its update.
+func TestMovementOutsideLoadedColumns(t *testing.T) {
 	ts := startTestSession(t)
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
 	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
 	expect[*java.ClientPlayerPositionLook](ts)
-	idle := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, float32(64 + networkOffset), 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
-	ts.write(idle)
-	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "marker"})
-	if next, err := ts.server.Read(); err != nil {
+	ts.write(&packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, float32(64 + networkOffset), 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)})
+	next, err := ts.server.Read()
+	if err != nil {
 		t.Fatal(err)
-	} else if chat, ok := next.(*java.ClientChatMessage); !ok || chat.Message != "marker" {
-		t.Fatalf("movement outside a loaded column sent %+v", next)
 	}
-	ts.loadColumn(0, 0)
-	ts.write(idle)
-	if next, err := ts.server.Read(); err != nil {
-		t.Fatal(err)
-	} else {
-		switch next.(type) {
-		case *java.ClientPlayer, *java.ClientPlayerPosition, *java.ClientPlayerLook, *java.ClientPlayerPositionLook:
-		default:
-			t.Fatalf("the tick in a loaded column sent %+v", next)
-		}
+	switch next.(type) {
+	case *java.ClientPlayer, *java.ClientPlayerPosition, *java.ClientPlayerLook, *java.ClientPlayerPositionLook:
+	default:
+		t.Fatalf("a tick outside loaded columns sent %+v", next)
 	}
 }
 
@@ -906,6 +905,7 @@ func TestYawTurnsWithoutWrapping(t *testing.T) {
 func TestRespawnIsRequestedOnce(t *testing.T) {
 	ts := startTestSession(t)
 	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.UpdateHealth{Health: 0, Food: 20})
 	ts.write(&packet.PlayerAction{ActionType: protocol.PlayerActionRespawn})
 	ts.write(&packet.Respawn{State: packet.RespawnStateClientReadyToSpawn})
 	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "marker"})
@@ -1064,4 +1064,126 @@ func TestOnlyAnEarlyReleaseIsReported(t *testing.T) {
 	} else if chat, ok := next.(*java.ClientChatMessage); !ok || chat.Message != "marker" {
 		t.Fatalf("a finished use was reported: %+v", next)
 	}
+}
+
+// A sprint that starts in a tick held back after a teleport still reaches the server with the
+// next movement that is sent, as the client reports the start only once.
+func TestASprintStartedInAHeldBackTickReachesTheServer(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+	expect[*java.ClientPlayerPositionLook](ts)
+	eye := float32(64 + networkOffset)
+	input := func(flags ...int) *packet.PlayerAuthInput {
+		pk := &packet.PlayerAuthInput{Position: mgl32.Vec3{0.5, eye, 0.5}, InputData: protocol.NewInputFlags(packet.InputFlagCount)}
+		for _, flag := range flags {
+			pk.InputData.Set(flag)
+		}
+		return pk
+	}
+	ts.write(input())
+	var probe *packet.NetworkStackLatency
+	for _, pk := range ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true}) {
+		if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+			probe = latency
+		}
+	}
+	ts.write(input(packet.InputFlagStartSprinting))
+	ts.write(&packet.NetworkStackLatency{Timestamp: probe.Timestamp * probeTimestampScale})
+	ts.write(input())
+	if action := expect[*java.ClientEntityAction](ts); action.Action != actionStartSprinting {
+		t.Fatalf("action = %+v", action)
+	}
+}
+
+// Only a rejected transaction for the player's inventory is confirmed: the 1.7.10 client
+// answers no window it has not opened, and the translator opens none.
+func TestTransactionsForOtherWindowsAreNotConfirmed(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.send(&java.ConfirmTransaction{WindowID: 3, Action: -1, Accepted: false})
+	if next := ts.serve(&java.ChatMessage{Message: `"marker"`}); len(next) != 1 || next[0].ID() != packet.IDText {
+		t.Fatalf("a transaction for window 3 was probed: %+v", next)
+	}
+}
+
+// A respawn request from a living player, as the Bedrock client sends after a respawn that
+// already happened, is not passed on; a dead player's is.
+func TestOnlyADeadPlayerRequestsARespawn(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.UpdateHealth{Health: 20, Food: 20})
+	ts.write(&packet.Respawn{State: packet.RespawnStateClientReadyToSpawn})
+	ts.serve(&java.UpdateHealth{Health: 0, Food: 20})
+	ts.write(&packet.PlayerAction{ActionType: protocol.PlayerActionRespawn})
+	ts.write(&packet.Text{TextType: packet.TextTypeChat, Message: "marker"})
+	if status := expect[*java.ClientStatus](ts); status.Action != clientStatusRespawn {
+		t.Fatalf("status = %+v", status)
+	}
+	if next, err := ts.server.Read(); err != nil {
+		t.Fatal(err)
+	} else if chat, ok := next.(*java.ClientChatMessage); !ok || chat.Message != "marker" {
+		t.Fatalf("after the dead player's request = %+v", next)
+	}
+}
+
+// javaAttributesFixture is the shared fixture the client's movement facts decode: the
+// attributes the translator sends for a speed snapshot and two explosions, with the values
+// they carry as exact bits.
+const javaAttributesFixture = "../../../crates/gameplay/fixtures/java_attributes.json"
+
+// The speed snapshot and explosion push encodings, as the translator writes them, in a fixture
+// the Rust decoders read back.
+func TestJavaAttributeEncodingsMatchTheSharedFixture(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.loadColumn(0, 0)
+	speedII := uuid.MustParse("91aeaa56-376b-4498-935b-2f7f68070635")
+	base, speed := 0.10000000149011612, 0.123456789012345
+	encoded := func(packets []packet.Packet, name string) protocol.Attribute {
+		t.Helper()
+		for _, pk := range packets {
+			if update, ok := pk.(*packet.UpdateAttributes); ok && update.Attributes[0].Name == name {
+				return update.Attributes[0]
+			}
+		}
+		t.Fatalf("no %s in %+v", name, packets)
+		return protocol.Attribute{}
+	}
+	snapshot := encoded(ts.serve(&java.EntityProperties{EntityID: 7, Properties: []java.EntityProperty{{
+		Key: movementSpeedKey, Value: base, Modifiers: []java.AttributeModifier{{UUID: speedII, Amount: speed, Operation: 2}},
+	}}}), bridgecontract.JavaMovementAttribute)
+	ts.serve(&java.Explosion{X: 100, Y: 100, Z: 100, PlayerMotionX: 0.25, PlayerMotionY: 0.5, PlayerMotionZ: -0.125})
+	pushes := encoded(ts.serve(&java.Explosion{X: 100, Y: 100, Z: 100, PlayerMotionX: -1.5, PlayerMotionY: 0.0625, PlayerMotionZ: 3}), bridgecontract.JavaPushAttribute)
+	type modifier struct {
+		ID        string  `json:"id"`
+		Name      string  `json:"name"`
+		Amount    float32 `json:"amount"`
+		Operation int32   `json:"operation"`
+	}
+	attributeJSON := func(attribute protocol.Attribute) map[string]any {
+		modifiers := []modifier{}
+		for _, m := range attribute.Modifiers {
+			modifiers = append(modifiers, modifier{ID: m.ID, Name: m.Name, Amount: m.Amount, Operation: m.Operation})
+		}
+		return map[string]any{"name": attribute.Name, "current": attribute.Value, "modifiers": modifiers}
+	}
+	bits := func(value float64) string { return strconv.FormatUint(math.Float64bits(value), 16) }
+	fixture, err := json.MarshalIndent(map[string]any{
+		"speed":  attributeJSON(snapshot),
+		"pushes": attributeJSON(pushes),
+		"expected": map[string]any{
+			"speed_base":          bits(base),
+			"speed_modifier_id":   strings.ReplaceAll(speedII.String(), "-", ""),
+			"speed_modifier_bits": bits(speed),
+			"pushes": [][3]string{
+				{bits(0.25), bits(0.5), bits(-0.125)},
+				{bits(-1.5), bits(0.0625), bits(3)},
+			},
+		},
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkFixture(t, javaAttributesFixture, append(fixture, '\n'))
 }

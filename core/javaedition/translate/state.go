@@ -28,6 +28,10 @@ type state struct {
 	// nextProbe the last timestamp given.
 	probes    map[int64]probe
 	nextProbe int64
+	// sprinting is the sprint state the client last reported, and reportedFlying the flight
+	// state last reported to the server.
+	sprinting      bool
+	reportedFlying bool
 	// teleportProbe is the probe that follows the latest server teleport while the client has
 	// not answered it; the client's movement until then predates the teleport.
 	teleportProbe int64

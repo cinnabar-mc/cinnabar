@@ -1,0 +1,79 @@
+{
+  "expected": {
+    "pushes": [
+      [
+        "3fd0000000000000",
+        "3fe0000000000000",
+        "bfc0000000000000"
+      ],
+      [
+        "bff8000000000000",
+        "3fb0000000000000",
+        "4008000000000000"
+      ]
+    ],
+    "speed_base": "3fb99999a0000000",
+    "speed_modifier_bits": "3fbf9add3746f62e",
+    "speed_modifier_id": "91aeaa56376b4498935b2f7f68070635"
+  },
+  "pushes": {
+    "current": 2,
+    "modifiers": [
+      {
+        "id": "1:x",
+        "name": "x",
+        "amount": 0.25,
+        "operation": 0
+      },
+      {
+        "id": "1:y",
+        "name": "y",
+        "amount": 0.5,
+        "operation": 0
+      },
+      {
+        "id": "1:z",
+        "name": "z",
+        "amount": -0.125,
+        "operation": 0
+      },
+      {
+        "id": "2:x",
+        "name": "x",
+        "amount": -1.5,
+        "operation": 0
+      },
+      {
+        "id": "2:y",
+        "name": "y",
+        "amount": 0.0625,
+        "operation": 0
+      },
+      {
+        "id": "2:z",
+        "name": "z",
+        "amount": 3,
+        "operation": 0
+      }
+    ],
+    "name": "cinnabar:java_push"
+  },
+  "speed": {
+    "current": 1,
+    "modifiers": [
+      {
+        "id": "base",
+        "name": "3fb99999a0000000",
+        "amount": 0.1,
+        "operation": 0
+      },
+      {
+        "id": "91aeaa56-376b-4498-935b-2f7f68070635",
+        "name": "3fbf9add3746f62e",
+        "amount": 0.12345679,
+        "operation": 2
+      }
+    ],
+    "name": "cinnabar:java_movement"
+  }
+}

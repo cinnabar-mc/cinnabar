@@ -68,3 +68,4 @@ core/javaedition/legacy/*.tsv text eol=lf
 core/javaedition/translate/connected_states.tsv text eol=lf
 core/javaedition/translate/testdata/*.tsv text eol=lf
 crates/protocol/fixtures/java_*.tsv text eol=lf
+crates/gameplay/fixtures/java_*.json text eol=lf

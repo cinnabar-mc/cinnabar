@@ -40,9 +40,10 @@ func (s *Session) handleJava(pk java.Packet) error {
 	case *java.RemoveEntityEffect:
 		s.removeEntityEffect(pk)
 	case *java.ConfirmTransaction:
-		// The 1.7.10 client confirms a rejected transaction for any window, the player's
-		// inventory (window 0) included.
-		if !pk.Accepted {
+		// NetHandlerPlayClient.handleConfirmTransaction confirms a rejected transaction only
+		// for the player's inventory (window 0) or the open window; the translator opens no
+		// windows, so only window 0 is answered.
+		if !pk.Accepted && pk.WindowID == 0 {
 			s.probeClient(probe{window: int8(pk.WindowID), action: pk.Action})
 		}
 	case *java.JoinGame:
@@ -97,6 +98,8 @@ func (s *Session) handleJava(pk java.Packet) error {
 		}})
 	case *java.PlayerAbilities:
 		s.state.abilities = abilities{pk.Invulnerable, pk.Flying, pk.AllowFlying, pk.CreativeMode, pk.FlySpeed, pk.WalkSpeed}
+		// The server set flight itself; the client has nothing to report back.
+		s.state.reportedFlying = pk.Flying
 		s.queueAbilities()
 	case *java.ChangeGameState:
 		s.changeGameState(pk)
@@ -199,6 +202,10 @@ func (s *Session) respawn(pk *java.Respawn) {
 	st.dimension, st.gameMode, st.difficulty = int8(pk.Dimension), pk.GameMode, pk.Difficulty
 	st.report, st.breaking = motionReport{}, nil
 	st.respawnRequested = false
+	// The new 1.7.10 player is not sprinting and has the default movement speed until the
+	// server sends otherwise.
+	st.sprinting = false
+	s.resetMovementSpeed()
 	// The 1.7.10 client's new player has no effects; the server sends the ones that last.
 	for effect := range st.effects {
 		s.queue(&packet.MobEffect{EntityRuntimeID: runtimeID(st.entityID), Operation: packet.MobEffectRemove, EffectType: int32(effect)})
