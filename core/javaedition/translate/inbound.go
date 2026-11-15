@@ -440,7 +440,11 @@ func (s *Session) playerListItem(pk *java.PlayerListItem) {
 	case pk.Online && !known:
 		id = nameUUID(pk.Name)
 		st.listed[pk.Name] = id
-		s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name)}})
+		unique := unlistedUniqueID(id)
+		if pk.Name == s.conn.Profile().Username {
+			unique = uniqueID(st.entityID)
+		}
+		s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name, unique)}})
 	case !pk.Online && known:
 		delete(st.listed, pk.Name)
 		s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{{ActionType: protocol.PlayerListActionRemove, UUID: id}}})

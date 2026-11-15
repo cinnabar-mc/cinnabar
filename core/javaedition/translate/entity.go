@@ -93,11 +93,12 @@ func nameUUID(name string) uuid.UUID {
 }
 
 // listEntry is a player-list entry with a placeholder skin: 1.7.10 servers send no skin data.
-func listEntry(id uuid.UUID, name string) protocol.PlayerListEntry {
+// unique is the player's entity unique id, or unlistedUniqueID for a player not yet seen.
+func listEntry(id uuid.UUID, name string, unique int64) protocol.PlayerListEntry {
 	return protocol.PlayerListEntry{
 		ActionType:     protocol.PlayerListActionAdd,
 		UUID:           id,
-		EntityUniqueID: int64(id.ID()),
+		EntityUniqueID: unique,
 		Username:       name,
 		Skin:           placeholderSkin(),
 	}
@@ -147,7 +148,7 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		}
 		if _, listed := st.listed[pk.Name]; !listed {
 			st.listed[pk.Name] = id
-			s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name)}})
+			s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name, uniqueID(pk.EntityID))}})
 		} else {
 			id = st.listed[pk.Name]
 		}

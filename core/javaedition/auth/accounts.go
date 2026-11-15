@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -104,6 +105,8 @@ type Accounts struct {
 	closed bool
 	// heads holds each account's head picture reads.
 	heads map[string]headFetch
+	// writeIndex replaces the accounts file; tests make it fail.
+	writeIndex func(path string, data []byte) error
 }
 
 // OpenAccounts returns the accounts kept in config.Dir. Close stops their background work.
@@ -118,6 +121,7 @@ func OpenAccounts(config AccountsConfig) *Accounts {
 	return &Accounts{
 		config: config, lifetime: lifetime, stop: stop,
 		add: AddState{State: bridgecontract.JavaAccountAddIdle}, heads: map[string]headFetch{},
+		writeIndex: writeFileAtomic,
 	}
 }
 
@@ -164,8 +168,13 @@ func (a *Accounts) Selected() (Account, *Keychain, bool) {
 		return Account{}, nil, false
 	}
 	if a.selected == nil || a.selectedID != account.ID {
-		if a.selected != nil {
-			go a.selected.Close()
+		if previous := a.selected; previous != nil {
+			// Closed in the background, which Close waits for.
+			a.work.Add(1)
+			go func() {
+				defer a.work.Done()
+				previous.Close()
+			}()
 		}
 		a.selected, a.selectedID = a.keychain(a.tokenPath(account.ID), nil), account.ID
 	}
@@ -405,7 +414,8 @@ func (a *Accounts) file(adding *Keychain, profile Profile) error {
 	if closing != nil {
 		closing.Close()
 	}
-	return a.updateIndex(func(index *accountsIndex) error {
+	var moved, replaced bool
+	err := a.updateIndex(func(index *accountsIndex) error {
 		// Checked under the accounts lock, so a cancel either comes first and files nothing
 		// or comes after the account was added.
 		a.mu.Lock()
@@ -418,9 +428,12 @@ func (a *Accounts) file(adding *Keychain, profile Profile) error {
 		defer cancel()
 		// Both tokens' leases keep a refresh of either, in any core, out of the move; a rename
 		// keeps the private permissions the token cache gave the file.
+		_, statErr := os.Stat(target)
+		replaced = statErr == nil
 		if err := authcache.Move(ctx, adding.config.Path, target); err != nil {
 			return err
 		}
+		moved = true
 		account := Account{ID: profile.ID, Name: profile.Name}
 		if i := index.position(profile.ID); i >= 0 {
 			index.Accounts[i] = account
@@ -430,6 +443,16 @@ func (a *Accounts) file(adding *Keychain, profile Profile) error {
 		index.Selected = profile.ID
 		return nil
 	})
+	if err != nil && moved && !replaced {
+		// The accounts file did not take the new account, so its token would sit there
+		// unlisted. A replaced token stays: its account is still listed and signs in with it.
+		ctx, cancel := context.WithTimeout(context.Background(), profileReadTimeout)
+		defer cancel()
+		if removeErr := authcache.Remove(ctx, target, os.Remove); removeErr != nil {
+			err = errors.Join(err, removeErr)
+		}
+	}
+	return err
 }
 
 // removeStalePending deletes unfinished sign-ins' files that no add can still use, such as
@@ -494,10 +517,7 @@ func (a *Accounts) readIndex() (accountsIndex, error) {
 
 // updateIndex applies change to the accounts file under the directory's lock.
 func (a *Accounts) updateIndex(change func(*accountsIndex) error) error {
-	if err := os.MkdirAll(a.config.Dir, 0o700); err != nil {
-		return err
-	}
-	lease, err := lockfile.Acquire(filepath.Join(a.config.Dir, accountsLockFile), indexLockTimeout)
+	lease, err := a.lockIndex()
 	if err != nil {
 		return err
 	}
@@ -514,7 +534,16 @@ func (a *Accounts) updateIndex(change func(*accountsIndex) error) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(a.config.Dir, accountsIndexFile), data)
+	return a.writeIndex(filepath.Join(a.config.Dir, accountsIndexFile), data)
+}
+
+// lockIndex takes the accounts directory's lock, which every change to the accounts file and
+// every write that depends on an account still being listed holds.
+func (a *Accounts) lockIndex() (io.Closer, error) {
+	if err := os.MkdirAll(a.config.Dir, 0o700); err != nil {
+		return nil, err
+	}
+	return lockfile.Acquire(filepath.Join(a.config.Dir, accountsLockFile), indexLockTimeout)
 }
 
 // keepUnreadableIndex moves an accounts file that does not parse aside, so the change about

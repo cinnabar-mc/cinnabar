@@ -164,3 +164,19 @@ func TestSkinRefusesARedirectToAnotherHost(t *testing.T) {
 		t.Fatal("an address on another host was read")
 	}
 }
+
+// A picture read that finishes after its account was removed writes nothing.
+func TestAccountsHeadOfARemovedAccountIsNotWritten(t *testing.T) {
+	services, _ := skinServer(t, testSkin())
+	accounts := newTestAccounts(t, newFakeApp(), services)
+	saveAccounts(t, accounts, notchID, Account{ID: notchID, Name: "Notch"})
+	if err := accounts.Remove(context.Background(), notchID); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.saveHead(notchID); !errors.Is(err, ErrNoAccount) {
+		t.Fatalf("saving a removed account's picture = %v", err)
+	}
+	if _, err := os.Stat(accounts.headPath(notchID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a removed account's picture was written: %v", err)
+	}
+}

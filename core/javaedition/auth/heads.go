@@ -117,7 +117,7 @@ func (s Services) Skin(ctx context.Context, address string) (image.Image, error)
 	// A redirect is held to the same rule as the address itself.
 	checked := *client
 	checked.CheckRedirect = func(next *http.Request, via []*http.Request) error {
-		if len(via) >= maxTextureRedirects || !s.textureAddress(next.URL.String()) {
+		if len(via) > maxTextureRedirects || !s.textureAddress(next.URL.String()) {
 			return fmt.Errorf("java edition %s: unsupported texture redirect", OperationSkin)
 		}
 		return nil
@@ -278,6 +278,13 @@ func (a *Accounts) saveHead(id string) error {
 	if err := png.Encode(&encoded, picture); err != nil {
 		return err
 	}
+	// Under the accounts lock, so a removal either comes first and nothing is written, or
+	// comes after and deletes the picture with the account.
+	lease, err := a.lockIndex()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lease.Close() }()
 	index, err := a.readIndex()
 	if err != nil {
 		return err

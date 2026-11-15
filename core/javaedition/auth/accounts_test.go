@@ -309,3 +309,33 @@ func TestAccountsAddRemovesStaleUnfinishedSignIns(t *testing.T) {
 		t.Fatalf("another core's unfinished sign-in was deleted: %v", err)
 	}
 }
+
+// A new account whose accounts file cannot be written leaves no unlisted token behind; a
+// re-added account keeps its replaced token, as it stays listed.
+func TestAccountsFilingThatCannotWriteTheIndexLeavesNoUnlistedToken(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		fake := newFakeServices(t)
+		accounts := newTestAccounts(t, newFakeApp(), fake.services())
+		if saved {
+			saveAccounts(t, accounts, notchID, Account{ID: notchID, Name: "Notch"})
+		}
+		if _, err := accounts.BeginAdd(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		adding := accounts.adding
+		if err := os.WriteFile(adding.config.Path, []byte("new token"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		accounts.writeIndex = func(string, []byte) error { return errors.New("disk full") }
+		if err := accounts.file(adding, Profile{ID: notchID, Name: "Notch"}); err == nil {
+			t.Fatal("filing succeeded without writing the accounts file")
+		}
+		_, err := os.Stat(accounts.tokenPath(notchID))
+		if !saved && !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a new account's token stayed unlisted: %v", err)
+		}
+		if saved && err != nil {
+			t.Fatalf("a listed account lost its token: %v", err)
+		}
+	}
+}
