@@ -256,6 +256,55 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWorld {
 }
 
 /// Reads the completed image after the actual production render schedule ran.
+/// Writes the whole frame to `CINNABAR_SKY_CAPTURE_DIR/name.rgba` when that variable is set, so
+/// diagnostic sky variants can be compared byte for byte across runs.
+fn capture(app: &App, image: &Handle<Image>, name: &str) {
+    let Some(root) = std::env::var_os("CINNABAR_SKY_CAPTURE_DIR") else {
+        return;
+    };
+    let world = app.sub_app(RenderApp).world();
+    let device = world.resource::<RenderDevice>();
+    let queue = world.resource::<RenderQueue>();
+    let images = world.resource::<RenderAssets<GpuImage>>();
+    let image = images.get(image).expect("prepared headless image");
+    let row = 256 * SIZE[0].div_ceil(64);
+    let buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("sky capture readback"),
+        size: u64::from(row * SIZE[1]),
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&default());
+    encoder.copy_texture_to_buffer(
+        image.texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(SIZE[1]),
+            },
+        },
+        Extent3d {
+            width: SIZE[0],
+            height: SIZE[1],
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit([encoder.finish()]);
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let bytes = buffer.slice(..).get_mapped_range().unwrap().to_vec();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        std::path::Path::new(&root).join(format!("{name}.rgba")),
+        bytes,
+    )
+    .unwrap();
+}
+
 fn pixel(app: &App, image: &Handle<Image>) -> [u8; 4] {
     let world = app.sub_app(RenderApp).world();
     let device = world.resource::<RenderDevice>();
@@ -348,6 +397,7 @@ fn stock_sky_fills_clear_samples_without_covering_opaque_geometry() {
                 for _ in 0..8 {
                     app.update();
                 }
+                capture(&app, &image, &format!("{msaa:?}-{kind:?}-{distance:?}"));
                 let colour = pixel(&app, &image);
                 if distance.is_some() {
                     assert!(

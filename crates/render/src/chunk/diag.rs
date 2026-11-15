@@ -32,7 +32,10 @@ pub(in crate::chunk) struct TerrainDiag {
     /// `diag_vertex=2`: every terrain vertex is rejected before any fetch (nothing rasterises);
     /// `diag_vertex=3`: the full vertex shader without the per-vertex mixed biome tint blend
     /// (its faces then blend per fragment instead); `diag_vertex=4`: no mixed biome blend in
-    /// either stage, so one-block tinted faces in mixed records render untinted.
+    /// either stage, so one-block tinted faces in mixed records render untinted;
+    /// `diag_vertex=5`: every per-quad record lookup (positional variation, material,
+    /// animation frames, masks, biome tint) reads one fixed address instead, keeping the
+    /// per-vertex light, AO, UV and position work: the most a pre-baked per-quad record saves.
     pub(in crate::chunk) vertex: u8,
     /// (g) `diag_max_chunks=N`: draws only sections within N chunks (horizontal) of the camera.
     pub(in crate::chunk) max_chunks: u32,
@@ -64,6 +67,14 @@ pub(in crate::chunk) struct TerrainDiag {
     /// `diag_frame=MASK` removes non-terrain work around the opaque and hand passes; see
     /// [`FrameSkip`].
     pub(in crate::chunk) frame: u32,
+    /// `diag_sky=MASK`: 1 draws the sky after opaque and cutout geometry, so only uncovered
+    /// pixels shade it (not while a pack skybox is active); 2 uses the sky shader that samples
+    /// the sun and moon only inside their sprites and reads the fan rim without a dynamically
+    /// indexed array. Both keep the image identical.
+    pub(in crate::chunk) sky: u8,
+    /// `diag_ui_categories=1`: times UI raster, model, composite, invert and backdrop passes
+    /// separately instead of as one `ui` stage.
+    pub(in crate::chunk) ui_categories: bool,
     /// `diag_units=0`: disables batched unit draws, falling back to per-section direct draws.
     pub(in crate::chunk) units_off: bool,
     /// (h) `diag_counts=1`: logs terrain draw, instance and vertex counts every 120 frames.
@@ -86,6 +97,8 @@ static STATE: RwLock<TerrainDiag> = RwLock::new(TerrainDiag {
     vary: 0,
     flat_units: false,
     frame: 0,
+    sky: 0,
+    ui_categories: false,
     units_off: false,
     counts: false,
 });
@@ -93,6 +106,9 @@ static FRAME: AtomicU32 = AtomicU32::new(0);
 
 /// The switch values as of the last refresh.
 pub(in crate::chunk) fn current() -> TerrainDiag {
+    // Render apps without terrain views never call `refresh`; read the switches once anyway.
+    static LOADED: std::sync::Once = std::sync::Once::new();
+    LOADED.call_once(|| *STATE.write().unwrap_or_else(|poison| poison.into_inner()) = read());
     *STATE.read().unwrap_or_else(|poison| poison.into_inner())
 }
 
@@ -102,31 +118,7 @@ pub(in crate::chunk) fn refresh() {
     if frame % 60 != 0 {
         return;
     }
-    let number = |name: &str| {
-        value(name)
-            .and_then(|v| v.trim().parse::<u32>().ok())
-            .unwrap_or(0)
-    };
-    let flag = |name: &str| number(name) != 0;
-    let next = TerrainDiag {
-        solid_trivial: flag("SOLID_TRIVIAL"),
-        cutout_as_solid: flag("CUTOUT_AS_SOLID"),
-        solid_first: flag("SOLID_FIRST"),
-        front_to_back: flag("FRONT_TO_BACK"),
-        skip_streams: (number("SKIP_STREAMS") & 15) as u8,
-        no_split: flag("NO_SPLIT"),
-        vertex: number("VERTEX").min(4) as u8,
-        max_chunks: number("MAX_CHUNKS"),
-        keep_stride: number("KEEP_STRIDE"),
-        sample: number("SAMPLE").min(4) as u8,
-        page0: flag("PAGE0"),
-        shade: number("SHADE").min(10) as u8,
-        vary: number("VARY").min(4) as u8,
-        flat_units: flag("FLAT_UNITS"),
-        frame: number("FRAME"),
-        units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
-        counts: flag("COUNTS"),
-    };
+    let next = read();
     let mut state = STATE.write().unwrap_or_else(|poison| poison.into_inner());
     if frame == 0 || *state != next {
         bevy::log::info!("CINNABAR_TERRAIN_DIAG {next:?}");
@@ -157,6 +149,23 @@ impl FrameSkip {
     pub(crate) const PACK_SKYBOX: u32 = 128;
     /// Only the star geometry, which draws by day too (its fragments then discard).
     pub(crate) const STARS: u32 = 256;
+    /// The hand passes open, clear and store as usual but issue no draw.
+    pub(crate) const HAND_NO_DRAW: u32 = 512;
+}
+
+/// `diag_sky` bit 1: the sky draws after opaque geometry.
+pub(crate) fn sky_late() -> bool {
+    current().sky & 1 != 0
+}
+
+/// `diag_sky` bit 2: the sky shader's fast variant.
+pub(crate) fn sky_fast() -> bool {
+    current().sky & 2 != 0
+}
+
+/// `diag_ui_categories`.
+pub(crate) fn ui_categories() -> bool {
+    current().ui_categories
 }
 
 /// Whether `diag_frame` currently removes `bit` (a [`FrameSkip`] constant).
@@ -164,8 +173,39 @@ pub(crate) fn frame_skips(bit: u32) -> bool {
     current().frame & bit != 0
 }
 
+/// Reads every switch now.
+fn read() -> TerrainDiag {
+    let number = |name: &str| {
+        value(name)
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .unwrap_or(0)
+    };
+    let flag = |name: &str| number(name) != 0;
+    TerrainDiag {
+        solid_trivial: flag("SOLID_TRIVIAL"),
+        cutout_as_solid: flag("CUTOUT_AS_SOLID"),
+        solid_first: flag("SOLID_FIRST"),
+        front_to_back: flag("FRONT_TO_BACK"),
+        skip_streams: (number("SKIP_STREAMS") & 15) as u8,
+        no_split: flag("NO_SPLIT"),
+        vertex: number("VERTEX").min(5) as u8,
+        max_chunks: number("MAX_CHUNKS"),
+        keep_stride: number("KEEP_STRIDE"),
+        sample: number("SAMPLE").min(4) as u8,
+        page0: flag("PAGE0"),
+        shade: number("SHADE").min(10) as u8,
+        vary: number("VARY").min(4) as u8,
+        flat_units: flag("FLAT_UNITS"),
+        frame: number("FRAME"),
+        sky: (number("SKY") & 3) as u8,
+        ui_categories: flag("UI_CATEGORIES"),
+        units_off: value("UNITS").is_some_and(|v| v.trim() == "0"),
+        counts: flag("COUNTS"),
+    }
+}
+
 /// Whether this frame logs counts (every 120 frames while `diag_counts` is on).
-pub(in crate::chunk) fn count_frame() -> bool {
+pub(crate) fn count_frame() -> bool {
     current().counts && FRAME.load(Ordering::Relaxed) % 120 == 1
 }
 
@@ -231,6 +271,7 @@ const VARY_SHIFT: u32 = 14;
 /// `diag_vertex=4`: the fragment drops the per-fragment biome blend too.
 const FRAGMENT_NO_BLEND: u32 = 1 << 17;
 const FLAT_UNITS: u32 = 1 << 18;
+const VERTEX_NO_QUAD_LOOKUPS: u32 = 1 << 19;
 /// Vertex and fragment defines for each `diag_vary` value; the varying interface must agree.
 fn vary_defines(vary: u32) -> (&'static [&'static str], &'static [&'static str]) {
     match vary {
@@ -277,6 +318,7 @@ pub(in crate::chunk) fn pipeline_bits(diag: &TerrainDiag) -> u32 {
         2 => bits |= VERTEX_CULL,
         3 => bits |= VERTEX_NO_BLEND,
         4 => bits |= VERTEX_NO_BLEND | FRAGMENT_NO_BLEND,
+        5 => bits |= VERTEX_NO_QUAD_LOOKUPS,
         _ => {}
     }
     if diag.sample > 0 {
@@ -366,6 +408,13 @@ fn apply(descriptor: &mut RenderPipelineDescriptor, bits: u32) -> bool {
                 .vertex
                 .shader_defs
                 .push("DIAG_VERTEX_CULL".into());
+            changed = true;
+        }
+        if bits & VERTEX_NO_QUAD_LOOKUPS != 0 {
+            descriptor
+                .vertex
+                .shader_defs
+                .push("DIAG_NO_QUAD_LOOKUPS".into());
             changed = true;
         }
         if bits & FLAT_UNITS != 0 {

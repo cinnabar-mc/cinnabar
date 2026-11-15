@@ -396,6 +396,8 @@ struct AtmospherePipelineKey {
     hdr: bool,
     stars: bool,
     skybox: bool,
+    /// Diagnostic `diag_sky` bit 2: the fragment's `DIAG_SKY_FAST` variant.
+    fast: bool,
 }
 
 // Target Stars material uses OneMinusDestColor→One and disables alpha writes.
@@ -441,6 +443,14 @@ impl Specializer<RenderPipeline> for AtmospherePipelineSpecializer {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare =
                 Some(CompareFunction::Greater);
         }
+        if key.fast {
+            descriptor
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .push("DIAG_SKY_FAST".into());
+        }
         descriptor.fragment.as_mut().unwrap().entry_point = Some(
             if key.skybox {
                 "pack_skybox_fragment"
@@ -469,6 +479,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for AtmospherePipeline {
                     hdr: view.hdr,
                     stars,
                     skybox,
+                    fast: false,
                 },
             )?);
         }
@@ -574,6 +585,7 @@ fn queue_atmosphere(
                 hdr: view.hdr,
                 stars,
                 skybox,
+                fast: crate::chunk::diag::sky_fast(),
             };
             if let Ok(id) = pipeline.variants.specialize(&pipeline_cache, key) {
                 gpu.pipelines.insert(key, id);
