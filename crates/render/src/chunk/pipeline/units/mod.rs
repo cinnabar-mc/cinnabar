@@ -94,6 +94,8 @@ pub(in crate::chunk) struct TerrainUnitBatches {
     /// Allows adapter tests to compare the same direct queue with and without batching.
     pub(in crate::chunk) disabled: bool,
     pub(in crate::chunk) stats: UnitBatchStats,
+    /// The `diag_flat_units` value the pages were last built for.
+    diag_flat_units: bool,
 }
 
 impl TerrainUnitBatches {

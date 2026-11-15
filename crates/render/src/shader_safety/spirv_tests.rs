@@ -51,6 +51,13 @@ fn terrain_spirv_validates_with_mobile_runtime_checks() {
                 "DIAG_FS_CONSTANT_INPUTS",
             ][..],
             &["TERRAIN_UNITS", "DIAG_PACKED_VARYINGS"][..],
+            &["TERRAIN_UNITS", "DIAG_FLAT_UNITS"][..],
+            &["TERRAIN_UNITS", "DIAG_FLAT_UNITS", "DIAG_PACKED_VARYINGS"][..],
+            &[
+                "TERRAIN_UNITS",
+                "DIAG_NO_VERTEX_BLEND",
+                "DIAG_SHADE_NO_BLEND",
+            ][..],
             &["TERRAIN_UNITS", "PACKED_TERRAIN", "DIAG_PACKED_VARYINGS"][..],
             &[
                 "TERRAIN_UNITS",

@@ -52,7 +52,7 @@ pub(in crate::chunk) fn queue_chunks(
     mut indirect_batch_sets: ParamSet<IndirectBatches>,
     mut gpu_culling: gpu_cull::GpuCullQueue,
     pack: render_scene::shaderpack::ShaderPackDrawnViews,
-    mut unsupported_reported: Local<bool>,
+    (mut unsupported_reported, mut diag_variants): (Local<bool>, Local<super::diag::Variants>),
 ) {
     let _timer = probes
         .profiler
@@ -217,12 +217,17 @@ pub(in crate::chunk) fn queue_chunks(
         let Ok(pipeline_id) = pipeline.variants.specialize(&pipeline_cache, key) else {
             continue;
         };
-        let pipeline_id = super::diag::pipeline(&pipeline_cache, pipeline_id, diag_bits);
+        let pipeline_id =
+            super::diag::pipeline(&pipeline_cache, &mut diag_variants, pipeline_id, diag_bits);
         let Ok(solid_pipeline_id) = pipeline.solid_variants.specialize(&pipeline_cache, key) else {
             continue;
         };
-        let solid_pipeline_id =
-            super::diag::pipeline(&pipeline_cache, solid_pipeline_id, diag_bits);
+        let solid_pipeline_id = super::diag::pipeline(
+            &pipeline_cache,
+            &mut diag_variants,
+            solid_pipeline_id,
+            diag_bits,
+        );
         let Ok(model_pipeline_id) = pipeline.model_variants.specialize(&pipeline_cache, key) else {
             continue;
         };
@@ -440,8 +445,9 @@ pub(in crate::chunk) fn queue_chunks(
             else {
                 continue;
             };
-            let pipelines = [solid, cutout, model, liquid]
-                .map(|id| super::diag::pipeline(&pipeline_cache, id, diag_bits));
+            let pipelines = [solid, cutout, model, liquid].map(|id| {
+                super::diag::pipeline(&pipeline_cache, &mut diag_variants, id, diag_bits)
+            });
             let terrain_pass = if direct_view == Some(view_entity) && !diag.no_split {
                 gpu_culling.begin_direct(view_entity, view, *msaa, (pipelines[0], draws[0]))
             } else {

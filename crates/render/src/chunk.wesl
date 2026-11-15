@@ -287,9 +287,7 @@ fn vertex_unit(
         invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
         return invisible;
     }
-    let references = terrain_units[0].x;
-    let slot = terrain_units[references + unit_index / 4u][unit_index % 4u];
-    let unit = terrain_units[1u + slot];
+    let unit = terrain_unit_descriptor(unit_index);
     let quad = (vertex_index / 4u) % TERRAIN_UNIT_QUADS;
     if (quad >= unit.y || unit.w != 0u) {
         var invisible: VertexOutput;
@@ -306,6 +304,16 @@ fn vertex_unit(
     return diag_position_only_vertex(unit.z, unit.x + quad, vertex_index % 4u);
     @if(!DIAG_VERTEX_MIN && !DIAG_VARY_FULL_VS_FLAT && !DIAG_VARY_MIN_VS && !DIAG_VARY_POSITION_ONLY)
     return cube_vertex(unit.z * 4u + vertex_index % 4u, unit.x + quad);
+}
+
+/// The descriptor of the pass's `unit_index`th visible unit: through the page's reference list,
+/// or, under diagnostic `diag_flat_units=1` (contiguous descriptors with identity references),
+/// read directly to drop one dependent storage load.
+fn terrain_unit_descriptor(unit_index: u32) -> vec4<u32> {
+    @if(DIAG_FLAT_UNITS)
+    return terrain_units[1u + unit_index];
+    @if(!DIAG_FLAT_UNITS)
+    return terrain_units[1u + terrain_units[terrain_units[0].x + unit_index / 4u][unit_index % 4u]];
 }
 
 /// Diagnostic `diag_vary=1`: every production output folded into one flat word, so all vertex
