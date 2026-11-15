@@ -655,3 +655,20 @@ func TestEntityZeroGetsValidBedrockIDs(t *testing.T) {
 		t.Fatalf("runtime id %d does not map back to entity 0", start.EntityRuntimeID)
 	}
 }
+
+// Abilities name the local player by the unique id StartGame gave it, or the client drops
+// them and flight never applies.
+func TestAbilitiesTargetTheLocalPlayer(t *testing.T) {
+	ts := startTestSession(t)
+	joined := ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	start := joined[0].(*packet.StartGame)
+	var abilities *packet.UpdateAbilities
+	for _, pk := range ts.serve(&java.PlayerAbilities{AllowFlying: true, FlySpeed: 0.05, WalkSpeed: 0.1}) {
+		if update, ok := pk.(*packet.UpdateAbilities); ok {
+			abilities = update
+		}
+	}
+	if abilities == nil || abilities.AbilityData.EntityUniqueID != start.EntityUniqueID {
+		t.Fatalf("abilities = %+v, want unique id %d", abilities, start.EntityUniqueID)
+	}
+}
