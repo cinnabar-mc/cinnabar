@@ -1948,6 +1948,9 @@ transactions and keep-alives reach the client as latency probes, which it answer
 applying every earlier packet, so the server gets its answers in the 1.7.10 order. After a
 server teleport, movement the client simulated before applying it is held back until it
 answers a probe sent after the teleport, as the 1.7.10 client never reports such a position.
+A swing the server plays on the player is answered with the player's swing once the client
+has played it, a held slot outside the hotbar is ignored, and the player moves and falls in
+columns the server never sent, as in the 1.7.10 client.
 
 Incomplete:
 
@@ -1960,6 +1963,10 @@ Incomplete:
   setbacks, were compared with the real 1.7.10 client's on a server running NoCheatPlus and
   are identical bit for bit; that NoCheatPlus setup flags both clients alike, so it is no
   verdict on its own, and other anticheats have not been tried. Combat, teleports and inventories have not been exercised in the client.
+  A public network's Sonar anti-bot rejected the client over checks it now follows (the
+  transaction answer, the held-slot and swing replies and the fall through an empty world);
+  the client has not rejoined it since. Sonar's riding check, which it runs only during bot
+  attacks, still fails because `java-sim` does not model riding.
 - Server positions reach the client in single precision: a teleport or the join position
   crosses in the Bedrock movement packet, with the feet lifted onto the ground when rounding
   sinks them into it, so the client stands up to one single-precision step from where the
