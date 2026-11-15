@@ -25,7 +25,18 @@ const (
 func (s *Session) handleJava(pk java.Packet) error {
 	switch pk := pk.(type) {
 	case *java.KeepAlive:
-		return s.sendNow(&java.ClientKeepAlive{Key: pk.Key})
+		if !s.state.spawned {
+			// Before the client spawns its answers can wait on its loading screen, while the
+			// 1.7.10 client answers keep-alives as it loads.
+			return s.sendNow(&java.ClientKeepAlive{Key: pk.Key})
+		}
+		s.probeClient(probe{keepAlive: true, key: pk.Key})
+	case *java.ConfirmTransaction:
+		// The 1.7.10 client confirms a rejected transaction for any window, the player's
+		// inventory (window 0) included.
+		if !pk.Accepted {
+			s.probeClient(probe{window: int8(pk.WindowID), action: pk.Action})
+		}
 	case *java.JoinGame:
 		return s.joinGame(pk)
 	case *java.Respawn:

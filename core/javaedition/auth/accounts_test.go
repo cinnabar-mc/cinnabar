@@ -339,3 +339,67 @@ func TestAccountsFilingThatCannotWriteTheIndexLeavesNoUnlistedToken(t *testing.T
 		}
 	}
 }
+
+// A failure from a sign-in the add has moved past, such as one replaced by a newer code,
+// leaves the add alone.
+func TestAccountsStaleSignInFailureLeavesTheAdd(t *testing.T) {
+	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	adding := accounts.adding
+	accounts.failAdd(adding, "OLD-CODE")
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddAwaitingCode || accounts.adding != adding {
+		t.Fatalf("a stale failure changed the add: %+v", state)
+	}
+	accounts.failAdd(adding, "TESTCODE")
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddFailed {
+		t.Fatalf("the add's own failure = %+v", state)
+	}
+}
+
+// A code entered while the add waited for its prompt is not shown again.
+func TestAccountsAddDoesNotReshowAnEnteredCode(t *testing.T) {
+	app := newFakeApp()
+	accounts := newTestAccounts(t, app, newFakeServices(t).services())
+	app.onDeviceAuth = func() {
+		accounts.mu.Lock()
+		accounts.add = AddState{State: bridgecontract.JavaAccountAddSigningIn}
+		accounts.mu.Unlock()
+	}
+	if _, err := accounts.BeginAdd(context.Background()); !errors.Is(err, ErrAddInProgress) {
+		t.Fatalf("add after the code was entered = %v", err)
+	}
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddSigningIn {
+		t.Fatalf("add state = %+v", state)
+	}
+}
+
+// An accounts file readIndex cannot use, though it is valid JSON, is kept aside before a
+// change replaces it, and a change that cannot keep it aside does not replace it.
+func TestAccountsKeepAnIndexOfTheWrongShape(t *testing.T) {
+	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
+	path := filepath.Join(accounts.config.Dir, accountsIndexFile)
+	wrong := []byte(`{"accounts":[{"id":"069a79f444e94726a5befca90e38aaf5","name":42}]}`)
+	if err := os.WriteFile(path, wrong, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(path+".corrupt", "taken"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.updateIndex(func(*accountsIndex) error { return nil }); err == nil {
+		t.Fatal("a change replaced an index it could not keep aside")
+	}
+	if data, _ := os.ReadFile(path); string(data) != string(wrong) {
+		t.Fatalf("the unreadable index was replaced: %q", data)
+	}
+	if err := os.RemoveAll(path + ".corrupt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.updateIndex(func(*accountsIndex) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path + ".corrupt"); string(data) != string(wrong) {
+		t.Fatalf("the kept index = %q", data)
+	}
+}

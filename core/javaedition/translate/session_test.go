@@ -713,3 +713,40 @@ func TestOwnPlayerListEntryIgnoresCase(t *testing.T) {
 		}
 	}
 }
+
+// A rejected transaction and a keep-alive reach the client as latency probes and are answered
+// only when the client echoes them, after the packets before them, as the 1.7.10 client
+// answers them from its tick. Anticheats time knockback and teleports by these answers.
+func TestProbesAreAnsweredByTheClient(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	ts.serve(&java.PlayerPositionAndLook{X: 0.5, Y: 64 + eyeHeight, Z: 0.5, OnGround: true})
+
+	var probes []*packet.NetworkStackLatency
+	collect := func(packets []packet.Packet) {
+		for _, pk := range packets {
+			if latency, ok := pk.(*packet.NetworkStackLatency); ok {
+				probes = append(probes, latency)
+			}
+		}
+	}
+	collect(ts.serve(&java.ConfirmTransaction{WindowID: 0, Action: -12, Accepted: false}))
+	collect(ts.serve(&java.KeepAlive{Key: 99}))
+	if len(probes) != 2 || !probes[0].NeedsResponse || !probes[1].NeedsResponse {
+		t.Fatalf("probes = %+v", probes)
+	}
+	// An accepted transaction needs no answer.
+	ts.send(&java.ConfirmTransaction{WindowID: 0, Action: 3, Accepted: true})
+	if next := ts.serve(&java.ChatMessage{Message: `"marker"`}); len(next) != 1 || next[0].ID() != packet.IDText {
+		t.Fatalf("an accepted transaction reached the client: %+v", next)
+	}
+
+	ts.write(&packet.NetworkStackLatency{Timestamp: probes[0].Timestamp * probeTimestampScale})
+	if confirm := expect[*java.ClientConfirmTransaction](ts); confirm.WindowID != 0 || confirm.Action != -12 || !confirm.Accepted {
+		t.Fatalf("confirmation = %+v", confirm)
+	}
+	ts.write(&packet.NetworkStackLatency{Timestamp: probes[1].Timestamp * probeTimestampScale})
+	if alive := expect[*java.ClientKeepAlive](ts); alive.Key != 99 {
+		t.Fatalf("keep-alive = %+v", alive)
+	}
+}

@@ -98,6 +98,8 @@ func (r *motionReport) next(entityID int32, x, minY, z float64, yaw, pitch float
 func (s *Session) handleBedrock(pk packet.Packet) error {
 	st := &s.state
 	switch pk := pk.(type) {
+	case *packet.NetworkStackLatency:
+		return s.answerProbe(pk)
 	case *packet.RequestChunkRadius:
 		st.radius = min(max(pk.ChunkRadius, 2), 16)
 		if !st.joined {
