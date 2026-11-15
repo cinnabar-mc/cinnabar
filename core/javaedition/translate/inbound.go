@@ -2,6 +2,7 @@ package translate
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -441,7 +442,7 @@ func (s *Session) playerListItem(pk *java.PlayerListItem) {
 		id = nameUUID(pk.Name)
 		st.listed[pk.Name] = id
 		unique := unlistedUniqueID(id)
-		if pk.Name == s.conn.Profile().Username {
+		if strings.EqualFold(pk.Name, s.conn.Profile().Username) {
 			unique = uniqueID(st.entityID)
 		}
 		s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name, unique)}})

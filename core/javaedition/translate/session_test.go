@@ -702,3 +702,14 @@ func TestPlayerListEntriesNameTheirEntity(t *testing.T) {
 		t.Fatalf("the local player's entry names %d, want %d", own.EntityUniqueID, uniqueID(7))
 	}
 }
+
+// The local player's own list entry is recognised whatever case the server writes its name in.
+func TestOwnPlayerListEntryIgnoresCase(t *testing.T) {
+	ts := startTestSession(t)
+	ts.serve(&java.JoinGame{EntityID: 7, LevelType: "default"})
+	for _, pk := range ts.serve(&java.PlayerListItem{Name: "STEVE", Online: true}) {
+		if list, ok := pk.(*packet.PlayerList); ok && list.Entries[0].EntityUniqueID != uniqueID(7) {
+			t.Fatalf("the local player's entry names %d, want %d", list.Entries[0].EntityUniqueID, uniqueID(7))
+		}
+	}
+}

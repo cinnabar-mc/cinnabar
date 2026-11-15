@@ -280,7 +280,8 @@ func (a *Accounts) saveHead(id string) error {
 	}
 	// Under the accounts lock, so a removal either comes first and nothing is written, or
 	// comes after and deletes the picture with the account.
-	lease, err := a.lockIndex()
+	// The read's context ends with Close, so a shutdown does not wait out the lock.
+	lease, err := a.lockIndex(ctx)
 	if err != nil {
 		return err
 	}
