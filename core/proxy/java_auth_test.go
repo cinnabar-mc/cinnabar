@@ -94,7 +94,7 @@ func dialJavaForTest(t *testing.T, server *javatest.Server, accounts *auth.Accou
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return dialJavaUpstream(ctx, server.Addr(), accounts, "Steve", slog.New(slog.DiscardHandler))
+	return dialJavaUpstream(ctx, server.Addr(), accounts, nil, "Steve", slog.New(slog.DiscardHandler))
 }
 
 const notchID = "069a79f444e94726a5befca90e38aaf5"

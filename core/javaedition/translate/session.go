@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/conn"
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
+	"github.com/hashimthearab/rust-mcbe/core/javaedition/skins"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -34,6 +35,12 @@ type Options struct {
 	Resolver conn.Resolver
 	// Logger receives skipped and malformed packet reports; nil discards them.
 	Logger *slog.Logger
+	// Skins downloads the skins and capes of players; nil leaves every player the default
+	// skin.
+	Skins *skins.Fetcher
+	// ProfileID is the signed-in Java Edition profile, whose own skin the local player wears;
+	// empty for a signed-out player.
+	ProfileID string
 }
 
 // writeTimeout bounds a flush to the server. A server that stops reading would otherwise
@@ -51,6 +58,13 @@ type outbound struct {
 type Session struct {
 	conn *conn.Conn
 	log  *slog.Logger
+
+	// skins downloads player textures, and profileID names the local player's own profile.
+	// lifetime ends when the session closes, abandoning downloads.
+	skins          *skins.Fetcher
+	profileID      string
+	lifetime       context.Context
+	cancelLifetime context.CancelFunc
 
 	// batches carries translated packets to ReadBatchRaw. pending is the batch being built by
 	// whichever direction is translating; pendingMu guards it. flushMu is held from taking a
@@ -93,12 +107,17 @@ func Dial(ctx context.Context, address string, options Options) (*Session, error
 	if err != nil {
 		return nil, err
 	}
+	lifetime, cancelLifetime := context.WithCancel(context.Background())
 	session := &Session{
-		conn:    connection,
-		log:     logger,
-		batches: make(chan []outbound, 64),
-		closed:  make(chan struct{}),
-		state:   newState(),
+		conn:           connection,
+		log:            logger,
+		skins:          options.Skins,
+		profileID:      options.ProfileID,
+		lifetime:       lifetime,
+		cancelLifetime: cancelLifetime,
+		batches:        make(chan []outbound, 64),
+		closed:         make(chan struct{}),
+		state:          newState(),
 	}
 	go session.read()
 	return session, nil
@@ -266,6 +285,7 @@ func (s *Session) Flush() error {
 func (s *Session) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		s.cancelLifetime()
 		close(s.closed)
 		err = s.conn.Close()
 	})

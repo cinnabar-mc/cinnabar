@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"image/color"
 	"math"
 	"os"
 	"reflect"
@@ -22,6 +23,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/javatest"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/legacy"
 	java "github.com/hashimthearab/rust-mcbe/core/javaedition/protocol"
+	"github.com/hashimthearab/rust-mcbe/core/javaedition/skins/skinstest"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -47,6 +49,13 @@ type testSession struct {
 
 func startTestSession(t *testing.T) *testSession {
 	t.Helper()
+	return startTestSessionWith(t, Options{})
+}
+
+// startTestSessionWith joins a fake server as Steve with options.
+func startTestSessionWith(t *testing.T, options Options) *testSession {
+	t.Helper()
+	options.Username = "Steve"
 	server, err := javatest.Start(javatest.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +63,7 @@ func startTestSession(t *testing.T) *testSession {
 	t.Cleanup(server.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	session, err := Dial(ctx, server.Addr(), Options{Username: "Steve"})
+	session, err := Dial(ctx, server.Addr(), options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +214,8 @@ func checkRegistryFixture(t *testing.T, registry *packet.ItemRegistry) {
 // A scripted join produces a fixed packet stream. The stream and the column's payload are
 // golden files that the client's own decoders read in their tests.
 func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
-	ts := startTestSession(t)
+	services := skinstest.Start(t)
+	ts := startTestSessionWith(t, Options{Skins: services.Fetcher()})
 	var stream []packet.Packet
 	serve := func(pk java.Packet) []packet.Packet {
 		packets := ts.serve(pk)
@@ -263,8 +273,12 @@ func TestSessionTranslationMatchesTheSharedFixtures(t *testing.T) {
 		t.Fatalf("chat = %q", text.Message)
 	}
 	serve(&java.UpdateHealth{Health: 15, Food: 18, Saturation: 2.5})
+	textures := skinstest.Payload(services.Texture("skin", 64, 32, color.NRGBA{R: 0xc0, G: 0x80, B: 0x40, A: 0xff}), services.Texture("cape", 64, 32, color.NRGBA{B: 0xc0, A: 0xff}))
 	serve(&java.SpawnPlayer{EntityID: 9, UUID: "00000000-0000-4000-8000-000000000009", Name: "Alex", X: 8 * 32, Y: 1 * 32, Z: 4 * 32, Yaw: 64, CurrentItem: 0,
-		Metadata: java.Metadata{{Index: 0, Type: java.MetadataByte, Value: int8(flagSneaking)}}})
+		Properties: []java.ProfileProperty{services.Signed(textures)},
+		Metadata:   java.Metadata{{Index: 0, Type: java.MetadataByte, Value: int8(flagSneaking)}}})
+	// The signed skin and cape follow in their own batch once downloaded.
+	stream = append(stream, ts.nextSkin())
 	moved := serve(&java.EntityRelativeMove{EntityID: 9, DX: 16, DY: 0, DZ: -32})
 	if actor := moved[0].(*packet.MoveActorAbsolute); actor.Position != (mgl32.Vec3{8.5, float32(1 + networkOffset), 3}) {
 		t.Fatalf("remote player moved to %v", actor.Position)

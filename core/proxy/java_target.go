@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
+	"github.com/hashimthearab/rust-mcbe/core/javaedition/skins"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/translate"
 	"github.com/sandertv/gophertunnel/minecraft"
 )
@@ -68,9 +69,10 @@ func (javaUpstream) ResourcePackStack() (minecraft.ResourcePackStackSnapshot, bo
 // profile, which online-mode servers require. Without one the player joins under name, and an
 // online-mode server's request for the session starts adding an account and fails the join
 // with the code to enter, as does a selected account whose sign-in no longer works. Failures
-// the player can act on reach the client as disconnect text.
-func dialJavaUpstream(ctx context.Context, address string, accounts *auth.Accounts, name string, logger *slog.Logger) (upstreamSession, error) {
-	options := translate.Options{Username: name, Logger: logger}
+// the player can act on reach the client as disconnect text. Players' skins download through
+// textures; the local player wears the selected account's own skin.
+func dialJavaUpstream(ctx context.Context, address string, accounts *auth.Accounts, textures *skins.Fetcher, name string, logger *slog.Logger) (upstreamSession, error) {
+	options := translate.Options{Username: name, Logger: logger, Skins: textures}
 	if options.Username == "" {
 		options.Username = javaSignedOutName
 	}
@@ -86,6 +88,7 @@ func dialJavaUpstream(ctx context.Context, address string, accounts *auth.Accoun
 		options.JoinSession = func(ctx context.Context, _ string) error { return addAccount(ctx) }
 		if account, keychain, ok := accounts.Selected(); ok {
 			options.Username = account.Name
+			options.ProfileID = account.ID
 			options.JoinSession = func(ctx context.Context, serverHash string) error {
 				session, err := keychain.Session(ctx)
 				if errors.Is(err, auth.ErrNotSignedIn) {

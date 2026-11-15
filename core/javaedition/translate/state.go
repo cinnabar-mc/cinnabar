@@ -80,6 +80,10 @@ type state struct {
 	entities map[int32]*entity
 	// listed maps tab-list names to the identity announced for them.
 	listed map[string]uuid.UUID
+	// skinLoads holds the skin downloads under way for listed players, by the generation
+	// that started them.
+	skinLoads      map[uuid.UUID]uint64
+	skinGeneration uint64
 
 	health     float32
 	food       int16
@@ -106,6 +110,7 @@ func newState() state {
 		radius:    8,
 		entities:  map[int32]*entity{},
 		listed:    map[string]uuid.UUID{},
+		skinLoads: map[uuid.UUID]uint64{},
 		health:    20,
 		food:      20,
 		abilities: abilities{flySpeed: 0.05, walkSpeed: 0.1},

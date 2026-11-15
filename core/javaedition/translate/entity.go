@@ -92,32 +92,15 @@ func nameUUID(name string) uuid.UUID {
 	return uuid.UUID(sum)
 }
 
-// listEntry is a player-list entry with a placeholder skin: 1.7.10 servers send no skin data.
-// unique is the player's entity unique id, or unlistedUniqueID for a player not yet seen.
-func listEntry(id uuid.UUID, name string, unique int64) protocol.PlayerListEntry {
+// listEntry is a player-list entry wearing skin. unique is the player's entity unique id, or
+// unlistedUniqueID for a player not yet seen.
+func listEntry(id uuid.UUID, name string, unique int64, skin protocol.Skin) protocol.PlayerListEntry {
 	return protocol.PlayerListEntry{
 		ActionType:     protocol.PlayerListActionAdd,
 		UUID:           id,
 		EntityUniqueID: unique,
 		Username:       name,
-		Skin:           placeholderSkin(),
-	}
-}
-
-// placeholderSkin is an opaque 64x32 classic skin on the default geometry.
-func placeholderSkin() protocol.Skin {
-	const width, height = 64, 32
-	pixels := make([]byte, width*height*4)
-	for i := 3; i < len(pixels); i += 4 {
-		pixels[i-3], pixels[i-2], pixels[i-1], pixels[i] = 0x8a, 0x6a, 0x4f, 0xff
-	}
-	return protocol.Skin{
-		SkinID:            "java-placeholder",
-		SkinResourcePatch: []byte(`{"geometry":{"default":"geometry.humanoid.custom"}}`),
-		SkinImageWidth:    width,
-		SkinImageHeight:   height,
-		SkinData:          pixels,
-		Trusted:           true,
+		Skin:           skin,
 	}
 }
 
@@ -148,10 +131,13 @@ func (s *Session) handleEntity(pk java.Packet) error {
 		}
 		if _, listed := st.listed[pk.Name]; !listed {
 			st.listed[pk.Name] = id
-			s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name, uniqueID(pk.EntityID))}})
+			s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name, uniqueID(pk.EntityID), defaultSkin())}})
 		} else {
 			id = st.listed[pk.Name]
 		}
+		// The 1.7.10 client reads each spawned player's textures from the profile the server
+		// sent with it.
+		s.loadSkin(id, pk.Name, pk.Properties)
 		s.replace(pk.EntityID)
 		spawned := &entity{x: pk.X, y: pk.Y, z: pk.Z, yaw: pk.Yaw, pitch: pk.Pitch, head: pk.Yaw, player: true}
 		st.entities[pk.EntityID] = spawned
