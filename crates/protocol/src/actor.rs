@@ -32,7 +32,8 @@ pub(crate) use skin_update::normalize_skin_update;
 mod status;
 use skin::normalize_player_skin;
 pub use skin::{
-    PlayerSkin, PlayerSkinUnavailable, normalize_classic_skin_rgba8, normalize_custom_skin_rgba8,
+    EmptySkin, PlayerSkin, PlayerSkinUnavailable, is_client_default_skin,
+    normalize_classic_skin_rgba8, normalize_custom_skin_rgba8,
 };
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{
@@ -680,8 +681,10 @@ fn normalize_actor_link(link: VendorActorLink, dimension: i32) -> ActorLinkEvent
     }
 }
 
+/// Normalizes a player list; `empty` decides how a skin without pixels decodes.
 pub(crate) fn normalize_player_list(
     packet: PlayerListPacket,
+    empty: EmptySkin,
 ) -> Result<ActorEvent, ActorPacketError> {
     // 1.26.40 sends one self-describing record per entry: no shared record
     // count, no packet-level action, and no trailing parallel array. Protocol
@@ -713,7 +716,7 @@ pub(crate) fn normalize_player_list(
                     .trusted_skin_flag
                     .as_bytes()
                     .eq_ignore_ascii_case(b"true");
-                let skin = normalize_player_skin(*serialized_skin, &mut retained_skin_bytes);
+                let skin = normalize_player_skin(*serialized_skin, &mut retained_skin_bytes, empty);
                 entries.push(PlayerListEntry::Add {
                     uuid: *uuid.as_bytes(),
                     unique_id: actor_unique_id.0,

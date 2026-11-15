@@ -137,13 +137,51 @@ pub enum PlayerSkin {
     Unavailable(PlayerSkinUnavailable),
 }
 
+/// How a skin carrying no pixels decodes, which depends on the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmptySkin {
+    /// Unusable, as on Bedrock sessions: the player draws the default skin without a cape and
+    /// a skin update without pixels is ignored.
+    #[default]
+    Unavailable,
+    /// A request for the client's own default skin that keeps its cape and model, as a Java
+    /// Edition 1.7.10 session sends a cape over the default skin ([`is_client_default_skin`]).
+    ClientDefault,
+}
+
+/// Reports whether `skin` carries no pixels, asking for the client's own default skin with any
+/// cape and model it names. Only [`EmptySkin::ClientDefault`] decodes one; consumers resolve
+/// it before drawing.
+#[must_use]
+pub fn is_client_default_skin(skin: &PlayerSkin) -> bool {
+    matches!(skin, PlayerSkin::Standard(standard) if standard.width == 0 && standard.rgba8.is_empty())
+}
+
 pub(super) fn normalize_player_skin(
     skin: impl SkinSource,
     retained_bytes: &mut usize,
+    empty: EmptySkin,
 ) -> PlayerSkin {
     // Serialized persona payloads carry the assembled model, base raster and animation atlases.
     let image = skin.image();
     let (width, mut height) = (image.width, image.height);
+    if empty == EmptySkin::ClientDefault
+        && (width, height) == (0, 0)
+        && image.bytes.is_empty()
+        && !skin.persona()
+    {
+        // No pixels at all ask for the client's default skin; the cape and model still apply.
+        // The world store supplies that default, see `is_client_default_skin`.
+        let cape = normalize_cape(skin.cape(), retained_bytes);
+        let geometry = geometry_source(&skin, retained_bytes);
+        return PlayerSkin::Standard(StandardSkin {
+            width: 0,
+            height: 0,
+            rgba8: SkinRgba8::from(Vec::new()),
+            cape,
+            geometry,
+        });
+    }
     let classic = CLASSIC_SKIN_SIDE as u32;
     let legacy = (width, height) == (classic, classic / 2);
     let limit = if skin.persona() {
@@ -211,6 +249,49 @@ mod tests {
         assert_eq!(bytes, source.byte_len());
     }
 
+    /// A skin with no pixels asks for the client's default skin and keeps its cape; any other
+    /// unusable raster is still unavailable.
+    #[test]
+    fn a_skin_without_pixels_asks_for_the_default_and_keeps_its_cape() {
+        let cape = SkinImage {
+            width: wire::U32LE(64),
+            height: wire::U32LE(32),
+            image_bytes: vec![7; 64 * 32 * 4].into(),
+        };
+        let empty = SerializedSkinRef {
+            cape_image_data: cape.clone(),
+            ..Default::default()
+        };
+        let skin = normalize_player_skin(empty.clone(), &mut 0, EmptySkin::ClientDefault);
+        assert!(is_client_default_skin(&skin), "got {skin:?}");
+        let PlayerSkin::Standard(skin) = skin else {
+            unreachable!()
+        };
+        assert_eq!(
+            skin.cape.map(|cape| (cape.width, cape.height)),
+            Some((64, 32))
+        );
+
+        let persona = SerializedSkinRef {
+            is_persona: true,
+            ..empty.clone()
+        };
+        let truncated = SerializedSkinRef {
+            image_data: SkinImage {
+                width: wire::U32LE(64),
+                height: wire::U32LE(32),
+                image_bytes: Vec::new().into(),
+            },
+            ..empty
+        };
+        for unusable in [persona, truncated] {
+            assert!(matches!(
+                normalize_player_skin(unusable, &mut 0, EmptySkin::ClientDefault),
+                PlayerSkin::Unavailable(_)
+            ));
+        }
+    }
+
     #[test]
     fn classic_rejects_large_rasters_while_persona_accepts_the_bounded_larger_atlas() {
         for side in [MAX_CLASSIC_SKIN_SIDE as u32 * 2, MAX_STANDARD_SKIN_SIDE] {
@@ -223,12 +304,12 @@ mod tests {
                 ..Default::default()
             };
             assert_eq!(
-                normalize_player_skin(source.clone(), &mut 0),
+                normalize_player_skin(source.clone(), &mut 0, EmptySkin::Unavailable),
                 PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions)
             );
             source.is_persona = true;
             assert!(matches!(
-                normalize_player_skin(source, &mut 0),
+                normalize_player_skin(source, &mut 0, EmptySkin::Unavailable),
                 PlayerSkin::Standard(_)
             ));
         }
@@ -261,7 +342,8 @@ mod tests {
                     ..Default::default()
                 };
                 let mut retained = 0;
-                let PlayerSkin::Standard(skin) = normalize_player_skin(source, &mut retained)
+                let PlayerSkin::Standard(skin) =
+                    normalize_player_skin(source, &mut retained, EmptySkin::Unavailable)
                 else {
                     panic!("supported received skin");
                 };

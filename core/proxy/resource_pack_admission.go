@@ -18,6 +18,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
+	"github.com/hashimthearab/rust-mcbe/core/javaedition/skins"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -447,6 +448,7 @@ type preparedSlot struct {
 type preparedConnections struct {
 	account                     *authcache.Account
 	javaEdition                 *auth.Accounts // nil joins Java servers signed out
+	javaSkins                   *skins.Fetcher // shared by every Java join, so textures are cached across joins
 	logger                      *slog.Logger
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
@@ -479,6 +481,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	connections := &preparedConnections{
 		account:        account,
+		javaSkins:      skins.New(skins.Config{}),
 		logger:         logger,
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
@@ -491,7 +494,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		logger := joinprofile.Logger(ctx, logger)
 		if target.java {
-			return dialJavaUpstream(ctx, target.address, connections.javaEdition, dialer.IdentityData.DisplayName, logger)
+			return dialJavaUpstream(ctx, target.address, connections.javaEdition, connections.javaSkins, dialer.IdentityData.DisplayName, logger)
 		}
 		return connectUpstream(ctx, target.address, authenticationMode(dialer.TokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			attempt := withJoinStages(localHopDialer(target, address, dialer, accountTokenSource(connections.account)), logger)

@@ -43,8 +43,8 @@ pub use rig::{
 pub use skin::{
     ActorSkinPixels, DEFAULT_PLAYER_SKIN_PATH, DEFAULT_SKIN_PROVENANCE, MAX_RENDERED_PLAYERS,
     PLAYER_SKIN_BUDGET_BYTES, SKIN_CLASS_SIDES, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
-    actor_skin_side, default_actor_skin_rgba8, install_default_player_skin, normalize_actor_skin,
-    prepare_actor_skin_cached,
+    actor_skin_side, default_actor_skin_rgba8, install_default_player_skin,
+    legacy_default_skin_rgba8, legacy_skin_layout, normalize_actor_skin, prepare_actor_skin_cached,
 };
 pub use surface::ActorRigSurface;
 pub use texel_fit::{fit_rgba_within, fitted_channel, fitted_dimensions};

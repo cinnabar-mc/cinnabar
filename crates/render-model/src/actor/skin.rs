@@ -22,17 +22,43 @@ pub struct ActorSkinPixels {
 pub const DEFAULT_PLAYER_SKIN_PATH: &str = "textures/entity/steve.png";
 
 static VANILLA_DEFAULT_SKIN: OnceLock<SkinRgba8> = OnceLock::new();
+/// The installed default texture at its own 64x64 size, for [`legacy_default_skin_rgba8`].
+static VANILLA_DEFAULT_SKIN_SOURCE: OnceLock<Arc<[u8]>> = OnceLock::new();
 
 /// Installs the classic vanilla default texture once, packing it for the player array.
 pub fn install_default_player_skin(skin: Arc<[u8]>) {
     let side = CLASSIC_SKIN_SIDE as u32;
-    if let Some(skin) = normalize_actor_skin(&ActorSkinPixels {
+    if let Some(packed) = normalize_actor_skin(&ActorSkinPixels {
         width: side,
         height: side,
-        rgba8: skin.into(),
+        rgba8: Arc::clone(&skin).into(),
     }) {
-        let _ = VANILLA_DEFAULT_SKIN.set(skin);
+        let _ = VANILLA_DEFAULT_SKIN.set(packed);
+        let _ = VANILLA_DEFAULT_SKIN_SOURCE.set(skin);
     }
+}
+
+/// The installed default texture in the 64x32 layout older skins use, expanded back to 64x64,
+/// or `None` until a default texture is installed. Java Edition 1.7.10 sessions draw players
+/// without a skin with it, as that version's 64x32 Steve has no second layer and mirrors its
+/// left limbs from the right ones.
+#[must_use]
+pub fn legacy_default_skin_rgba8() -> Option<SkinRgba8> {
+    static LEGACY: OnceLock<SkinRgba8> = OnceLock::new();
+    let source = VANILLA_DEFAULT_SKIN_SOURCE.get()?;
+    Some(
+        LEGACY
+            .get_or_init(|| legacy_skin_layout(source).into())
+            .clone(),
+    )
+}
+
+/// Keeps a 64x64 skin's top half, the 64x32 layout, and expands it again: the second layers
+/// below it are dropped and the left limbs become mirrored copies of the right ones.
+#[must_use]
+pub fn legacy_skin_layout(square: &[u8]) -> Vec<u8> {
+    let half = CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE / 2 * 4;
+    render_api::expand_legacy_skin_rgba8(&square[..half], CLASSIC_SKIN_SIDE)
 }
 
 /// The vanilla Steve skin once installed, else a generated diagnostic skin.
@@ -140,6 +166,24 @@ mod tests {
             })
             .is_none()
         );
+    }
+
+    // The 64x32 layout of a 64x64 skin keeps its top half, drops the second layers below it
+    // and mirrors the right limbs onto the left ones, as Java Edition 1.7.10 draws Steve.
+    #[test]
+    fn legacy_layout_drops_second_layers_and_mirrors_limbs() {
+        let texel = |x: usize, y: usize| (y * 64 + x) * 4;
+        let mut square = vec![0u8; 64 * 64 * 4];
+        // Right leg front face, leftmost column; a jacket texel; a left leg texel.
+        square[texel(4, 20)..texel(4, 20) + 4].copy_from_slice(&[1, 2, 3, 255]);
+        square[texel(20, 36)..texel(20, 36) + 4].copy_from_slice(&[9, 9, 9, 255]);
+        square[texel(20, 52)..texel(20, 52) + 4].copy_from_slice(&[7, 7, 7, 255]);
+        let legacy = legacy_skin_layout(&square);
+        assert_eq!(legacy.len(), 64 * 64 * 4);
+        assert_eq!(&legacy[texel(4, 20)..texel(4, 20) + 4], &[1, 2, 3, 255]);
+        assert_eq!(&legacy[texel(23, 52)..texel(23, 52) + 4], &[1, 2, 3, 255]);
+        assert_eq!(&legacy[texel(20, 36)..texel(20, 36) + 4], &[0, 0, 0, 0]);
+        assert_eq!(&legacy[texel(20, 52)..texel(20, 52) + 4], &[0, 0, 0, 0]);
     }
 
     /// Narrow opaque texels in HD skins must not disappear when packed into the skin array.

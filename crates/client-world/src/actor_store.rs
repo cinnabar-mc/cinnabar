@@ -646,6 +646,10 @@ pub(crate) struct ActorStore {
     local_skin_fingerprints: profiles::SkinFingerprintMemo,
     /// A client skin that could not fit the profile budget is retried on later feeds.
     synthetic_local_skin_pending: bool,
+    /// Default skin requests kept until a default texture is installed, and where that
+    /// default comes from; see [`default_skin`].
+    pending_default_skins: HashMap<[u8; 16], PlayerSkin>,
+    legacy_default_skin: default_skin::LegacyDefaultSkin,
     /// Monotonic spawn/movement revision for the client-fed local player actor.
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
@@ -714,6 +718,7 @@ mod hurt;
 mod last_death;
 mod local_health;
 pub use local_health::DEFAULT_PLAYER_HEALTH;
+mod default_skin;
 mod dimensions;
 mod lifecycle;
 pub use dimensions::{DimensionWrite, ExplicitDimensions};

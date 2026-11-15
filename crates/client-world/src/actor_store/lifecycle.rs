@@ -139,6 +139,8 @@ impl ActorStore {
             synthetic_local_skin: None,
             local_skin_fingerprints: Default::default(),
             synthetic_local_skin_pending: false,
+            pending_default_skins: HashMap::new(),
+            legacy_default_skin: render_model::legacy_default_skin_rgba8,
             synthetic_local_revision: 0,
             local_first_person: false,
             local_view_dirty: false,
@@ -451,6 +453,7 @@ impl ActorStore {
         self.clear_links();
         self.players.clear();
         self.unlisted_players.clear();
+        self.pending_default_skins.clear();
         self.synthetic_local_uuid = None;
         self.synthetic_local_skin = None;
         self.local_skin_fingerprints.clear();
@@ -638,6 +641,7 @@ impl ActorStore {
                             xuid,
                             skin,
                         } => {
+                            let skin = self.resolve_default_skin(*uuid, skin.clone());
                             let admitted = self.upsert_profile(
                                 *uuid,
                                 PlayerProfile {
@@ -645,11 +649,15 @@ impl ActorStore {
                                     username: username.clone(),
                                     verified: *verified,
                                     xuid: xuid.clone(),
-                                    skin: skin.clone(),
+                                    skin,
                                 },
                                 spawned.as_ref(),
                             );
                             capacity_rejected |= !admitted;
+                            if !admitted {
+                                // No profile holds the request, so none waits for the default.
+                                self.pending_default_skins.remove(uuid);
+                            }
                             if admitted && self.synthetic_local_uuid == Some(*uuid) {
                                 self.synthetic_local_uuid = None;
                             }

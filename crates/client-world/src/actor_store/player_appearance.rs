@@ -49,9 +49,13 @@ impl ActorStore {
         }
     }
 
-    /// Removes the roster entry, keeping its appearance while the matching actor exists.
+    /// Removes the roster entry, keeping its appearance, and any default skin request it waits
+    /// on, while the matching actor exists; otherwise the request is dropped with it.
     pub(super) fn unlist_player(&mut self, uuid: &[u8; 16]) {
         let Some(profile) = self.players.remove(uuid) else {
+            if !self.unlisted_players.contains_key(uuid) {
+                self.pending_default_skins.remove(uuid);
+            }
             return;
         };
         if appearance_in_use(
@@ -64,14 +68,17 @@ impl ActorStore {
         ) {
             self.unlisted_players.insert(*uuid, profile);
         } else {
+            self.pending_default_skins.remove(uuid);
             self.retained_player_skin_bytes = self
                 .retained_player_skin_bytes
                 .saturating_sub(retained_skin_bytes(&profile.skin));
         }
     }
 
-    /// Releases unlisted appearances when their actor lifetime ends, including replacements.
+    /// Releases unlisted appearances, and the default skin requests they wait on, when their
+    /// actor lifetime ends, including replacements.
     pub(super) fn prune_unlisted_players(&mut self) {
+        let pending = &mut self.pending_default_skins;
         self.unlisted_players.retain(|uuid, profile| {
             let live = appearance_in_use(
                 &self.actors,
@@ -82,6 +89,7 @@ impl ActorStore {
                 profile.unique_id,
             );
             if !live {
+                pending.remove(uuid);
                 self.retained_player_skin_bytes = self
                     .retained_player_skin_bytes
                     .saturating_sub(retained_skin_bytes(&profile.skin));

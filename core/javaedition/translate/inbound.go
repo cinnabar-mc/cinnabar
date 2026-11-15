@@ -494,12 +494,17 @@ func (s *Session) playerListItem(pk *java.PlayerListItem) {
 		id = nameUUID(pk.Name)
 		st.listed[pk.Name] = id
 		unique := unlistedUniqueID(id)
-		if strings.EqualFold(pk.Name, s.conn.Profile().Username) {
+		own := strings.EqualFold(pk.Name, s.conn.Profile().Username)
+		if own {
 			unique = uniqueID(st.entityID)
 		}
-		s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name, unique)}})
+		s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{listEntry(id, pk.Name, unique, defaultSkin())}})
+		if own {
+			s.loadOwnSkin(id, pk.Name)
+		}
 	case !pk.Online && known:
 		delete(st.listed, pk.Name)
+		s.forgetSkin(id)
 		s.queue(&packet.PlayerList{Entries: []protocol.PlayerListEntry{{ActionType: protocol.PlayerListActionRemove, UUID: id}}})
 	}
 }

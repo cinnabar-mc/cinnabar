@@ -142,6 +142,7 @@ impl WorldAuthority {
     }
     /// Advances simulation ticks with one visual evaluation per tick.
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
+        self.resolve_pending_default_skins();
         self.actors.advance_interpolation_ticks(ticks);
         self.publish_actor_particles();
         self.publish_actor_audio();
@@ -162,9 +163,21 @@ impl WorldAuthority {
     }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
+        self.resolve_pending_default_skins();
         self.actors.advance_interpolation_frame(ticks);
         self.publish_actor_particles();
         self.publish_actor_audio();
+    }
+
+    /// Applies default skin requests that arrived before the default texture was installed,
+    /// and has the roster redrawn when one did.
+    fn resolve_pending_default_skins(&mut self) {
+        if self.actors.resolve_pending_default_skins() {
+            let sequence = self.actors.latest_sequence();
+            self.push_committed_control(crate::CommittedControlEvent::PlayerListChanged {
+                sequence,
+            });
+        }
     }
 
     fn publish_actor_particles(&mut self) {
