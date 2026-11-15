@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,6 +26,8 @@ type fakeApp struct {
 	stall chan struct{}
 	// declined makes the device-code sign-in end without a token once finish closes.
 	declined bool
+	// refreshErr, when not nil, fails every refresh of a saved token.
+	refreshErr error
 
 	mu         sync.Mutex
 	deviceAuth int
@@ -56,7 +59,22 @@ func (a *fakeApp) DeviceAccessToken(ctx context.Context, _ *oauth2.DeviceAuthRes
 }
 
 func (a *fakeApp) TokenSource(_ context.Context, token *oauth2.Token) oauth2.TokenSource {
-	return oauth2.StaticTokenSource(token)
+	return fakeSource{app: a, token: token}
+}
+
+// fakeSource hands out its token, or the app's refresh failure.
+type fakeSource struct {
+	app   *fakeApp
+	token *oauth2.Token
+}
+
+func (s fakeSource) Token() (*oauth2.Token, error) {
+	s.app.mu.Lock()
+	defer s.app.mu.Unlock()
+	if s.app.refreshErr != nil {
+		return nil, s.app.refreshErr
+	}
+	return s.token, nil
 }
 
 func (a *fakeApp) IdentityToken(ctx context.Context, source oauth2.TokenSource) (string, error) {
@@ -285,6 +303,56 @@ func TestKeychainARevokedSignInAsksAgain(t *testing.T) {
 	}
 }
 
+// A refresh Microsoft does not answer, from a network failure or a server error, keeps the
+// saved sign-in for the next join; only a refusal reads as no sign-in.
+func TestKeychainKeepsASignInMicrosoftDidNotRefresh(t *testing.T) {
+	cases := []struct {
+		name       string
+		refreshErr error
+		want       error
+	}{
+		{"network", &url.Error{Op: "Post", URL: "https://login.live.com", Err: errors.New("connection refused")}, ErrServicesUnreachable},
+		{"server error", &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusServiceUnavailable}}, ErrServicesUnreachable},
+		{"refused", &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusBadRequest}, ErrorCode: "invalid_grant"}, ErrNotSignedIn},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newFakeServices(t)
+			app := newFakeApp()
+			signedIn := newTestKeychain(t, app, fake.services())
+			if _, err := signedIn.BeginSignIn(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			close(app.finish)
+			testwait.Eventually(t, 5*time.Second, "the sign-in to finish", signedIn.SignedIn)
+			signedIn.Close()
+
+			app.mu.Lock()
+			app.refreshErr = test.refreshErr
+			app.mu.Unlock()
+			// A later core opens the saved token and has to refresh it.
+			keychain := NewKeychain(KeychainConfig{Path: signedIn.config.Path, App: app, Services: fake.services()})
+			t.Cleanup(keychain.Close)
+			_, err := keychain.Session(context.Background())
+			if !errors.Is(err, test.want) {
+				t.Fatalf("session = %v, want %v", err, test.want)
+			}
+			if test.want == ErrNotSignedIn {
+				return
+			}
+			if !keychain.SignedIn() {
+				t.Fatal("a sign-in Microsoft did not refresh was dropped")
+			}
+			app.mu.Lock()
+			app.refreshErr = nil
+			app.mu.Unlock()
+			if _, err := keychain.Session(context.Background()); err != nil {
+				t.Fatalf("session once Microsoft answers = %v", err)
+			}
+		})
+	}
+}
+
 // A join reads the session before it dials, so a slow sign-in must not hold it past its own
 // deadline: concurrent joins share one sign-in and each stops waiting at its deadline, while
 // the sign-in finishes in the background for the joins after them.
@@ -314,5 +382,14 @@ func TestKeychainSessionWaitsOnlyAsLongAsItsContext(t *testing.T) {
 	}
 	if _, identity := app.counts(); identity != 1 {
 		t.Fatalf("the waiting joins started %d sign-ins", identity)
+	}
+}
+
+// A closed keychain, as of a removed account, says so rather than reading as a cancelled join.
+func TestKeychainClosedSessionSaysSo(t *testing.T) {
+	keychain := newTestKeychain(t, newFakeApp(), newFakeServices(t).services())
+	keychain.Close()
+	if _, err := keychain.Session(context.Background()); !errors.Is(err, ErrKeychainClosed) {
+		t.Fatalf("session of a closed keychain = %v", err)
 	}
 }

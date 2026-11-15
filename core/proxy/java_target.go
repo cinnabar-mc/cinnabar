@@ -86,6 +86,9 @@ func dialJavaUpstream(ctx context.Context, address string, accounts *auth.Accoun
 				if errors.Is(err, auth.ErrNotSignedIn) {
 					return addAccount(ctx)
 				}
+				if errors.Is(err, auth.ErrKeychainClosed) {
+					return errJavaAccountChanged
+				}
 				if err != nil {
 					return err
 				}
@@ -112,6 +115,10 @@ func dialJavaUpstream(ctx context.Context, address string, accounts *auth.Accoun
 // saved name is updated, so the next join sends the new one.
 var errJavaProfileRenamed = errors.New("the Java Edition profile was renamed since it was saved")
 
+// errJavaAccountChanged refuses a join whose account was removed or replaced while it signed
+// in; the next join uses the account selected then.
+var errJavaAccountChanged = errors.New("the Java Edition account changed during the join")
+
 // errJavaNeedsAccount refuses an online-mode join of a player who is not signed in.
 var errJavaNeedsAccount = errors.New("joining an online-mode Java server needs a Java Edition account")
 
@@ -126,10 +133,14 @@ func javaJoinError(err error) error {
 		message = fmt.Sprintf("Add a Java account to join this server: go to %s, enter %s, then reconnect.", prompt.VerificationURI, prompt.UserCode)
 	case errors.Is(err, errJavaNeedsAccount):
 		message = "This Java server needs a Java account. Add one in Accounts, then reconnect."
+	case errors.Is(err, errJavaAccountChanged):
+		message = "Your Java account changed. Reconnect to join."
 	case errors.Is(err, errJavaProfileRenamed):
 		message = "Your Java profile was renamed since it was added. Reconnect to join."
 	case errors.Is(err, auth.ErrAddInProgress):
 		message = "Your Java account is being added. Reconnect in a moment."
+	case errors.Is(err, auth.ErrServicesUnreachable):
+		message = "Could not reach Microsoft to sign in to Java Edition. Reconnect to try again."
 	case errors.Is(err, auth.ErrSignInUnavailable):
 		message = "The Java Edition sign-in could not be started. Reconnect to try again."
 	case errors.As(err, &status) && status.Operation == auth.OperationJoin:

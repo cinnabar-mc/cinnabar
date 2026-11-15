@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
@@ -30,6 +31,14 @@ const defaultHTTPTimeout = 30 * time.Second
 // ErrNotSignedIn reports that the account has no usable Java Edition sign-in: none was made,
 // or the saved one can no longer be refreshed.
 var ErrNotSignedIn = errors.New("the account has no Java Edition sign-in")
+
+// ErrServicesUnreachable reports that Microsoft did not answer the refresh of a sign-in that
+// may still be valid, so the player should retry rather than sign in again.
+var ErrServicesUnreachable = errors.New("microsoft did not answer the Java Edition sign-in refresh")
+
+// ErrKeychainClosed reports a keychain closed before or during the request, as when its
+// account was removed or replaced.
+var ErrKeychainClosed = errors.New("the Java Edition sign-in was closed")
 
 // ErrSignInUnavailable reports that the device-code sign-in could not be started.
 var ErrSignInUnavailable = errors.New("the Java Edition sign-in could not be started")
@@ -138,6 +147,9 @@ type Keychain struct {
 	forgets uint64
 	// unusable marks a saved token that no longer works, until a new sign-in replaces it.
 	unusable bool
+	// lastRefresh is the last failed token refresh of the session sign-in under way, which
+	// tells a Microsoft that did not answer from a refused sign-in.
+	lastRefresh atomic.Pointer[error]
 }
 
 // pendingSignIn is a device-code sign-in the player has not finished yet.
@@ -215,7 +227,7 @@ func (k *Keychain) Session(ctx context.Context) (Session, error) {
 	}
 	if k.closed {
 		k.mu.Unlock()
-		return Session{}, context.Canceled
+		return Session{}, ErrKeychainClosed
 	}
 	if k.unusable && k.source == nil {
 		k.mu.Unlock()
@@ -231,6 +243,10 @@ func (k *Keychain) Session(ctx context.Context) (Session, error) {
 	k.mu.Unlock()
 	select {
 	case <-call.done:
+		if call.err != nil && k.lifetime.Err() != nil {
+			// The keychain closed under the sign-in, as when its account was removed.
+			return Session{}, fmt.Errorf("%w: %w", ErrKeychainClosed, call.err)
+		}
 		return call.session, call.err
 	case <-ctx.Done():
 		return Session{}, ctx.Err()
@@ -262,16 +278,23 @@ func (k *Keychain) signInSession(call *sessionSignIn, source oauth2.TokenSource,
 // when source is nil. An unreadable, unrefreshable or refused token is ErrNotSignedIn.
 func (k *Keychain) newSession(source oauth2.TokenSource) (Session, oauth2.TokenSource, error) {
 	ctx := k.lifetime
+	k.lastRefresh.Store(nil)
 	if source == nil {
 		if _, err := os.Stat(k.config.Path); errors.Is(err, os.ErrNotExist) {
 			return Session{}, nil, ErrNotSignedIn
 		}
-		// The token cache asks for a new token when the saved one is unreadable or no longer
-		// refreshes; the player has to sign in again then.
+		// The token cache asks for a new token when the saved one is unreadable or did not
+		// refresh. Only an unreadable token or a refusal means the player has to sign in
+		// again; a refresh Microsoft did not answer leaves the token for a later join.
 		var err error
 		source, err = authcache.Source(ctx, authcache.Config{
-			Path:    k.config.Path,
-			Request: func(context.Context, io.Writer) (*oauth2.Token, error) { return nil, ErrNotSignedIn },
+			Path: k.config.Path,
+			Request: func(context.Context, io.Writer) (*oauth2.Token, error) {
+				if failure := k.lastRefresh.Load(); failure != nil && !refusedByMicrosoft(*failure) {
+					return nil, fmt.Errorf("%w: %w", ErrServicesUnreachable, *failure)
+				}
+				return nil, ErrNotSignedIn
+			},
 			Refresh: k.refresh,
 		})
 		if errors.Is(err, ErrNotSignedIn) {
@@ -282,12 +305,15 @@ func (k *Keychain) newSession(source oauth2.TokenSource) (Session, oauth2.TokenS
 		}
 	}
 	identity, err := k.config.App.IdentityToken(ctx, source)
-	var refused *oauth2.RetrieveError
-	if errors.As(err, &refused) {
+	switch {
+	case err == nil:
+	case refusedByMicrosoft(err):
 		// The Microsoft sign-in itself was refused, as for a revoked token.
 		return Session{}, nil, fmt.Errorf("%w: %v", ErrNotSignedIn, err)
-	}
-	if err != nil {
+	case k.lastRefresh.Load() != nil && !errors.Is(err, ErrNotSignedIn):
+		// A refresh of the token Microsoft did not answer leaves the token usable.
+		return Session{}, nil, fmt.Errorf("%w: %w", ErrServicesUnreachable, err)
+	default:
 		return Session{}, nil, err
 	}
 	session, err := k.config.Services.SignIn(ctx, identity)
@@ -445,5 +471,29 @@ func (k *Keychain) Forget(ctx context.Context) error {
 
 // refresh is the token cache's refresh source for the sign-in's app.
 func (k *Keychain) refresh(token *oauth2.Token, _ io.Writer) oauth2.TokenSource {
-	return k.config.App.TokenSource(k.lifetime, token)
+	return recordingSource{source: k.config.App.TokenSource(k.lifetime, token), last: &k.lastRefresh}
+}
+
+// recordingSource keeps the last refresh failure, which the token cache does not pass on.
+type recordingSource struct {
+	source oauth2.TokenSource
+	last   *atomic.Pointer[error]
+}
+
+func (s recordingSource) Token() (*oauth2.Token, error) {
+	token, err := s.source.Token()
+	if err != nil {
+		s.last.Store(&err)
+	}
+	return token, err
+}
+
+// refusedByMicrosoft reports whether Microsoft answered a token request with a refusal, such
+// as for a revoked or expired sign-in, rather than failing to answer it.
+func refusedByMicrosoft(err error) bool {
+	var refused *oauth2.RetrieveError
+	if !errors.As(err, &refused) {
+		return false
+	}
+	return refused.Response == nil || refused.Response.StatusCode < http.StatusInternalServerError
 }
