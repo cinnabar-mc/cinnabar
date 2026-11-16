@@ -14,6 +14,10 @@ thread_local! {
     static ASSEMBLY_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+#[cfg(test)]
+#[path = "pack/large_dependencies_tests.rs"]
+mod large_dependencies_tests;
+
 /// Sources one pack may contribute before the rest are ignored.
 pub const MAX_PACK_ENTITY_SOURCES: usize =
     assets::MAX_ENTITY_ASSET_SOURCES - super::policy_sources::SOURCE_COUNT;

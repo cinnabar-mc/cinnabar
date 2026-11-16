@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
+mod dependency_budget;
 mod engine_variables;
 mod geometry;
+pub use dependency_budget::EntityDependencyStorageBudget;
 pub use engine_variables::EngineVariable;
 pub mod interactions;
 pub mod item_use;
@@ -92,7 +94,6 @@ pub const PACK_RIG_ID_BASE: u32 = 0x4000_0000;
 pub const PACK_EQUIPMENT_INDEX_BASE: u32 = 0x1000_0000;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
-pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
 pub const MAX_ENTITY_ASSET_PATH_BYTES: usize = 512;
 pub const MAX_ENTITY_IDENTIFIER_BYTES: usize = 512;
 pub const MAX_ENTITY_SOURCE_BYTES: usize = 8 * 1024 * 1024;
@@ -377,6 +378,7 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usiz
         return Err(invalid("invalid entity catalog provenance or counts"));
     }
     let mut total_source_bytes = 0usize;
+    let mut dependency_budget = EntityDependencyStorageBudget::new(MAX_ENTITY_CATALOG_BYTES);
     let mut previous_path: Option<&str> = None;
     for source in &compiled.sources {
         validate_relative_path(&source.path)?;
@@ -402,7 +404,6 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usiz
         let key = (symbol.kind, symbol.identifier.as_ref(), symbol.source_index);
         if previous_symbol.is_some_and(|previous| previous >= key)
             || symbol.source_index as usize >= compiled.sources.len()
-            || symbol.dependencies.len() > MAX_ENTITY_DEPENDENCIES
         {
             return Err(invalid("invalid or unordered entity catalog symbol"));
         }
@@ -412,6 +413,9 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usiz
         )?;
         let mut previous_dependency: Option<(EntityDependencyKind, &str)> = None;
         for dependency in &symbol.dependencies {
+            dependency_budget
+                .charge(dependency.identifier.len())
+                .map_err(|_| invalid("entity dependency storage exceeds catalog budget"))?;
             validate_identifier(&dependency.identifier)?;
             let dependency_key = (dependency.kind, dependency.identifier.as_ref());
             if previous_dependency.is_some_and(|previous| previous >= dependency_key) {

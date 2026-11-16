@@ -296,7 +296,7 @@ mod entity_tests {
     #[test]
     fn entity_startup_accepts_every_catalog_the_encoder_emits() {
         let mut compiled = super::super::test_carriers::synthetic_entity_assets(1);
-        let dependencies = (0..crate::MAX_ENTITY_DEPENDENCIES)
+        let dependencies = (0..700)
             .map(|index| crate::EntityDependency {
                 kind: crate::EntityDependencyKind::Geometry,
                 identifier: format!("geometry.{}.{index:03}", "x".repeat(400)).into(),

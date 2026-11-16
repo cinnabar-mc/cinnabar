@@ -3,9 +3,9 @@ use serde::{Deserialize, Deserializer, de};
 use crate::item::{MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS};
 
 use super::super::{
-    MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES,
-    MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES,
-    MAX_GEOMETRY_LOCATORS,
+    EntityDependencyStorageBudget, MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS,
+    MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
+    MAX_ENTITY_GEOMETRY_TEXTURE_MESHES, MAX_GEOMETRY_LOCATORS,
 };
 use super::{
     MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
@@ -106,7 +106,109 @@ struct SymbolProbe {
     kind: de::IgnoredAny,
     identifier: de::IgnoredAny,
     source_index: de::IgnoredAny,
-    dependencies: SequenceCount,
+    dependencies: DependencySequenceCount,
+}
+
+#[derive(Default)]
+struct StringByteCount(usize);
+
+impl<'de> Deserialize<'de> for StringByteCount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = StringByteCount;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an entity dependency identifier")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(StringByteCount(value.len()))
+            }
+
+            fn visit_borrowed_str<E>(self, value: &'_ str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(value)
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(StringByteCount(value.len()))
+            }
+        }
+
+        deserializer.deserialize_str(Visitor)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct DependencyProbe {
+    kind: de::IgnoredAny,
+    identifier: StringByteCount,
+    resolution: de::IgnoredAny,
+}
+
+#[derive(Default)]
+struct DependencySequenceCount {
+    count: usize,
+    identifier_bytes: usize,
+}
+
+impl<'de> Deserialize<'de> for DependencySequenceCount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = DependencySequenceCount;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an entity dependency array")
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let mut count = 0usize;
+                let mut identifier_bytes = 0usize;
+                while let Some(dependency) = sequence.next_element::<DependencyProbe>()? {
+                    let DependencyProbe {
+                        kind: _,
+                        identifier,
+                        resolution: _,
+                    } = dependency;
+                    count = count
+                        .checked_add(1)
+                        .ok_or_else(|| de::Error::custom("entity dependency count overflow"))?;
+                    identifier_bytes = identifier_bytes
+                        .checked_add(identifier.0)
+                        .ok_or_else(|| de::Error::custom("entity dependency bytes overflow"))?;
+                }
+                Ok(DependencySequenceCount {
+                    count,
+                    identifier_bytes,
+                })
+            }
+        }
+
+        deserializer.deserialize_seq(Visitor)
+    }
 }
 
 struct SymbolSequenceCount(usize);
@@ -116,7 +218,22 @@ impl<'de> Deserialize<'de> for SymbolSequenceCount {
     where
         D: Deserializer<'de>,
     {
-        struct Visitor;
+        Self::deserialize_with_budget(deserializer, MAX_ENTITY_CATALOG_BYTES)
+    }
+}
+
+impl SymbolSequenceCount {
+    /// Counts all symbols' dependency storage before any typed dependency array is allocated.
+    fn deserialize_with_budget<'de, D>(
+        deserializer: D,
+        limit_bytes: usize,
+    ) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Visitor {
+            limit_bytes: usize,
+        }
 
         impl<'de> de::Visitor<'de> for Visitor {
             type Value = SymbolSequenceCount;
@@ -130,6 +247,7 @@ impl<'de> Deserialize<'de> for SymbolSequenceCount {
                 A: de::SeqAccess<'de>,
             {
                 let mut count = 0usize;
+                let mut dependency_budget = EntityDependencyStorageBudget::new(self.limit_bytes);
                 while let Some(symbol) = sequence.next_element::<SymbolProbe>()? {
                     let SymbolProbe {
                         mount_equipment: _,
@@ -138,9 +256,12 @@ impl<'de> Deserialize<'de> for SymbolSequenceCount {
                         source_index: _,
                         dependencies,
                     } = symbol;
-                    if dependencies.0 > MAX_ENTITY_DEPENDENCIES {
+                    if dependency_budget
+                        .charge_many(dependencies.count, dependencies.identifier_bytes)
+                        .is_err()
+                    {
                         return Err(de::Error::custom(
-                            "entity dependency count preflight exceeds bound",
+                            "entity dependency storage preflight exceeds catalog budget",
                         ));
                     }
                     count = count
@@ -151,7 +272,7 @@ impl<'de> Deserialize<'de> for SymbolSequenceCount {
             }
         }
 
-        deserializer.deserialize_seq(Visitor)
+        deserializer.deserialize_seq(Visitor { limit_bytes })
     }
 }
 
@@ -379,6 +500,26 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    #[test]
+    fn dependency_preflight_budget_is_shared_across_symbols() {
+        let dependency = serde_json::json!({"kind":null,"identifier":"x","resolution":null});
+        let symbol = serde_json::json!({
+            "mount_equipment":null,"kind":null,"identifier":null,"source_index":null,
+            "dependencies":[dependency]
+        });
+        let bytes = serde_json::to_vec(&vec![symbol; 3]).unwrap();
+        let entry_bytes = std::mem::size_of::<crate::EntityDependency>() + 1;
+        let mut decoder = serde_json::Deserializer::from_slice(&bytes);
+        let accepted = SymbolSequenceCount::deserialize_with_budget(&mut decoder, entry_bytes * 3)
+            .expect("the exact shared storage budget is admissible");
+        assert_eq!(accepted.0, 3);
+        let mut decoder = serde_json::Deserializer::from_slice(&bytes);
+        let error = SymbolSequenceCount::deserialize_with_budget(&mut decoder, entry_bytes * 2)
+            .err()
+            .expect("separate symbols must charge the same budget");
+        assert!(error.to_string().contains("dependency storage preflight"));
+    }
 
     #[test]
     fn geometry_probe_tracks_all_serialized_geometry_fields_and_remains_strict() {

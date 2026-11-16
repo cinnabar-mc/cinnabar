@@ -416,24 +416,19 @@ fn carrier_v4_preflights_selectable_geometry_candidates_before_typed_allocation(
 }
 
 #[test]
-fn carrier_v4_preflights_nested_dependency_arrays_before_typed_allocation() {
-    let blob = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
-    let mut payload: serde_json::Value =
-        serde_json::from_slice(&blob[80..blob.len() - 32]).unwrap();
-    payload["symbols"][0]["dependencies"] = serde_json::Value::Array(vec![
-        serde_json::Value::Null;
-        entity::MAX_ENTITY_DEPENDENCIES
-            + 1
-    ]);
-    let payload = serde_json::to_vec(&payload).unwrap();
-    let mut excessive = blob[..80].to_vec();
-    excessive[56..64].copy_from_slice(&(payload.len() as u64).to_le_bytes());
-    excessive.extend_from_slice(&payload);
-    let digest = Sha256::digest(&excessive);
-    excessive.extend_from_slice(&digest);
-
-    let error = RuntimeEntityAssets::decode(&excessive).unwrap_err();
-    assert!(error.to_string().contains("count preflight"));
+fn carrier_v4_preflights_dependency_storage_without_a_leaf_count_cap() {
+    let mut fixture = carrier_v4_fixture();
+    fixture.symbols[0].dependencies = (0..700)
+        .map(|index| entity::EntityDependency {
+            kind: entity::EntityDependencyKind::Geometry,
+            identifier: format!("geometry.external.{index:04}").into(),
+            resolution: entity::EntityDependencyResolution::External,
+        })
+        .collect();
+    let blob = entity::encode_entity_blob(&fixture).unwrap();
+    let decoded = RuntimeEntityAssets::decode(&blob)
+        .expect("a canonical catalog below the byte budget remains admissible");
+    assert_eq!(decoded.symbols()[0].dependencies.len(), 700);
 }
 
 #[test]
