@@ -46,8 +46,8 @@ pub(super) enum Expr {
     Call(MolangFunction, Vec<Expr>),
     Unary(Unary, Box<Expr>),
     Binary(Binary, Box<Expr>, Box<Expr>),
-    And(Box<Expr>, Box<Expr>),
-    Or(Box<Expr>, Box<Expr>),
+    And(Vec<Expr>),
+    Or(Vec<Expr>),
     /// `condition ? yes : no`, or `condition ? yes` which reads 0.0 when false.
     Conditional(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
     Coalesce(Slot, Box<str>, Box<Expr>),
@@ -301,6 +301,22 @@ impl Parser<'_> {
             return self.unary(depth);
         }
         let mut left = self.binary(level + 1, depth)?;
+        if level < 2 {
+            let operator = LEVELS[level][0];
+            if matches!(self.peek(), Token::Operator(found) if *found == operator) {
+                let mut operands = vec![left];
+                while matches!(self.peek(), Token::Operator(found) if *found == operator) {
+                    self.bump();
+                    operands.push(self.binary(level + 1, depth)?);
+                }
+                let chain = if level == 0 {
+                    Expr::Or(operands)
+                } else {
+                    Expr::And(operands)
+                };
+                return bounded(chain);
+            }
+        }
         while let Token::Operator(operator) = *self.peek() {
             if !LEVELS[level].contains(&operator) {
                 break;
@@ -309,8 +325,7 @@ impl Parser<'_> {
             let right = Box::new(self.binary(level + 1, depth)?);
             let left_box = Box::new(left);
             left = match operator {
-                "||" => Expr::Or(left_box, right),
-                "&&" => Expr::And(left_box, right),
+                "||" | "&&" => unreachable!("boolean levels are gathered above"),
                 _ => Expr::Binary(binary_operator(operator), left_box, right),
             };
             left = bounded(left)?;

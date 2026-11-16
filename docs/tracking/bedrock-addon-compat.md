@@ -7,8 +7,13 @@ an end-to-end reproduction. Identify the causes before selecting implementation
 changes. Do not introduce item-identifier checks, add-on-specific rendering paths,
 or a host-provided weapon HUD.
 
-Status: initial blocking causes identified; implementation and visual acceptance
-remain pending. No implementation fix is claimed.
+Status: generic dependency-admission and actionbar-layering fixes are implemented
+and covered by passing regression tests. A headless BDS retest confirms visible,
+updating ammunition count/type, but the held weapon still appears as a gray plane;
+authored gun animation acceptance remains incomplete. Flat Molang chain handling
+now passes compiler/evaluator regressions and retains the complete pre-animation
+program in an isolated pack probe. Additional first-person player-controller
+models and live animated rendering remain active work.
 
 ## Reported behavior
 
@@ -109,25 +114,27 @@ test suites during parallel read-only analysis.
 ### Large player definitions are discarded before rig compilation
 
 A Bedrock-accepted player definition in the reproduction has 664 animation
-aliases and 859 unique typed dependencies. `collect_string_leaves` rejects the
-513th string before deduplication, and per-file preparation classifies the whole
-entity as unparsable. The player symbol, geometry aliases and animation roots are
-lost together. A minimal fixture referencing the same clip through 512 aliases
-is accepted; 513 aliases discard the definition.
+aliases and 859 unique typed dependencies. The baseline `collect_string_leaves`
+rejected the 513th string before deduplication, and per-file preparation classified
+the whole entity as unparsable. The player symbol, geometry aliases and animation
+roots were lost together. A minimal fixture referencing the same clip through
+512 aliases was accepted; 513 aliases discarded the definition.
 
-Change the input traversal and dependency accounting in
-`crates/pack-compiler/entity/src/entity.rs`, coordinated with catalog validation
-in `crates/assets/src/entity.rs` and carrier preflight in
-`crates/assets/src/entity/v4/preflight.rs`. Separate raw alias counts from unique
-references and replace unverified per-entity limits with checked indexing and
-appropriate aggregate resource accounting. Review consumers of
-`MAX_ENTITY_DEPENDENCIES`, including particle scans; do not silently truncate
-valid content or merely substitute a larger arbitrary constant.
+Dependency traversal now streams leaves and deduplicates references. The shared
+`EntityDependencyStorageBudget` charges retained dependency entries and owned
+identifier bytes with checked arithmetic. Compiler assembly, compiled-asset
+validation and streaming carrier preflight enforce the aggregate catalog budget;
+preflight runs before typed dependency arrays are allocated. Existing source,
+identifier, ordering and resolution checks remain. This is a retained-storage
+estimate, not an exact peak-allocation ceiling during source parsing.
 
-Test many aliases of one clip, a large unique dependency set, carrier
-encode/decode, and isolation of an independently invalid source. Admission of the
-player definition is a prerequisite, not proof that every downstream animation
-and first-person layer is correct.
+Regression tests exercise many aliases of one clip, a large unique dependency
+set, rig/carrier round trips, an independently invalid neighboring source,
+exact storage boundaries, overflow and cross-symbol preflight accounting. The
+unrelated particle consumer's existing reference truncation remains explicitly
+incomplete; no broader particle-limit parity is claimed. Admission is a
+prerequisite, not proof that every downstream animation and first-person layer
+is correct.
 
 ### Built-in HUD placement leaks into server-authored controls
 
@@ -141,15 +148,53 @@ draw with vanilla plus the server overlay, zero with the Java HUD underneath,
 and one after restoring only the vanilla actionbar definition before the server
 overlay. This isolates placement from text delivery, alpha and font handling.
 
-Extend the existing restore-before-server-layer policy in
-`crates/ui-screens/src/hud.rs` and `crates/ui-screens/src/hud/titles.rs`, or
-otherwise isolate Cinnabar-owned presentation defaults from server-owned
-controls. Preserve normal Bedrock merge semantics in `crates/json-ui/src/pack.rs`.
-Use control ownership, not add-on identifiers, to select the policy.
+The existing restore-before-server-layer policy now restores the carrier's
+actionbar definition immediately before the first server layer authoring it.
+Normal JSON-UI merge semantics are unchanged, later server customizations survive,
+and an untouched actionbar retains the built-in presentation. Selection uses the
+vanilla control identity, not add-on identifiers.
 
-Test a server panel that omits anchors, multiline and changing text, and the
-unchanged built-in HUD when no server override exists. Inspect real frames after
-implementation.
+Production-seam tests cover visible multiline/changing text, the untouched
+built-in HUD, a non-authoring lower layer and multiple authoring server layers.
+Headless BDS frames confirm visible ammunition count/type and delivered-value
+updates. This does not qualify complete native HUD parity or gun animations.
+
+### Flat Molang boolean chains trip the expression-tree depth bound
+
+With vanilla reference definitions supplied, the baseline admitted the player rig
+but dropped its pre-animation program. An exact-fragment probe identified a flat
+logical-OR chain rejected
+by the expression-tree depth bound in
+`crates/pack-compiler/entity/src/entity/molang/parser.rs`. The fragment has no
+parentheses or ternaries; a long flat chain becomes a deep owned expression tree.
+This is an additional confirmed compiler gap, not a rendered-animation pass.
+
+Flat AND/OR chains now use private n-ary nodes, gathered and depth-checked once
+per precedence level, with iterative left-to-right short-circuit lowering and
+normalized boolean results. Folding and block-state evaluation retain lazy order.
+Existing source/operation budgets and genuinely nested-input guards remain; the
+depth constant was not raised. Synthetic compiler/evaluator regressions cover
+long dynamic chains and precedence; owning tests cover lazy folding, branch
+targets, source/operation boundaries and nested-input rejection.
+
+All exact pre-animation fragments compile, and an isolated production-library
+pack probe retains the complete program. Other optional reference fallbacks remain;
+this is not proof of controller selection, a rendered model or authored animations.
+
+### Additional player-controller models are not composed into first person
+
+`crates/client-presentation/src/actor_publication/hand.rs` publishes an arm-masked
+body and held items, but does not apply the controller-layer compositor used by
+`presentation/entity_layers.rs` for actor batches. The reproduction describes its
+weapon with an additional first-person player-controller geometry. This is a
+confirmed implementation gap; its contribution after the admission fix still
+requires live evidence.
+
+A follow-up must carry selected additional geometries, their sampled first-person
+poses, materials and artwork through hand publication and the near-camera pass.
+Keep normal arms, held items and map artwork independent; do not reuse a reserved
+texture slot or add a weapon-specific render path. Add a regression at actual hand
+publication, then qualify the rendered frame and animated sequence.
 
 ### Rejections need source-level attribution
 

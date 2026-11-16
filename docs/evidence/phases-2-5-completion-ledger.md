@@ -353,6 +353,17 @@ and exact native and platform comparison remain open.
 
 ## P4.3-RIGS
 
+Client-entity dependency admission deduplicates references and applies checked catalog-wide
+retained-storage accounting through compiler assembly, compiled validation and streaming carrier
+preflight. Synthetic regressions cover repeated aliases, unique references, rig/carrier round trips,
+invalid neighbors and budget boundaries. Transient producer allocations and native limit parity
+remain open. Flat boolean chains now use n-ary nodes and iterative short-circuit lowering.
+Compiler/evaluator regressions cover dynamic long chains and precedence; source/operation
+boundaries, lazy folding, branch targets and genuine nested-input guards have owning coverage.
+An isolated pack probe retains complete pre-animation; other optional fallbacks and rendered
+qualification remain open. Additional player-controller models are composed for actor batches
+but not yet published through the first-person hand path; model and animation acceptance remain open.
+
 Local leg cycles consume completed physics movement in both animation modes.
 Deterministic coverage checks independent actor cadence, movement retries and frame
 interpolation. Linux running-jump captures cover both modes; matched native
@@ -461,6 +472,12 @@ faces. Regressions cover projected surface orientation, transparent front holes 
 retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
 
 ## P5.2-HUD
+
+Server-authored actionbar definitions restore carrier defaults before the first authoring layer,
+preventing built-in Java anchors from leaking into a panel that relies on carrier placement.
+Production policy/factory/layout regressions cover visible multiline updates, untouched built-in
+presentation, non-authoring lower layers and later-layer customization. Full rendered and native
+HUD qualification remains open.
 
 | Field | Evidence |
 |---|---|

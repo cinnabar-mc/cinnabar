@@ -33,11 +33,15 @@ fn loop_foreach_and_branch_bodies_keep_structural_depth() {
 
 #[test]
 fn flat_binary_chains_bound_the_constructed_tree() {
-    for operator in ["+", "-", "*", "/", "&&", "||", "==", "<"] {
+    for operator in ["+", "-", "*", "/", "==", "<"] {
         let chain = |terms: usize| vec!["1"; terms].join(operator);
         assert!(parse(&chain(MAX_PARSE_DEPTH + 1)).is_ok(), "{operator}");
         assert!(parse(&chain(MAX_PARSE_DEPTH + 2)).is_err(), "{operator}");
         assert!(parse(&chain(8_000)).is_err(), "{operator}");
+    }
+    for operator in ["&&", "||"] {
+        let chain = |terms: usize| vec!["1"; terms].join(operator);
+        assert!(parse(&chain(80)).is_ok(), "{operator}");
     }
 }
 
@@ -48,4 +52,11 @@ fn binary_and_nested_call_depth_share_the_owned_tree_limit() {
     assert!(parse(&format!("math.abs({child})")).is_err());
     assert!(parse(&format!("({child}) * 1")).is_err());
     assert!(parse(&format!("q.health ? ({child}) : 0")).is_err());
+}
+
+#[test]
+fn nested_boolean_subexpressions_still_obey_the_owned_tree_limit() {
+    let child = format!("{}v.x", "!".repeat(MAX_PARSE_DEPTH + 1));
+    assert!(parse(&format!("({child}) && 1")).is_err());
+    assert!(parse(&format!("math.abs(({child}) && 1)")).is_err());
 }

@@ -236,8 +236,22 @@ fn block_value<'e, 'a: 'e>(
         Expr::Binary(operator, left, right) => {
             BlockStateValue::Number(binary(*operator, number(left)?, number(right)?))
         }
-        Expr::And(left, right) => truth(number(left)? != 0.0 && number(right)? != 0.0),
-        Expr::Or(left, right) => truth(number(left)? != 0.0 || number(right)? != 0.0),
+        Expr::And(operands) => {
+            for operand in operands {
+                if number(operand)? == 0.0 {
+                    return Some(truth(false));
+                }
+            }
+            truth(true)
+        }
+        Expr::Or(operands) => {
+            for operand in operands {
+                if number(operand)? != 0.0 {
+                    return Some(truth(true));
+                }
+            }
+            truth(false)
+        }
         Expr::Conditional(condition, yes, no) => {
             if number(condition)? != 0.0 {
                 block_value(yes, query, variables)?
@@ -495,7 +509,7 @@ fn lower(
         IrOp::Pop => MolangOp::Pop,
         IrOp::Negate => MolangOp::Negate,
         IrOp::Not => MolangOp::Not,
-        IrOp::Truthy => MolangOp::Truthy,
+
         IrOp::Binary(operator) => match operator {
             Binary::Add => MolangOp::Add,
             Binary::Subtract => MolangOp::Subtract,
@@ -528,6 +542,8 @@ fn lower(
     })
 }
 
+#[cfg(test)]
+mod flat_chain_tests;
 #[cfg(test)]
 mod tests;
 

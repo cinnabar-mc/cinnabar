@@ -907,6 +907,14 @@ acceptance remains incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
+  Client-entity dependencies are deduplicated and admitted by checked catalog-wide retained-storage
+  accounting, not an alias-count cutoff. Carrier preflight applies the same accounting before typed
+  allocation. Source limits, transient producer allocations and the separate particle-owner
+  reference truncation remain unqualified against native behavior. Flat boolean chains use
+  n-ary nodes and iterative short-circuit lowering rather than recursive tree growth, with
+  source/operation budgets and genuine nested-input guards retained. Compiler/evaluator
+  regressions and an isolated complete pre-animation compilation pass; first-person controller
+  model publication and matched rendered qualification remain incomplete.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.
@@ -1467,6 +1475,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   still leaves some blank; that bound is incomplete parity work.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  The first server layer authoring an actionbar overlays carrier defaults rather than
+  inheriting the built-in HUD's anchors; later server customizations remain intact.
+  Regression tests cover visible multiline text and untouched built-in presentation;
+  broader composed-HUD and matched native acceptance remain incomplete.
   Server locator packets now reach session-owned locations and the pack-positioned bar
   in Survival and Creative, with explicit hiding and temporary XP display. Locator
   distance-dependent icons, legacy color selection, tracked-actor fallback behavior,
