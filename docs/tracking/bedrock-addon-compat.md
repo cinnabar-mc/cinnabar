@@ -7,7 +7,8 @@ an end-to-end reproduction. Identify the causes before selecting implementation
 changes. Do not introduce item-identifier checks, add-on-specific rendering paths,
 or a host-provided weapon HUD.
 
-Status: investigation. No implementation fix or visual acceptance is claimed.
+Status: initial blocking causes identified; implementation and visual acceptance
+remain pending. No implementation fix is claimed.
 
 ## Reported behavior
 
@@ -102,6 +103,66 @@ test suites during parallel read-only analysis.
       sampled animation frames cover animation behavior.
 - [x] Remaining parity work is reflected in the existing relevant `plan.md`
       section and completion ledger when implementation changes land.
+
+## Confirmed compatibility gaps and proposed changes
+
+### Large player definitions are discarded before rig compilation
+
+A Bedrock-accepted player definition in the reproduction has 664 animation
+aliases and 859 unique typed dependencies. `collect_string_leaves` rejects the
+513th string before deduplication, and per-file preparation classifies the whole
+entity as unparsable. The player symbol, geometry aliases and animation roots are
+lost together. A minimal fixture referencing the same clip through 512 aliases
+is accepted; 513 aliases discard the definition.
+
+Change the input traversal and dependency accounting in
+`crates/pack-compiler/entity/src/entity.rs`, coordinated with catalog validation
+in `crates/assets/src/entity.rs` and carrier preflight in
+`crates/assets/src/entity/v4/preflight.rs`. Separate raw alias counts from unique
+references and replace unverified per-entity limits with checked indexing and
+appropriate aggregate resource accounting. Review consumers of
+`MAX_ENTITY_DEPENDENCIES`, including particle scans; do not silently truncate
+valid content or merely substitute a larger arbitrary constant.
+
+Test many aliases of one clip, a large unique dependency set, carrier
+encode/decode, and isolation of an independently invalid source. Admission of the
+player definition is a prerequisite, not proof that every downstream animation
+and first-person layer is correct.
+
+### Built-in HUD placement leaks into server-authored controls
+
+The built-in Java HUD gives `hud.hud_actionbar_text` bottom-to-top anchors. A
+server overlay replaces its type and content while relying on vanilla's default
+anchors. Ordinary property-wise merging retains the Java anchors and places the
+nested label below the viewport. The text is delivered and resolved, but clipped.
+
+A production JSON-UI layout probe at a 640-by-360 virtual viewport emits one text
+draw with vanilla plus the server overlay, zero with the Java HUD underneath,
+and one after restoring only the vanilla actionbar definition before the server
+overlay. This isolates placement from text delivery, alpha and font handling.
+
+Extend the existing restore-before-server-layer policy in
+`crates/ui-screens/src/hud.rs` and `crates/ui-screens/src/hud/titles.rs`, or
+otherwise isolate Cinnabar-owned presentation defaults from server-owned
+controls. Preserve normal Bedrock merge semantics in `crates/json-ui/src/pack.rs`.
+Use control ownership, not add-on identifiers, to select the policy.
+
+Test a server panel that omits anchors, multiline and changing text, and the
+unchanged built-in HUD when no server override exists. Inspect real frames after
+implementation.
+
+### Rejections need source-level attribution
+
+`crates/pack-compiler/entity/src/entity/pack/prepared.rs` currently loses the
+specific parser/validation reason through `.ok()?`. Retain a bounded diagnostic
+with the source path, failing stage and reason, so a resource-budget rejection is
+not reported only as an unparsable file. Keep bad-file isolation and avoid
+per-frame logging.
+
+These are independent, generic changes. The reproduction also contains an
+invalid geometry document for a different weapon; do not treat editing that
+add-on file as the AKM compatibility fix or broadly relax JSON parsing without
+native-behavior evidence.
 
 ## Evidence policy
 
