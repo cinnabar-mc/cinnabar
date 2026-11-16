@@ -15,8 +15,10 @@ use super::{InventoryGestureError, PlayerInventoryLedger, WORKBENCH_WINDOW_TYPE,
 
 mod extra_outputs;
 mod output;
+mod repair;
 mod shield;
 pub(super) use extra_outputs::{ExtraDestination, created_stack};
+pub use repair::{RepairCraft, merged_damage};
 pub use shield::ShieldCraft;
 mod placement;
 pub(super) use placement::{OutputPlanner, action_amounts};

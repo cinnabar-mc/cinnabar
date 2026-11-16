@@ -18,6 +18,8 @@ pub mod inventory_router;
 mod item_permissions;
 mod manual_craft;
 mod matching;
+#[cfg(test)]
+mod repair_tests;
 mod screen_recipes;
 mod selection;
 mod session;

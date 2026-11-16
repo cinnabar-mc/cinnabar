@@ -27,6 +27,8 @@ pub enum CraftGridMatch {
     Unique(RecipeHandle),
     /// A banner applied to the current shield through its advertised special recipe.
     Shield(crate::inventory_ledger::ShieldCraft),
+    /// Two damaged copies of one item combined through the server's item-repair recipe.
+    Repair(crate::inventory_ledger::RepairCraft),
 }
 
 /// Whether a decoded ingredient view accepts an item and its declared tags.
