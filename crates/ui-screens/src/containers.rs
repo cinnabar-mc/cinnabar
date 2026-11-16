@@ -671,6 +671,65 @@ impl Cells<'_> {
     }
 }
 
+/// The `width` by `width` crafting grid's cells from UI slot `first`: an occupied cell shows its
+/// stack with its durability bar, and an empty one the recipe-book ghost placed there, if any.
+fn crafting_grid_cells(
+    cells: &mut Cells<'_>,
+    ledger: &inventory::inventory_ledger::PlayerInventoryLedger,
+    frame: &ContainerFrame<'_>,
+    first: u8,
+    width: usize,
+) -> Vec<CollectionItem> {
+    let icon = |index: usize| frame.crafting.icons.get(index).copied().flatten();
+    (0..width * width)
+        .map(|index| {
+            let slot = first + index as u8;
+            match ledger.target_stack(InventoryTarget::Craft(slot)) {
+                Some(stack) => {
+                    let durability = frame
+                        .ui_durability
+                        .get(usize::from(slot))
+                        .copied()
+                        .flatten();
+                    cells.cell(Some(stack), icon(index), durability)
+                }
+                None => match ledger.crafting_ghost_stack(slot) {
+                    Some(ghost) => ghost_cell(cells.cell(Some(ghost), icon(index), None)),
+                    None => cells.cell(None, icon(index), None),
+                },
+            }
+        })
+        .collect()
+}
+
+/// The crafting result cell: a recipe-book ghost on red art, a result the server created with its
+/// own durability bar, or the client's predicted result without one.
+fn crafting_output_cell(
+    cells: &mut Cells<'_>,
+    ledger: &inventory::inventory_ledger::PlayerInventoryLedger,
+    frame: &ContainerFrame<'_>,
+) -> CollectionItem {
+    match frame.crafting.output.as_ref() {
+        // An unfilled recipe-book selection shows its result as a ghost too.
+        Some((icon, stack)) if frame.crafting.output_is_ghost => {
+            ghost_cell(cells.cell(Some(stack), *icon, None))
+        }
+        Some((icon, stack)) => {
+            let durability = (ledger.created_output_stack() == Some(stack))
+                .then(|| {
+                    frame
+                        .ui_durability
+                        .get(usize::from(protocol::CREATED_OUTPUT_SLOT))
+                        .copied()
+                        .flatten()
+                })
+                .flatten();
+            cells.cell(Some(stack), *icon, durability)
+        }
+        None => cells.cell(None, None, None),
+    }
+}
+
 /// A recipe-book ghost: the missing item on the red cell art.
 fn ghost_cell(item: CollectionItem) -> CollectionItem {
     item.with(
@@ -757,29 +816,9 @@ pub fn screen_data(
             } else {
                 2
             };
-            let first = layout.craft_slot();
-            let icon = |index: usize| frame.crafting.icons.get(index).copied().flatten();
-            let grid = (0..width * width)
-                .map(|index| {
-                    let slot = first + index as u8;
-                    match ledger.target_stack(InventoryTarget::Craft(slot)) {
-                        Some(stack) => cells.cell(Some(stack), icon(index), None),
-                        None => match ledger.crafting_ghost_stack(slot) {
-                            Some(ghost) => ghost_cell(cells.cell(Some(ghost), icon(index), None)),
-                            None => cells.cell(None, icon(index), None),
-                        },
-                    }
-                })
-                .collect();
+            let grid = crafting_grid_cells(&mut cells, ledger, frame, layout.craft_slot(), width);
             data.set_collection("crafting_input_items", grid);
-            let output = match frame.crafting.output.as_ref() {
-                // An unfilled recipe-book selection shows its result as a ghost too.
-                Some((icon, stack)) if frame.crafting.output_is_ghost => {
-                    ghost_cell(cells.cell(Some(stack), *icon, None))
-                }
-                Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
-                None => cells.cell(None, None, None),
-            };
+            let output = crafting_output_cell(&mut cells, ledger, frame);
             data.set_collection("crafting_output_items", vec![output]);
             let armor = (0..4u8)
                 .map(|slot| {
@@ -836,6 +875,8 @@ pub fn screen_data(
 
 #[cfg(test)]
 mod auto_place_tests;
+#[cfg(test)]
+mod crafting_grid_tests;
 #[cfg(test)]
 mod empty_cells_tests;
 #[cfg(test)]
