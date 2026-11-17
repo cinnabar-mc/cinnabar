@@ -391,11 +391,11 @@ fn derived_path(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-pub(crate) fn cache_leases(path: &Path) -> io::Result<(File, File)> {
+fn cache_leases(path: &Path) -> io::Result<(File, File)> {
     cache_leases_with(path, lease)
 }
 
-pub(crate) fn cache_try_leases(path: &Path) -> io::Result<(File, File)> {
+fn cache_try_leases(path: &Path) -> io::Result<(File, File)> {
     cache_leases_with(path, try_lease)
 }
 
@@ -417,13 +417,13 @@ fn cache_leases_with(
     Ok((derived, oauth))
 }
 
-fn lease(path: &Path) -> io::Result<File> {
+pub(crate) fn lease(path: &Path) -> io::Result<File> {
     let file = open_lock(path)?;
     file.lock()?;
     Ok(file)
 }
 
-fn try_lease(path: &Path) -> io::Result<File> {
+pub(crate) fn try_lease(path: &Path) -> io::Result<File> {
     let file = open_lock(path)?;
     file.try_lock().map_err(|error| match error {
         std::fs::TryLockError::WouldBlock => io::Error::new(

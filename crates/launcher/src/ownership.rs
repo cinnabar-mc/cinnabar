@@ -1,7 +1,11 @@
 //! Whether this install may start: proof that the player owns Minecraft, from any source the
 //! platform offers, and the cached pass that keeps account proof usable offline.
 
-use std::{io, path::Path};
+use std::{
+    fs::File,
+    io,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -184,39 +188,54 @@ pub fn record(
     }
 }
 
-/// Records `check` of license sign-in `sign_in` (empty when unknown) in the pass at `pass_path`,
-/// holding the license account's lock so it cannot race [`forget_license`]; returns whether play
-/// may continue and whether the pass was saved. Only a different known sign-in drops the pass,
-/// and a check whose account was removed meanwhile saves nothing.
+/// Held for one whole license check, from starting the helper to recording its answer, so checks
+/// and [`forget_license`] on this install never interleave.
+pub struct CheckLock {
+    _file: File,
+}
+
+/// Waits until no other license check on this install is running.
+pub fn lock_checks(license_cache: &Path) -> io::Result<CheckLock> {
+    let path = check_lock_path(license_cache);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    Ok(CheckLock {
+        _file: crate::accounts::lease(&path)?,
+    })
+}
+
+fn check_lock_path(license_cache: &Path) -> PathBuf {
+    license_cache.with_file_name("ownership.lock")
+}
+
+/// Records `check` of license sign-in `sign_in` (empty when unknown) in the pass at `pass_path`;
+/// returns whether play may continue and whether the pass was saved. Only a different known
+/// sign-in drops the pass, and a check whose account was removed saves nothing.
 pub fn record_check(
+    _lock: &CheckLock,
     license_cache: &Path,
     pass_path: &Path,
     check: Check,
     sign_in: &str,
     now: u64,
 ) -> (Verdict, io::Result<()>) {
-    let leases = crate::accounts::cache_leases(license_cache);
     let pass = load_pass(pass_path);
     let other_account =
         !sign_in.is_empty() && pass.as_ref().is_some_and(|pass| pass.sign_in != sign_in);
     let (pass, verdict) = record(pass, check, other_account, now);
-    let saved = match leases {
-        Err(error) => Err(error),
-        Ok(_leases) if license_cache.is_file() => save_pass(
-            pass_path,
-            pass.map(|pass| Pass {
-                sign_in: if sign_in.is_empty() {
-                    pass.sign_in
-                } else {
-                    sign_in.to_owned()
-                },
-                ..pass
-            })
-            .as_ref(),
-        ),
-        Ok(_) => Ok(()),
-    };
-    (verdict, saved)
+    if !license_cache.is_file() {
+        return (verdict, Ok(()));
+    }
+    let pass = pass.map(|pass| Pass {
+        sign_in: if sign_in.is_empty() {
+            pass.sign_in
+        } else {
+            sign_in.to_owned()
+        },
+        ..pass
+    });
+    (verdict, save_pass(pass_path, pass.as_ref()))
 }
 
 /// The saved pass; a missing or unreadable one is none.
@@ -238,9 +257,13 @@ pub fn save_pass(path: &Path, pass: Option<&Pass>) -> io::Result<()> {
 }
 
 /// Forgets the license account: its credentials, the files the core keeps beside them, and
-/// the pass. Fails with [`io::ErrorKind::WouldBlock`] while a check holds the credentials.
+/// the pass. Fails with [`io::ErrorKind::WouldBlock`] while a check is running.
 pub fn forget_license(license_cache: &Path, pass: &Path) -> io::Result<()> {
-    let _leases = crate::accounts::cache_try_leases(license_cache)?;
+    let path = check_lock_path(license_cache);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _lock = crate::accounts::try_lease(&path)?;
     let directory = license_cache.parent().unwrap_or(Path::new("."));
     let name = license_cache
         .file_name()

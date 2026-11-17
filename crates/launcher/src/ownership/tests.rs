@@ -199,12 +199,13 @@ fn a_check_finishing_after_removal_restores_no_pass() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("license/microsoft-token.json");
     let pass_file = dir.path().join("license/ownership.json");
-    let (verdict, saved) = record_check(&cache, &pass_file, Check::Verified, "a", T0);
+    let lock = lock_checks(&cache).unwrap();
+    let (verdict, saved) = record_check(&lock, &cache, &pass_file, Check::Verified, "a", T0);
     assert_eq!(verdict, Verdict::Allow);
     saved.unwrap();
     assert_eq!(load_pass(&pass_file), None);
     std::fs::write(&cache, b"{}").unwrap();
-    record_check(&cache, &pass_file, Check::Verified, "a", T0)
+    record_check(&lock, &cache, &pass_file, Check::Verified, "a", T0)
         .1
         .unwrap();
     assert_eq!(
@@ -222,13 +223,14 @@ fn another_sign_in_never_inherits_a_pass() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("license/microsoft-token.json");
     let pass_file = dir.path().join("license/ownership.json");
+    let lock = lock_checks(&cache).unwrap();
     save_pass(&pass_file, Some(&pass(T0))).unwrap();
     std::fs::write(&cache, b"{}").unwrap();
-    record_check(&cache, &pass_file, Check::Verified, "a", T0)
+    record_check(&lock, &cache, &pass_file, Check::Verified, "a", T0)
         .1
         .unwrap();
     for check in [Check::Unverifiable, Check::NotOwned] {
-        let (verdict, _) = record_check(&cache, &pass_file, check, "b", T0 + DAY);
+        let (verdict, _) = record_check(&lock, &cache, &pass_file, check, "b", T0 + DAY);
         assert_eq!(verdict, Verdict::Deny(check));
     }
     assert_eq!(load_pass(&pass_file), None);
@@ -240,18 +242,33 @@ fn an_unknown_sign_in_keeps_the_pass() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("license/microsoft-token.json");
     let pass_file = dir.path().join("license/ownership.json");
-    std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    let lock = lock_checks(&cache).unwrap();
     std::fs::write(&cache, b"{}").unwrap();
-    record_check(&cache, &pass_file, Check::Verified, "a", T0)
+    record_check(&lock, &cache, &pass_file, Check::Verified, "a", T0)
         .1
         .unwrap();
-    let (verdict, saved) = record_check(&cache, &pass_file, Check::Unverifiable, "", T0 + DAY);
+    let (verdict, saved) =
+        record_check(&lock, &cache, &pass_file, Check::Unverifiable, "", T0 + DAY);
     saved.unwrap();
     assert_eq!(verdict, Verdict::Allow);
     assert_eq!(
         load_pass(&pass_file).map(|pass| pass.sign_in),
         Some("a".into())
     );
+}
+
+#[test]
+fn removal_waits_for_no_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("license/microsoft-token.json");
+    let pass_file = dir.path().join("license/ownership.json");
+    let lock = lock_checks(&cache).unwrap();
+    assert_eq!(
+        forget_license(&cache, &pass_file).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    drop(lock);
+    forget_license(&cache, &pass_file).unwrap();
 }
 
 #[test]

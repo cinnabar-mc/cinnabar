@@ -102,12 +102,21 @@ fn account(
     cancel: &AtomicBool,
     on_code: &mut dyn FnMut(&str, &str),
 ) -> Verdict {
+    let license = layout.license_cache();
+    let lock = match policy::lock_checks(&license) {
+        Ok(lock) => lock,
+        Err(error) => {
+            tracing::warn!(kind = ?error.kind(), "ownership check not started");
+            return Verdict::Deny(Check::Unverifiable);
+        }
+    };
     let finding = sources::check_account(layout, client_id, sign_in, cancel, on_code);
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return Verdict::Deny(Check::Unverifiable);
     }
     let (verdict, saved) = policy::record_check(
-        &layout.license_cache(),
+        &lock,
+        &license,
         &layout.ownership_pass_file(),
         finding.check,
         &finding.account,
@@ -182,8 +191,9 @@ pub(crate) fn with_dialogs(
 ) -> bool {
     let mut sign_in = false;
     loop {
+        // A blocking dialog, so the code stays readable; the check keeps polling meanwhile.
         let refusal = match verify(sign_in, &mut |uri, code| {
-            prompter.info(title_text, &code_prompt(uri, code));
+            prompter.alert(title_text, &code_prompt(uri, code));
         }) {
             Answer::Allowed => return true,
             Answer::Denied(refusal) => refusal,
