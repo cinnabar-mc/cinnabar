@@ -419,11 +419,13 @@ fn unopened_inventory_preparation_keeps_names_without_repeating_artwork() {
             ui_layers: vec![vec![
                 (
                     "ui/_ui_defs.json".into(),
-                    br#"{"ui_defs":["ui/crafting.json"]}"#.to_vec(),
+                    br#"{"ui_defs":["ui/crafting.json"]}"#.to_vec().into(),
                 ),
                 (
                     "ui/crafting.json".into(),
-                    br#"{"namespace":"crafting","inventory_screen":{"type":"screen"}}"#.to_vec(),
+                    br#"{"namespace":"crafting","inventory_screen":{"type":"screen"}}"#
+                        .to_vec()
+                        .into(),
                 ),
             ]],
             ..Default::default()

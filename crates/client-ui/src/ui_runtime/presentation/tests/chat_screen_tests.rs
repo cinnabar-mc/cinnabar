@@ -376,7 +376,8 @@ fn server_suggestion_offset_keeps_the_builtin_anchor_and_hits() {
                 "namespace": "chat",
                 "java_chat_content/suggestions": {"offset": [0, -70]}
             }"#
-            .to_vec(),
+            .to_vec()
+            .into(),
         )]],
         ..Default::default()
     });
@@ -409,7 +410,7 @@ fn server_chat_screen_keeps_builtin_content_and_scene_policy() {
             "namespace":"chat",
             "chat_screen":{"render_game_behind":false,"$screen_content":"chat.server_content"},
             "server_content":{"type":"panel","controls":[{"marker":{"type":"label","text":"Server chat"}}]}
-        }"#.to_vec())]],
+        }"#.to_vec().into())]],
         ..Default::default()
     });
     build(&player, &mut presentation, &runtime, 0);

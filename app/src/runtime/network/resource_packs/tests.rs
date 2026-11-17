@@ -249,7 +249,7 @@ fn ui_index_loads_custom_paths_and_extensions() {
     catalog.apply_pack(
         pack.ui_layers[0]
             .iter()
-            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+            .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
     );
     assert!(catalog.lookup("custom", "inventory").is_some());
 }
@@ -283,17 +283,18 @@ fn ui_definitions_past_sixteen_mib_all_load() {
     catalog.apply_pack(
         pack.ui_layers[0]
             .iter()
-            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+            .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
     );
     for namespace in ["first", "second", "small"] {
         assert!(catalog.lookup(namespace, "card").is_some(), "{namespace}");
     }
 }
 
-/// An index listing many spellings of one stored document reads it once, so
-/// retained definition bytes stay within the pack's admitted entries.
+/// An index listing many spellings of one stored document reads it once: each
+/// spelling keeps its own catalog path, but all of them share one copy of the
+/// bytes, so retained definition bytes stay within the pack's admitted entries.
 #[test]
-fn ui_index_spellings_of_one_document_read_it_once() {
+fn ui_index_spellings_of_one_document_share_one_read() {
     let spellings = [
         "ui/card.json",
         "ui/CARD.json",
@@ -316,14 +317,22 @@ fn ui_index_spellings_of_one_document_read_it_once() {
         .iter()
         .filter(|(name, _)| name.eq_ignore_ascii_case(spellings[0]))
         .collect();
-    assert_eq!(copies.len(), 1, "{copies:?}");
-    // The kept spelling is a declared one, so the document still loads.
-    assert!(spellings[1..].contains(&copies[0].0.as_str()));
+    let mut names: Vec<_> = copies.iter().map(|(name, _)| name.as_str()).collect();
+    names.sort_unstable();
+    let mut expected = spellings.to_vec();
+    expected.sort_unstable();
+    assert_eq!(names, expected, "every spelling keeps its catalog path");
+    assert!(
+        copies
+            .iter()
+            .all(|(_, bytes)| std::sync::Arc::ptr_eq(bytes, &copies[0].1)),
+        "spellings of one entry must share one read"
+    );
     let mut catalog = json_ui::Catalog::default();
     catalog.apply_pack(
         pack.ui_layers[0]
             .iter()
-            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+            .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
     );
     assert!(catalog.lookup("spelled", "card").is_some());
 }
@@ -418,7 +427,7 @@ fn ui_custom_definition_overrides_across_layers_without_relisting() {
         catalog.apply_pack(
             files
                 .iter()
-                .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+                .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
         );
     }
     assert_eq!(

@@ -131,7 +131,8 @@ fn hovering_a_disabled_button_preserves_keyboard_activation() {
                 }]
             }
         }"#
-            .to_vec(),
+            .to_vec()
+            .into(),
         )]],
         ..Default::default()
     });

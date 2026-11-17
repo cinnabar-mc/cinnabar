@@ -261,7 +261,7 @@ impl FormEngine {
     }
 
     /// Apply a server pack's ui files over vanilla and the built-in packs; none restores the base.
-    pub fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
+    pub fn set_server_pack(&mut self, layers: &[Vec<json_ui::PackUiFile>]) {
         if layers.iter().all(Vec::is_empty) {
             self.install_pack_catalog(Arc::clone(&self.base), None);
             return;

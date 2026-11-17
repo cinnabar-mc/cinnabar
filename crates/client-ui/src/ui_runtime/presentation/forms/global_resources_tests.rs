@@ -238,9 +238,9 @@ fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/live_reload.json"]}"#.to_vec(),
+                br#"{"ui_defs":["ui/live_reload.json"]}"#.to_vec().into(),
             ),
-            ("ui/live_reload.json".into(), definition),
+            ("ui/live_reload.json".into(), definition.into()),
         ]],
         textures: vec![
             ("textures/ui/cinnabar_live_marker.png".into(), test_raster()),

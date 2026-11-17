@@ -27,9 +27,9 @@ fn hud_pack(hud: &[u8]) -> ServerUiPack {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".to_owned(),
-                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec().into(),
             ),
-            ("ui/hud_screen.json".to_owned(), hud.to_vec()),
+            ("ui/hud_screen.json".to_owned(), hud.to_vec().into()),
         ]],
         ..Default::default()
     }

@@ -112,7 +112,7 @@ fn admitted_settings_forms_keep_every_interactive_element() {
     let mut layer = Vec::new();
     files(&root, &root.join("ui"), &mut layer);
     let pack = super::super::super::ServerUiPack {
-        ui_layers: vec![layer],
+        ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(layer)],
         ..Default::default()
     };
     let mut paths: Vec<_> = std::fs::read_dir(fixtures)

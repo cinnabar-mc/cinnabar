@@ -131,7 +131,8 @@ fn crosshair_stays_in_the_world_center_while_edge_hud_respects_insets() {
                             "ui_defs":["ui/hud_crosshair_fixture.json", "ui/hud_screen.json"]
                         })
                         .to_string()
-                        .into_bytes(),
+                        .into_bytes()
+                        .into(),
                     ),
                     (
                         "ui/hud_crosshair_fixture.json".into(),
@@ -142,7 +143,8 @@ fn crosshair_stays_in_the_world_center_while_edge_hud_respects_insets() {
                                 "controls":[{"cursor":cursor}]}
                         })
                         .to_string()
-                        .into_bytes(),
+                        .into_bytes()
+                        .into(),
                     ),
                     (
                         "ui/hud_screen.json".into(),
@@ -154,7 +156,8 @@ fn crosshair_stays_in_the_world_center_while_edge_hud_respects_insets() {
                             }]}
                         })
                         .to_string()
-                        .into_bytes(),
+                        .into_bytes()
+                        .into(),
                     ),
                 ]],
                 textures: vec![(format!("{CROSSHAIR_TEXTURE}.png"), texture.clone())],

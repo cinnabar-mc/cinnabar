@@ -78,7 +78,7 @@ fn admitted_dynamic_title_selects_only_its_authored_branch() {
     let player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     runtime.set_server_ui(Some(Arc::new(ServerUiPack {
-        ui_layers: vec![pack],
+        ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(pack)],
         textures: pack_harness::pack_files(&root.join("textures"))
             .into_iter()
             .map(|(path, bytes)| (format!("textures/{path}"), bytes))

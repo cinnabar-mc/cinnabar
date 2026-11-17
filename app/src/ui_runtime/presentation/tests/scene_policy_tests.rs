@@ -33,7 +33,9 @@ fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: vec![vec![(
             "ui/hud_screen.json".into(),
-            br#"{"namespace":"hud","hud_screen":{"render_only_when_topmost":true}}"#.to_vec(),
+            br#"{"namespace":"hud","hud_screen":{"render_only_when_topmost":true}}"#
+                .to_vec()
+                .into(),
         )]],
         ..Default::default()
     });
@@ -77,7 +79,7 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: vec![vec![(
             "ui/settings_screen.json".into(),
-            serde_json::to_vec(&opaque_settings).unwrap(),
+            serde_json::to_vec(&opaque_settings).unwrap().into(),
         )]],
         ..Default::default()
     });
@@ -90,7 +92,9 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: vec![vec![(
             "ui/pause_screen.json".into(),
-            br#"{"namespace":"pause","pause_screen":{"render_game_behind":false}}"#.to_vec(),
+            br#"{"namespace":"pause","pause_screen":{"render_game_behind":false}}"#
+                .to_vec()
+                .into(),
         )]],
         ..Default::default()
     });

@@ -103,7 +103,8 @@ fn cancel_presentation() -> UiPresentationRuntime {
                     "$screen_content": "server_form.main_screen_content"
                 }
             }"#
-            .to_vec(),
+            .to_vec()
+            .into(),
         )]],
         ..Default::default()
     });
@@ -169,7 +170,7 @@ fn toggle_submit(touch: bool) {
                 "toggle_name":"custom_toggle","toggle_collection_name":"custom_form",
                 "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"button.submit_custom_form","mapping_type":"pressed"}]
             }}]}
-        }"#.to_vec())]], ..Default::default()
+        }"#.to_vec().into())]], ..Default::default()
     });
     presentation
         .build(
@@ -924,7 +925,8 @@ fn menu_cancel_key_yields_to_a_selected_edit_box() {
                             "size": [200, 30] } }]
                     }
                 }"#
-                .to_vec(),
+                .to_vec()
+                .into(),
             )]],
             ..Default::default()
         });

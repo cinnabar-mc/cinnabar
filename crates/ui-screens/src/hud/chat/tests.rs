@@ -331,7 +331,7 @@ fn encoded_message_fixture_binds_only_its_caption() {
     let catalog = Catalog::from_files(
         files
             .iter()
-            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+            .map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
     )
     .unwrap();
     let root = json_ui::resolve(&catalog, "hover.row", &json_ui::Context::empty())
@@ -363,7 +363,7 @@ fn hud_factory_keeps_the_server_caption_across_refreshes() {
     pack.apply_pack(
         files
             .iter()
-            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+            .map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
     );
     prefer_builtin(&mut pack, &builtin);
     let context = json_ui::Context::empty();
@@ -551,17 +551,20 @@ fn message_templates_cannot_replace_shared_chat_shell_definitions() {
     let builtin = builtin();
     let mut policy = ui_engine::engine::pack_catalog::CatalogPolicy::default();
     policy.after_layers(prefer_builtin);
-    let files = vec![
+    let files: Vec<json_ui::PackUiFile> = vec![
         (
             json_ui::UI_DEFS_PATH.into(),
-            br#"{"ui_defs":["ui/ui_common.json","ui/chat_screen.json"]}"#.to_vec(),
+            br#"{"ui_defs":["ui/ui_common.json","ui/chat_screen.json"]}"#
+                .as_slice()
+                .into(),
         ),
         (
             "ui/ui_common.json".into(),
             json!({"namespace":"common",
             "base_screen":{"ignored":true,"size":[43,17]}})
             .to_string()
-            .into_bytes(),
+            .into_bytes()
+            .into(),
         ),
         (
             "ui/chat_screen.json".into(),
@@ -569,7 +572,8 @@ fn message_templates_cannot_replace_shared_chat_shell_definitions() {
             "messages_text":{"controls":[{"caption@common.base_screen":{
                 "ignored":false,"text":"Isolated caption"}}]}})
             .to_string()
-            .into_bytes(),
+            .into_bytes()
+            .into(),
         ),
     ];
     let layered = policy.layer(&builtin, &[files]);

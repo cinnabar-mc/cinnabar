@@ -127,7 +127,7 @@ fn large_local_fallbacks_preserve_carrier_and_icon_pixels_below_server_overrides
         );
     let mut runtime = UiRuntime::new(1);
     let pack = ServerUiPack {
-        ui_layers: vec![files],
+        ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(files)],
         ..Default::default()
     };
     runtime.set_server_ui(Some(Arc::new(pack.clone())));

@@ -43,7 +43,7 @@ fn animated_sheet_pack() -> ServerUiPack {
     )
     .unwrap();
     ServerUiPack {
-        ui_layers: vec![files],
+        ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(files)],
         textures: vec![("textures/ui/original_sheet.png".into(), png.into_inner())],
         catalog: Some(Arc::new(catalog)),
         ..Default::default()
@@ -85,12 +85,12 @@ fn emote_source_readiness_rebuilds_static_crop_coordinates() {
     let mut screen = root["hud_screen"].take();
     screen["controls"][0]["sheet"]["uv"] = serde_json::json!([0, 4064]);
     root["emote_wheel_screen"] = screen;
-    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap();
+    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap().into();
     pack.catalog = Some(Arc::new(
         json_ui::Catalog::from_files(
             pack.ui_layers[0]
                 .iter()
-                .map(|(p, b)| (p.as_str(), b.as_slice())),
+                .map(|(p, b)| (p.as_str(), b.as_ref())),
         )
         .unwrap(),
     ));
@@ -135,12 +135,12 @@ fn inventory_source_readiness_rebuilds_static_crop_coordinates() {
     let mut screen = root["hud_screen"].take();
     screen["controls"][0]["sheet"]["uv"] = serde_json::json!([0, 4064]);
     root["inventory_screen"] = screen;
-    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap();
+    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap().into();
     pack.catalog = Some(Arc::new(
         json_ui::Catalog::from_files(
             pack.ui_layers[0]
                 .iter()
-                .map(|(p, b)| (p.as_str(), b.as_slice())),
+                .map(|(p, b)| (p.as_str(), b.as_ref())),
         )
         .unwrap(),
     ));
@@ -188,12 +188,12 @@ fn archive_source_readiness_rebuilds_static_crop_coordinates() {
     let mut pack = animated_sheet_pack();
     let mut root: serde_json::Value = serde_json::from_slice(&pack.ui_layers[0][2].1).unwrap();
     root["hud_screen"]["controls"][0]["sheet"]["uv"] = serde_json::json!([0, 4064]);
-    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap();
+    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap().into();
     pack.catalog = Some(Arc::new(
         json_ui::Catalog::from_files(
             pack.ui_layers[0]
                 .iter()
-                .map(|(p, b)| (p.as_str(), b.as_slice())),
+                .map(|(p, b)| (p.as_str(), b.as_ref())),
         )
         .unwrap(),
     ));

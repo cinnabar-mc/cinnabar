@@ -26,11 +26,11 @@ fn inventory_fixture(
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/crafting.json"]}"#.to_vec(),
+                br#"{"ui_defs":["ui/crafting.json"]}"#.to_vec().into(),
             ),
             (
                 "ui/crafting.json".into(),
-                serde_json::to_vec(&definition).unwrap(),
+                serde_json::to_vec(&definition).unwrap().into(),
             ),
         ]],
         ..Default::default()

@@ -127,7 +127,8 @@ fn a_pack_that_hides_the_game_behind_the_screen_stops_world_rendering() {
         ui_layers: vec![vec![(
             "ui/mob_effect_screen.json".into(),
             br#"{"namespace":"mob_effect","mob_effect_screen":{"render_game_behind":false}}"#
-                .to_vec(),
+                .to_vec()
+                .into(),
         )]],
         ..Default::default()
     });
@@ -197,11 +198,11 @@ fn effects_touch_target_follows_painted_art_and_retires_with_the_hud() {
             ui_layers: vec![vec![
                 (
                     "ui/_ui_defs.json".into(),
-                    br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
+                    br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec().into(),
                 ),
                 (
                     "ui/hud_screen.json".into(),
-                    serde_json::to_vec(&screen).unwrap(),
+                    serde_json::to_vec(&screen).unwrap().into(),
                 ),
             ]],
             ..Default::default()

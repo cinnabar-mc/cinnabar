@@ -56,7 +56,7 @@ fn selected_edit_box(max_length: i64) -> (UiRuntime, EngineFrame) {
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: vec![vec![(
             "ui/server_form.json".into(),
-            form_button.into_bytes(),
+            form_button.into_bytes().into(),
         )]],
         ..Default::default()
     });

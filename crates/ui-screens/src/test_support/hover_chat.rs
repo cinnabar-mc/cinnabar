@@ -16,7 +16,7 @@ pub fn message_with_caption(caption: &str) -> String {
 }
 
 /// A server pack whose message rows parse their caption and retain a zero-sized tooltip.
-pub fn files() -> Vec<(String, Vec<u8>)> {
+pub fn files() -> Vec<json_ui::PackUiFile> {
     [
         ("ui/_ui_defs.json", json!({"ui_defs":["ui/hover_chat.json","ui/chat_screen.json","ui/hud_screen.json"]})),
         ("ui/_global_variables.json", json!({"$hover_caption_width":160})),
@@ -60,5 +60,5 @@ pub fn files() -> Vec<(String, Vec<u8>)> {
                     "anchor_from":"top_left","anchor_to":"top_left","layer":5,
                     "consume_hover_events":false}}
             ]}})),
-    ].into_iter().map(|(path, value)| (path.to_owned(), value.to_string().into_bytes())).collect()
+    ].into_iter().map(|(path, value)| (path.to_owned(), value.to_string().into_bytes().into())).collect()
 }

@@ -110,9 +110,9 @@ fn java_pack_draws_rows_and_the_vanilla_pack_draws_the_column() {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec().into(),
             ),
-            ("ui/hud_screen.json".into(), vanilla_hud),
+            ("ui/hud_screen.json".into(), vanilla_hud.into()),
         ]],
         ..Default::default()
     });

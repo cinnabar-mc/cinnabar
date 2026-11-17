@@ -98,9 +98,9 @@ mod tests {
             ui_layers: vec![vec![
                 (
                     "ui/_ui_defs.json".into(),
-                    br#"{"ui_defs":["ui/server_brand.json"]}"#.to_vec(),
+                    br#"{"ui_defs":["ui/server_brand.json"]}"#.to_vec().into(),
                 ),
-                ("ui/server_brand.json".into(), definition),
+                ("ui/server_brand.json".into(), definition.into()),
             ]],
             textures: vec![(format!("{key}.png"), png)],
             ..Default::default()
@@ -148,9 +148,9 @@ mod tests {
                 ui_layers: vec![vec![
                     (
                         "ui/_ui_defs.json".into(),
-                        br#"{"ui_defs":["ui/original_brand.json"]}"#.to_vec(),
+                        br#"{"ui_defs":["ui/original_brand.json"]}"#.to_vec().into(),
                     ),
-                    ("ui/original_brand.json".into(), definition),
+                    ("ui/original_brand.json".into(), definition.into()),
                 ]],
                 textures: vec![(format!("{key}.png"), png)],
                 ..Default::default()
@@ -190,9 +190,9 @@ mod tests {
             ui_layers: vec![vec![
                 (
                     "ui/_ui_defs.json".into(),
-                    br#"{"ui_defs":["ui/original_brand.json"]}"#.to_vec(),
+                    br#"{"ui_defs":["ui/original_brand.json"]}"#.to_vec().into(),
                 ),
-                ("ui/original_brand.json".into(), definition),
+                ("ui/original_brand.json".into(), definition.into()),
             ]],
             textures: vec![(format!("{key}.png"), png)],
             ..Default::default()

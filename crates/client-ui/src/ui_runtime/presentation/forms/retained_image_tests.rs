@@ -20,7 +20,7 @@ fn retained_menu_publishes_requested_original_image_pixels() {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/original_title.json"]}"#.to_vec(),
+                br#"{"ui_defs":["ui/original_title.json"]}"#.to_vec().into(),
             ),
             (
                 "ui/original_title.json".into(),
@@ -28,7 +28,8 @@ fn retained_menu_publishes_requested_original_image_pixels() {
                     "namespace":"common_art",
                     "title_image":{"type":"image", "texture":TITLE_KEY}
                 }))
-                .unwrap(),
+                .unwrap()
+                .into(),
             ),
         ]],
         textures: vec![(format!("{TITLE_KEY}.png"), bytes.into_inner())],

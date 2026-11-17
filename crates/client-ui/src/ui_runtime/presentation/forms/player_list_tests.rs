@@ -25,11 +25,13 @@ fn enable_empty_hud(presentation: &mut UiPresentationRuntime) {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec().into(),
             ),
             (
                 "ui/hud_screen.json".into(),
-                br#"{"namespace":"hud","hud_screen":{"type":"screen","controls":[]}}"#.to_vec(),
+                br#"{"namespace":"hud","hud_screen":{"type":"screen","controls":[]}}"#
+                    .to_vec()
+                    .into(),
             ),
         ]],
         ..Default::default()

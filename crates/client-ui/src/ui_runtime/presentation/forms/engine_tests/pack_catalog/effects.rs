@@ -114,7 +114,7 @@ fn admitted_pack() -> Option<super::super::super::ServerUiPack> {
             files
                 .iter()
                 .filter(|(path, _)| path.starts_with("ui/") && path.ends_with(".json"))
-                .cloned()
+                .map(|(path, bytes)| (path.clone(), bytes.as_slice().into()))
                 .collect(),
         );
         pack.textures.extend(

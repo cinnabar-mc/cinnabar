@@ -21,6 +21,11 @@ pub const GLOBAL_VARIABLES_PATH: &str = "ui/_global_variables.json";
 /// The pack-relative definition index.
 pub const UI_DEFS_PATH: &str = "ui/_ui_defs.json";
 
+/// One server pack UI document: the path the catalog identifies it by, and its
+/// bytes. Spellings that read one archive entry keep their own paths but share
+/// the bytes.
+pub type PackUiFile = (String, std::sync::Arc<[u8]>);
+
 use GLOBAL_VARIABLES_PATH as GLOBALS;
 use UI_DEFS_PATH as UI_DEFS;
 
