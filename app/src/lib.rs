@@ -47,6 +47,8 @@ mod particles;
 mod pick_block;
 pub mod platform_devices;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod platform_display;
+#[cfg(not(target_arch = "wasm32"))]
 mod present_mode;
 mod primitive_shapes;
 #[cfg(not(target_arch = "wasm32"))]

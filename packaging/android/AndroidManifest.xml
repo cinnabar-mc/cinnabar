@@ -6,11 +6,14 @@
     android:versionName="@VERSION_NAME@">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
+    <!-- The game category lets Android 15 and later hold the app at a 60 Hz game default, which
+         the client's own display-rate request (ANativeWindow_setFrameRate) outranks. -->
     <application
         android:label="@PRODUCT_NAME@"
         android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:allowBackup="false"
+        android:appCategory="game"
         android:extractNativeLibs="true"
         android:theme="@style/StartupTheme">
         <profileable android:shell="@PROFILEABLE@" />

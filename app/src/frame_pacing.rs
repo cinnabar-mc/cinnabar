@@ -1,5 +1,7 @@
 //! Chooses the frame admission cadence from the session's frame-rate limit and window state.
 
+#[cfg(any(target_os = "android", test))]
+pub(crate) mod android_display_rate;
 mod display;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod display_link;
@@ -154,6 +156,21 @@ impl FramePacingRuntime {
             .refresh
             .map(|refresh| pacing.rate.map_or(refresh, |rate| refresh.min(rate)))
     }
+}
+
+/// The refresh rate Android is asked to run the display at: the display's own, or the
+/// session's frame-rate target when that is lower.
+#[cfg(any(target_os = "android", test))]
+fn display_rate_request(
+    intent: PresentationIntent,
+    limit: FrameRateLimit,
+    display: DisplayTiming,
+    context: FrameRateContext,
+) -> Option<FrameRate> {
+    render_model::display_refresh_request(
+        frame_rate_target(intent, limit, display, context),
+        display,
+    )
 }
 
 /// Publishes the cadence the next update's input sample is admitted at.

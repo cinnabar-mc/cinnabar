@@ -14,12 +14,8 @@ pub enum VsyncMode {
 
 impl VsyncMode {
     pub const ALL: [Self; 3] = [Self::Off, Self::On, Self::OffNoTearing];
-    /// Mobile devices keep synchronized presentation; desktop starts with low latency.
-    pub const DEFAULT: Self = if cfg!(target_os = "android") {
-        Self::On
-    } else {
-        Self::Off
-    };
+    /// Phones and tablets keep synchronized presentation; desktop starts with low latency.
+    pub const DEFAULT: Self = crate::PresentationDefaults::PLATFORM.vsync;
 
     /// Decodes the persisted choice, retaining the platform default for invalid values.
     #[must_use]

@@ -184,6 +184,19 @@ pub fn frame_rate_target(
     display: DisplayTiming,
     context: FrameRateContext,
 ) -> Option<FrameRate> {
+    platform_frame_rate_target(render_api::MOBILE_PLATFORM, intent, limit, display, context)
+}
+
+/// [`frame_rate_target`] for a mobile or desktop platform. A phone reports its panel's own
+/// ceiling, so synchronized gameplay there never paces at or above it: the display already
+/// does. Desktop refresh reports can be stale or wrong, so its explicit limits always apply.
+fn platform_frame_rate_target(
+    mobile: bool,
+    intent: PresentationIntent,
+    limit: FrameRateLimit,
+    display: DisplayTiming,
+    context: FrameRateContext,
+) -> Option<FrameRate> {
     let requested = match limit {
         FrameRateLimit::Unlimited => None,
         FrameRateLimit::Fixed(fps) => FrameRate::from_hz(u32::from(fps.get())),
@@ -193,6 +206,14 @@ pub fn frame_rate_target(
             (Some(requested), Some(refresh)) => Some(requested.min(refresh)),
             (requested, refresh) => requested.or(refresh),
         }
+    } else {
+        requested
+    };
+    let requested = if mobile
+        && intent == PresentationIntent::Synchronized
+        && context == FrameRateContext::Gameplay
+    {
+        requested.filter(|rate| display.refresh.is_none_or(|refresh| *rate < refresh))
     } else {
         requested
     };
@@ -206,6 +227,19 @@ pub fn frame_rate_target(
     match (requested, ceiling) {
         (Some(requested), Some(ceiling)) => Some(requested.min(ceiling)),
         (requested, ceiling) => requested.or(ceiling),
+    }
+}
+
+/// The refresh rate to ask the display for: its own, lowered to a frame-rate `target` below
+/// it. `None` when neither is known, which leaves the choice to the system.
+#[must_use]
+pub fn display_refresh_request(
+    target: Option<FrameRate>,
+    display: DisplayTiming,
+) -> Option<FrameRate> {
+    match (target, display.refresh) {
+        (Some(target), Some(refresh)) => Some(target.min(refresh)),
+        (target, refresh) => target.or(refresh),
     }
 }
 

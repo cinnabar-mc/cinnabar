@@ -1,4 +1,5 @@
-//! The focused spin covers recent sleep overshoot without letting rare hiccups hold it.
+//! The focused desktop spin covers recent sleep overshoot without letting rare hiccups hold it;
+//! phones never spin.
 
 use super::*;
 
@@ -61,4 +62,67 @@ fn coarse_timer_granularity_keeps_the_full_spin() {
     assert_eq!(estimate.spin, MAX_SPIN);
     record(&mut estimate, Duration::from_millis(2), OVERSHOOT_WINDOW);
     assert_eq!(estimate.spin, MAX_SPIN);
+}
+
+fn sleep(duration: Duration, final_sleep: bool) -> WaitStep {
+    WaitStep::Sleep {
+        duration,
+        final_sleep,
+    }
+}
+
+/// Focused desktop waits sleep in service slices, then spin the measured window.
+#[test]
+fn focused_desktop_waits_spin_only_inside_the_measured_window() {
+    let spin = us(300);
+    assert_eq!(
+        wait_step(false, true, spin, us(5_000)),
+        sleep(SERVICE_SLICE, false)
+    );
+    assert_eq!(
+        wait_step(false, true, spin, us(1_100)),
+        sleep(us(800), true)
+    );
+    for remaining in [us(1), us(150), spin] {
+        assert_eq!(wait_step(false, true, spin, remaining), WaitStep::Spin);
+    }
+    assert!(measures_overshoot(false, true));
+}
+
+/// Phones never busy-wait, however close the deadline: they sleep to it in service slices.
+#[test]
+fn mobile_waits_never_spin() {
+    for precise in [true, false] {
+        for spin in [Duration::ZERO, INITIAL_SPIN, MAX_SPIN] {
+            for remaining in [us(1), us(50), us(500), us(2_000), us(20_000)] {
+                let WaitStep::Sleep { duration, .. } = wait_step(true, precise, spin, remaining)
+                else {
+                    panic!("mobile spun with {remaining:?} left");
+                };
+                assert!(duration <= remaining);
+            }
+        }
+        assert!(!measures_overshoot(true, precise));
+    }
+    assert_eq!(
+        wait_step(true, true, MAX_SPIN, us(5_000)),
+        sleep(SERVICE_SLICE, false)
+    );
+    assert_eq!(wait_step(true, true, MAX_SPIN, us(40)), sleep(us(40), true));
+}
+
+/// Unfocused waits never spin on either platform and check in less often.
+#[test]
+fn background_waits_sleep_in_long_slices_on_every_platform() {
+    for mobile in [true, false] {
+        assert_eq!(
+            wait_step(mobile, false, MAX_SPIN, us(20_000)),
+            sleep(BACKGROUND_SERVICE_SLICE, false)
+        );
+        assert_eq!(
+            wait_step(mobile, false, MAX_SPIN, us(10)),
+            sleep(us(10), true)
+        );
+    }
+    assert!(!measures_overshoot(false, false));
 }
