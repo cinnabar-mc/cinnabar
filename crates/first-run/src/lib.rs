@@ -67,7 +67,9 @@ pub fn ensure_owned(layout: &InstallLayout) -> Result<Outcome> {
 }
 
 fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
-    let verify = layout.is_installed() && !ownership::open_without_asking(layout);
+    // This launch's one probe of the device decides whether to ask.
+    let local = launcher_host::ownership::probe_local();
+    let verify = layout.is_installed() && !ownership::open_without_asking(layout, local);
     let promoted = prepare && next::promote(layout);
     let plan = window::Plan {
         verify,
@@ -86,7 +88,7 @@ fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
         if plan.verify {
             bail!(
                 "{}",
-                ownership::restored_refusal(launcher_host::ownership::available())
+                ownership::restored_refusal(ownership::local_refusal(local), local.sources())
             );
         }
         bail!("setup is incomplete; close and reopen the app to finish setup");
@@ -130,14 +132,9 @@ fn after_window(
         );
         // The prompts wait on the player, which an update helper must not take for a hang.
         reporter(layout, |_| {})(Status::awaiting_ownership());
-        let owned = ownership::with_dialogs(
-            launcher_host::ownership::available(),
-            prompter,
-            &title,
-            &mut |sign_in, on_code| {
-                ownership::verify(layout, sign_in, &AtomicBool::new(false), on_code)
-            },
-        );
+        let owned = ownership::with_dialogs(prompter, &title, &mut |sign_in, on_code| {
+            ownership::verify(layout, sign_in, &AtomicBool::new(false), on_code)
+        });
         if !owned {
             return Ok(Outcome::Quit);
         }

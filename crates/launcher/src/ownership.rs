@@ -70,6 +70,34 @@ pub const LOCAL_STORE: Option<Store> = if cfg!(windows) {
     None
 };
 
+/// One look at this device's store install, which every gate decision of that check comes from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalProbe {
+    /// Whether the platform's store can vouch for installs here; only a clean answer that it
+    /// can't clears this.
+    pub store_usable: bool,
+    pub install: LocalInstall,
+    /// The app that opens "Get Minecraft" first, once the probe found it genuine.
+    pub store_app: Option<&'static str>,
+}
+
+/// What a probe found of the game's store install.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalInstall {
+    Found,
+    NotFound,
+    /// A read failed before the check could finish.
+    Unreadable,
+}
+
+impl LocalProbe {
+    /// This build's sources on this device, after the probe.
+    #[must_use]
+    pub const fn sources(self) -> Sources {
+        sources(self.store_usable)
+    }
+}
+
 /// The proof sources this build offers on this platform.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Sources {

@@ -14,7 +14,7 @@ use std::{
 use crossbeam_channel::{RecvTimeoutError, bounded};
 use launcher::{
     install_layout::InstallLayout,
-    ownership::{self as policy, Check, Store, Verdict},
+    ownership::{self as policy, Check, LocalProbe, Store, Verdict},
 };
 
 use crate::{
@@ -31,7 +31,7 @@ pub const MINECRAFT_PACKAGE_FAMILY: &str = "Microsoft.MinecraftUWP_8wekyb3d8bbwe
 /// How often a running check looks for cancellation.
 const CANCEL_POLL: Duration = Duration::from_millis(100);
 
-/// The store [`local_install_found`] looks for on this platform.
+/// The store [`probe_local`] looks for on this platform.
 #[cfg(windows)]
 const PROBED_STORE: Option<Store> = Some(Store::Microsoft);
 #[cfg(target_os = "android")]
@@ -39,11 +39,16 @@ const PROBED_STORE: Option<Store> = Some(Store::Android);
 #[cfg(not(any(windows, target_os = "android")))]
 const PROBED_STORE: Option<Store> = None;
 
-/// Whether Minecraft for Windows is registered for the current user. Best-effort: package
-/// registration shows the game is installed, not that its license is current.
+const _: () = assert!(
+    Store::same(PROBED_STORE, policy::LOCAL_STORE),
+    "every local store needs a probe here, and every probe needs its store in the policy"
+);
+
+/// One look at this device's store install, uncached; every gate decision of a check comes from
+/// it. Best-effort: package metadata shows the game is installed, not that its license is current.
 #[cfg(windows)]
 #[must_use]
-pub fn local_install_found() -> bool {
+pub fn probe_local() -> LocalProbe {
     use windows_sys::Win32::{
         Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS},
         Storage::Packaging::Appx::GetPackagesByPackageFamily,
@@ -63,60 +68,35 @@ pub fn local_install_found() -> bool {
             std::ptr::null_mut(),
         )
     };
-    matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0
+    let found = matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0;
+    LocalProbe {
+        // The Microsoft Store is part of Windows.
+        store_usable: true,
+        install: if found {
+            policy::LocalInstall::Found
+        } else {
+            policy::LocalInstall::NotFound
+        },
+        store_app: None,
+    }
 }
 
-/// Whether Minecraft from Google Play is installed, signed by Mojang.
-/// Best-effort: package metadata shows the game is installed, not that its license is current.
+/// One look at this device's Google Play and, where Play keeps the source, its Minecraft install.
 #[cfg(target_os = "android")]
 #[must_use]
-pub fn local_install_found() -> bool {
-    android::found()
+pub fn probe_local() -> LocalProbe {
+    android::probe()
 }
 
 /// No store install can prove ownership on this platform.
 #[cfg(not(any(windows, target_os = "android")))]
 #[must_use]
-pub const fn local_install_found() -> bool {
-    false
-}
-
-const _: () = assert!(
-    Store::same(PROBED_STORE, policy::LOCAL_STORE),
-    "every local store needs a probe here, and every probe needs its store in the policy"
-);
-
-/// The proof sources this build offers on this device: [`policy::sources`] with this platform's
-/// probe of whether its store can vouch for installs here.
-#[must_use]
-pub fn available() -> policy::Sources {
-    policy::sources(store_usable())
-}
-
-/// Whether Google Play is installed, enabled and genuine; without it Android has no local source.
-#[cfg(target_os = "android")]
-fn store_usable() -> bool {
-    android::store_probe() != android::StoreProbe::Unavailable
-}
-
-/// The Microsoft Store is part of Windows, and other platforms have no local store.
-#[cfg(not(target_os = "android"))]
-const fn store_usable() -> bool {
-    true
-}
-
-/// The app that opens "Get Minecraft" first: Google Play, once a clean probe found it genuine.
-#[cfg(target_os = "android")]
-#[must_use]
-pub fn store_app() -> Option<&'static str> {
-    (android::store_probe() == android::StoreProbe::Genuine).then_some(policy::android::STORE)
-}
-
-/// Links open in whichever app handles them.
-#[cfg(not(target_os = "android"))]
-#[must_use]
-pub const fn store_app() -> Option<&'static str> {
-    None
+pub const fn probe_local() -> LocalProbe {
+    LocalProbe {
+        store_usable: true,
+        install: policy::LocalInstall::NotFound,
+        store_app: None,
+    }
 }
 
 /// One account check's answer.

@@ -7,7 +7,10 @@ use jni::{
     JNIEnv, JavaVM,
     objects::{GlobalRef, JByteArray, JObject, JObjectArray, JString},
 };
-use launcher::ownership::android::{self as policy, InstallSource, Packages};
+use launcher::ownership::{
+    LocalProbe,
+    android::{self as policy, InstallSource, Packages, ReadFailed},
+};
 use sha2::{Digest, Sha256};
 
 /// `PackageManager.CERT_INPUT_SHA256`.
@@ -26,7 +29,7 @@ const LOCAL_FRAME: i32 = 32;
 /// The application context, for processes whose activity is not the `NativeActivity`.
 static CONTEXT: OnceLock<(JavaVM, GlobalRef)> = OnceLock::new();
 
-/// Lets [`found`] run where `ndk_context` is not set, such as the setup activity; later calls
+/// Lets [`probe`] run where `ndk_context` is not set, such as the setup activity; later calls
 /// keep the first context.
 pub fn use_context(env: &mut JNIEnv<'_>, context: &JObject<'_>) -> jni::errors::Result<()> {
     if CONTEXT.get().is_some() {
@@ -45,62 +48,39 @@ pub fn use_context(env: &mut JNIEnv<'_>, context: &JObject<'_>) -> jni::errors::
     Ok(())
 }
 
-/// Checks the local install on the calling thread, uncached; any failed read, such as an
-/// unreadable API level, refuses rather than trusting a partial answer.
-pub(super) fn found() -> bool {
-    // A closure, since the generic policy functions name no single `Jni` lifetime.
-    let install =
-        with_packages(|packages: &mut Jni<'_, '_>| (policy::check(packages), packages.failed));
-    if let Err(error) = &install {
-        tracing::warn!(%error, "ownership probe failed");
+/// Probes Play and the game once on the calling thread, uncached, logging the result, and the
+/// first time Play's state removes the source, why. A probe that cannot reach `PackageManager`
+/// at all is unreadable too.
+pub(super) fn probe() -> LocalProbe {
+    static UNAVAILABLE_LOGGED: Once = Once::new();
+    // A closure, since the generic policy function names no single `Jni` lifetime.
+    let probe = with_packages(|packages: &mut Jni<'_, '_>| policy::probe(packages)).unwrap_or_else(
+        |error| {
+            tracing::warn!(%error, "ownership probe failed");
+            policy::Probe {
+                play: policy::PlayState::Unreadable,
+                install: Some(policy::Install::Unreadable),
+            }
+        },
+    );
+    if !probe.play.keeps_source() {
+        UNAVAILABLE_LOGGED.call_once(|| {
+            tracing::info!(
+                source = "local_install",
+                play = probe.play.reason(),
+                "ownership source unavailable; gate off on this device"
+            );
+        });
     }
-    let (verified, result) = match install {
-        Ok((install, false)) => (install == policy::Install::Verified, install.reason()),
-        Ok((_, true)) | Err(_) => (false, "probe_failed"),
-    };
-    tracing::info!(source = "local_install", result, "ownership probed");
-    verified
-}
-
-/// What probing Google Play found.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum StoreProbe {
-    Genuine,
-    /// Cleanly absent, disabled or not genuine.
-    Unavailable,
-    /// A read failed, so nothing is known.
-    Unreadable,
-}
-
-/// Probes Google Play, logging the first unavailable answer's reason. Only a clean answer makes
-/// it unavailable; a probe whose reads failed is unreadable, which keeps the gate on so the
-/// install check reports the failure.
-pub(super) fn store_probe() -> StoreProbe {
-    static LOGGED: Once = Once::new();
-    let available = with_packages(|packages: &mut Jni<'_, '_>| {
-        (policy::store_available(packages), packages.failed)
-    });
-    match available {
-        Ok((Ok(()), false)) => StoreProbe::Genuine,
-        Ok((Err(unavailable), false)) => {
-            LOGGED.call_once(|| {
-                tracing::info!(
-                    source = "local_install",
-                    unavailable = unavailable.reason(),
-                    "ownership source unavailable; gate off on this device"
-                );
-            });
-            StoreProbe::Unavailable
-        }
-        Ok((_, true)) => {
-            tracing::warn!("ownership store probe failed");
-            StoreProbe::Unreadable
-        }
-        Err(error) => {
-            tracing::warn!(%error, "ownership store probe failed");
-            StoreProbe::Unreadable
-        }
+    if let Some(install) = probe.install {
+        tracing::info!(
+            source = "local_install",
+            play = probe.play.reason(),
+            result = install.reason(),
+            "ownership probed"
+        );
     }
+    probe.local()
 }
 
 /// Runs `read` over this app's `PackageManager`.
@@ -115,11 +95,7 @@ fn with_packages<T>(read: impl FnOnce(&mut Jni<'_, '_>) -> T) -> jni::errors::Re
                     &[],
                 )?
                 .l()?;
-            Ok(read(&mut Jni {
-                env,
-                manager,
-                failed: false,
-            }))
+            Ok(read(&mut Jni { env, manager }))
         })
     })
 }
@@ -173,51 +149,39 @@ fn clearing<'local, T>(
 struct Jni<'a, 'local> {
     env: &'a mut JNIEnv<'local>,
     manager: JObject<'local>,
-    /// Set once a read fails for any reason but the package being absent.
-    failed: bool,
 }
 
 impl<'local> Jni<'_, 'local> {
-    /// One read; a failure or thrown exception reads as `None`, and any but
-    /// `NameNotFoundException` also sets [`Self::failed`].
+    /// One read; any failure or thrown exception is [`ReadFailed`].
     fn read<T>(
         &mut self,
         read: impl FnOnce(&mut JNIEnv<'local>, &JObject<'local>) -> jni::errors::Result<T>,
-    ) -> Option<T> {
-        let Self {
-            env,
-            manager,
-            failed,
-        } = self;
-        match read(&mut **env, &*manager) {
-            Ok(value) => Some(value),
-            Err(_) => {
-                *failed |= !clear_absent_package(&mut **env);
-                None
-            }
-        }
+    ) -> Result<T, ReadFailed> {
+        let Self { env, manager } = self;
+        clearing(&mut **env, |env| read(env, &*manager)).map_err(|_| ReadFailed)
     }
 }
 
 impl Packages for Jni<'_, '_> {
-    fn sdk(&mut self) -> u32 {
-        self.read(|env, _| {
+    fn sdk(&mut self) -> Result<u32, ReadFailed> {
+        let sdk = self.read(|env, _| {
             env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?
                 .i()
-        })
-        .and_then(|sdk| u32::try_from(sdk).ok())
-        .unwrap_or(0)
+        })?;
+        u32::try_from(sdk).map_err(|_| ReadFailed)
     }
 
-    fn installed(&mut self, package: &str) -> bool {
-        self.read(|env, manager| {
-            package_info(env, manager, package, MATCH_DISABLED_UNTIL_USED)
-                .map(|info| !info.is_null())
-        })
-        .unwrap_or(false)
+    fn installed(&mut self, package: &str) -> Result<bool, ReadFailed> {
+        let Self { env, manager } = self;
+        match package_info(&mut **env, &*manager, package, MATCH_DISABLED_UNTIL_USED) {
+            Ok(info) => Ok(!info.is_null()),
+            // Only `NameNotFoundException` means absent; anything else is a failed read.
+            Err(_) if clear_absent_package(&mut **env) => Ok(false),
+            Err(_) => Err(ReadFailed),
+        }
     }
 
-    fn enabled(&mut self, package: &str) -> bool {
+    fn enabled(&mut self, package: &str) -> Result<bool, ReadFailed> {
         self.read(|env, manager| {
             let name = env.new_string(package)?;
             let info = env
@@ -239,10 +203,13 @@ impl Packages for Jni<'_, '_> {
                 .i()?;
             Ok(enabled && !DISABLED_STATES.contains(&setting))
         })
-        .unwrap_or(false)
     }
 
-    fn has_signing_certificate(&mut self, package: &str, sha256: &[u8; 32]) -> bool {
+    fn has_signing_certificate(
+        &mut self,
+        package: &str,
+        sha256: &[u8; 32],
+    ) -> Result<bool, ReadFailed> {
         self.read(|env, manager| {
             let name = env.new_string(package)?;
             let digest = env.byte_array_from_slice(sha256)?;
@@ -254,10 +221,9 @@ impl Packages for Jni<'_, '_> {
             )?
             .z()
         })
-        .unwrap_or(false)
     }
 
-    fn signature_digests(&mut self, package: &str) -> Vec<[u8; 32]> {
+    fn signature_digests(&mut self, package: &str) -> Result<Vec<[u8; 32]>, ReadFailed> {
         self.read(|env, manager| {
             let info = package_info(
                 env,
@@ -283,10 +249,9 @@ impl Packages for Jni<'_, '_> {
             }
             Ok(digests)
         })
-        .unwrap_or_default()
     }
 
-    fn install_source(&mut self, package: &str) -> InstallSource {
+    fn install_source(&mut self, package: &str) -> Result<InstallSource, ReadFailed> {
         self.read(|env, manager| {
             let name = env.new_string(package)?;
             let info = env
@@ -302,10 +267,9 @@ impl Packages for Jni<'_, '_> {
                 initiating: string_call(env, &info, "getInitiatingPackageName")?,
             })
         })
-        .unwrap_or_default()
     }
 
-    fn installer(&mut self, package: &str) -> Option<String> {
+    fn installer(&mut self, package: &str) -> Result<Option<String>, ReadFailed> {
         self.read(|env, manager| {
             let name = env.new_string(package)?;
             let installer = env
@@ -318,7 +282,6 @@ impl Packages for Jni<'_, '_> {
                 .l()?;
             optional_string(env, installer)
         })
-        .flatten()
     }
 }
 

@@ -41,16 +41,25 @@ impl Prompter for Script {
     fn alert(&self, _: &str, _: &str) {}
 }
 
+/// A check's answer with the sources and store app its probe offered.
+fn checked(answer: Answer, sources: Sources, store_app: Option<&'static str>) -> Checked {
+    Checked {
+        answer,
+        sources,
+        store_app,
+    }
+}
+
 fn dialogs(available: Sources, answers: &[Consent], checks: &[Answer]) -> (bool, Vec<bool>) {
     let script = Script::new(answers);
     let mut remaining: Vec<Answer> = checks.iter().rev().copied().collect();
     let mut sign_ins = Vec::new();
-    let owned = with_dialogs(available, &script, "setup", &mut |sign_in, on_code| {
+    let owned = with_dialogs(&script, "setup", &mut |sign_in, on_code| {
         sign_ins.push(sign_in);
         if sign_in {
             on_code("https://login.example.test/device", "ABCD-1234");
         }
-        remaining.pop().unwrap()
+        checked(remaining.pop().unwrap(), available, None)
     });
     (owned, sign_ins)
 }
@@ -218,7 +227,7 @@ impl GateHost for Host {
     }
 }
 
-const PLAY: &str = policy::android::STORE;
+const PLAY: &str = launcher::ownership::android::STORE;
 
 fn answers(button: &Button) -> bool {
     button.open.is_none() && !button.quit
@@ -227,19 +236,13 @@ fn answers(button: &Button) -> bool {
 fn hosted(available: Sources, host: &mut Host, checks: &[Answer]) -> (bool, Vec<bool>) {
     let mut remaining: Vec<Answer> = checks.iter().rev().copied().collect();
     let mut sign_ins = Vec::new();
-    let owned = with_host(
-        available,
-        Some(PLAY),
-        &AtomicBool::new(false),
-        host,
-        &mut |sign_in, on_code| {
-            sign_ins.push(sign_in);
-            if sign_in {
-                on_code("https://login.example.test/device", "ABCD-1234");
-            }
-            remaining.pop().unwrap()
-        },
-    );
+    let owned = with_host(&AtomicBool::new(false), host, &mut |sign_in, on_code| {
+        sign_ins.push(sign_in);
+        if sign_in {
+            on_code("https://login.example.test/device", "ABCD-1234");
+        }
+        checked(remaining.pop().unwrap(), available, Some(PLAY))
+    });
     (owned, sign_ins)
 }
 
@@ -266,7 +269,7 @@ fn a_missing_android_install_offers_the_store_listing_then_checks_again() {
         (true, vec![false, false])
     );
     let refusal = &host.asked[0];
-    let listing = Some(policy::android::STORE_LISTING.to_owned());
+    let listing = Some(launcher::ownership::android::STORE_LISTING.to_owned());
     let get = refusal.buttons.iter().find(|button| button.open == listing);
     assert_eq!(get.and_then(|button| button.app.as_deref()), Some(PLAY));
     assert_eq!(
@@ -294,11 +297,9 @@ fn a_host_that_closes_or_cancels_never_plays() {
     assert_eq!(hosted(PHONE, &mut closed, &[missing]), (false, vec![false]));
     let mut host = Host::default();
     assert!(!with_host(
-        PHONE,
-        None,
         &AtomicBool::new(true),
         &mut host,
-        &mut |_, _| Answer::Allowed
+        &mut |_, _| { checked(Answer::Allowed, PHONE, None) }
     ));
     assert!(host.asked.is_empty());
 }
@@ -327,7 +328,7 @@ fn a_host_signs_in_through_the_shown_code() {
 /// A restored Android game refused by the gate explains ownership, not unfinished setup.
 #[test]
 fn a_restored_refusal_carries_the_install_guidance_and_notice() {
-    let text = restored_refusal(PHONE);
+    let text = restored_refusal(Refusal::NotInstalled, PHONE);
     assert!(text.starts_with(title(Refusal::NotInstalled)));
     assert!(text.contains(install_text(Store::Android)));
     assert!(text.contains("reopen the app"));
@@ -341,4 +342,32 @@ fn a_restored_refusal_carries_the_install_guidance_and_notice() {
         !text.contains(label),
         "a restored game has no {label} button"
     );
+}
+
+/// An unreadable local install is the unverifiable refusal, whose Try again probes again; any
+/// other local failure is not installed.
+#[test]
+fn a_local_probe_decides_its_refusal() {
+    let probe = |install| LocalProbe {
+        store_usable: true,
+        install,
+        store_app: None,
+    };
+    assert_eq!(
+        local_refusal(probe(LocalInstall::Unreadable)),
+        Refusal::Unverifiable
+    );
+    assert_eq!(
+        local_refusal(probe(LocalInstall::NotFound)),
+        Refusal::NotInstalled
+    );
+    let actions = refused_actions(Refusal::Unverifiable, PHONE);
+    assert_eq!(actions.first(), Some(&Action::Retry));
+    let retry = Screen::Refused {
+        refusal: Refusal::Unverifiable,
+        sources: PHONE,
+    }
+    .on_action(Action::Retry)
+    .1;
+    assert_eq!(retry, Effect::Verify { sign_in: false });
 }

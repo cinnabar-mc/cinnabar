@@ -14,6 +14,8 @@ struct Device {
     packages: Vec<(&'static str, Vec<[u8; 32]>)>,
     /// Installed packages the user or system disabled.
     disabled: Vec<&'static str>,
+    /// Packages whose reads throw; `None` stands for the API level itself.
+    unreadable: Vec<Option<&'static str>>,
     installing: Option<&'static str>,
     initiating: Option<&'static str>,
     /// Reads this device's API level lacks, which a correct check never makes.
@@ -29,17 +31,23 @@ impl Device {
                 (STORE, vec![STORE_SIGNER_SHA256]),
             ],
             disabled: Vec::new(),
+            unreadable: Vec::new(),
             installing: Some(STORE),
             initiating: Some(STORE),
             missing_api_reads: 0,
         }
     }
 
-    fn signers(&self, package: &str) -> Option<&Vec<[u8; 32]>> {
-        self.packages
+    /// `package`'s signers, or the failure its reads throw.
+    fn signers(&self, package: &str) -> Result<Option<&Vec<[u8; 32]>>, ReadFailed> {
+        if self.unreadable.iter().any(|name| *name == Some(package)) {
+            return Err(ReadFailed);
+        }
+        Ok(self
+            .packages
             .iter()
             .find(|(name, _)| *name == package)
-            .map(|(_, signers)| signers)
+            .map(|(_, signers)| signers))
     }
 
     /// Replaces `package`'s signers, or installs it with them.
@@ -49,90 +57,177 @@ impl Device {
         self
     }
 
-    fn check(mut self) -> Install {
-        let install = check(&mut self);
+    fn without(mut self, package: &str) -> Self {
+        self.packages.retain(|(name, _)| *name != package);
+        self
+    }
+
+    fn probe(mut self) -> Probe {
+        let probe = probe(&mut self);
         assert_eq!(
             self.missing_api_reads, 0,
             "read an API above level {}",
             self.sdk
         );
-        install
+        probe
+    }
+
+    /// The game's install on a device whose Play is usable.
+    fn check(self) -> Install {
+        self.probe()
+            .install
+            .expect("a usable Play keeps the source")
     }
 }
 
 impl Packages for Device {
-    fn sdk(&mut self) -> u32 {
-        self.sdk
-    }
-
-    fn installed(&mut self, package: &str) -> bool {
-        self.signers(package).is_some()
-    }
-
-    fn enabled(&mut self, package: &str) -> bool {
-        self.installed(package) && !self.disabled.contains(&package)
-    }
-
-    fn has_signing_certificate(&mut self, package: &str, sha256: &[u8; 32]) -> bool {
-        self.missing_api_reads += u32::from(self.sdk < 28);
-        self.signers(package)
-            .is_some_and(|signers| signers.contains(sha256))
-    }
-
-    fn signature_digests(&mut self, package: &str) -> Vec<[u8; 32]> {
-        self.signers(package).cloned().unwrap_or_default()
-    }
-
-    fn install_source(&mut self, package: &str) -> InstallSource {
-        self.missing_api_reads += u32::from(self.sdk < 30);
-        if package != PACKAGE || !self.installed(package) {
-            return InstallSource::default();
+    fn sdk(&mut self) -> Result<u32, ReadFailed> {
+        if self.unreadable.contains(&None) {
+            return Err(ReadFailed);
         }
-        InstallSource {
+        Ok(self.sdk)
+    }
+
+    fn installed(&mut self, package: &str) -> Result<bool, ReadFailed> {
+        Ok(self.signers(package)?.is_some())
+    }
+
+    fn enabled(&mut self, package: &str) -> Result<bool, ReadFailed> {
+        Ok(self.installed(package)? && !self.disabled.iter().any(|name| *name == package))
+    }
+
+    fn has_signing_certificate(
+        &mut self,
+        package: &str,
+        sha256: &[u8; 32],
+    ) -> Result<bool, ReadFailed> {
+        self.missing_api_reads += u32::from(self.sdk < 28);
+        Ok(self
+            .signers(package)?
+            .is_some_and(|signers| signers.contains(sha256)))
+    }
+
+    fn signature_digests(&mut self, package: &str) -> Result<Vec<[u8; 32]>, ReadFailed> {
+        Ok(self.signers(package)?.cloned().unwrap_or_default())
+    }
+
+    fn install_source(&mut self, package: &str) -> Result<InstallSource, ReadFailed> {
+        self.missing_api_reads += u32::from(self.sdk < 30);
+        if package != PACKAGE || !self.installed(package)? {
+            return Ok(InstallSource::default());
+        }
+        Ok(InstallSource {
             installing: self.installing.map(str::to_owned),
             initiating: self.initiating.map(str::to_owned),
-        }
+        })
     }
 
-    fn installer(&mut self, package: &str) -> Option<String> {
-        if package != PACKAGE || !self.installed(package) {
-            return None;
+    fn installer(&mut self, package: &str) -> Result<Option<String>, ReadFailed> {
+        if package != PACKAGE || !self.installed(package)? {
+            return Ok(None);
         }
-        self.installing.map(str::to_owned)
+        Ok(self.installing.map(str::to_owned))
     }
 }
 
 const API_LEVELS: [u32; 6] = [26, 27, 28, 29, 30, 35];
 
+/// Every Play state against every game install: only a clean negative about Play turns the gate
+/// off, an unreadable answer never does, and only a genuine Play install of the game passes.
 #[test]
-fn a_play_install_signed_by_mojang_passes_at_every_api_level() {
+fn each_play_state_and_game_install_decides_the_gate() {
+    use PlayState::*;
+    let plays: [(PlayState, fn(Device) -> Device); 6] = [
+        (Usable, |device| device),
+        (Absent, |device| device.without(STORE)),
+        (Disabled, |device| Device {
+            disabled: vec![STORE],
+            ..device
+        }),
+        (NotGenuine, |device| {
+            device.signed(STORE, vec![OTHER_SIGNER])
+        }),
+        (Unreadable, |device| Device {
+            unreadable: vec![Some(STORE)],
+            ..device
+        }),
+        (Unreadable, |device| Device {
+            unreadable: vec![None],
+            ..device
+        }),
+    ];
+    let games: [(&str, fn(Device) -> Device); 5] = [
+        ("genuine", |device| device),
+        ("missing", |device| device.without(PACKAGE)),
+        ("sideloaded", |device| Device {
+            installing: Some("com.android.packageinstaller"),
+            initiating: Some("com.android.packageinstaller"),
+            ..device
+        }),
+        ("resigned", |device| {
+            device.signed(PACKAGE, vec![OTHER_SIGNER])
+        }),
+        ("unreadable", |device| {
+            let mut device = device;
+            device.unreadable.push(Some(PACKAGE));
+            device
+        }),
+    ];
+    let android = Sources {
+        local_install: Some(Store::Android),
+        account: false,
+    };
     for sdk in API_LEVELS {
-        assert_eq!(
-            Device::play_install(sdk).check(),
-            Install::Verified,
-            "API {sdk}"
-        );
+        for (play, set_play) in plays {
+            for (game, set_game) in games {
+                let probe = set_game(set_play(Device::play_install(sdk))).probe();
+                let case = format!("{play:?} Play, {game} game, API {sdk}");
+                assert_eq!(probe.play, play, "{case}");
+                let local = probe.local();
+                let gated = android.with_store_usable(local.store_usable).gated();
+                let expected = match (play, game) {
+                    (Absent | Disabled | NotGenuine, _) => None,
+                    (Usable, "genuine") => Some(LocalInstall::Found),
+                    // The game's own failure, or Play's when only Play could confirm the install.
+                    (_, "unreadable") | (Unreadable, "genuine") => Some(LocalInstall::Unreadable),
+                    // A device whose API level can't be read can't check the game either.
+                    (Unreadable, _) if sdk_unreadable(set_play) => Some(LocalInstall::Unreadable),
+                    _ => Some(LocalInstall::NotFound),
+                };
+                assert_eq!(gated, expected.is_some(), "{case}: gate");
+                if let Some(install) = expected {
+                    assert_eq!(local.install, install, "{case}: install");
+                }
+                assert_eq!(
+                    local.store_app,
+                    (play == Usable).then_some(STORE),
+                    "{case}: store app"
+                );
+            }
+        }
     }
+}
+
+/// Whether `set_play` makes the API level itself unreadable.
+fn sdk_unreadable(set_play: fn(Device) -> Device) -> bool {
+    set_play(Device::play_install(30))
+        .unreadable
+        .contains(&None)
 }
 
 #[test]
 fn only_the_full_game_counts() {
     for sdk in API_LEVELS {
-        let mut none = Device::play_install(sdk);
-        none.packages.retain(|(name, _)| *name != PACKAGE);
+        let none = Device::play_install(sdk).without(PACKAGE);
         assert_eq!(none.clone().check(), Install::Missing, "API {sdk}");
         let trial = none.signed(TRIAL, vec![SIGNER_SHA256]);
         assert_eq!(trial.check(), Install::Missing, "trial on API {sdk}");
     }
 }
 
+/// Before API 28 every listed signer must be Mojang's.
 #[test]
-fn another_signer_fails() {
-    for sdk in API_LEVELS {
-        let resigned = Device::play_install(sdk).signed(PACKAGE, vec![OTHER_SIGNER]);
-        assert_eq!(resigned.check(), Install::ForeignSigner, "API {sdk}");
-    }
-    // Before API 28 every listed signer must be Mojang's.
+fn every_legacy_signer_must_be_mojangs() {
     for signers in [vec![], vec![SIGNER_SHA256, OTHER_SIGNER]] {
         let device = Device::play_install(27).signed(PACKAGE, signers);
         assert_eq!(device.check(), Install::ForeignSigner);
@@ -158,69 +253,6 @@ fn other_installers_fail() {
                 Install::NotFromStore,
                 "{installer:?} on API {sdk}"
             );
-        }
-    }
-}
-
-/// The sources a device offers on Android, after probing Play.
-fn device_sources(device: &mut Device) -> Sources {
-    let android = Sources {
-        local_install: Some(Store::Android),
-        account: false,
-    };
-    android.with_store_usable(store_available(device).is_ok())
-}
-
-/// Without an enabled, genuine Play the device has no proof source, so the gate is off there.
-#[test]
-fn a_device_without_a_usable_play_is_ungated() {
-    for sdk in API_LEVELS {
-        let mut absent = Device::play_install(sdk);
-        absent.packages.retain(|(name, _)| *name != STORE);
-        let disabled = Device {
-            disabled: vec![STORE],
-            ..Device::play_install(sdk)
-        };
-        let impostor = Device::play_install(sdk).signed(STORE, vec![OTHER_SIGNER]);
-        let unsigned = Device::play_install(sdk).signed(STORE, vec![]);
-        for (mut device, reason) in [
-            (absent, StoreUnavailable::Absent),
-            (disabled, StoreUnavailable::Disabled),
-            (impostor, StoreUnavailable::NotGenuine),
-            (unsigned, StoreUnavailable::NotGenuine),
-        ] {
-            assert_eq!(store_available(&mut device), Err(reason), "API {sdk}");
-            let sources = device_sources(&mut device);
-            assert!(!sources.gated(), "{reason:?} on API {sdk}");
-        }
-    }
-}
-
-/// With an enabled, genuine Play the gate is on, and only a genuine Play install of the game
-/// passes it.
-#[test]
-fn a_device_with_play_is_gated_on_the_game_install() {
-    for sdk in API_LEVELS {
-        let mut device = Device::play_install(sdk);
-        let sources = device_sources(&mut device);
-        assert!(sources.gated(), "API {sdk}");
-        assert_eq!(device.check(), Install::Verified, "API {sdk}");
-
-        let mut missing = Device::play_install(sdk);
-        missing.packages.retain(|(name, _)| *name != PACKAGE);
-        let sideloaded = Device {
-            installing: Some("com.android.packageinstaller"),
-            initiating: Some("com.android.packageinstaller"),
-            ..Device::play_install(sdk)
-        };
-        let resigned = Device::play_install(sdk).signed(PACKAGE, vec![OTHER_SIGNER]);
-        for (mut device, refused) in [
-            (missing, Install::Missing),
-            (sideloaded, Install::NotFromStore),
-            (resigned, Install::ForeignSigner),
-        ] {
-            assert!(device_sources(&mut device).gated(), "API {sdk}");
-            assert_eq!(device.check(), refused, "API {sdk}");
         }
     }
 }

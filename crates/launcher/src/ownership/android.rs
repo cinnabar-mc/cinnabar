@@ -1,8 +1,10 @@
 //! Android's local-install proof: Mojang's Minecraft package, signed by Mojang and installed by
 //! Google Play, itself signed by Google. Best-effort: `PackageManager` metadata only, never the
-//! game's files. Devices without an enabled, genuine Play have no such proof, so the source is
-//! offered only where [`store_available`] passes. The Amazon Appstore re-signs apps with a key it
-//! does not publish, so its copies cannot pass yet.
+//! game's files. Devices where Play is cleanly absent, disabled or not genuine have no such proof,
+//! so the source is offered only where [`probe`] cannot rule Play out. The Amazon Appstore re-signs
+//! apps with a key it does not publish, so its copies cannot pass yet.
+
+use super::{LocalInstall, LocalProbe};
 
 /// [`PACKAGE`] as a literal, for links built at compile time.
 macro_rules! package {
@@ -38,23 +40,31 @@ const SIGNING_CERTIFICATE_API: u32 = 28;
 /// API 30 added `getInstallSourceInfo`.
 const INSTALL_SOURCE_API: u32 = 30;
 
-/// `PackageManager` reads about another package, one platform call each; failures read as absent.
+/// A `PackageManager` read that failed for any reason but the package being absent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReadFailed;
+
+/// `PackageManager` reads about another package, one platform call each.
 pub trait Packages {
     /// `Build.VERSION.SDK_INT`.
-    fn sdk(&mut self) -> u32;
-    /// Whether `package` is installed for this user, enabled or not.
-    fn installed(&mut self, package: &str) -> bool;
+    fn sdk(&mut self) -> Result<u32, ReadFailed>;
+    /// Whether `package` is installed for this user, enabled or not; absent is `Ok(false)`.
+    fn installed(&mut self, package: &str) -> Result<bool, ReadFailed>;
     /// Whether `package` is enabled: `ApplicationInfo.enabled`, and its enabled setting is not
     /// disabled, disabled by the user or disabled until used.
-    fn enabled(&mut self, package: &str) -> bool;
+    fn enabled(&mut self, package: &str) -> Result<bool, ReadFailed>;
     /// `hasSigningCertificate(package, sha256, CERT_INPUT_SHA256)`, from API 28.
-    fn has_signing_certificate(&mut self, package: &str, sha256: &[u8; 32]) -> bool;
+    fn has_signing_certificate(
+        &mut self,
+        package: &str,
+        sha256: &[u8; 32],
+    ) -> Result<bool, ReadFailed>;
     /// SHA-256 of each certificate `GET_SIGNATURES` lists, before API 28.
-    fn signature_digests(&mut self, package: &str) -> Vec<[u8; 32]>;
+    fn signature_digests(&mut self, package: &str) -> Result<Vec<[u8; 32]>, ReadFailed>;
     /// `getInstallSourceInfo`, from API 30.
-    fn install_source(&mut self, package: &str) -> InstallSource;
+    fn install_source(&mut self, package: &str) -> Result<InstallSource, ReadFailed>;
     /// `getInstallerPackageName`, before API 30.
-    fn installer(&mut self, package: &str) -> Option<String>;
+    fn installer(&mut self, package: &str) -> Result<Option<String>, ReadFailed>;
 }
 
 /// The installing and initiating packages `getInstallSourceInfo` reports.
@@ -64,36 +74,50 @@ pub struct InstallSource {
     pub initiating: Option<String>,
 }
 
-/// Why Google Play cannot vouch for installs on this device.
+/// What Google Play is on this device.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StoreUnavailable {
+pub enum PlayState {
+    /// Installed for this user, enabled and signed by Google.
+    Usable,
     Absent,
     Disabled,
     /// Not signed by Google's certificate.
     NotGenuine,
+    /// A read failed, so nothing rules Play out.
+    Unreadable,
 }
 
-impl StoreUnavailable {
+impl PlayState {
+    /// Only a clean answer that Play is absent, disabled or not genuine removes the source.
+    #[must_use]
+    pub const fn keeps_source(self) -> bool {
+        matches!(self, Self::Usable | Self::Unreadable)
+    }
+
     /// A short code for the log.
     #[must_use]
     pub const fn reason(self) -> &'static str {
         match self {
+            Self::Usable => "usable",
             Self::Absent => "absent",
             Self::Disabled => "disabled",
             Self::NotGenuine => "not_genuine",
+            Self::Unreadable => "unreadable",
         }
     }
 }
 
-/// What the local install showed.
+/// What the game's install showed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Install {
     Verified,
     Missing,
     /// Not signed by Mojang's certificate.
     ForeignSigner,
-    /// Not installed by an authentic Google Play.
+    /// Not installed by a genuine Google Play.
     NotFromStore,
+    /// A read failed before the check could finish.
+    Unreadable,
 }
 
 impl Install {
@@ -105,57 +129,104 @@ impl Install {
             Self::Missing => "missing",
             Self::ForeignSigner => "foreign_signer",
             Self::NotFromStore => "not_from_store",
+            Self::Unreadable => "unreadable",
         }
     }
 }
 
-/// Checks [`PACKAGE`]'s presence, signer and installer through `packages`, on a device where
-/// [`store_available`] passes. From API 30 Play must also have started the install, which rules
-/// out `adb install -i`; earlier levels cannot tell.
-pub fn check(packages: &mut impl Packages) -> Install {
-    let sdk = packages.sdk();
-    if !packages.installed(PACKAGE) {
-        return Install::Missing;
-    }
-    if !signed_by(packages, sdk, PACKAGE, &SIGNER_SHA256) {
-        return Install::ForeignSigner;
-    }
-    let from_store = if sdk >= INSTALL_SOURCE_API {
-        let source = packages.install_source(PACKAGE);
-        source.installing.as_deref() == Some(STORE) && source.initiating.as_deref() == Some(STORE)
-    } else {
-        packages.installer(PACKAGE).as_deref() == Some(STORE)
-    };
-    if from_store && store_available(packages).is_ok() {
-        Install::Verified
-    } else {
-        Install::NotFromStore
+/// One look at Play and, where Play keeps the source, the game's install.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Probe {
+    pub play: PlayState,
+    /// `None` where Play removed the source, so the game was not checked.
+    pub install: Option<Install>,
+}
+
+impl Probe {
+    /// The platform-neutral view the gate decides on.
+    #[must_use]
+    pub const fn local(self) -> LocalProbe {
+        LocalProbe {
+            store_usable: self.play.keeps_source(),
+            install: match self.install {
+                Some(Install::Verified) => LocalInstall::Found,
+                Some(Install::Unreadable) => LocalInstall::Unreadable,
+                Some(Install::Missing | Install::ForeignSigner | Install::NotFromStore) | None => {
+                    LocalInstall::NotFound
+                }
+            },
+            store_app: match self.play {
+                PlayState::Usable => Some(STORE),
+                PlayState::Absent
+                | PlayState::Disabled
+                | PlayState::NotGenuine
+                | PlayState::Unreadable => None,
+            },
+        }
     }
 }
 
-/// Whether [`STORE`] is installed for this user, enabled and signed by Google, so it can vouch
-/// for installs and open links.
-pub fn store_available(packages: &mut impl Packages) -> Result<(), StoreUnavailable> {
-    let sdk = packages.sdk();
-    if !packages.installed(STORE) {
-        return Err(StoreUnavailable::Absent);
+/// Probes Play, then the game where Play keeps the source. The game passes only when it is
+/// [`PACKAGE`], signed by Mojang and installed by a usable Play; from API 30 Play must also have
+/// started the install, which rules out `adb install -i`, while earlier levels cannot tell.
+pub fn probe(packages: &mut impl Packages) -> Probe {
+    let play = play_state(packages).unwrap_or(PlayState::Unreadable);
+    let install = play
+        .keeps_source()
+        .then(|| check(packages, play).unwrap_or(Install::Unreadable));
+    Probe { play, install }
+}
+
+fn play_state(packages: &mut impl Packages) -> Result<PlayState, ReadFailed> {
+    let sdk = packages.sdk()?;
+    Ok(if !packages.installed(STORE)? {
+        PlayState::Absent
+    } else if !packages.enabled(STORE)? {
+        PlayState::Disabled
+    } else if !signed_by(packages, sdk, STORE, &STORE_SIGNER_SHA256)? {
+        PlayState::NotGenuine
+    } else {
+        PlayState::Usable
+    })
+}
+
+/// The game's install given `play`; an unreadable Play leaves a store install unconfirmed.
+fn check(packages: &mut impl Packages, play: PlayState) -> Result<Install, ReadFailed> {
+    let sdk = packages.sdk()?;
+    if !packages.installed(PACKAGE)? {
+        return Ok(Install::Missing);
     }
-    if !packages.enabled(STORE) {
-        return Err(StoreUnavailable::Disabled);
+    if !signed_by(packages, sdk, PACKAGE, &SIGNER_SHA256)? {
+        return Ok(Install::ForeignSigner);
     }
-    if !signed_by(packages, sdk, STORE, &STORE_SIGNER_SHA256) {
-        return Err(StoreUnavailable::NotGenuine);
+    let from_store = if sdk >= INSTALL_SOURCE_API {
+        let source = packages.install_source(PACKAGE)?;
+        source.installing.as_deref() == Some(STORE) && source.initiating.as_deref() == Some(STORE)
+    } else {
+        packages.installer(PACKAGE)?.as_deref() == Some(STORE)
+    };
+    match (from_store, play) {
+        (false, _) => Ok(Install::NotFromStore),
+        (true, PlayState::Usable) => Ok(Install::Verified),
+        (true, PlayState::Unreadable) => Err(ReadFailed),
+        (true, PlayState::Absent | PlayState::Disabled | PlayState::NotGenuine) => {
+            Ok(Install::NotFromStore)
+        }
     }
-    Ok(())
 }
 
 /// Whether `package` is signed by the certificate with `sha256`, through the reads `sdk` offers.
-fn signed_by(packages: &mut impl Packages, sdk: u32, package: &str, sha256: &[u8; 32]) -> bool {
+fn signed_by(
+    packages: &mut impl Packages,
+    sdk: u32,
+    package: &str,
+    sha256: &[u8; 32],
+) -> Result<bool, ReadFailed> {
     if sdk >= SIGNING_CERTIFICATE_API {
         packages.has_signing_certificate(package, sha256)
     } else {
-        let digests = packages.signature_digests(package);
-        !digests.is_empty() && digests.iter().all(|digest| digest == sha256)
+        let digests = packages.signature_digests(package)?;
+        Ok(!digests.is_empty() && digests.iter().all(|digest| digest == sha256))
     }
 }
 
