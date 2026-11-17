@@ -263,7 +263,7 @@ fn a_missing_android_install_offers_the_store_listing_then_checks_again() {
         (true, vec![false, false])
     );
     let refusal = &host.asked[0];
-    let listing = policy::android::STORE_LISTING.map(str::to_owned);
+    let listing = policy::android::STORE_LISTING.map(OpenLink::from);
     assert!(refusal.buttons.iter().any(|button| button.open == listing));
     assert!(refusal.buttons.iter().any(|button| button.quit));
     assert_eq!(
@@ -306,7 +306,10 @@ fn a_host_signs_in_through_the_shown_code() {
         !code.buttons.iter().any(answers),
         "a running check waits on no answer"
     );
-    let link = ["https://login.example.test/device".to_owned()];
+    let link = [OpenLink {
+        url: "https://login.example.test/device".to_owned(),
+        app: None,
+    }];
     assert!(code.buttons.iter().any(|button| button.open == link));
 }
 

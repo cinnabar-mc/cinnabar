@@ -156,11 +156,14 @@ final class SetupScreen extends FrameLayout {
         }
     }
 
-    /** Opens the first of {@code links} some installed app handles. */
+    /** Opens the first of {@code links} that its named app, or any app, handles. */
     private void open(JSONArray links) {
         for (int index = 0; index < links.length(); index++) {
             try {
-                getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(links.getString(index))));
+                JSONObject link = links.getJSONObject(index);
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(link.getString("url")));
+                if (link.has("app")) intent.setPackage(link.getString("app"));
+                getContext().startActivity(intent);
                 return;
             } catch (ActivityNotFoundException | JSONException error) {
                 // The next link is the fallback.
@@ -232,8 +235,10 @@ final class SetupScreen extends FrameLayout {
                 choice.action.run();
             });
             if (primary == null) primary = view;
+            // Grows past the usual height when a large font scale wraps the label.
+            view.setMinHeight(dp(BUTTON_HEIGHT_DP));
             actions.addView(view, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP)));
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         column.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

@@ -28,7 +28,7 @@ use sha2::{Digest, Sha256};
 
 pub use headless::prepare_headless;
 pub use next::prepare_next_release;
-pub use ownership::{Button, GateHost, Prompt, verify_with_host};
+pub use ownership::{Button, GateHost, OpenLink, Prompt, verify_with_host};
 use prepare::prepare;
 pub use progress::Progress;
 use status::Status;

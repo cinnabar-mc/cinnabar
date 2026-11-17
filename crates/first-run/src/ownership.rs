@@ -153,7 +153,7 @@ const fn install_text(store: Store) -> &'static str {
             "On Windows, Cinnabar can use Minecraft installed from the Microsoft Store or the Xbox app. If you bought Minecraft for Windows or Minecraft: Java & Bedrock Edition for PC, it's already in your library there."
         }
         Store::Android => {
-            "On Android, Cinnabar can use Minecraft installed from Google Play. A copy bought on another platform or store, such as the Amazon Appstore, doesn't count here."
+            "On Android, Cinnabar can use Minecraft installed from Google Play. A copy bought on another platform or store, such as the Amazon Appstore, doesn't count here. If Google Play already installed it, update or reinstall it there so Android records where it came from."
         }
     }
 }
@@ -261,10 +261,27 @@ pub struct Button {
     pub label: String,
     /// Links to try in order until one opens, staying on the screen.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub open: Vec<String>,
+    pub open: Vec<OpenLink>,
     /// Closes setup without playing.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub quit: bool,
+}
+
+/// A link a button opens, only in `app` when that names a package.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct OpenLink {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+}
+
+impl From<policy::Link> for OpenLink {
+    fn from(link: policy::Link) -> Self {
+        Self {
+            url: link.url.to_owned(),
+            app: link.app.map(str::to_owned),
+        }
+    }
 }
 
 impl Prompt {
@@ -273,11 +290,15 @@ impl Prompt {
             label: screen.button_label(action).to_owned(),
             open: match (action, screen) {
                 (Action::GetMinecraft, _) => available
-                    .get_minecraft_urls()
+                    .get_minecraft_links()
                     .iter()
-                    .map(|url| (*url).to_owned())
+                    .copied()
+                    .map(OpenLink::from)
                     .collect(),
-                (Action::OpenLink, Screen::SignIn { uri, .. }) => vec![uri.clone()],
+                (Action::OpenLink, Screen::SignIn { uri, .. }) => vec![OpenLink {
+                    url: uri.clone(),
+                    app: None,
+                }],
                 _ => Vec::new(),
             },
             quit: action == Action::Quit,

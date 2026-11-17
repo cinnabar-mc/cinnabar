@@ -189,8 +189,9 @@ fn a_shell_install_claiming_play_fails_where_the_initiator_is_known() {
 
 #[test]
 fn get_minecraft_opens_the_play_listing_first() {
-    assert!(STORE_LISTING[0].starts_with("market://"));
-    assert!(STORE_LISTING.iter().all(|url| url.ends_with(PACKAGE)));
+    assert!(STORE_LISTING[0].url.starts_with("market://"));
+    assert_eq!(STORE_LISTING[0].app, Some(STORE));
+    assert!(STORE_LISTING.iter().all(|link| link.url.ends_with(PACKAGE)));
 }
 
 /// Android 11+ hides other packages, and installers it can't see, unless the manifest declares

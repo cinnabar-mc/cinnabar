@@ -2010,7 +2010,8 @@ every launch, and a Microsoft account signed in through Cinnabar's own app when
 registered for the user (Windows package API); on Android it is `com.mojang.minecraftpe`, never
 the trial, signed by Mojang's certificate and installed by Google Play, itself signed by Google,
 not by `adb` (`PackageManager` metadata only; before API 30 an `adb` install naming Play as its
-installer passes). Amazon Appstore copies are re-signed with a key Amazon does not publish, so
+installer passes, and a Play install carried over from Android 10 records no initiator, so it
+fails until Play updates or reinstalls it). Amazon Appstore copies are re-signed with a key Amazon does not publish, so
 Fire devices need the account source until that signer is pinned. Android's setup activity draws
 the gate's screens before setup downloads, local worlds and joins, and the game activity that
 attempt starts trusts its answer. The account check keeps a 30-day pass, re-checks in the
