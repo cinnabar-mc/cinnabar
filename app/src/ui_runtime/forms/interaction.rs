@@ -1,8 +1,9 @@
 use super::{LocalFormAction, engine_input};
 use crate::ui_runtime::{
     input_owner::InputOwner,
-    interaction::input_capture::{
-        restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
+    interaction::{
+        chat_modifiers,
+        input_capture::{restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat},
     },
 };
 use bevy::{
@@ -178,15 +179,39 @@ pub(crate) fn engine_frame_input<'a, 'p>(
     }
 }
 
+/// The modifiers held as this frame's key events arrived, and for each press among `events`
+/// whether it is an edit shortcut such as Ctrl+V. `modifiers` keeps held modifiers across the
+/// key reset every owned frame ends with, which `keys` forgets.
+fn form_modifiers(
+    modifiers: &mut ButtonInput<KeyCode>,
+    keys: &ButtonInput<KeyCode>,
+    events: &[KeyboardInput],
+) -> (Vec<KeyboardKey>, Vec<bool>) {
+    chat_modifiers::capture_before_events(modifiers, keys, events);
+    let mut press_shortcuts = Vec::new();
+    for input in events {
+        chat_modifiers::track(modifiers, input);
+        if input.state == ButtonState::Pressed {
+            press_shortcuts.push(chat_modifiers::text_modified(modifiers));
+        }
+    }
+    let held = modifiers
+        .get_pressed()
+        .map(|key| keyboard_key(*key))
+        .collect();
+    (held, press_shortcuts)
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window, mut focus, driven, pointer_source, owner): (
+    (player_runtime, window, mut focus, driven, pointer_source, owner, mut modifiers): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_state::CursorFocus>>,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::ui_runtime::touch_pointer::UiPointerSource>>,
         InputOwner,
+        Local<ButtonInput<KeyCode>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -230,6 +255,7 @@ pub(crate) fn drive_server_form_input(
         // In particular, do not let a held edge answer the form behind it.
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *stick = [false; 4];
         *owned_last_frame = false;
@@ -256,6 +282,7 @@ pub(crate) fn drive_server_form_input(
     if frame.covers(form_scene) && !matches!(frame.top(), Scene::Menu(_)) {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *owned_last_frame = false;
         return;
@@ -266,6 +293,7 @@ pub(crate) fn drive_server_form_input(
         runtime.server_forms_mut().reject_active_busy();
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *owned_last_frame = false;
         return;
     }
@@ -274,6 +302,7 @@ pub(crate) fn drive_server_form_input(
         // Otherwise a held mouse/key edge could answer the replacement form as soon as it lands.
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *stick = [false; 4];
         runtime
@@ -294,6 +323,7 @@ pub(crate) fn drive_server_form_input(
     if !runtime.server_forms().owns_input() {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         if *owned_last_frame && !runtime.ui_focused(&player_runtime) && input_available {
             restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
         }
@@ -304,6 +334,7 @@ pub(crate) fn drive_server_form_input(
     if !input_available || !frame.reads(|scene| scene == form_scene) {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *stick = [false; 4];
         runtime
@@ -326,13 +357,15 @@ pub(crate) fn drive_server_form_input(
         .and_then(|entry| presentation.form_engine_frame(entry.identity))
         .cloned();
     if input_available && let Some(frame) = engine_frame {
-        let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
-        let key_presses: Vec<_> = keyboard
-            .read()
+        let events: Vec<_> = keyboard.read().cloned().collect();
+        let (held, press_shortcuts) = form_modifiers(&mut modifiers, &keys, &events);
+        let key_presses: Vec<_> = events
+            .iter()
             .filter(|input| input.state == ButtonState::Pressed)
             .collect();
         let input = engine_input::EngineInput {
             keys: &held,
+            press_shortcuts,
             animator: presentation.form_animator(),
             ..engine_frame_input(
                 window,
@@ -349,6 +382,7 @@ pub(crate) fn drive_server_form_input(
         engine_input::drive(&mut runtime, &frame, input);
     } else if input_available && let Some(entry) = runtime.server_forms().active() {
         keyboard.clear();
+        modifiers.reset_all();
         let identity = entry.identity;
         if keys.just_pressed(KeyCode::ArrowUp)
             || (keys.just_pressed(KeyCode::Tab) && keys.pressed(KeyCode::ShiftLeft))
@@ -417,6 +451,7 @@ pub(crate) fn drive_server_form_input(
     } else {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
     }
     if runtime.server_forms().handoff_pending()
         && let Some(focus) = focus.as_deref_mut()
@@ -473,6 +508,52 @@ mod focus_tests {
         );
         pad.digital_mut().clear();
         assert!(keys(&pad, &mut stick).is_empty());
+    }
+
+    fn key_event(key_code: KeyCode, state: ButtonState, text: Option<&str>) -> KeyboardInput {
+        use bevy::input::keyboard::Key;
+        KeyboardInput {
+            key_code,
+            logical_key: Key::Character(text.unwrap_or_default().into()),
+            state,
+            text: text.map(Into::into),
+            repeat: false,
+            window: bevy::prelude::Entity::PLACEHOLDER,
+        }
+    }
+
+    // Pasting with Ctrl+V into a form's edit box typed "v": the form's frame end resets `keys`,
+    // so a Ctrl pressed in an earlier frame was gone when V arrived.
+    #[test]
+    fn ctrl_held_across_the_key_reset_makes_v_an_edit_shortcut() {
+        let (mut modifiers, mut keys) = (ButtonInput::default(), ButtonInput::default());
+        keys.press(KeyCode::ControlLeft);
+        let ctrl = key_event(KeyCode::ControlLeft, ButtonState::Pressed, None);
+        form_modifiers(&mut modifiers, &keys, &[ctrl]);
+        keys.reset_all();
+
+        let v = key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v"));
+        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v.clone()]);
+        assert_eq!(shortcuts, [true]);
+        assert_eq!(held, [KeyboardKey::ControlLeft]);
+
+        let release = key_event(KeyCode::ControlLeft, ButtonState::Released, None);
+        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[release, v]);
+        assert_eq!(shortcuts, [false]);
+        assert!(held.is_empty());
+    }
+
+    #[test]
+    fn plain_and_alt_gr_v_stay_typed_text() {
+        let (mut modifiers, mut keys) = (ButtonInput::default(), ButtonInput::default());
+        let v = key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v"));
+        let (_, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v.clone()]);
+        assert_eq!(shortcuts, [false]);
+        // Windows reports AltGr as Ctrl+Alt, which types characters rather than shortcuts.
+        keys.press(KeyCode::ControlLeft);
+        keys.press(KeyCode::AltRight);
+        let (_, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v]);
+        assert_eq!(shortcuts, [false]);
     }
 
     #[test]
