@@ -17,7 +17,7 @@ use launcher_host::{
 use serde::Serialize;
 
 use crate::{
-    Progress,
+    Progress, reporter,
     screen::{Action, Effect, Meter, Screen, refused_actions},
     status::Status,
 };
@@ -127,7 +127,7 @@ const fn install_text(store: Store) -> &'static str {
             "On Windows, Cinnabar can use Minecraft installed from the Microsoft Store or the Xbox app. If you bought Minecraft for Windows or Minecraft: Java & Bedrock Edition for PC, it's already in your library there."
         }
         Store::Android => {
-            "On Android, Cinnabar can use Minecraft installed from Google Play. A copy bought on another platform or store, such as the Amazon Appstore, doesn't count here. If Google Play installed it before an Android upgrade, update it there so Android records where it came from."
+            "On Android, Cinnabar can use Minecraft installed from Google Play. A copy bought on another platform or store, such as the Amazon Appstore, doesn't count here. If Google Play already shows it as installed, update it there; if no update is available, back up your worlds, then reinstall it from Google Play."
         }
     }
 }
@@ -284,6 +284,8 @@ pub fn verify_with_host(
     if !layout.is_installed() || open_without_asking(layout) {
         return true;
     }
+    // The status file describes this launch, not the last one that finished setup.
+    reporter(layout, |_| {})(Status::awaiting_ownership());
     with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
         verify(layout, sign_in, cancel, on_code)
     })

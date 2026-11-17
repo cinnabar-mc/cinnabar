@@ -245,9 +245,6 @@ final class SetupScreen extends FrameLayout {
                 Gravity.CENTER_HORIZONTAL));
         overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         if (primary != null) primary.requestFocus();
-        // Focusing a button below the fold scrolls to it; the heading and message come first.
-        ScrollView shown = prompt;
-        shown.post(() -> shown.scrollTo(0, 0));
         announceForAccessibility(title);
     }
 
