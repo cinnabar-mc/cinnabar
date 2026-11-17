@@ -133,7 +133,8 @@ impl Packages for Device {
 const API_LEVELS: [u32; 6] = [26, 27, 28, 29, 30, 35];
 
 /// Every Play state against every game install: only a clean negative about Play turns the gate
-/// off, an unreadable answer never does, and only a genuine Play install of the game passes.
+/// off, an unreadable Play keeps it on and is unverifiable whatever the game shows, and only a
+/// genuine Play install of the game passes.
 #[test]
 fn each_play_state_and_game_install_decides_the_gate() {
     use PlayState::*;
@@ -187,12 +188,10 @@ fn each_play_state_and_game_install_decides_the_gate() {
                 let gated = android.with_store_usable(local.store_usable).gated();
                 let expected = match (play, game) {
                     (Absent | Disabled | NotGenuine, _) => None,
+                    // An unreadable Play is unverifiable whatever the game shows.
+                    (Unreadable, _) | (Usable, "unreadable") => Some(LocalInstall::Unreadable),
                     (Usable, "genuine") => Some(LocalInstall::Found),
-                    // The game's own failure, or Play's when only Play could confirm the install.
-                    (_, "unreadable") | (Unreadable, "genuine") => Some(LocalInstall::Unreadable),
-                    // A device whose API level can't be read can't check the game either.
-                    (Unreadable, _) if sdk_unreadable(set_play) => Some(LocalInstall::Unreadable),
-                    _ => Some(LocalInstall::NotFound),
+                    (Usable, _) => Some(LocalInstall::NotFound),
                 };
                 assert_eq!(gated, expected.is_some(), "{case}: gate");
                 if let Some(install) = expected {
@@ -206,13 +205,6 @@ fn each_play_state_and_game_install_decides_the_gate() {
             }
         }
     }
-}
-
-/// Whether `set_play` makes the API level itself unreadable.
-fn sdk_unreadable(set_play: fn(Device) -> Device) -> bool {
-    set_play(Device::play_install(30))
-        .unreadable
-        .contains(&None)
 }
 
 #[test]

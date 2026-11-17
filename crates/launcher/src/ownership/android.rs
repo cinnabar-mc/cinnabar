@@ -166,14 +166,19 @@ impl Probe {
     }
 }
 
-/// Probes Play, then the game where Play keeps the source. The game passes only when it is
-/// [`PACKAGE`], signed by Mojang and installed by a usable Play; from API 30 Play must also have
-/// started the install, which rules out `adb install -i`, while earlier levels cannot tell.
+/// Probes Play, then the game where Play is usable; an unreadable Play is unreadable whatever
+/// the game shows. The game passes only when it is [`PACKAGE`], signed by Mojang and installed by
+/// a usable Play; from API 30 Play must also have started the install, which rules out
+/// `adb install -i`, while earlier levels cannot tell.
 pub fn probe(packages: &mut impl Packages) -> Probe {
     let play = play_state(packages).unwrap_or(PlayState::Unreadable);
-    let install = play
-        .keeps_source()
-        .then(|| check(packages, play).unwrap_or(Install::Unreadable));
+    let install = match play {
+        PlayState::Usable => Some(check(packages).unwrap_or(Install::Unreadable)),
+        // Until Play can be read it is unknown whether the gate applies, so the game's own
+        // answer would mislead; Try again probes again.
+        PlayState::Unreadable => Some(Install::Unreadable),
+        PlayState::Absent | PlayState::Disabled | PlayState::NotGenuine => None,
+    };
     Probe { play, install }
 }
 
@@ -190,8 +195,8 @@ fn play_state(packages: &mut impl Packages) -> Result<PlayState, ReadFailed> {
     })
 }
 
-/// The game's install given `play`; an unreadable Play leaves a store install unconfirmed.
-fn check(packages: &mut impl Packages, play: PlayState) -> Result<Install, ReadFailed> {
+/// The game's install on a device whose Play is usable.
+fn check(packages: &mut impl Packages) -> Result<Install, ReadFailed> {
     let sdk = packages.sdk()?;
     if !packages.installed(PACKAGE)? {
         return Ok(Install::Missing);
@@ -205,14 +210,11 @@ fn check(packages: &mut impl Packages, play: PlayState) -> Result<Install, ReadF
     } else {
         packages.installer(PACKAGE)?.as_deref() == Some(STORE)
     };
-    match (from_store, play) {
-        (false, _) => Ok(Install::NotFromStore),
-        (true, PlayState::Usable) => Ok(Install::Verified),
-        (true, PlayState::Unreadable) => Err(ReadFailed),
-        (true, PlayState::Absent | PlayState::Disabled | PlayState::NotGenuine) => {
-            Ok(Install::NotFromStore)
-        }
-    }
+    Ok(if from_store {
+        Install::Verified
+    } else {
+        Install::NotFromStore
+    })
 }
 
 /// Whether `package` is signed by the certificate with `sha256`, through the reads `sdk` offers.
