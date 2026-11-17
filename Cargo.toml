@@ -197,6 +197,9 @@ wit-parser = "=0.247.0"
 [patch.crates-io]
 # Keep Linux crash dumps when a thread's stack cannot be read.
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
+# Android lifecycle callbacks return without waiting until the event loop starts; patches live
+# on `cinnabar-v0.6`.
+android-activity = { git = "https://github.com/cinnabar-mc/android-activity", rev = "07587797903a8c607eb9240ca67e8d5fbdebd1c6" }
 # Mobile input support; patches live on `cinnabar-v0.30`.
 winit = { git = "https://github.com/cinnabar-mc/winit", rev = "b1e59b0d5a63628cd4946575765a6c35d53d90df" }
 naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "12bb53fde7ac4752ef837c608880c77d3c992ce2" }
