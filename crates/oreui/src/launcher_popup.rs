@@ -49,6 +49,7 @@ impl OreUiScreen {
                 popup.confirm,
                 launcher::menu::MenuAction::ConfirmRemoveShaderPack(..)
                     | launcher::menu::MenuAction::ConfirmLeaveRealm(..)
+                    | launcher::menu::MenuAction::ConfirmRemoveJavaAccount(..)
             ) {
                 Variant::Destructive
             } else {

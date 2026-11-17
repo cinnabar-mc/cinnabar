@@ -275,3 +275,9 @@ func serializeToken(tok *oauth2.Token, generation string) ([]byte, error) {
 func validToken(token *oauth2.Token) bool {
 	return token != nil && token.RefreshToken != ""
 }
+
+// AccountChanged reports an error from a token source whose cache file another sign-in
+// replaced or removed; the caller reopens the cache to use the new sign-in.
+func AccountChanged(err error) bool {
+	return errors.Is(err, errAccountChanged)
+}

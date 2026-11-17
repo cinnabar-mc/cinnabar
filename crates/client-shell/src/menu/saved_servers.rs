@@ -4,11 +4,12 @@ use super::MenuRuntime;
 use launcher::menu::view::SavedServer;
 
 impl MenuRuntime {
-    /// Builds the endpoint while keeping a typed port or NetherNet target intact.
+    /// Builds the endpoint while keeping a typed port, NetherNet target or Java target intact.
     pub(super) fn draft_endpoint(&self) -> String {
         let host = self.address.as_str().trim();
         let port = self.port.as_str().trim();
         let own_port = launcher::menu::is_nethernet_target(host)
+            || launcher::menu::is_java_target(host)
             || host.contains("]:")
             || host.split_once(':').is_some_and(|(_, rest)| {
                 !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())

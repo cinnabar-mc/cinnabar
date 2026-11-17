@@ -2417,6 +2417,7 @@ dependencies = [
 name = "cinnabar-mcp"
 version = "0.2.1"
 dependencies = [
+ "bridge",
  "developer-control",
  "diagnostics",
  "image",
@@ -5114,6 +5115,14 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "uuid",
+]
+
+[[package]]
+name = "java-sim"
+version = "0.2.1"
+dependencies = [
+ "flate2",
+ "serde_json",
 ]
 
 [[package]]

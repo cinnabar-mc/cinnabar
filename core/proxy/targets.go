@@ -142,6 +142,7 @@ type resolvedUpstreamTarget struct {
 	friend          interface{ Close() error }
 	xbox            interface{ Close() error }
 	local           interface{ Close() error }
+	java            bool // a Java Edition 1.7.10 server, joined through the translator
 	offline         bool // explicit own-world offline login, never an authentication fallback
 	keylessFallback bool // own loopback BDS may admit an offline login when it has no service keys
 	realm           bool // vanilla words a failed Realm join as its own
@@ -176,6 +177,9 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return nil, errors.New("upstream target is empty")
+	}
+	if server, ok := cutPrefixFold(address, JavaTargetPrefix); ok {
+		return javaTarget(server)
 	}
 	if hostPort, ok := cutPrefixFold(address, rakNetTargetPrefix); ok {
 		target, err := rakNetTarget(hostPort)

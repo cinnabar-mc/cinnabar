@@ -56,8 +56,9 @@ type Server struct {
 	worlds           Worlds   // nil disables the local world methods; guarded by mu
 	services         Services // nil disables the launcher methods; guarded by mu
 	presence         func(xboxpresence.State)
-	cinnabar         CinnabarAPI // nil answers lookups as unavailable; guarded by mu
-	packetDelay      PacketDelay // nil disables packet_delay.v1; guarded by mu
+	cinnabar         CinnabarAPI  // nil answers lookups as unavailable; guarded by mu
+	packetDelay      PacketDelay  // nil disables packet_delay.v1; guarded by mu
+	javaAccounts     JavaAccounts // nil disables java_accounts.v1; guarded by mu
 	done             chan struct{}
 	once             sync.Once
 	mu               sync.Mutex
@@ -226,6 +227,9 @@ func (server *Server) serveOne(conn net.Conn) error {
 	}
 	if call.Method == methodPackApplication {
 		return server.servePackApplication(conn, id, call.Params)
+	}
+	if call.Method == methodJavaAccounts {
+		return server.serveJavaAccounts(conn, id, call.Params)
 	}
 	if isServiceMethod(call.Method) {
 		return server.serveService(conn, id, call.Method, call.Params)

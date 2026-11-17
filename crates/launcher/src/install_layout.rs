@@ -285,6 +285,11 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// The install's Java Edition accounts, which the core keeps apart from the Bedrock ones.
+    pub fn java_accounts_dir(&self) -> PathBuf {
+        self.user_data_root.join("auth/java-accounts")
+    }
+
     /// The install's one login device profile, whichever account's token the core holds.
     #[must_use]
     pub fn device_profile_file(&self) -> PathBuf {

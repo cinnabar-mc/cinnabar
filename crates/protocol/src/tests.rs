@@ -29,6 +29,7 @@ mod item_registry_capacity;
 mod item_stack_requests;
 mod item_use_hand;
 mod items_actions;
+mod java_session;
 mod local_abilities;
 mod local_actor_movement;
 mod login;

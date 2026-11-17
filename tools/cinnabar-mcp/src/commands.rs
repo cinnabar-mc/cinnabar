@@ -195,13 +195,32 @@ pub fn command(
     })
 }
 
-/// Whether `address` names this machine; remote joins need an explicit opt-in.
+/// Whether `address` names this machine; remote joins need an explicit opt-in. A Java
+/// target is judged by the server address behind its prefix, which the core matches without
+/// regard to case. Without a port, a Java host name is first looked up as a service record
+/// that may point anywhere, so only a loopback address literal counts then.
 pub fn is_loopback(address: &str) -> bool {
-    let host = match address.rsplit_once(':') {
-        Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
-        _ => address,
+    let address = address.trim();
+    let prefix = bridge::contract::JAVA_TARGET_PREFIX;
+    let java = address
+        .get(..prefix.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(prefix));
+    let address = if java {
+        &address[prefix.len()..]
+    } else {
+        address
+    };
+    let (host, has_port) = match address.rsplit_once(':') {
+        Some((host, port))
+            if !port.is_empty()
+                && port.chars().all(|c| c.is_ascii_digit())
+                && (host.ends_with(']') || !host.contains(':')) =>
+        {
+            (host, true)
+        }
+        _ => (address, false),
     };
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    host.eq_ignore_ascii_case("localhost")
-        || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+    let literal = host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
+    literal || (host.eq_ignore_ascii_case("localhost") && (has_port || !java))
 }

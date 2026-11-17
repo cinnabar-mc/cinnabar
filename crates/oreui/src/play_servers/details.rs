@@ -403,12 +403,15 @@ pub(super) fn saved_details(
         super::super::theme::BORDER,
     )?;
     let strip = [b[0], b[1], right, b[1] + canvas.r(6.0)];
-    ping_strip(
-        canvas,
-        strip,
-        view.feeds.pings.get(&server.address),
-        view.settings_options.exact_server_ping(),
-    )?;
+    // A server that is never pinged, such as a Java one, has no ping to wait for.
+    if pingable(&server.address) {
+        ping_strip(
+            canvas,
+            strip,
+            view.feeds.pings.get(&server.address),
+            view.settings_options.exact_server_ping(),
+        )?;
+    }
     let y = strip[3] + canvas.r(1.2);
     canvas.text_line(
         &server.name,

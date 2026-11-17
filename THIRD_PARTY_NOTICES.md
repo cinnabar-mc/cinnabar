@@ -317,6 +317,11 @@ express Statement of Purpose.
 - License evidence: the pinned `README.md`, SHA-256
   `c0b6a32a38ac3070c908eba107b25e14385a4d8534ada08780956748da589561`
 
+The Java Edition 1.7.10 block and item tables and the Bedrock item registry under
+`core/javaedition/legacy` are generated from commit
+`9b995542ab4a17837dee785439954e43d031b33e` of the same repository; the files read and their
+hashes are pinned in `core/javaedition/legacy/source.json`.
+
 The pinned tree does not contain a standalone LICENSE, LICENCE, COPYING, or NOTICE file.
 Its root `README.md` explicitly declares MIT and also notes that individual
 upstream-derived data may require different terms. The full MIT terms below are

@@ -1896,6 +1896,81 @@ coverage, supported slot/ownership enforcement, player-preview acceptance and ha
 qualification. Payments and moderation remain incomplete; rollout must respect API/client
 compatibility. Existing catalog content is owned by the API repository.
 
+### Java Edition 1.7.10 servers
+
+Java Edition 1.7.10 (protocol 5) servers are a second server protocol. Its behaviour
+references are the official 1.7.10 client and recordings of that client run headlessly.
+
+Implemented: [`java-sim`](crates/java-sim/README.md) reproduces the 1.7.10 client's player
+tick, block collision model for ids 0 to 175 and movement packets. Recorded client traces,
+including seeded random walks, replay bit for bit, and collision boxes match the recorded
+game for every id and metadata except those listed below.
+
+Implemented: the core joins a `java/<host>[:<port>]` target and translates the session to
+Bedrock packets ([`core/javaedition`](core/javaedition/translate/session.go)): login with
+encryption, Java Edition sign-in for online-mode servers, chunks and block changes with
+fence, pane, wall and stair connections, the player's position, health, hunger, experience,
+abilities, game mode, time and rain, chat, the player list, scoreboards in the sidebar, list and
+below-name slots with their team prefixes and suffixes, remote players, mobs and
+objects with their movement, held items and status flags, and the player inventory. From the
+client it translates movement, sprinting and sneaking, mining, block placement and item use,
+attacks and entity interaction, the held slot, chat, commands and respawning. Tests cover a
+scripted server, a vanilla 1.7.10 server when one is supplied, and the client's own packet and
+chunk decoders reading the translation.
+
+Implemented: Java accounts ([`javaedition/auth`](core/javaedition/auth/accounts.go)). The
+Java Edition services refuse tokens from the account's Bedrock sign-in ("Invalid app
+registration"), so Java accounts are a second kind of account, independent of the Bedrock
+ones: each is a device-code sign-in through the Nintendo Switch edition's Microsoft app, which
+the services accept, saved with its Java profile. The Accounts dialog lists both kinds, adds
+either, selects the Java account Java joins use and removes it; the core owns the accounts
+through `java_accounts.v1`, asks before removing one and opens the sign-in link. Each
+account shows its skin's face and hat, read from the session service and kept for a day. An
+online-mode join without a usable Java account starts adding one and fails with the code to
+enter. Each account's Java session is reused until it nears its expiry; a refresh Microsoft
+does not answer keeps the sign-in and asks the player to reconnect, and only a refusal asks
+for a new code. Cores sharing the accounts directory add through their own unfinished sign-in
+files and move finished ones into place under both tokens' locks. A server's own login
+refusal reaches the player as its text. The web client offers no Java accounts.
+
+Incomplete:
+
+- A saved server whose address is `java/<host>[:<port>]` joins a Java server, but the
+  client still runs Bedrock physics on that session: `java-sim` is not connected. Until it
+  is, positions are sent from the Bedrock simulation's single-precision values with a derived
+  ground flag, and the camera sink of sneaking and stepping is missing from the reported
+  stance, so a vanilla server corrects sprinting. The client has joined an offline-mode
+  vanilla 1.7.10 server on the same machine and a public online-mode network through the
+  Java Edition sign-in; combat, teleports and inventories have not been exercised in it.
+- `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
+  solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
+  with the bounds last computed for any block of their kind; `java-sim` uses each block's own
+  bounds, and such ladders are left out of the shape comparison. Metadata the game never
+  places (a stair's fourth bit, for one) reaches the client as the block's lowest listed
+  metadata and collides as that. Attribute modifiers of one operation combine in Java 8's
+  hash order, without the tree order of a bucket of eight or more, and a move is limited to
+  100 blocks per axis in a tick, where the game has no limit.
+- Interaction packets follow the Bedrock client's send order, not the 1.7.10 click handler's
+  (swing before attack, placement before its swing).
+- Inventory windows other than the player's, window clicks, crafting, creative inventory,
+  enchanting and item NBT (names, enchantments) are not translated. Potions and spawn eggs
+  lose their variant.
+- Block entities (signs, chests, skulls, beds' colour, flower pot contents), redstone wire,
+  fire and tripwire connections, door halves and the upper half of double plants take their
+  table state without their neighbours or tile data. Stair corner states follow the
+  collision model's rule but are not checked against recorded shapes.
+- Biome ids pass through by number, unchecked against the pinned registry. The Bedrock
+  nether is 128 blocks high, so Java nether blocks above that are not shown.
+- Remote player skins and capes, entity armour, most entity metadata, paintings, experience
+  orbs, item frames, effects, attributes of the local player beyond health, sounds,
+  particles, explosions, block-break progress, team colours on name tags, titles, maps, statistics,
+  tab completion and plugin channels other than the brand are not translated.
+- The death, respawn and dimension-change sequences are translated but have only been
+  checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
+  where Java uses its modified form, which differs for NUL and for characters outside the
+  basic plane.
+- Server lists cannot ping Java servers.
+
 ## Phase 7 — Local worlds
 
 All player local worlds use BDS, including Infinite and Flat terrain. Creation and import

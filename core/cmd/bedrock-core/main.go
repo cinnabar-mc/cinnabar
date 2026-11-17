@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
+	javaauth "github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -40,6 +42,8 @@ const (
 	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
 	shutdownGrace      = 2 * time.Second
 	parentPollInterval = 250 * time.Millisecond
+	// Bounds one request to the Java Edition services.
+	javaEditionHTTPTimeout = 30 * time.Second
 )
 
 // The build stamps these with -ldflags "-X main.version=<workspace version> -X main.commit=<commit>",
@@ -101,6 +105,7 @@ type options struct {
 	socketDir                 string
 	upstream                  string
 	authCache                 string
+	javaAccounts              string
 	deviceFile                string
 	language                  string
 	catalogFile               string
@@ -139,6 +144,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.socketDir, "socket-dir", "", "directory containing the local bridge endpoint")
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
+	flags.StringVar(&opts.javaAccounts, "java-accounts", "", "directory of the install's Java Edition accounts")
 	flags.StringVar(&opts.deviceFile, "device-file", "", "the install's persisted login device profile (default: device.json beside -auth-cache)")
 	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
@@ -283,6 +289,15 @@ func runWithResourcePackCacheFactory(
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
 	var account *authcache.Account
+	var javaEdition *javaauth.Accounts
+	if opts.javaAccounts != "" {
+		javaEdition = javaauth.OpenAccounts(javaauth.AccountsConfig{
+			Dir:      opts.javaAccounts,
+			Services: javaauth.Services{HTTP: &http.Client{Timeout: javaEditionHTTPTimeout}},
+			Logger:   logger,
+		})
+		defer javaEdition.Close()
+	}
 	closeCredentials := context.CancelFunc(func() {})
 	if statusStore != nil {
 		statusStore.SetAuth(control.AuthV1{State: control.AuthOffline})
@@ -421,6 +436,9 @@ func runWithResourcePackCacheFactory(
 			controlServer.SetCinnabarAPI(api)
 		}
 		controlServer.SetLogger(logger)
+		if javaEdition != nil {
+			controlServer.SetJavaAccounts(javaAccountsControl{javaEdition})
+		}
 		controlServer.SetServices(launcherControl{service})
 		sessionTarget = service.SessionTarget
 		if account != nil {
@@ -462,6 +480,7 @@ func runWithResourcePackCacheFactory(
 		SocketDir:           opts.socketDir,
 		Upstream:            opts.upstream,
 		Account:             account,
+		JavaEdition:         javaEdition,
 		Logger:              logger,
 		UpstreamClientCache: opts.upstreamClientCache,
 		Transfers:           transfers,

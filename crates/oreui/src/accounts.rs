@@ -1,5 +1,6 @@
-//! The saved-accounts picker as an OreUI modal menu: one item per account (the current
-//! one checked), the sign-in status while adding, and the account actions.
+//! The saved-accounts picker as an OreUI modal menu: the Bedrock accounts and the Java
+//! accounts, each kind's current one checked, the sign-in status while adding, and the
+//! account actions.
 
 use std::collections::HashMap;
 
@@ -11,6 +12,7 @@ use ui::UiRect;
 
 use super::OreUiScreen;
 use super::paint::Canvas;
+use launcher::java_accounts::JavaAccountAdd;
 use launcher::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 use ui_engine::engine::{
     rect,
@@ -18,7 +20,8 @@ use ui_engine::engine::{
 };
 use ui_engine::menu_scroll::MenuScrolls;
 
-/// The picker for `view`, with account pictures from `images` once decoded.
+/// The picker for `view`, with account pictures from `images` once decoded: the Bedrock
+/// accounts, then the Java accounts, each kind with its own Add button.
 pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -> Modal<'a> {
     if view.feeds.account_adding
         || view.auth_state.awaiting_browser()
@@ -27,49 +30,136 @@ pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -
     {
         return sign_in_modal(view);
     }
+    let java = &view.feeds.java_accounts;
+    if java.add.in_progress() {
+        return java_sign_in_modal(view);
+    }
+    let heading = |label| MenuItem {
+        label,
+        picture_slot: false,
+        picture: None,
+        selected: false,
+        enabled: false,
+        action: None,
+        heading: true,
+    };
     let active = view.feeds.account_active_id.as_deref();
-    let items = view
+    let mut items = vec![heading("Bedrock")];
+    items.extend(
+        view.feeds
+            .accounts
+            .iter()
+            .enumerate()
+            .map(|(index, account)| {
+                let current = active == Some(account.id.as_str());
+                MenuItem {
+                    label: &account.gamertag,
+                    picture_slot: true,
+                    picture: account
+                        .picture_path
+                        .as_ref()
+                        .and_then(|path| images.get(path).copied()),
+                    selected: current,
+                    enabled: true,
+                    action: (!current).then_some(MenuAction::SwitchAccount(index)),
+                    heading: false,
+                }
+            }),
+    );
+    if !java.unavailable {
+        items.push(heading("Java"));
+    }
+    items.extend(java.accounts.iter().enumerate().map(|(index, account)| {
+        let current = java.selected.as_deref() == Some(account.id.as_str());
+        MenuItem {
+            label: &account.name,
+            picture_slot: true,
+            picture: account
+                .picture_path
+                .as_ref()
+                .and_then(|path| images.get(path).copied()),
+            selected: current,
+            enabled: true,
+            action: (!current).then_some(MenuAction::SwitchJavaAccount(index)),
+            heading: false,
+        }
+    }));
+    let failed = match &java.add {
+        JavaAccountAdd::Failed(reason) => Some(reason.as_str()),
+        _ => None,
+    };
+    let body = view
         .feeds
-        .accounts
-        .iter()
-        .enumerate()
-        .map(|(index, account)| {
-            let current = active == Some(account.id.as_str());
-            MenuItem {
-                label: &account.gamertag,
-                picture_slot: true,
-                picture: account
-                    .picture_path
-                    .as_ref()
-                    .and_then(|path| images.get(path).copied()),
-                selected: current,
-                enabled: true,
-                action: (!current).then_some(MenuAction::SwitchAccount(index)),
-            }
-        })
-        .collect();
+        .account_error
+        .as_deref()
+        .or(java.error.as_deref())
+        .or(failed)
+        .unwrap_or_default();
+    let mut buttons = vec![(
+        "Add Bedrock account".into(),
+        Variant::Primary,
+        Some(MenuAction::AddAccount),
+    )];
+    if !java.unavailable {
+        buttons.extend([
+            (
+                "Add Java account".into(),
+                Variant::Primary,
+                Some(MenuAction::AddJavaAccount),
+            ),
+            (
+                "Remove Java account".into(),
+                Variant::Secondary,
+                java.selected
+                    .is_some()
+                    .then_some(MenuAction::RemoveJavaAccount),
+            ),
+        ]);
+    }
+    buttons.push((
+        "View profile".into(),
+        Variant::Secondary,
+        Some(MenuAction::Navigate(MenuScreen::Profile)),
+    ));
     Modal {
         title: "Accounts",
         items,
-        body: view
-            .feeds
-            .account_error
-            .as_deref()
-            .unwrap_or_default()
-            .into(),
+        body: body.into(),
         body_color: DESTRUCTIVE_TINT,
-        buttons: vec![
-            (
-                "Add account".into(),
-                Variant::Primary,
-                Some(MenuAction::AddAccount),
-            ),
-            (
-                "View profile".into(),
-                Variant::Secondary,
-                Some(MenuAction::Navigate(MenuScreen::Profile)),
-            ),
-        ],
+        buttons,
+        close: Some(MenuAction::DismissDialog),
+    }
+}
+
+/// A Java account's device sign-in: the code to enter, then the profile being read. Closing
+/// keeps it running, so the account is still added once the player signs in.
+fn java_sign_in_modal(view: &MenuView) -> Modal<'_> {
+    let add = &view.feeds.java_accounts.add;
+    let body = match add {
+        JavaAccountAdd::AwaitingCode { uri, code } => format!(
+            "Visit {uri} and enter code {code}.\n\nSign in with a Microsoft account that owns Java Edition. The account is added once you do."
+        ),
+        _ => "Reading your Java profile…".into(),
+    };
+    let mut buttons = Vec::new();
+    if matches!(add, JavaAccountAdd::AwaitingCode { .. }) {
+        buttons.push((
+            "Open link".into(),
+            Variant::Primary,
+            Some(MenuAction::OpenJavaSignInLink),
+        ));
+    }
+    buttons.push((
+        "Cancel".into(),
+        Variant::Secondary,
+        Some(MenuAction::CancelJavaAccount),
+    ));
+    Modal {
+        title: "Add a Java account",
+        items: Vec::new(),
+        body: body.into(),
+        body_color: TEXT,
+        buttons,
         close: Some(MenuAction::DismissDialog),
     }
 }
@@ -247,6 +337,72 @@ mod tests {
 
     fn near(a: [f32; 4], b: [f32; 4]) -> bool {
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.01)
+    }
+
+    /// The picker lists both kinds of account, each kind's other accounts selectable, with
+    /// an Add button for each kind and Remove for the selected Java account.
+    #[test]
+    fn picker_lists_bedrock_and_java_accounts() {
+        use launcher::java_accounts::{JavaAccount, JavaAccounts};
+        let mut view = account_manager_view();
+        view.feeds.java_accounts = JavaAccounts {
+            accounts: ["Alex", "Steve"]
+                .map(|name| JavaAccount {
+                    id: name.to_lowercase(),
+                    name: name.into(),
+                    picture_path: None,
+                })
+                .into(),
+            selected: Some("alex".into()),
+            ..Default::default()
+        };
+        let (_, actions, _) = draw(&view);
+        for action in [
+            MenuAction::SwitchAccount(1),
+            MenuAction::SwitchJavaAccount(1),
+            MenuAction::AddAccount,
+            MenuAction::AddJavaAccount,
+            MenuAction::RemoveJavaAccount,
+        ] {
+            assert!(
+                actions.contains(&action),
+                "{action:?} missing from {actions:?}"
+            );
+        }
+        assert!(
+            !actions.contains(&MenuAction::SwitchJavaAccount(0)),
+            "the selected Java account is selectable"
+        );
+    }
+
+    /// While a Java account is being added, the dialog shows its code and can cancel it.
+    #[test]
+    fn adding_a_java_account_shows_its_code() {
+        let mut view = account_manager_view();
+        view.feeds.java_accounts.add = JavaAccountAdd::AwaitingCode {
+            uri: "https://example.invalid/link".into(),
+            code: "TEST-CODE".into(),
+        };
+        let shown = modal(&view, &HashMap::new());
+        assert!(
+            shown.body.contains("TEST-CODE") && shown.body.contains("https://example.invalid/link")
+        );
+        let (_, actions, _) = draw(&view);
+        assert!(actions.contains(&MenuAction::OpenJavaSignInLink));
+        assert!(actions.contains(&MenuAction::CancelJavaAccount));
+        assert!(!actions.contains(&MenuAction::AddJavaAccount));
+    }
+
+    /// Where the install has no Java accounts, as in a browser tab, the picker offers none.
+    #[test]
+    fn picker_offers_no_java_accounts_where_unavailable() {
+        let mut view = account_manager_view();
+        view.feeds.java_accounts.unavailable = true;
+        let shown = modal(&view, &HashMap::new());
+        assert!(shown.items.iter().all(|item| item.label != "Java"));
+        let (_, actions, _) = draw(&view);
+        assert!(actions.contains(&MenuAction::AddAccount));
+        assert!(!actions.contains(&MenuAction::AddJavaAccount));
     }
 
     #[test]

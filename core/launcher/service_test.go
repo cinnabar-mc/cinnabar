@@ -58,6 +58,7 @@ func TestConnectAndSessionTargetMapTargetsToProxySyntax(t *testing.T) {
 		{control.TargetRakNet, " NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9 ", "NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9"},
 		{control.TargetRakNet, "nethernet/http/play.example.net:19132", "nethernet/http/play.example.net:19132"},
 		{control.TargetRakNet, "nethernet/http/[::1]:19132", "nethernet/http/[::1]:19132"},
+		{control.TargetRakNet, proxy.JavaTargetPrefix + "play.example.net", proxy.JavaTargetPrefix + "play.example.net"},
 		{control.TargetRealm, "12345", "realm_id/12345"},
 		{control.TargetFriend, "2535428000000000", "friend_xuid/2535428000000000"},
 	} {
@@ -80,6 +81,7 @@ func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
 		{control.TargetRakNet, "no-port"}, {control.TargetRakNet, "host:0"}, {control.TargetRakNet, "host:99999"},
 		{control.TargetRakNet, "a b:1"}, {control.TargetRakNet, ":19132"}, {control.TargetRealm, "0"},
 		{control.TargetRakNet, "nethernet/jsonrpc/"},
+		{control.TargetRakNet, proxy.JavaTargetPrefix},
 		{control.TargetRakNet, "nethernet/unsupported/1234567890"},
 		{control.TargetRakNet, "nethernet/jsonrpc/not-an-id"},
 		{control.TargetRakNet, "nethernet/jsonrpc/1234567890:19132"},

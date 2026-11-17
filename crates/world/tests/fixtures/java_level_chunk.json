@@ -1,0 +1,70 @@
+{
+  "biome_at_origin": 2,
+  "biome_elsewhere": 1,
+  "blocks": [
+    {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "network_id": 2150698529,
+      "state": "minecraft:stone[]"
+    },
+    {
+      "x": 15,
+      "y": 0,
+      "z": 15,
+      "network_id": 2150698529,
+      "state": "minecraft:stone[]"
+    },
+    {
+      "x": 1,
+      "y": 1,
+      "z": 1,
+      "network_id": 3720363220,
+      "state": "minecraft:oak_fence[minecraft:connection_east=true,minecraft:connection_north=false,minecraft:connection_south=false,minecraft:connection_west=false]"
+    },
+    {
+      "x": 2,
+      "y": 1,
+      "z": 1,
+      "network_id": 2150698529,
+      "state": "minecraft:stone[]"
+    },
+    {
+      "x": 5,
+      "y": 1,
+      "z": 5,
+      "network_id": 4172483059,
+      "state": "minecraft:oak_stairs[minecraft:corner=none,upside_down_bit=false,weirdo_direction=0]"
+    },
+    {
+      "x": 8,
+      "y": 1,
+      "z": 8,
+      "network_id": 1211861802,
+      "state": "minecraft:water[liquid_depth=0]"
+    },
+    {
+      "x": 9,
+      "y": 17,
+      "z": 9,
+      "network_id": 1885700022,
+      "state": "minecraft:red_wool[]"
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "z": 3,
+      "network_id": 3690217760,
+      "state": "minecraft:air[]"
+    },
+    {
+      "x": 0,
+      "y": 40,
+      "z": 0,
+      "network_id": 3690217760,
+      "state": "minecraft:air[]"
+    }
+  ],
+  "sub_chunk_count": 6
+}

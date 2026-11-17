@@ -96,6 +96,7 @@ pub(super) fn draw_choices(
                 selected: choice == picker.selected,
                 enabled: true,
                 action: picker.actions.get(choice).copied(),
+                heading: false,
             })
             .collect(),
         body: Cow::Borrowed(""),

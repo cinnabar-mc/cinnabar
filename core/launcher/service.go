@@ -274,6 +274,12 @@ func upstreamTarget(kind, value string) (string, error) {
 		if proxy.IsNetherNetTarget(value) {
 			return value, nil
 		}
+		if proxy.IsJavaTarget(value) {
+			if !proxy.ValidJavaTarget(value) {
+				return "", control.ErrInvalidTarget
+			}
+			return value, nil
+		}
 		host, port, err := net.SplitHostPort(value)
 		number, portErr := strconv.ParseUint(port, 10, 16)
 		if err != nil || portErr != nil || number == 0 || host == "" || strings.ContainsAny(host, " \t/\\") {

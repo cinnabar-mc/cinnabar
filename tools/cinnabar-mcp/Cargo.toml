@@ -10,6 +10,7 @@ name = "cinnabar-mcp"
 path = "src/main.rs"
 
 [dependencies]
+bridge = { path = "../../crates/bridge" }
 developer-control = { path = "../../crates/developer-control" }
 diagnostics = { path = "../../crates/diagnostics" }
 image.workspace = true

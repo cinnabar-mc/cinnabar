@@ -16,6 +16,7 @@ fn option_modal() -> Modal<'static> {
                 selected: false,
                 enabled: true,
                 action: Some(MenuAction::SettingsScale(-1)),
+                heading: false,
             },
             MenuItem {
                 label: "100%",
@@ -24,6 +25,7 @@ fn option_modal() -> Modal<'static> {
                 selected: true,
                 enabled: true,
                 action: Some(MenuAction::SettingsScale(0)),
+                heading: false,
             },
         ],
         body: Cow::Borrowed(""),

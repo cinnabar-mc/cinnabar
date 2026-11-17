@@ -1,0 +1,405 @@
+package auth
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+	"golang.org/x/oauth2"
+)
+
+const notchID = "069a79f444e94726a5befca90e38aaf5"
+
+func newTestAccounts(t *testing.T, app MicrosoftApp, services Services) *Accounts {
+	t.Helper()
+	accounts := OpenAccounts(AccountsConfig{Dir: t.TempDir(), App: app, Services: services})
+	t.Cleanup(accounts.Close)
+	return accounts
+}
+
+// saveAccounts writes an accounts file and a working token for each account.
+func saveAccounts(t *testing.T, accounts *Accounts, selected string, saved ...Account) {
+	t.Helper()
+	data, err := json.Marshal(accountsIndex{Selected: selected, Accounts: saved})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(accounts.config.Dir, accountsIndexFile), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	token, err := json.Marshal(&oauth2.Token{AccessToken: "switch-access", RefreshToken: "switch-refresh", Expiry: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range saved {
+		if err := os.WriteFile(accounts.tokenPath(account.ID), token, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func addIdle(accounts *Accounts) func() bool {
+	return func() bool { return accounts.AddState().State == bridgecontract.JavaAccountAddIdle }
+}
+
+// Adding an account shows its code; once the player enters it the account is saved under
+// its Java profile and selected, and the unfinished sign-in's token is gone.
+func TestAccountsAddSavesAndSelectsTheProfile(t *testing.T) {
+	fake := newFakeServices(t)
+	app := newFakeApp()
+	accounts := newTestAccounts(t, app, fake.services())
+	prompt, err := accounts.BeginAdd(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddAwaitingCode || state.UserCode != prompt.UserCode {
+		t.Fatalf("add state = %+v", state)
+	}
+	close(app.finish)
+	testwait.Eventually(t, 5*time.Second, "the account to be added", addIdle(accounts))
+	list, selected, err := accounts.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0] != (Account{ID: notchID, Name: "Notch"}) || selected != notchID {
+		t.Fatalf("accounts = %+v, selected %q", list, selected)
+	}
+	if _, err := os.Stat(accounts.tokenPath(notchID)); err != nil {
+		t.Fatalf("the account's token was not saved: %v", err)
+	}
+	if pending, _ := filepath.Glob(filepath.Join(accounts.config.Dir, pendingTokenPrefix+"*.json")); len(pending) != 0 {
+		t.Fatalf("the unfinished sign-in's token remains: %v", pending)
+	}
+	account, keychain, ok := accounts.Selected()
+	if !ok || account.Name != "Notch" {
+		t.Fatalf("selected = %+v, %v", account, ok)
+	}
+	if session, err := keychain.Session(context.Background()); err != nil || session.Profile.Name != "Notch" {
+		t.Fatalf("selected session = %+v, %v", session, err)
+	}
+}
+
+// A Microsoft account without Java Edition is not added, and the reason says so.
+func TestAccountsAddWithoutJavaEditionFails(t *testing.T) {
+	fake := newFakeServices(t)
+	fake.profileStatus = http.StatusNotFound
+	app := newFakeApp()
+	accounts := newTestAccounts(t, app, fake.services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	failed := func() bool { return accounts.AddState().State == bridgecontract.JavaAccountAddFailed }
+	testwait.Eventually(t, 5*time.Second, "the add to fail", failed)
+	if reason := accounts.AddState().Reason; reason != "This Microsoft account does not own Java Edition." {
+		t.Fatalf("reason = %q", reason)
+	}
+	if list, _, _ := accounts.List(); len(list) != 0 {
+		t.Fatalf("accounts = %+v", list)
+	}
+}
+
+// Cancelling an add stops it: entering the code afterwards adds nothing.
+func TestAccountsCancelStopsTheAdd(t *testing.T) {
+	fake := newFakeServices(t)
+	app := newFakeApp()
+	accounts := newTestAccounts(t, app, fake.services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	accounts.CancelAdd()
+	close(app.finish)
+	accounts.work.Wait()
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddIdle {
+		t.Fatalf("add state = %+v", state)
+	}
+	if list, _, _ := accounts.List(); len(list) != 0 {
+		t.Fatalf("a cancelled add saved %+v", list)
+	}
+}
+
+// Selecting changes the account joins use; removing the selected one selects another and
+// deletes its token.
+func TestAccountsSelectAndRemove(t *testing.T) {
+	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
+	alex := Account{ID: "ec561538f3fd461daff5086b22154bce", Name: "Alex"}
+	steve := Account{ID: "8667ba71b85a4004af54457a9734eed7", Name: "Steve"}
+	saveAccounts(t, accounts, alex.ID, alex, steve)
+
+	if err := accounts.Select(steve.ID); err != nil {
+		t.Fatal(err)
+	}
+	if account, _, ok := accounts.Selected(); !ok || account != steve {
+		t.Fatalf("selected %+v after selecting Steve", account)
+	}
+	if err := accounts.Select("ffffffffffffffffffffffffffffffff"); !errors.Is(err, ErrNoAccount) {
+		t.Fatalf("selecting an unknown account = %v", err)
+	}
+	if err := accounts.Remove(context.Background(), steve.ID); err != nil {
+		t.Fatal(err)
+	}
+	if account, _, ok := accounts.Selected(); !ok || account != alex {
+		t.Fatalf("selected %+v after removing Steve", account)
+	}
+	if _, err := os.Stat(accounts.tokenPath(steve.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Steve's token remains: %v", err)
+	}
+	if err := accounts.Rename(alex.ID, "Alexandra"); err != nil {
+		t.Fatal(err)
+	}
+	if list, _, _ := accounts.List(); len(list) != 1 || list[0].Name != "Alexandra" {
+		t.Fatalf("accounts after the rename = %+v", list)
+	}
+}
+
+// A code that expires or is declined ends the add with a reason instead of leaving it
+// waiting, and a new add can start.
+func TestAccountsADeclinedCodeFailsTheAdd(t *testing.T) {
+	app := newFakeApp()
+	app.declined = true
+	accounts := newTestAccounts(t, app, newFakeServices(t).services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	failed := func() bool { return accounts.AddState().State == bridgecontract.JavaAccountAddFailed }
+	testwait.Eventually(t, 5*time.Second, "the add to fail", failed)
+	if reason := accounts.AddState().Reason; reason != addCodeFailed {
+		t.Fatalf("reason = %q", reason)
+	}
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatalf("a new add after the failure = %v", err)
+	}
+	if started, _ := app.counts(); started != 2 {
+		t.Fatalf("%d device codes requested", started)
+	}
+}
+
+// While the entered code's profile is being read, another Add hands out no code that would
+// never be accepted, and Cancel stops the account from being added.
+func TestAccountsCancelWhileReadingTheProfile(t *testing.T) {
+	app := newFakeApp()
+	app.stall = make(chan struct{})
+	accounts := newTestAccounts(t, app, newFakeServices(t).services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(app.finish)
+	signingIn := func() bool { return accounts.AddState().State == bridgecontract.JavaAccountAddSigningIn }
+	testwait.Eventually(t, 5*time.Second, "the profile to be read", signingIn)
+	if _, err := accounts.BeginAdd(context.Background()); !errors.Is(err, ErrAddInProgress) {
+		t.Fatalf("an add while reading the profile = %v", err)
+	}
+	if started, _ := app.counts(); started != 1 {
+		t.Fatalf("%d device codes requested", started)
+	}
+	accounts.CancelAdd()
+	close(app.stall)
+	accounts.work.Wait()
+	if list, _, _ := accounts.List(); len(list) != 0 {
+		t.Fatalf("a cancelled add saved %+v", list)
+	}
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddIdle {
+		t.Fatalf("add state = %+v", state)
+	}
+}
+
+// An unreadable accounts file reads as no accounts, so the player can add one again. A read
+// leaves the file alone, since another process may be replacing it; the next change keeps it
+// aside under the lock.
+func TestAccountsAnUnreadableIndexStartsOver(t *testing.T) {
+	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
+	path := filepath.Join(accounts.config.Dir, accountsIndexFile)
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	list, selected, err := accounts.List()
+	if err != nil || len(list) != 0 || selected != "" {
+		t.Fatalf("list = %+v, %q, %v", list, selected, err)
+	}
+	if _, err := os.Stat(path + ".corrupt"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a read moved the file aside: %v", err)
+	}
+	if err := accounts.updateIndex(func(*accountsIndex) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".corrupt"); err != nil {
+		t.Fatalf("the change did not keep the unreadable file aside: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || !json.Valid(data) {
+		t.Fatalf("accounts file after the change = %q, %v", data, err)
+	}
+}
+
+// Cores sharing the accounts directory each add through their own unfinished sign-in file.
+func TestAccountsConcurrentAddsUseTheirOwnFiles(t *testing.T) {
+	fake := newFakeServices(t)
+	first := newTestAccounts(t, newFakeApp(), fake.services())
+	second := OpenAccounts(AccountsConfig{Dir: first.config.Dir, App: newFakeApp(), Services: fake.services()})
+	t.Cleanup(second.Close)
+	for _, accounts := range []*Accounts{first, second} {
+		if _, err := accounts.BeginAdd(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if first.adding.config.Path == second.adding.config.Path {
+		t.Fatalf("both adds use %s", first.adding.config.Path)
+	}
+}
+
+// An add cancelled before its account is filed files nothing, even with its profile read.
+func TestAccountsFilingACancelledAddFilesNothing(t *testing.T) {
+	fake := newFakeServices(t)
+	accounts := newTestAccounts(t, newFakeApp(), fake.services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	adding := accounts.adding
+	if err := os.WriteFile(adding.config.Path, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	accounts.CancelAdd()
+	if err := accounts.file(adding, Profile{ID: notchID, Name: "Notch"}); !errors.Is(err, errAddCancelled) {
+		t.Fatalf("filing a cancelled add = %v", err)
+	}
+	if list, _, _ := accounts.List(); len(list) != 0 {
+		t.Fatalf("a cancelled add was filed: %+v", list)
+	}
+	if _, err := os.Stat(accounts.tokenPath(notchID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a cancelled add's token was moved: %v", err)
+	}
+}
+
+// Starting an add deletes unfinished sign-ins old enough that no add can still use them.
+func TestAccountsAddRemovesStaleUnfinishedSignIns(t *testing.T) {
+	fake := newFakeServices(t)
+	now := time.Now()
+	accounts := OpenAccounts(AccountsConfig{
+		Dir: t.TempDir(), App: newFakeApp(), Services: fake.services(),
+		Now: func() time.Time { return now },
+	})
+	t.Cleanup(accounts.Close)
+	stale := filepath.Join(accounts.config.Dir, pendingTokenPrefix+"crashed.json")
+	recent := filepath.Join(accounts.config.Dir, pendingTokenPrefix+"other-core.json")
+	for _, path := range []string{stale, recent} {
+		if err := os.WriteFile(path, []byte("token"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(stale, now.Add(-2*stalePendingAge), now.Add(-2*stalePendingAge)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(recent, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a stale unfinished sign-in remains: %v", err)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Fatalf("another core's unfinished sign-in was deleted: %v", err)
+	}
+}
+
+// A new account whose accounts file cannot be written leaves no unlisted token behind; a
+// re-added account keeps its replaced token, as it stays listed.
+func TestAccountsFilingThatCannotWriteTheIndexLeavesNoUnlistedToken(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		fake := newFakeServices(t)
+		accounts := newTestAccounts(t, newFakeApp(), fake.services())
+		if saved {
+			saveAccounts(t, accounts, notchID, Account{ID: notchID, Name: "Notch"})
+		}
+		if _, err := accounts.BeginAdd(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		adding := accounts.adding
+		if err := os.WriteFile(adding.config.Path, []byte("new token"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		accounts.writeIndex = func(string, []byte) error { return errors.New("disk full") }
+		if err := accounts.file(adding, Profile{ID: notchID, Name: "Notch"}); err == nil {
+			t.Fatal("filing succeeded without writing the accounts file")
+		}
+		_, err := os.Stat(accounts.tokenPath(notchID))
+		if !saved && !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a new account's token stayed unlisted: %v", err)
+		}
+		if saved && err != nil {
+			t.Fatalf("a listed account lost its token: %v", err)
+		}
+	}
+}
+
+// A failure from a sign-in the add has moved past, such as one replaced by a newer code,
+// leaves the add alone.
+func TestAccountsStaleSignInFailureLeavesTheAdd(t *testing.T) {
+	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
+	if _, err := accounts.BeginAdd(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	adding := accounts.adding
+	accounts.failAdd(adding, "OLD-CODE")
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddAwaitingCode || accounts.adding != adding {
+		t.Fatalf("a stale failure changed the add: %+v", state)
+	}
+	accounts.failAdd(adding, "TESTCODE")
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddFailed {
+		t.Fatalf("the add's own failure = %+v", state)
+	}
+}
+
+// A code entered while the add waited for its prompt is not shown again.
+func TestAccountsAddDoesNotReshowAnEnteredCode(t *testing.T) {
+	app := newFakeApp()
+	accounts := newTestAccounts(t, app, newFakeServices(t).services())
+	app.onDeviceAuth = func() {
+		accounts.mu.Lock()
+		accounts.add = AddState{State: bridgecontract.JavaAccountAddSigningIn}
+		accounts.mu.Unlock()
+	}
+	if _, err := accounts.BeginAdd(context.Background()); !errors.Is(err, ErrAddInProgress) {
+		t.Fatalf("add after the code was entered = %v", err)
+	}
+	if state := accounts.AddState(); state.State != bridgecontract.JavaAccountAddSigningIn {
+		t.Fatalf("add state = %+v", state)
+	}
+}
+
+// An accounts file readIndex cannot use, though it is valid JSON, is kept aside before a
+// change replaces it, and a change that cannot keep it aside does not replace it.
+func TestAccountsKeepAnIndexOfTheWrongShape(t *testing.T) {
+	accounts := newTestAccounts(t, newFakeApp(), newFakeServices(t).services())
+	path := filepath.Join(accounts.config.Dir, accountsIndexFile)
+	wrong := []byte(`{"accounts":[{"id":"069a79f444e94726a5befca90e38aaf5","name":42}]}`)
+	if err := os.WriteFile(path, wrong, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(path+".corrupt", "taken"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.updateIndex(func(*accountsIndex) error { return nil }); err == nil {
+		t.Fatal("a change replaced an index it could not keep aside")
+	}
+	if data, _ := os.ReadFile(path); string(data) != string(wrong) {
+		t.Fatalf("the unreadable index was replaced: %q", data)
+	}
+	if err := os.RemoveAll(path + ".corrupt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.updateIndex(func(*accountsIndex) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path + ".corrupt"); string(data) != string(wrong) {
+		t.Fatalf("the kept index = %q", data)
+	}
+}
