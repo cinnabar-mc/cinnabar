@@ -20,13 +20,16 @@ pub const SIGNER_SHA256: [u8; 32] = [
 /// Installers of record that sell Minecraft: Google Play and the Amazon Appstore.
 pub const STORES: [&str; 2] = ["com.android.vending", "com.amazon.venezia"];
 
-/// The Play listing, then its web page for devices without a store app.
-pub const STORE_LISTING: [&str; 2] = [
+/// The Play listing, then the Amazon Appstore's for Fire devices, then Play's web page for
+/// devices without either store app.
+pub const STORE_LISTING: [&str; 3] = [
     concat!("market://details?id=", package!()),
+    concat!("amzn://apps/android?p=", package!()),
     concat!("https://play.google.com/store/apps/details?id=", package!()),
 ];
 
-/// Installs started by `adb` carry the shell as their initiator, whatever installer they claim.
+/// Installs started by `adb` carry the shell, or on Android 11–13 no package, as their initiator,
+/// whatever installer they claim.
 const SHELL: &str = "com.android.shell";
 
 /// API 28 added `hasSigningCertificate`.
@@ -98,7 +101,11 @@ pub fn check(packages: &mut impl Packages) -> Install {
     }
     let installer = if sdk >= INSTALL_SOURCE_API {
         let source = packages.install_source(PACKAGE);
-        if source.initiating.as_deref() == Some(SHELL) {
+        if source
+            .initiating
+            .as_deref()
+            .is_none_or(|initiator| initiator == SHELL)
+        {
             return Install::NotFromStore;
         }
         source.installing

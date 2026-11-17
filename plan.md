@@ -2009,8 +2009,9 @@ every launch, and a Microsoft account signed in through Cinnabar's own app when
 `CINNABAR_MSA_CLIENT_ID` is built in. On Windows the store install is Minecraft for Windows
 registered for the user (Windows package API); on Android it is `com.mojang.minecraftpe`, never
 the trial, signed by Mojang's certificate and installed by Google Play or the Amazon Appstore, not
-by `adb` (`PackageManager` metadata only). Android's setup activity draws the gate's screens
-before setup downloads, local worlds and joins. The account check keeps a 30-day pass,
+by `adb` (`PackageManager` metadata only; before API 30 an `adb` install naming a store as its
+installer passes). Android's setup activity draws the gate's screens before setup downloads,
+local worlds and joins, and the game activity it starts trusts that answer. The account check keeps a 30-day pass,
 re-checks in the background, survives outages with a prior pass and revokes only after two
 not-owned answers a day apart; the account manager lists that account and warns before removing
 it. The gate is on where a source exists: Windows and Android now; macOS and Linux once the

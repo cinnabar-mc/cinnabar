@@ -39,9 +39,17 @@ pub(crate) enum Answer {
     Denied(Refusal),
 }
 
-/// Whether play may continue without asking the player: the gate is off, the local install was
-/// found, or a valid pass exists (which is then re-checked in the background).
+/// Set once [`verify_with_host`] opens the gate, so the game activity Android's setup activity
+/// starts in the same process doesn't ask again.
+static OPENED_BY_HOST: AtomicBool = AtomicBool::new(false);
+
+/// Whether play may continue without asking the player: the gate is off, a setup activity in this
+/// process opened it, the local install was found, or a valid pass exists (which is then
+/// re-checked in the background).
 pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
+    if OPENED_BY_HOST.load(Ordering::Acquire) {
+        return true;
+    }
     let available = policy::sources();
     if !available.gated() {
         tracing::info!("ownership gate off: no proof source on this platform in this build");
@@ -275,19 +283,22 @@ pub trait GateHost {
     fn choose(&mut self, prompt: &Prompt) -> Option<usize>;
 }
 
-/// Runs the gate through `host` for a packaged install; returns whether play may continue.
-/// Setting `cancel` ends it unanswered.
+/// Runs the gate through `host` for a packaged install; returns whether play may continue, which
+/// later gate checks in this process then trust. Setting `cancel` ends it unanswered.
 pub fn verify_with_host(
     layout: &InstallLayout,
     cancel: &AtomicBool,
     host: &mut dyn GateHost,
 ) -> bool {
-    if !layout.is_installed() || open_without_asking(layout) {
-        return true;
+    let opened = !layout.is_installed()
+        || open_without_asking(layout)
+        || with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
+            verify(layout, sign_in, cancel, on_code)
+        });
+    if opened {
+        OPENED_BY_HOST.store(true, Ordering::Release);
     }
-    with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
-        verify(layout, sign_in, cancel, on_code)
-    })
+    opened
 }
 
 /// [`verify_with_host`] after the silent checks, with `verify` for this install.

@@ -217,7 +217,15 @@ final class SetupScreen extends FrameLayout {
         scrollPosition.bottomMargin = margin;
         prompt.addView(scroll, scrollPosition);
 
-        LinearLayout actions = new LinearLayout(context);
+        // A row while the buttons fit, otherwise a column, so large font scales keep every action.
+        LinearLayout actions = new LinearLayout(context) {
+            @Override protected void onMeasure(int width, int height) {
+                arrange(this, HORIZONTAL);
+                super.onMeasure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), height);
+                if (getMeasuredWidth() > MeasureSpec.getSize(width)) arrange(this, VERTICAL);
+                super.onMeasure(width, height);
+            }
+        };
         actions.setGravity(Gravity.CENTER);
         Button primary = null;
         for (Choice choice : choices) {
@@ -225,11 +233,9 @@ final class SetupScreen extends FrameLayout {
                 if (choice.dismisses) dismissPrompt();
                 choice.action.run();
             });
-            LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP));
-            if (primary != null) position.leftMargin = margin;
-            else primary = view;
-            actions.addView(view, position);
+            if (primary == null) primary = view;
+            actions.addView(view, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP)));
         }
         prompt.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -238,6 +244,17 @@ final class SetupScreen extends FrameLayout {
                 Gravity.CENTER_HORIZONTAL));
         if (primary != null) primary.requestFocus();
         announceForAccessibility(title);
+    }
+
+    /** Lays out {@code actions} in {@code orientation}, spacing every button after the first. */
+    private void arrange(LinearLayout actions, int orientation) {
+        actions.setOrientation(orientation);
+        for (int index = 1; index < actions.getChildCount(); index++) {
+            LinearLayout.LayoutParams position =
+                    (LinearLayout.LayoutParams) actions.getChildAt(index).getLayoutParams();
+            position.leftMargin = orientation == LinearLayout.HORIZONTAL ? dp(BUTTON_GAP_DP) : 0;
+            position.topMargin = orientation == LinearLayout.VERTICAL ? dp(BUTTON_GAP_DP) : 0;
+        }
     }
 
     private void dismissPrompt() {

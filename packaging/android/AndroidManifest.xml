@@ -6,9 +6,12 @@
     android:versionName="@VERSION_NAME@">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
-    <!-- The ownership gate reads this package's signer and installer. -->
+    <!-- The ownership gate reads the game's signer and installer; Android 11+ hides installers we
+         can't see. -->
     <queries>
         <package android:name="com.mojang.minecraftpe" />
+        <package android:name="com.android.vending" />
+        <package android:name="com.amazon.venezia" />
     </queries>
     <application
         android:label="@PRODUCT_NAME@"

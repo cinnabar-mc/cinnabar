@@ -151,18 +151,25 @@ fn sideloads_and_unknown_installers_fail() {
     }
 }
 
-/// `adb install -i com.android.vending` claims Play as installer; API 30+ still names the shell.
+/// `adb install -i com.android.vending` claims Play as installer; from API 30 the initiator is
+/// the shell, or none on Android 11–13. Before API 30 nothing tells them apart.
 #[test]
 fn a_shell_install_claiming_play_fails_where_the_initiator_is_known() {
-    let spoofed = |sdk| Device {
-        initiating: Some(SHELL),
-        ..Device::store_install(sdk)
-    };
-    for sdk in [30, 35] {
-        assert_eq!(spoofed(sdk).check(), Install::NotFromStore, "API {sdk}");
-    }
-    for sdk in [26, 29] {
-        assert_eq!(spoofed(sdk).check(), Install::Verified, "API {sdk}");
+    for initiating in [Some(SHELL), None] {
+        let spoofed = |sdk| Device {
+            initiating,
+            ..Device::store_install(sdk)
+        };
+        for sdk in [30, 33, 35] {
+            assert_eq!(
+                spoofed(sdk).check(),
+                Install::NotFromStore,
+                "{initiating:?} on API {sdk}"
+            );
+        }
+        for sdk in [26, 29] {
+            assert_eq!(spoofed(sdk).check(), Install::Verified, "API {sdk}");
+        }
     }
 }
 
@@ -172,10 +179,14 @@ fn get_minecraft_opens_the_play_listing_first() {
     assert!(STORE_LISTING.iter().all(|url| url.ends_with(PACKAGE)));
 }
 
-/// Android 11+ hides other packages unless the manifest declares them.
+/// Android 11+ hides other packages, and installers it can't see, unless the manifest declares
+/// them.
 #[test]
-fn the_manifest_can_see_the_game() {
+fn the_manifest_can_see_the_game_and_its_stores() {
     let manifest = include_str!("../../../../../packaging/android/AndroidManifest.xml");
-    assert!(manifest.contains(&format!("<package android:name=\"{PACKAGE}\" />")));
+    for package in std::iter::once(PACKAGE).chain(STORES) {
+        let query = format!("<package android:name=\"{package}\" />");
+        assert!(manifest.contains(&query), "{package}");
+    }
     assert!(!manifest.contains("QUERY_ALL_PACKAGES"));
 }
