@@ -129,7 +129,9 @@ impl MenuRuntime {
             | MenuAction::CancelSignIn
             | MenuAction::CloseSignIn
             | MenuAction::AddAccount
-            | MenuAction::SignOut => true,
+            | MenuAction::SignOut
+            | MenuAction::RemoveLicenseAccountDialog
+            | MenuAction::ConfirmRemoveLicenseAccount => true,
             _ => false,
         }
     }
@@ -154,6 +156,7 @@ impl MenuRuntime {
             }
             return;
         }
+        self.feeds.license_account = self.layout.license_cache().is_file();
         let store = self.account_store();
         match store.list() {
             Ok(accounts) => {
@@ -220,6 +223,27 @@ impl MenuRuntime {
         self.sign_in_cancelled = false;
         self.accounts.operation = Some(Operation::Switch(account.id.clone()));
         self.retry_target = None;
+        self.focused = 0;
+    }
+
+    /// Forgets the ownership account, or reports why it stays; a running check holds its lock.
+    pub(super) fn remove_license_account(&mut self) {
+        let removed = launcher::ownership::forget_license(
+            &self.layout.license_cache(),
+            &self.layout.ownership_pass_file(),
+        );
+        self.feeds.account_error = match removed {
+            Ok(()) => None,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Some("Cinnabar is checking ownership with this account. Try again shortly.".into())
+            }
+            Err(error) => {
+                bevy::log::warn!(kind = ?error.kind(), "ownership account not removed");
+                Some("Could not remove the ownership account.".into())
+            }
+        };
+        self.feeds.license_account = self.layout.license_cache().is_file();
+        self.dialog = Some(MenuDialog::Accounts);
         self.focused = 0;
     }
 

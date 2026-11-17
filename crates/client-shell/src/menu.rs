@@ -672,6 +672,17 @@ impl MenuRuntime {
                     self.focused = 0;
                 }
             }
+            MenuAction::RemoveLicenseAccountDialog => {
+                if self.feeds.license_account && !self.over_world() {
+                    self.dialog = Some(MenuDialog::RemoveLicenseAccount);
+                    self.focused = 0;
+                }
+            }
+            MenuAction::ConfirmRemoveLicenseAccount => {
+                if self.dialog == Some(MenuDialog::RemoveLicenseAccount) {
+                    self.remove_license_account();
+                }
+            }
             MenuAction::ConfirmRemoveSaved(index) => {
                 if index < self.servers.len() {
                     let removed = self.servers.remove(index);

@@ -22,12 +22,12 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
 github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f h1:wGBZ9/S7VRyf805qs9Tr0UgBeQ1NOPjn6tlT7DBGBxM=
-github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f/go.mod h1:zTbB9UO72aWCHgbu1MM0iCO0IQVd8f7Nck3l5DAHeVQ=
+github.com/hashimthearab/go-nethernet v0.0.0-20261111133013-1a61b926deac h1:oZEoR8Mcs86AJuKTpNh70DAwbesSSJpsotzcij+hWY8=
+github.com/hashimthearab/go-nethernet v0.0.0-20261111133013-1a61b926deac/go.mod h1:i7ARmxFlDs8EYEYOmtFplsZo0v059C+bsGVFrScxY08=
 github.com/hashimthearab/go-raknet v1.15.1-0.20261108113906-d4f2a990a702 h1:iXA/TjdMo+4vx3mLNQEOoXsR02id74k6aavfpSbWLX0=
 github.com/hashimthearab/go-raknet v1.15.1-0.20261108113906-d4f2a990a702/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261109084346-4a55fcfa068d h1:B8S4DYivPHlyVibpy/lA8PZyQGT4rxYPetEO+PZ1Fyo=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261109084346-4a55fcfa068d/go.mod h1:JzVlzvbX4VLnLXhTIkQU4VJ4gH2NYjgZizWc9kd9xrk=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261117123305-02078462a0d1 h1:ywaJInfFcEnG+oR68KH4btX0Yi1qqtMpwsvGBh/gb7A=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261117123305-02078462a0d1/go.mod h1:NkA2XS+3IxIuCMziG2GQB15qzUTk41/68R+4GzkQcso=
 github.com/klauspost/compress v1.18.4 h1:RPhnKRAQ4Fh8zU2FY/6ZFDwTVTxgJ/EMydqSTzE9a2c=
 github.com/klauspost/compress v1.18.4/go.mod h1:R0h/fSBs8DE4ENlcrlib3PsXS61voFxhIs2DeRhCvJ4=
 github.com/pion/datachannel v1.6.3 h1:HZAYLpunVI0xi057ZiANl558d0uSpomcWw4UEPz3qXs=

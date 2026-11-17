@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub(super) enum Phase {
     AwaitingConsent,
+    /// The ownership gate waits on the player: a sign-in, an install or a retry.
+    AwaitingOwnership,
     Downloading,
     Running,
     /// Preparing the local-world server, whose report labels stand alone.
@@ -49,6 +51,16 @@ impl Status {
         Self::new(Phase::AwaitingConsent, 0, 0, "Waiting for consent")
     }
 
+    /// The ownership gate is waiting on the player, which no timeout should treat as a hang.
+    pub(super) fn awaiting_ownership() -> Self {
+        Self::new(
+            Phase::AwaitingOwnership,
+            0,
+            0,
+            "Waiting for ownership proof",
+        )
+    }
+
     /// Consent is resolved and preparation is starting; it carries no step count yet.
     pub(super) fn starting() -> Self {
         Self::new(Phase::Running, 0, 0, "Starting setup")
@@ -81,8 +93,12 @@ pub(super) fn awaiting_user(report: &[u8]) -> bool {
     struct Report {
         phase: Phase,
     }
-    serde_json::from_slice::<Report>(report)
-        .is_ok_and(|report| report.phase == Phase::AwaitingConsent)
+    serde_json::from_slice::<Report>(report).is_ok_and(|report| {
+        matches!(
+            report.phase,
+            Phase::AwaitingConsent | Phase::AwaitingOwnership
+        )
+    })
 }
 
 /// Replaces the status file atomically so readers never observe a partial document.
@@ -114,10 +130,12 @@ mod tests {
     }
 
     #[test]
-    fn only_the_consent_prompt_reads_as_awaiting_the_user() {
+    fn only_prompts_read_as_awaiting_the_user() {
         let dir = Dir::new("status-awaiting");
         let path = dir.path().join("s.json");
         write(&path, &Status::awaiting_consent()).unwrap();
+        assert!(awaiting_user(&fs::read(&path).unwrap()));
+        write(&path, &Status::awaiting_ownership()).unwrap();
         assert!(awaiting_user(&fs::read(&path).unwrap()));
         write(&path, &Status::downloading(5, Some(10))).unwrap();
         assert!(!awaiting_user(&fs::read(&path).unwrap()));

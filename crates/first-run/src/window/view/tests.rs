@@ -10,30 +10,68 @@ fn font() -> Text {
     .unwrap()
 }
 
-/// Representative setup states include long titles, consent, progress and retry.
-fn screens() -> Vec<Screen> {
+/// Representative setup states, named for their captures: long titles, consent, progress and retry.
+fn screens() -> Vec<(&'static str, Screen)> {
     vec![
-        Screen::Consent,
-        Screen::Starting,
-        Screen::Downloading {
-            received: 81_200_000,
-            total: Some(162_400_000),
-            bytes_per_second: Some(5_300_000.0),
-        },
-        Screen::Preparing {
-            step: 1,
-            total: assets::carriers::CARRIERS
-                .iter()
-                .filter(|carrier| carrier.installed)
-                .count()
-                + 1,
-            label: crate::prepare::UNPACK_LABEL.into(),
-        },
-        Screen::Failed {
-            message: "Download failed: connection timed out. Check your connection and try again."
-                .into(),
-        },
-        Screen::Done,
+        ("consent", Screen::Consent),
+        ("starting", Screen::Starting),
+        (
+            "downloading",
+            Screen::Downloading {
+                received: 81_200_000,
+                total: Some(162_400_000),
+                bytes_per_second: Some(5_300_000.0),
+            },
+        ),
+        (
+            "unpacking",
+            Screen::Preparing {
+                step: 1,
+                total: assets::carriers::CARRIERS
+                    .iter()
+                    .filter(|carrier| carrier.installed)
+                    .count()
+                    + 1,
+                label: crate::prepare::UNPACK_LABEL.into(),
+            },
+        ),
+        (
+            "error",
+            Screen::Failed {
+                message:
+                    "Download failed: connection timed out. Check your connection and try again."
+                        .into(),
+            },
+        ),
+        ("done", Screen::Done),
+        ("verifying", Screen::Verifying),
+        (
+            "sign-in",
+            Screen::SignIn {
+                uri: "https://www.microsoft.com/link".into(),
+                code: "ABCD1234".into(),
+            },
+        ),
+        (
+            "not-installed",
+            Screen::Refused {
+                refusal: crate::ownership::Refusal::NotInstalled,
+                sources: launcher::ownership::Sources {
+                    local_install: true,
+                    account: false,
+                },
+            },
+        ),
+        (
+            "not-owned",
+            Screen::Refused {
+                refusal: crate::ownership::Refusal::NotOwned,
+                sources: launcher::ownership::Sources {
+                    local_install: true,
+                    account: true,
+                },
+            },
+        ),
     ]
 }
 
@@ -43,7 +81,7 @@ fn setup_actions_and_wrapped_text_fit_gui_scales_and_dpi() {
     let logo = bootstrap_ui::decode_logo();
     for size in [[560, 420], [1024, 640], [2048, 1280]] {
         for offset in [-3, 0] {
-            for screen in screens() {
+            for (_, screen) in screens() {
                 let mut canvas = Canvas::new(size[0], size[1]);
                 let style = Style {
                     rem: f32::from(ui::DesktopGuiScale::for_window(size).scale_for_offset(offset))
@@ -83,17 +121,7 @@ fn render_bootstrap_states_without_downloaded_assets() {
     std::fs::create_dir_all(&root).unwrap();
     let mut text = font();
     let logo = bootstrap_ui::decode_logo();
-    for (name, screen) in [
-        "consent",
-        "starting",
-        "downloading",
-        "unpacking",
-        "error",
-        "done",
-    ]
-    .into_iter()
-    .zip(screens())
-    {
+    for (name, screen) in screens() {
         for appearance in [Appearance::Default, Appearance::Dark] {
             let mut canvas = Canvas::new(1024, 640);
             canvas.fill(

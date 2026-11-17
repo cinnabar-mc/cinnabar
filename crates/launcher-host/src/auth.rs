@@ -18,17 +18,18 @@ use url::Url;
 use crate::lifecycle::children::Spawned;
 
 const MAX_LINE_BYTES: usize = 4096;
-const EVENT_CAPACITY: usize = 8;
+pub(crate) const EVENT_CAPACITY: usize = 8;
 const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
-use launcher::menu::auth::AuthState;
+use launcher::{menu::auth::AuthState, ownership::Check};
 
 #[cfg(test)]
 mod signup_tests;
 
+/// One `-auth-events` line from the core, for sign-in and ownership helpers alike.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event", deny_unknown_fields)]
-enum WireEvent {
+pub(crate) enum WireEvent {
     #[serde(rename = "checking_cache")]
     CheckingCache { v: u8 },
     #[serde(rename = "device_code")]
@@ -47,18 +48,39 @@ enum WireEvent {
         stage: ErrorStage,
         message: String,
     },
+    #[serde(rename = "ownership")]
+    Ownership {
+        v: u8,
+        result: Check,
+        reason: String,
+        #[serde(default)]
+        account: String,
+    },
+}
+
+impl WireEvent {
+    pub(crate) const fn version(&self) -> u8 {
+        match self {
+            Self::CheckingCache { v }
+            | Self::DeviceCode { v, .. }
+            | Self::XboxSignup { v, .. }
+            | Self::Authenticated { v, .. }
+            | Self::Error { v, .. }
+            | Self::Ownership { v, .. } => *v,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum AuthMethod {
+pub(crate) enum AuthMethod {
     Cached,
     DeviceCode,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum ErrorStage {
+pub(crate) enum ErrorStage {
     Configuration,
     Cache,
     DeviceCode,
@@ -67,7 +89,7 @@ enum ErrorStage {
 }
 
 #[derive(Debug)]
-enum ReaderMessage {
+pub(crate) enum ReaderMessage {
     Line(Vec<u8>),
     Invalid(&'static str),
     End,
@@ -320,14 +342,7 @@ fn apply_event(state: &mut AuthState, terminal: &mut bool, checking_seen: &mut b
         fail_state(state, terminal, "Sign-in helper returned malformed data.");
         return;
     };
-    let version = match &event {
-        WireEvent::CheckingCache { v }
-        | WireEvent::DeviceCode { v, .. }
-        | WireEvent::XboxSignup { v, .. }
-        | WireEvent::Authenticated { v, .. }
-        | WireEvent::Error { v, .. } => *v,
-    };
-    if version != 1 {
+    if event.version() != 1 {
         fail_state(
             state,
             terminal,
@@ -412,7 +427,7 @@ impl Drop for AuthSupervisor {
     }
 }
 
-fn read_events(mut reader: impl Read, sender: Sender<ReaderMessage>) {
+pub(crate) fn read_events(mut reader: impl Read, sender: Sender<ReaderMessage>) {
     let mut decoder = LineDecoder::default();
     let mut chunk = [0u8; 512];
     loop {
@@ -425,7 +440,7 @@ fn read_events(mut reader: impl Read, sender: Sender<ReaderMessage>) {
     decoder.finish(&sender);
 }
 
-fn valid_https_uri(value: &str) -> bool {
+pub(crate) fn valid_https_uri(value: &str) -> bool {
     Url::parse(value).is_ok_and(|uri| {
         uri.scheme() == "https"
             && uri.host_str().is_some()
@@ -434,7 +449,7 @@ fn valid_https_uri(value: &str) -> bool {
     })
 }
 
-fn valid_code(value: &str) -> bool {
+pub(crate) fn valid_code(value: &str) -> bool {
     !value.is_empty() && value.len() <= 64 && value.bytes().all(|byte| byte.is_ascii_graphic())
 }
 

@@ -50,6 +50,9 @@ type event struct {
 	Method          string `json:"method,omitempty"`
 	Stage           string `json:"stage,omitempty"`
 	Message         string `json:"message,omitempty"`
+	Result          string `json:"result,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	Account         string `json:"account,omitempty"`
 }
 
 // Run validates or acquires a token, persists it through authcache, emits a

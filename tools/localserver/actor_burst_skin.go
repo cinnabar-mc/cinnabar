@@ -22,7 +22,7 @@ func actorBurstSkin(variant, model int) protocol.Skin {
 		SkinImageWidth: actorBurstSkinSide, SkinImageHeight: actorBurstSkinSide, SkinData: pixels,
 		SkinResourcePatch: []byte(fmt.Sprintf(`{"geometry":{"default":%q}}`, actorBurstGeometryName)),
 		SkinGeometry:      actorBurstGeometry(model), GeometryDataEngineVersion: []byte("1.12.0"),
-		ArmSize: protocol.ArmSizeWide, Trusted: true,
+		ArmSize: protocol.ArmSizeWide, Trusted: protocol.Option(true),
 	}
 }
 

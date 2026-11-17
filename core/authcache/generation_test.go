@@ -160,3 +160,20 @@ func TestLiveSourceRejectsMissingGeneration(t *testing.T) {
 		t.Fatalf("unbound replacement was accepted: %v", err)
 	}
 }
+
+func TestGenerationNamesTheSourcesSignIn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oauth.json")
+	source := signInForGenerationTest(t, path, "previous")
+	bound := Generation(source)
+	if bound == "" || bound != SignInGeneration(path) {
+		t.Fatalf("generation = %q, cache = %q", bound, SignInGeneration(path))
+	}
+	// A replacement changes the cache, never the generation the old source's tokens belong to.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	signInForGenerationTest(t, path, "next")
+	if Generation(source) != bound || SignInGeneration(path) == bound {
+		t.Fatalf("replacement rebound the source: %q, cache %q", Generation(source), SignInGeneration(path))
+	}
+}

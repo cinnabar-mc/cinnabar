@@ -215,6 +215,8 @@ pub struct MenuFeeds {
     pub account_active_id: Option<String>,
     pub account_error: Option<String>,
     pub account_adding: bool,
+    /// A Microsoft account that proves Minecraft ownership is stored.
+    pub license_account: bool,
     pub inbox_state: super::inbox::InboxState,
     pub details: HashMap<String, ServerDetails>,
     pub profile: MenuProfile,

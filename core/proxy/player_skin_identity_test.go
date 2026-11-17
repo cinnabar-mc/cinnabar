@@ -82,7 +82,7 @@ func TestRelayPlayerSkinUsesUpstreamIdentityAndPreservesPayload(t *testing.T) {
 						SkinData:          pixels,
 						SkinResourcePatch: []byte(`{"geometry":{"default":"geometry.humanoid.customSlim"}}`),
 						ArmSize:           protocol.ArmSizeSlim,
-						Trusted:           true,
+						Trusted:           protocol.Option(true),
 					},
 					NewSkinName: "new",
 					OldSkinName: "old",

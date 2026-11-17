@@ -121,6 +121,18 @@ pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> 
             translated(translate, "gui.cancel", "Cancel"),
             MenuAction::ConfirmRemoveShaderPack(index, revision),
         ),
+        MenuDialog::RemoveLicenseAccount => (
+            "Remove ownership account?".into(),
+            if crate::ownership::sources().local_install {
+                "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar needs Minecraft installed from the Microsoft Store or the Xbox app, or a new sign-in, the next time it starts."
+            } else {
+                "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar asks you to sign in again the next time it starts."
+            }
+            .into(),
+            "Remove".into(),
+            translated(translate, "gui.cancel", "Cancel"),
+            MenuAction::ConfirmRemoveLicenseAccount,
+        ),
         MenuDialog::LeaveRealm(id) => (
             translated(translate, "playscreen.confirmLeaveTitle", "Confirm Leave"),
             translated(
@@ -324,6 +336,14 @@ mod tests {
         ] {
             assert_eq!(realm("R", &target, true).leave_id(), None, "{target}");
         }
+    }
+
+    #[test]
+    fn removing_the_ownership_account_asks_first() {
+        let view = MenuView::new(true, "Steve".to_owned());
+        let popup = dialog(&view, MenuDialog::RemoveLicenseAccount, &|_| None);
+        assert_eq!(popup.confirm, MenuAction::ConfirmRemoveLicenseAccount);
+        assert_eq!(popup.dismiss, MenuAction::DismissDialog);
     }
 
     #[test]
