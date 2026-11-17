@@ -271,3 +271,82 @@ fn beacon_cache_waits_when_portals_fill_the_submission_limit() {
         "a full submission list must not scan a beacon beam"
     );
 }
+
+/// A beacon as Bedrock Dedicated Server reports it: no `Levels`, only its chosen powers.
+fn unreported_levels_nbt() -> Vec<u8> {
+    let mut out = vec![10, 0, 8];
+    string("id", &mut out);
+    string("Beacon", &mut out);
+    for name in ["primary", "secondary"] {
+        out.push(3);
+        string(name, &mut out);
+        varint(0, &mut out);
+    }
+    out.push(0);
+    out
+}
+
+#[test]
+fn beacons_without_reported_levels_beam_only_over_a_built_pyramid() {
+    let mut world = fixture(1, Vec3::new(8.0, 8.0, 8.0), false);
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let id = |name: &str| {
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap()
+            .sequential_id
+    };
+    let key = BlockEntityKey::new(0, 8, BEACON_Y, 8);
+    let place = |world: &mut World, events: Vec<WorldEvent>| {
+        let mut client_world = world.resource_mut::<ClientWorld>();
+        for event in events {
+            commit(client_world.stream.as_mut().unwrap(), event);
+        }
+    };
+    let layer = |network_id: u32, cells: &[[i32; 2]]| {
+        WorldEvent::BlockUpdates(
+            cells
+                .iter()
+                .map(|&[x, z]| protocol::BlockUpdateEvent {
+                    dimension: 0,
+                    position: [x, BEACON_Y - 1, z],
+                    layer: 0,
+                    network_id,
+                })
+                .collect(),
+        )
+    };
+    let footprint: Vec<[i32; 2]> = (7..=9).flat_map(|x| (7..=9).map(move |z| [x, z])).collect();
+    let beams = |world: &mut World| {
+        world.run_system_once(update_block_entity_scene).unwrap();
+        world.resource::<BlockEntityRuntime>().columns[&key.chunk()]
+            .beacons
+            .contains_key(&key)
+    };
+    place(
+        &mut world,
+        vec![WorldEvent::BlockEntityUpdate(
+            protocol::BlockEntityUpdateEvent {
+                dimension: 0,
+                position: key.position(),
+                nbt: unreported_levels_nbt(),
+            },
+        )],
+    );
+    assert!(!beams(&mut world), "no pyramid, no beam");
+    place(
+        &mut world,
+        vec![layer(id("minecraft:iron_block"), &footprint)],
+    );
+    assert!(beams(&mut world), "a built pyramid lights the beam");
+    place(&mut world, vec![layer(id("minecraft:stone"), &[[9, 9]])]);
+    assert!(
+        !beams(&mut world),
+        "a gap in the first layer puts the beam out"
+    );
+}
