@@ -365,10 +365,16 @@ qualification remain open. The local first-person CPU candidate publishes ordere
 geometry, sampled poses, materials and independent artwork. Its actual publication regression
 passes at interpolated/completed samples, alongside ordinary sampling reuse. Owning libraries
 pass 1,923 tests with three pre-existing ignored tests; the developer-control play build succeeds.
-The hand GPU paths do not yet consume catalog artwork/per-draw locations. Headless BDS frames
+The hand GPU paths do not yet consume catalog artwork/per-draw locations. Headless BDS first-person frames
 show no visible weapon, so model and authored-animation acceptance remain open. Visible ammo
 updates and an eligible tactical refill pass, as do sandstone-stairs and bone held-item controls;
 these do not close broader native or performance gates.
+
+The owner separately reports manual testing through the refreshed `Cinnabar Dev.app`:
+the ammunition counter and third-person weapon are visible. In first person the gray
+rectangle is gone, but no weapon is drawn. This GUI observation is user-reported, not
+an additional agent capture; authored weapon animations and exact native presentation
+remain unqualified.
 
 Local leg cycles consume completed physics movement in both animation modes.
 Deterministic coverage checks independent actor cadence, movement retries and frame

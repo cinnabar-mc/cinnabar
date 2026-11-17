@@ -9,18 +9,21 @@ or a host-provided weapon HUD.
 
 Status: generic dependency-admission and actionbar-layering fixes are implemented
 and covered by passing regression tests. A headless BDS retest confirms visible,
-updating ammunition count/type and an eligible tactical reload. The latest local
-CPU candidate shows no visible held weapon; authored gun animation acceptance
-remains incomplete. Flat Molang chain handling
+updating ammunition count/type and an eligible tactical reload. The owner also
+manually tested the refreshed `Cinnabar Dev.app`: the ammunition counter is
+visible and the weapon is visible in third person. In first person the previous
+gray rectangle is gone, but no held weapon is drawn. This owner-reported GUI
+observation does not qualify weapon textures, placement or authored animations.
+Flat Molang chain handling
 now passes compiler/evaluator regressions and retains the complete pre-animation
 program in an isolated pack probe. Additional first-person player-controller
 models reach CPU hand publication in passing regressions, but GPU artwork routing
 and live animated rendering remain incomplete.
 
-## Reported behavior
+## Original reported behavior
 
 With TACZ active on a Bedrock Dedicated Server, the official Minecraft client
-shows the held weapon and ammunition HUD. The reported Cinnabar behavior is:
+shows the held weapon and ammunition HUD. The original Cinnabar report was:
 
 - A gray square replaces the held weapon.
 - Shooting and reload animations are absent.
@@ -207,6 +210,13 @@ at 28 after releasing Use, then reaches 31 after the eligible Attack stimulus;
 the delivered text is `31/30`, not a client-normalized capacity. Sandstone stairs
 and a bone remain visible as ordinary first-person held items. This is not a
 complete vanilla, animation or hardware-performance qualification.
+
+Separately, after the development bundle was refreshed from the tested binaries,
+the owner manually checked `Cinnabar Dev.app` and reported a visible ammunition
+counter and a weapon visible in third person. In first person the gray rectangle
+no longer appears, but nothing is drawn in its place. This is user-reported GUI
+evidence, not an additional agent capture or a native comparison; third-person
+animation and exact texture/placement correctness were not reported as tested.
 
 Next, carry the published catalog artwork and material routing through the
 near-camera GPU pass and add an actual rendered regression. Keep normal arms,

@@ -918,9 +918,12 @@ than the body is unverified, and version-matched in-game acceptance remains inco
   model publication carries sampled geometry, poses, materials and independent artwork, with
   interpolated/completed-sample and ordinary sampling-reuse regressions passing. The local
   play build succeeds, but the GPU hand path does not consume the catalog artwork/locations;
-  a headless BDS replay shows no visible weapon or authored weapon animation. Ammo updates,
+  a headless BDS replay shows no visible first-person weapon or authored weapon animation. Ammo updates,
   eligible tactical refill and two ordinary held-item controls pass; matched rendered
   qualification and general GPU composition remain incomplete.
+  The owner manually tested the refreshed `Cinnabar Dev.app` and reports a visible
+  ammunition counter and third-person weapon. In first person the former gray rectangle
+  is absent, but no weapon is drawn; this does not qualify authored weapon animations.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.
