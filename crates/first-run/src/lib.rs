@@ -67,9 +67,7 @@ pub fn ensure_owned(layout: &InstallLayout) -> Result<Outcome> {
 }
 
 fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
-    let verify = layout.is_installed()
-        && !ownership::HANDOFF.claim()
-        && !ownership::open_without_asking(layout);
+    let verify = layout.is_installed() && !ownership::open_without_asking(layout);
     let promoted = prepare && next::promote(layout);
     let plan = window::Plan {
         verify,

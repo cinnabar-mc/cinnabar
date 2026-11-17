@@ -2011,18 +2011,19 @@ registered for the user (Windows package API); on Android it is `com.mojang.mine
 the trial, signed by Mojang's certificate and installed by Google Play, itself signed by Google,
 not by `adb` (`PackageManager` metadata only; before API 30 an `adb` install naming Play as its
 installer passes, and a Play install carried over from Android 10 records no initiator, so it
-fails until Play updates it). Amazon Appstore copies are re-signed with a key Amazon does not publish, so
-Fire devices need the account source until that signer is pinned. Android's setup activity draws
-the gate's screens before setup downloads, local worlds and joins, and the game activity that
-attempt starts trusts its answer. The account check keeps a 30-day pass, re-checks in the
-background, survives outages with a prior pass and revokes only after two not-owned answers a
-day apart; the account manager lists that account and warns before removing it. The gate is on
-where a source exists: Windows and Android now; macOS and Linux once the client ID is set, which
-waits on Mojang approving Cinnabar's app; iOS needs an in-game gate, since its setup runs no
-first-run window. No release has qualified the account path against real accounts (owned, Game
-Pass, Java-only, child, non-owner), the Windows source against a current Store or Xbox app
-install, or the Android source on Play and sideloaded devices across API 26–35, with the setup
-screens at large font scales.
+fails until Play updates it). Amazon Appstore copies are re-signed with a key Amazon does not
+publish, so they cannot pass until that signer is pinned. Android's setup activity draws the
+gate's screens before setup downloads, local worlds and joins, and the game activity checks the
+install again. Android offers no account source yet: its game activity, restored after the
+process ends, starts without the setup activity and cannot ask for a sign-in. The account check
+keeps a 30-day pass, re-checks in the background, survives outages with a prior pass and revokes
+only after two not-owned answers a day apart; the account manager lists that account and warns
+before removing it. The gate is on where a source exists: Windows and Android now; macOS and
+Linux once the client ID is set, which waits on Mojang approving Cinnabar's app; iOS needs an
+in-game gate, since its setup runs no first-run window. No release has qualified the account
+path against real accounts (owned, Game Pass, Java-only, child, non-owner), the Windows source
+against a current Store or Xbox app install, or the Android source on Play and sideloaded
+devices across API 26–35, with the setup screens at large font scales.
 Bootstrap windows initialize only the platform-preferred graphics API by default, preserving explicit `WGPU_BACKEND` overrides, so unused Windows Vulkan drivers are not loaded before setup can fall back to system dialogs. Affected Intel driver and dual-GPU acceptance remain incomplete.
 Particle atlas updates scope dynamic tile staging as well as base allocation. A failed tile update drops its partial atlas, keeps the generation uncommitted and retries the base plus current patches after retirement. Repeated failures keep exponential backoff until both the base and tiles upload successfully. Low-memory desktop GPU acceptance remains incomplete.
 

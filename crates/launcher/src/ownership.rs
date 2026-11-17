@@ -111,12 +111,19 @@ impl Sources {
 }
 
 /// This build's sources on this platform. iOS starts without the first-run gate, so it offers
-/// none yet.
+/// none yet. Android's game activity can start without its setup activity, as when restored after
+/// the process ends, so it offers no account source until it can ask for a sign-in there.
 #[must_use]
 pub const fn sources() -> Sources {
     if cfg!(target_os = "ios") {
         return Sources {
             local_install: None,
+            account: false,
+        };
+    }
+    if cfg!(target_os = "android") {
+        return Sources {
+            local_install: LOCAL_STORE,
             account: false,
         };
     }

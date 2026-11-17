@@ -39,32 +39,6 @@ pub(crate) enum Answer {
     Denied(Refusal),
 }
 
-/// A gate a setup host opened, handed to the one game start that follows it in this process.
-pub(crate) struct Handoff(AtomicBool);
-
-impl Handoff {
-    const fn new() -> Self {
-        Self(AtomicBool::new(false))
-    }
-
-    /// Starts a setup attempt; an earlier attempt's unclaimed answer no longer counts.
-    fn begin(&self) {
-        self.0.store(false, Ordering::Release);
-    }
-
-    fn open(&self) {
-        self.0.store(true, Ordering::Release);
-    }
-
-    /// Whether the latest attempt opened the gate since the last claim; claims it.
-    pub(crate) fn claim(&self) -> bool {
-        self.0.swap(false, Ordering::AcqRel)
-    }
-}
-
-/// Lets the game activity Android's setup activity starts skip asking again.
-pub(crate) static HANDOFF: Handoff = Handoff::new();
-
 /// Whether play may continue without asking the player: the gate is off, the local install was
 /// found, or a valid pass exists (which is then re-checked in the background).
 pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
@@ -300,23 +274,19 @@ pub trait GateHost {
     fn choose(&mut self, prompt: &Prompt) -> Option<usize>;
 }
 
-/// Runs the gate through `host` for a packaged install; returns whether play may continue, which
-/// the next game start in this process then trusts. Setting `cancel` ends it unanswered.
+/// Runs the gate through `host` for a packaged install; returns whether play may continue.
+/// Setting `cancel` ends it unanswered.
 pub fn verify_with_host(
     layout: &InstallLayout,
     cancel: &AtomicBool,
     host: &mut dyn GateHost,
 ) -> bool {
-    HANDOFF.begin();
-    let opened = !layout.is_installed()
-        || open_without_asking(layout)
-        || with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
-            verify(layout, sign_in, cancel, on_code)
-        });
-    if opened {
-        HANDOFF.open();
+    if !layout.is_installed() || open_without_asking(layout) {
+        return true;
     }
-    opened
+    with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
+        verify(layout, sign_in, cancel, on_code)
+    })
 }
 
 /// [`verify_with_host`] after the silent checks, with `verify` for this install.
