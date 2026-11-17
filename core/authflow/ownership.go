@@ -113,8 +113,8 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 		}
 		return finish(LicenseCheck{Result: ResultUnverifiable, Reason: "token:" + failureReason(err)})
 	}
-	// The token's own sign-in: another process may replace the account while the check runs.
-	account := authcache.SignInGeneration(config.Path)
+	// The source's own sign-in, which its token always belongs to; rereading the cache could name a replacement.
+	account := authcache.Generation(source)
 	checkCtx, cancelCheck := context.WithTimeout(ctx, checkTimeout)
 	check := licenses.Check(checkCtx, token)
 	cancelCheck()

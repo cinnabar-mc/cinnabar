@@ -108,6 +108,14 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	return s, nil
 }
 
+// Generation names the sign-in a source from Source serves; its tokens never belong to another.
+func Generation(source oauth2.TokenSource) string {
+	if s, ok := source.(*persistingSource); ok {
+		return s.generation
+	}
+	return ""
+}
+
 // persistingSource serializes local callers and holds a stable path.lock lease
 // across each refresh. Atomic token replacement never replaces the lock file.
 type persistingSource struct {
