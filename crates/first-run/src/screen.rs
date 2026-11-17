@@ -186,22 +186,16 @@ impl Screen {
 }
 
 /// A refusal's buttons; "Get Minecraft" appears only when the game is missing or not owned.
-const fn refused_actions(refusal: Refusal, sources: Sources) -> &'static [Action] {
-    if matches!(refusal, Refusal::Unverifiable) {
-        return if sources.account {
-            &[Action::Retry, Action::SignIn, Action::Quit]
-        } else {
-            &[Action::Retry, Action::Quit]
-        };
-    }
-    match (refusal, sources.local_install) {
-        (Refusal::NotInstalled, _) => &[Action::GetMinecraft, Action::Retry, Action::Quit],
+pub(super) const fn refused_actions(refusal: Refusal, sources: Sources) -> &'static [Action] {
+    match (refusal, sources.local_install, sources.account) {
+        (Refusal::NotInstalled, ..) => &[Action::GetMinecraft, Action::Retry, Action::Quit],
         // Closing the window quits, so the row stays within three buttons.
-        (Refusal::NotOwned, true) => &[Action::SignIn, Action::GetMinecraft, Action::Retry],
-        (Refusal::NotOwned, false) => &[Action::SignIn, Action::GetMinecraft, Action::Quit],
-        (Refusal::SignInRequired, true) => &[Action::SignIn, Action::Retry, Action::Quit],
-        (Refusal::SignInRequired, false) => &[Action::SignIn, Action::Quit],
-        (Refusal::Unverifiable, _) => &[Action::Retry, Action::Quit],
+        (Refusal::NotOwned, true, _) => &[Action::SignIn, Action::GetMinecraft, Action::Retry],
+        (Refusal::NotOwned, false, _) => &[Action::SignIn, Action::GetMinecraft, Action::Quit],
+        (Refusal::SignInRequired, true, _) => &[Action::SignIn, Action::Retry, Action::Quit],
+        (Refusal::SignInRequired, false, _) => &[Action::SignIn, Action::Quit],
+        (Refusal::Unverifiable, _, true) => &[Action::Retry, Action::SignIn, Action::Quit],
+        (Refusal::Unverifiable, _, false) => &[Action::Retry, Action::Quit],
     }
 }
 

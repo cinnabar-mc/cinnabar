@@ -45,7 +45,7 @@ impl Actions for Screen {
 pub(super) struct Plan {
     /// Run the ownership gate first.
     pub verify: bool,
-    /// Prepare carriers when they need it.
+    /// Carriers need preparing once the gate opens.
     pub prepare: bool,
 }
 

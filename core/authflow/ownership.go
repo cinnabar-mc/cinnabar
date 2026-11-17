@@ -47,11 +47,10 @@ type OwnershipConfig struct {
 // checkTimeout bounds each non-interactive exchange: the token refresh and the entitlement check.
 const checkTimeout = 60 * time.Second
 
-var (
-	errNoLicense       = errors.New("no license account")
-	errLicenseRejected = errors.New("license account sign-in rejected")
-	errLicenseOffline  = errors.New("license account could not refresh")
-)
+// licenseUnavailable is why a check without a new sign-in got no license token.
+type licenseUnavailable struct{ check LicenseCheck }
+
+func (e *licenseUnavailable) Error() string { return "license account unavailable: " + e.check.Reason }
 
 // Ownership checks whether the license account owns Minecraft and emits one terminal
 // ownership event naming the checked sign-in generation, or none when it is unknown; tokens and
@@ -85,14 +84,7 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
 		skipCached = false
 		if !config.SignIn {
-			switch {
-			case refreshErr == nil:
-				return nil, errNoLicense
-			case credentialsRejected(refreshErr):
-				return nil, errLicenseRejected
-			default:
-				return nil, errLicenseOffline
-			}
+			return nil, &licenseUnavailable{check: refreshFailure(refreshErr)}
 		}
 		flow := DeviceFlow{Authorize: licenses.DeviceAuth, Token: licenses.DeviceToken, Pending: config.Path, Logger: config.Logger}
 		return flow.Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
@@ -104,7 +96,7 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return finish(signInFailure(err, refreshErr))
+		return finish(signInFailure(err))
 	}
 	token, err := source.Token()
 	if err != nil {
@@ -132,16 +124,26 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 	return finishOwnership(writer, config.Logger, check, account)
 }
 
+// refreshFailure classifies a stored license account that gave no token after refreshErr, which
+// is nil when no account is stored.
+func refreshFailure(refreshErr error) LicenseCheck {
+	switch {
+	case refreshErr == nil:
+		return LicenseCheck{Result: ResultSignInRequired, Reason: "no_license_account"}
+	case credentialsRejected(refreshErr):
+		return LicenseCheck{Result: ResultSignInRequired, Reason: "refresh:" + failureReason(refreshErr)}
+	default:
+		return LicenseCheck{Result: ResultUnverifiable, Reason: "refresh:" + failureReason(refreshErr)}
+	}
+}
+
 // signInFailure classifies why no license token was available.
-func signInFailure(err, refreshErr error) LicenseCheck {
+func signInFailure(err error) LicenseCheck {
+	var unavailable *licenseUnavailable
 	var device *deviceFailure
 	switch {
-	case errors.Is(err, errNoLicense):
-		return LicenseCheck{Result: ResultSignInRequired, Reason: "no_license_account"}
-	case errors.Is(err, errLicenseRejected):
-		return LicenseCheck{Result: ResultSignInRequired, Reason: "refresh:" + failureReason(refreshErr)}
-	case errors.Is(err, errLicenseOffline):
-		return LicenseCheck{Result: ResultUnverifiable, Reason: "refresh:" + failureReason(refreshErr)}
+	case errors.As(err, &unavailable):
+		return unavailable.check
 	case errors.As(err, &device):
 		return LicenseCheck{Result: ResultSignInRequired, Reason: device.reason}
 	default:

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use super::*;
-use crate::screen::{Action, Effect, Screen};
+use crate::screen::{Effect, Screen};
 
 const LOCAL: Sources = Sources {
     local_install: true,
@@ -16,32 +16,25 @@ const BOTH: Sources = Sources {
     account: true,
 };
 
-/// Answers each question from a script and records what it was shown.
+/// Answers each question from a script.
 struct Script {
     answers: RefCell<Vec<Consent>>,
-    shown: RefCell<Vec<String>>,
 }
 
 impl Script {
     fn new(answers: &[Consent]) -> Self {
         Self {
             answers: RefCell::new(answers.iter().rev().copied().collect()),
-            shown: RefCell::default(),
         }
     }
 }
 
 impl Prompter for Script {
-    fn confirm(&self, _: &str, body: &str) -> Consent {
-        self.shown.borrow_mut().push(body.to_owned());
+    fn confirm(&self, _: &str, _: &str) -> Consent {
         self.answers.borrow_mut().pop().unwrap_or(Consent::Declined)
     }
-    fn info(&self, _: &str, body: &str) {
-        self.shown.borrow_mut().push(body.to_owned());
-    }
-    fn alert(&self, _: &str, body: &str) {
-        self.shown.borrow_mut().push(body.to_owned());
-    }
+    fn info(&self, _: &str, _: &str) {}
+    fn alert(&self, _: &str, _: &str) {}
 }
 
 fn dialogs(available: Sources, answers: &[Consent], checks: &[Answer]) -> (bool, Vec<bool>) {

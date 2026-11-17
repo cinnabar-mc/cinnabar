@@ -116,6 +116,16 @@ func Generation(source oauth2.TokenSource) string {
 	return ""
 }
 
+// SignInGeneration returns the sign-in generation of the token cached at oauthPath, which
+// changes with each interactive sign-in; empty when none is cached.
+func SignInGeneration(oauthPath string) string {
+	cached, err := load(oauthPath)
+	if err != nil {
+		return ""
+	}
+	return cached.Generation
+}
+
 // persistingSource serializes local callers and holds a stable path.lock lease
 // across each refresh. Atomic token replacement never replaces the lock file.
 type persistingSource struct {

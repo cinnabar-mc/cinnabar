@@ -1,7 +1,6 @@
 package authflow
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -24,18 +23,23 @@ type fakeLicenses struct {
 	t          *testing.T
 	signIn     *oauth2.Token
 	refreshErr error
+	deviceErr  error  // refuses the device sign-in after showing its code
+	onCheck    func() // runs as the entitlement check starts
 	check      LicenseCheck
 	checked    []string
 }
 
 func (f *fakeLicenses) DeviceAuth(context.Context) (*oauth2.DeviceAuthResponse, error) {
-	if f.signIn == nil {
+	if f.signIn == nil && f.deviceErr == nil {
 		f.t.Fatal("ownership check started a sign-in")
 	}
 	return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"}, nil
 }
 
 func (f *fakeLicenses) DeviceToken(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+	if f.deviceErr != nil {
+		return nil, f.deviceErr
+	}
 	return f.signIn, nil
 }
 
@@ -49,6 +53,9 @@ func (f *fakeLicenses) TokenSource(_ context.Context, token *oauth2.Token) oauth
 }
 
 func (f *fakeLicenses) Check(_ context.Context, token *oauth2.Token) LicenseCheck {
+	if f.onCheck != nil {
+		f.onCheck()
+	}
 	f.checked = append(f.checked, token.RefreshToken)
 	return f.check
 }
@@ -145,31 +152,24 @@ func TestOwnershipSignInReplacesTheStoredAccount(t *testing.T) {
 func TestOwnershipDropsAResultWhoseAccountChanged(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "license.json")
 	seedLicense(t, path, "refresh-sentinel")
-	licenses := &replacingCheck{fakeLicenses: fakeLicenses{t: t, check: LicenseCheck{Result: ResultVerified, Reason: "entitled"}}, path: path}
+	// Another account signs in while the entitlement check runs.
+	licenses := &fakeLicenses{t: t, check: LicenseCheck{Result: ResultVerified, Reason: "entitled"}, onCheck: func() {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		seedLicense(t, path, "other-refresh")
+	}}
 	if got := last(runOwnership(t, path, false, licenses)); got.Result != ResultUnverifiable || got.Account != "" {
 		t.Fatalf("result = %+v", got)
 	}
-}
-
-// replacingCheck signs in another account while its entitlement check runs.
-type replacingCheck struct {
-	fakeLicenses
-	path string
-}
-
-func (r *replacingCheck) Check(ctx context.Context, token *oauth2.Token) LicenseCheck {
-	if err := os.Remove(r.path); err != nil {
-		r.t.Fatal(err)
-	}
-	seedLicense(r.t, r.path, "other-refresh")
-	return r.fakeLicenses.Check(ctx, token)
 }
 
 // A device code alone replaces nothing: a sign-in that never completes keeps the stored account.
 func TestOwnershipFailedSignInIsNotANewAccount(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "license.json")
 	seedLicense(t, path, "old-refresh")
-	licenses := &failingSignIn{fakeLicenses{t: t}}
+	// The player never approves the code.
+	licenses := &fakeLicenses{t: t, deviceErr: &oauth2.RetrieveError{ErrorCode: "access_denied"}}
 	old := authcache.SignInGeneration(path)
 	events := runOwnership(t, path, true, licenses)
 	if got := last(events); events[1].Kind != "device_code" || got.Result != ResultSignInRequired || got.Account != old {
@@ -179,17 +179,6 @@ func TestOwnershipFailedSignInIsNotANewAccount(t *testing.T) {
 	if err != nil || !strings.Contains(string(contents), "old-refresh") {
 		t.Fatalf("stored account changed: %v", err)
 	}
-}
-
-// failingSignIn shows a code that the player never approves.
-type failingSignIn struct{ fakeLicenses }
-
-func (f *failingSignIn) DeviceAuth(context.Context) (*oauth2.DeviceAuthResponse, error) {
-	return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"}, nil
-}
-
-func (f *failingSignIn) DeviceToken(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
-	return nil, &oauth2.RetrieveError{ErrorCode: "access_denied"}
 }
 
 // A refresh that never reached Microsoft says nothing about the account; a refused one needs sign-in.
@@ -246,15 +235,9 @@ func TestEntitlementAnswersClassify(t *testing.T) {
 
 // The launcher parses the same lines (crates/launcher-host ownership tests read this fixture).
 func TestOwnershipEventsMatchTheSharedFixture(t *testing.T) {
-	file, err := os.Open(filepath.Join("testdata", "ownership_events.jsonl"))
+	want, err := os.ReadFile(filepath.Join("testdata", "ownership_events.jsonl"))
 	if err != nil {
 		t.Fatal(err)
-	}
-	defer file.Close()
-	var want []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		want = append(want, scanner.Text())
 	}
 	var output bytes.Buffer
 	_ = emit(&output, event{Version: 1, Kind: "checking_cache"})
@@ -267,8 +250,8 @@ func TestOwnershipEventsMatchTheSharedFixture(t *testing.T) {
 	} {
 		_ = finishOwnership(&output, nil, check, "")
 	}
-	got := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("events =\n%s\nfixture =\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	// A Windows checkout may end the fixture's lines with CRLF.
+	if output.String() != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Fatalf("events =\n%s\nfixture =\n%s", output.String(), want)
 	}
 }

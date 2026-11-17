@@ -58,6 +58,12 @@ impl Sources {
     pub const fn gated(self) -> bool {
         self.local_install || self.account
     }
+
+    /// The client ID the account source signs in with, when it is offered.
+    #[must_use]
+    pub const fn client_id(self) -> Option<&'static str> {
+        if self.account { MSA_CLIENT_ID } else { None }
+    }
 }
 
 /// This build's sources on this platform. Android and iOS start without the first-run gate, so
@@ -86,15 +92,6 @@ pub enum Check {
     Unverifiable,
 }
 
-/// What a launch should do before the game starts.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Start {
-    /// A valid pass: play now and check again in the background.
-    Play,
-    /// No usable pass: check before playing.
-    Verify,
-}
-
 /// Whether play may continue after a check.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Verdict {
@@ -117,37 +114,34 @@ pub struct Pass {
     pub sign_in: String,
 }
 
-/// Whether `pass` lets a launch at `now` (unix seconds) play before checking.
+/// Whether `pass` lets a launch at `now` (unix seconds) play now and check in the background.
 #[must_use]
-pub fn start(pass: Option<&Pass>, now: u64) -> Start {
-    let Some(pass) = pass else {
-        return Start::Verify;
-    };
-    let clock_back = now.saturating_add(CLOCK_SLACK_SECS) < pass.latest_clock;
-    let expired = now < pass.verified_at
-        || now - pass.verified_at >= PASS_LIFETIME_SECS
-        || now.saturating_sub(pass.latest_clock) > PASS_LIFETIME_SECS;
-    if clock_back || expired {
-        Start::Verify
-    } else {
-        Start::Play
-    }
+pub fn pass_valid(pass: Option<&Pass>, now: u64) -> bool {
+    pass.is_some_and(|pass| {
+        let clock_back = now.saturating_add(CLOCK_SLACK_SECS) < pass.latest_clock;
+        let expired = now < pass.verified_at
+            || now - pass.verified_at >= PASS_LIFETIME_SECS
+            || now.saturating_sub(pass.latest_clock) > PASS_LIFETIME_SECS;
+        !clock_back && !expired
+    })
 }
 
-/// The pass after `check` at `now`, and whether play may continue. `other_account` means the
-/// check was about a different sign-in than the pass, which then no longer applies. Only a
+/// The pass after `check` of license sign-in `sign_in` at `now`, and whether play may continue.
+/// A different known sign-in drops the pass; an empty one is unknown and keeps it. Only a
 /// verified check extends a pass.
 #[must_use]
 pub fn record(
     pass: Option<Pass>,
     check: Check,
-    other_account: bool,
+    sign_in: &str,
     now: u64,
 ) -> (Option<Pass>, Verdict) {
-    let pass = pass.filter(|_| !other_account).map(|pass| Pass {
-        latest_clock: pass.latest_clock.max(now),
-        ..pass
-    });
+    let pass = pass
+        .filter(|pass| sign_in.is_empty() || pass.sign_in == sign_in)
+        .map(|pass| Pass {
+            latest_clock: pass.latest_clock.max(now),
+            ..pass
+        });
     match (check, pass) {
         // A fresh verification also settles a clock that was set back.
         (Check::Verified, pass) => (
@@ -155,7 +149,7 @@ pub fn record(
                 verified_at: now,
                 not_owned_since: None,
                 latest_clock: now,
-                sign_in: pass.map(|pass| pass.sign_in).unwrap_or_default(),
+                sign_in: pass.map_or_else(|| sign_in.to_owned(), |pass| pass.sign_in),
             }),
             Verdict::Allow,
         ),
@@ -172,7 +166,7 @@ pub fn record(
             ),
         },
         (Check::SignInRequired, Some(pass)) => {
-            let verdict = if start(Some(&pass), now) == Start::Play {
+            let verdict = if pass_valid(Some(&pass), now) {
                 Verdict::Allow
             } else {
                 Verdict::Deny(Check::SignInRequired)
@@ -192,22 +186,23 @@ pub struct CheckLock {
 
 /// Waits until no other license check on this install is running.
 pub fn lock_checks(license_cache: &Path) -> io::Result<CheckLock> {
-    let path = check_lock_path(license_cache);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     Ok(CheckLock {
-        _file: crate::accounts::lease(&path)?,
+        _file: crate::accounts::lease(&check_lock_path(license_cache)?)?,
     })
 }
 
-fn check_lock_path(license_cache: &Path) -> PathBuf {
-    license_cache.with_file_name("ownership.lock")
+/// The check lock beside `license_cache`, with its directory created.
+fn check_lock_path(license_cache: &Path) -> io::Result<PathBuf> {
+    let path = license_cache.with_file_name("ownership.lock");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    Ok(path)
 }
 
 /// Records `check` of license sign-in `sign_in` (empty when unknown) in the pass at `pass_path`;
-/// returns whether play may continue and whether the pass was saved. Only a different known
-/// sign-in drops the pass, and a check whose account was removed saves nothing.
+/// returns whether play may continue and whether the pass was saved. A check whose account was
+/// removed saves nothing.
 pub fn record_check(
     _lock: &CheckLock,
     license_cache: &Path,
@@ -216,21 +211,10 @@ pub fn record_check(
     sign_in: &str,
     now: u64,
 ) -> (Verdict, io::Result<()>) {
-    let pass = load_pass(pass_path);
-    let other_account =
-        !sign_in.is_empty() && pass.as_ref().is_some_and(|pass| pass.sign_in != sign_in);
-    let (pass, verdict) = record(pass, check, other_account, now);
+    let (pass, verdict) = record(load_pass(pass_path), check, sign_in, now);
     if !license_cache.is_file() {
         return (verdict, Ok(()));
     }
-    let pass = pass.map(|pass| Pass {
-        sign_in: if sign_in.is_empty() {
-            pass.sign_in
-        } else {
-            sign_in.to_owned()
-        },
-        ..pass
-    });
     (verdict, save_pass(pass_path, pass.as_ref()))
 }
 
@@ -255,11 +239,7 @@ pub fn save_pass(path: &Path, pass: Option<&Pass>) -> io::Result<()> {
 /// Forgets the license account: its credentials, the files the core keeps beside them, and
 /// the pass. Fails with [`io::ErrorKind::WouldBlock`] while a check is running.
 pub fn forget_license(license_cache: &Path, pass: &Path) -> io::Result<()> {
-    let path = check_lock_path(license_cache);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let _lock = crate::accounts::try_lease(&path)?;
+    let _lock = crate::accounts::try_lease(&check_lock_path(license_cache)?)?;
     // The pass goes first, so a partial cleanup can never leave a pass without its account.
     save_pass(pass, None)?;
     let directory = license_cache.parent().unwrap_or(Path::new("."));

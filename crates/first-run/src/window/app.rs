@@ -20,7 +20,7 @@ use winit::{
 
 use super::{
     super::{
-        EULA_URL, needs_preparation,
+        EULA_URL,
         ownership::{self, Answer},
         prepare, record_consent, reporter,
         screen::{self, Action, Effect, Meter, Screen},
@@ -121,7 +121,7 @@ impl SetupApp {
         let mut input = Input::default();
         input.reset(&screen);
         let preferences = Preferences::load(&layout);
-        Self {
+        let mut app = Self {
             layout,
             text,
             updating,
@@ -151,7 +151,12 @@ impl SetupApp {
             done_at: None,
             epoch: Instant::now(),
             exit: None,
+        };
+        // The check overlaps window and GPU setup; a window that can't open cancels it.
+        if plan.verify {
+            app.start_gate(false);
         }
+        app
     }
 
     /// The exit code chosen by the user or the flow, if any.
@@ -210,7 +215,7 @@ impl SetupApp {
     /// The screen after the gate opens, or `None` when nothing needs preparing.
     fn after_gate(&mut self) -> Option<Screen> {
         self.gate = None;
-        if !self.plan.prepare || !needs_preparation(&self.layout) {
+        if !self.plan.prepare {
             return None;
         }
         if self.consented {
@@ -253,10 +258,6 @@ impl SetupApp {
 
     fn act(&mut self, action: Action, event_loop: &ActiveEventLoop) {
         let (next, effect) = self.screen.on_action(action);
-        let link = match &self.screen {
-            Screen::SignIn { uri, .. } => Some(uri.clone()),
-            _ => None,
-        };
         if let Some(next) = next {
             self.show(next);
         }
@@ -264,9 +265,10 @@ impl SetupApp {
             Effect::None => {}
             Effect::StartWorker => self.start_worker(),
             Effect::Verify { sign_in } => self.start_gate(sign_in),
+            // Opening the link keeps the sign-in screen, which holds it.
             Effect::OpenSignInLink => {
-                if let Some(uri) = link {
-                    launcher_host::desktop::open_url(&uri);
+                if let Screen::SignIn { uri, .. } = &self.screen {
+                    launcher_host::desktop::open_url(uri);
                 }
             }
             Effect::GetMinecraft => {
@@ -350,9 +352,8 @@ impl ApplicationHandler for SetupApp {
         }
         self.window = Some(window);
         self.controllers = bootstrap_ui::controllers();
-        if self.screen == Screen::Verifying {
-            self.start_gate(false);
-        } else if self.screen == Screen::Starting {
+        // A gate that opened before the window may already have started the worker.
+        if self.screen == Screen::Starting && self.worker.is_none() {
             self.start_worker();
         }
     }

@@ -1,19 +1,18 @@
 //! The ownership gate at the start of every packaged launch: play continues only when a proof
 //! source this platform offers finds that the player owns Minecraft.
 
-use std::{
-    sync::atomic::AtomicBool,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::atomic::AtomicBool;
 
 use launcher::{
     install_layout::InstallLayout,
-    ownership::{self as policy, Check, MSA_CLIENT_ID, Sources, Start, Verdict},
+    ownership::{self as policy, Check, Sources, Verdict},
 };
 use launcher_host::{
     native_dialog::{Consent, Prompter},
     ownership as sources,
 };
+
+use crate::screen::{Action, refused_actions};
 
 /// Why the gate stayed closed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,15 +39,13 @@ pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
         tracing::info!("ownership gate off: no proof source on this platform in this build");
         return true;
     }
-    if available.local_install && sources::local_install_found() {
-        tracing::info!(source = "local_install", "ownership verified");
+    if found_locally(available) {
         return true;
     }
-    let Some(client_id) = MSA_CLIENT_ID.filter(|_| available.account) else {
+    let Some(client_id) = available.client_id() else {
         return false;
     };
-    let pass = policy::load_pass(&layout.ownership_pass_file());
-    if policy::start(pass.as_ref(), unix_now()) == Start::Verify {
+    if !sources::pass_valid(layout) {
         return false;
     }
     tracing::info!(source = "account_pass", "ownership verified");
@@ -56,15 +53,24 @@ pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
     let _ = std::thread::Builder::new()
         .name("ownership-recheck".into())
         .spawn(move || {
-            account(
+            sources::check_and_record(
                 &layout,
                 client_id,
                 false,
                 &AtomicBool::new(false),
-                &mut |_, _| {},
+                |_, _| {},
             );
         });
     true
+}
+
+/// Whether `available` includes a local install and it was found.
+fn found_locally(available: Sources) -> bool {
+    let found = available.local_install && sources::local_install_found();
+    if found {
+        tracing::info!(source = "local_install", "ownership verified");
+    }
+    found
 }
 
 /// Checks every source once, the local install first. `sign_in` replaces the license account
@@ -76,15 +82,14 @@ pub(crate) fn verify(
     on_code: &mut dyn FnMut(&str, &str),
 ) -> Answer {
     let available = policy::sources();
-    if available.local_install && !sign_in && sources::local_install_found() {
-        tracing::info!(source = "local_install", "ownership verified");
+    if !sign_in && found_locally(available) {
         return Answer::Allowed;
     }
-    let Some(client_id) = MSA_CLIENT_ID.filter(|_| available.account) else {
+    let Some(client_id) = available.client_id() else {
         tracing::info!(result = "not_installed", "ownership not verified");
         return Answer::Denied(Refusal::NotInstalled);
     };
-    match account(layout, client_id, sign_in, cancel, on_code) {
+    match sources::check_and_record(layout, client_id, sign_in, cancel, on_code) {
         Verdict::Allow => Answer::Allowed,
         Verdict::Deny(check) => Answer::Denied(match check {
             Check::NotOwned => Refusal::NotOwned,
@@ -92,53 +97,6 @@ pub(crate) fn verify(
             Check::Verified | Check::Unverifiable => Refusal::Unverifiable,
         }),
     }
-}
-
-/// Checks the license account and records the answer in its pass.
-fn account(
-    layout: &InstallLayout,
-    client_id: &str,
-    sign_in: bool,
-    cancel: &AtomicBool,
-    on_code: &mut dyn FnMut(&str, &str),
-) -> Verdict {
-    let license = layout.license_cache();
-    let lock = match policy::lock_checks(&license) {
-        Ok(lock) => lock,
-        Err(error) => {
-            tracing::warn!(kind = ?error.kind(), "ownership check not started");
-            return Verdict::Deny(Check::Unverifiable);
-        }
-    };
-    let finding = sources::check_account(layout, client_id, sign_in, cancel, on_code);
-    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-        return Verdict::Deny(Check::Unverifiable);
-    }
-    let (verdict, saved) = policy::record_check(
-        &lock,
-        &license,
-        &layout.ownership_pass_file(),
-        finding.check,
-        &finding.account,
-        unix_now(),
-    );
-    if let Err(error) = saved {
-        tracing::warn!(kind = ?error.kind(), "ownership pass not saved");
-    }
-    tracing::info!(
-        source = "account",
-        result = ?finding.check,
-        reason = %finding.reason,
-        allowed = verdict == Verdict::Allow,
-        "ownership checked"
-    );
-    verdict
-}
-
-fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_secs())
 }
 
 /// Shown on every refusal.
@@ -201,17 +159,18 @@ pub(crate) fn with_dialogs(
             Answer::Allowed => return true,
             Answer::Denied(refusal) => refusal,
         };
-        let offers_sign_in =
-            available.account && matches!(refusal, Refusal::NotOwned | Refusal::SignInRequired);
+        // The setup window's buttons for this refusal, asked one question at a time.
+        let actions = refused_actions(refusal, available);
+        let offers_sign_in = actions.first() == Some(&Action::SignIn);
         // A stored account the service keeps refusing must still be replaceable.
-        let switch = available.account && refusal == Refusal::Unverifiable;
+        let switch = !offers_sign_in && actions.contains(&Action::SignIn);
         let question = if offers_sign_in {
             "Sign in with a Microsoft account now?"
         } else {
             "Try again?"
         };
         let mut text = format!("{}\n\n{}", title(refusal), body(refusal, available));
-        if matches!(refusal, Refusal::NotInstalled | Refusal::NotOwned) {
+        if actions.contains(&Action::GetMinecraft) {
             text.push_str(&format!("\n\nGet Minecraft: {}", policy::GET_MINECRAFT_URL));
         }
         text.push_str(&format!("\n\n{question}"));

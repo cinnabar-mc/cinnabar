@@ -5,15 +5,17 @@ use std::{
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     thread,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crossbeam_channel::{RecvTimeoutError, bounded};
-use launcher::{install_layout::InstallLayout, ownership::Check};
-use serde::Deserialize;
+use launcher::{
+    install_layout::InstallLayout,
+    ownership::{self as policy, Check, Verdict},
+};
 
 use crate::{
-    auth::{EVENT_CAPACITY, ReaderMessage, read_events, valid_code, valid_https_uri},
+    auth::{EVENT_CAPACITY, ReaderMessage, WireEvent, read_events, valid_code, valid_https_uri},
     lifecycle::{
         children::Spawned,
         core_output::{self, CoreRole},
@@ -80,24 +82,55 @@ impl Finding {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
-enum WireEvent {
-    CheckingCache {
-        v: u8,
-    },
-    DeviceCode {
-        v: u8,
-        verification_uri: String,
-        user_code: String,
-    },
-    Ownership {
-        v: u8,
-        result: Check,
-        reason: String,
-        #[serde(default)]
-        account: String,
-    },
+/// Whether this install's saved pass lets a launch play now and check in the background.
+#[must_use]
+pub fn pass_valid(layout: &InstallLayout) -> bool {
+    policy::pass_valid(
+        policy::load_pass(&layout.ownership_pass_file()).as_ref(),
+        unix_now(),
+    )
+}
+
+/// Runs [`check_account`] and records its answer in the pass, holding the check lock throughout.
+/// A cancelled check records nothing and is unverifiable.
+pub fn check_and_record(
+    layout: &InstallLayout,
+    client_id: &str,
+    sign_in: bool,
+    cancel: &AtomicBool,
+    on_code: impl FnMut(&str, &str),
+) -> Verdict {
+    let license = layout.license_cache();
+    let lock = match policy::lock_checks(&license) {
+        Ok(lock) => lock,
+        Err(error) => {
+            tracing::warn!(kind = ?error.kind(), "ownership check not started");
+            return Verdict::Deny(Check::Unverifiable);
+        }
+    };
+    let finding = check_account(layout, client_id, sign_in, cancel, on_code);
+    if cancel.load(Ordering::Relaxed) {
+        return Verdict::Deny(Check::Unverifiable);
+    }
+    let (verdict, saved) = policy::record_check(
+        &lock,
+        &license,
+        &layout.ownership_pass_file(),
+        finding.check,
+        &finding.account,
+        unix_now(),
+    );
+    if let Err(error) = saved {
+        tracing::warn!(kind = ?error.kind(), "ownership pass not saved");
+    }
+    tracing::info!(
+        source = "account",
+        result = ?finding.check,
+        reason = %finding.reason,
+        allowed = verdict == Verdict::Allow,
+        "ownership checked"
+    );
+    verdict
 }
 
 /// Checks the license account with `client_id`, Cinnabar's app registration. `sign_in` replaces
@@ -153,19 +186,20 @@ fn follow(child: Spawned, cancel: &AtomicBool, mut on_code: impl FnMut(&str, &st
             }
         };
         match serde_json::from_slice::<WireEvent>(&line) {
-            Ok(WireEvent::CheckingCache { v: 1 }) => {}
+            Ok(event) if event.version() != 1 => break Finding::unverifiable("helper_output"),
+            Ok(WireEvent::CheckingCache { .. }) => {}
             Ok(WireEvent::DeviceCode {
-                v: 1,
                 verification_uri,
                 user_code,
+                ..
             }) if valid_https_uri(&verification_uri) && valid_code(&user_code) => {
                 on_code(&verification_uri, &user_code);
             }
             Ok(WireEvent::Ownership {
-                v: 1,
                 result,
                 reason,
                 account,
+                ..
             }) => {
                 break Finding {
                     check: result,
@@ -190,6 +224,12 @@ fn log_safe(reason: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-'))
         .take(64)
         .collect()
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
 
 #[cfg(test)]

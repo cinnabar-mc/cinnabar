@@ -65,13 +65,13 @@ pub fn ensure_owned(layout: &InstallLayout) -> Result<Outcome> {
 }
 
 fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
-    let plan = window::Plan {
-        verify: layout.is_installed() && !ownership::open_without_asking(layout),
-        prepare,
-    };
+    let verify = layout.is_installed() && !ownership::open_without_asking(layout);
     let promoted = prepare && next::promote(layout);
-    let needed = prepare && needs_preparation(layout);
-    if !plan.verify && !needed {
+    let plan = window::Plan {
+        verify,
+        prepare: prepare && needs_preparation(layout),
+    };
+    if !plan.verify && !plan.prepare {
         return Ok(if promoted {
             Outcome::Prepared
         } else {
