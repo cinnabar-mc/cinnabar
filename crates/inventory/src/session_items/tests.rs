@@ -64,7 +64,13 @@ fn filled_map_offhand_compatibility_respects_component_and_version_boundaries() 
             Some(false),
         ),
         (false, ItemRegistryVersion::Legacy, true, None, None),
-        (true, ItemRegistryVersion::DataDriven, false, None, None),
+        (
+            true,
+            ItemRegistryVersion::DataDriven,
+            false,
+            None,
+            Some(true),
+        ),
         (
             true,
             ItemRegistryVersion::DataDriven,
@@ -89,6 +95,38 @@ fn filled_map_offhand_compatibility_respects_component_and_version_boundaries() 
         );
         assert_eq!(facts.retail_id(item.network_id), None);
     }
+}
+
+/// Bedrock's component payload omits the native offhand permission for arrows, so the
+/// reviewed retail admission survives unless the server declares its own.
+#[test]
+fn component_entries_keep_reviewed_offhand_admission_until_declared() {
+    let mut item = entry("minecraft:arrow");
+    item.component_based = true;
+    item.version = ItemRegistryVersion::DataDriven;
+    item.components = Some(Arc::new(protocol::ItemComponents::default()));
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+    let fact = facts.get(item.network_id);
+    assert_eq!(fact.allow_off_hand, Some(true));
+    assert!(fact.offhand_provisional);
+
+    item.components = Some(Arc::new(protocol::ItemComponents {
+        allow_off_hand_declared: true,
+        allow_off_hand: Some(false),
+        ..Default::default()
+    }));
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+    let fact = facts.get(item.network_id);
+    assert_eq!(fact.allow_off_hand, Some(false));
+    assert!(!fact.offhand_provisional);
+
+    let mut custom = entry("minecraft:stick");
+    custom.identifier = Arc::from("example:arrow");
+    custom.component_based = true;
+    custom.version = ItemRegistryVersion::DataDriven;
+    custom.components = Some(Arc::new(protocol::ItemComponents::default()));
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![custom.clone()])).unwrap();
+    assert_eq!(facts.get(custom.network_id).allow_off_hand, None);
 }
 
 #[test]
