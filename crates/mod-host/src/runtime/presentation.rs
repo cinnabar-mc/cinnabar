@@ -38,6 +38,7 @@ impl State {
         self.environment.time_override = None;
         self.environment.weather_override = None;
         self.environment.fullbright = false;
+        self.environment.fog_suppression = Default::default();
     }
 
     /// Installs trusted native actor references before calling any guest import.
@@ -90,6 +91,7 @@ impl State {
         self.environment.pending_weather = None;
         self.environment.pending_time = None;
         self.environment.pending_fullbright = None;
+        self.environment.pending_fog_suppression = None;
     }
 
     /// Publishes geometry and environment together after a successful bundle callback.

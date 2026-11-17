@@ -244,3 +244,65 @@ fn weather_override_restores_current_server_presentation_without_mutation() {
     assert_eq!(output(&mut app), expected);
     assert_eq!(*app.world().resource::<WeatherState>(), wet);
 }
+
+fn fogged(app: &mut App, medium: meshing::CameraMedium) -> AtmosphereFrame {
+    app.world_mut()
+        .resource_mut::<environment::CameraMediumState>()
+        .0 = medium;
+    output(app).0
+}
+
+fn suppress(air: bool, water: bool, lava: bool) -> environment::VisualFogSuppression {
+    environment::VisualFogSuppression(mod_host::FogSuppression { air, water, lava })
+}
+
+/// A suppressed medium loses its distance fog without changing the medium or the weather.
+#[test]
+fn fog_suppression_removes_only_the_fog_of_the_chosen_mediums() {
+    use meshing::CameraMedium::{Air, Lava, Water};
+    let mut app = atmosphere_app(true);
+    app.init_resource::<environment::VisualFogSuppression>();
+    let native = [Air, Water, Lava].map(|medium| fogged(&mut app, medium));
+    assert!(native.iter().all(|frame| frame.fog_end() < 1.0e4));
+    for (suppressed, hidden) in [
+        (suppress(true, false, false), [true, false, false]),
+        (suppress(false, true, false), [false, true, false]),
+        (suppress(false, false, true), [false, false, true]),
+        (suppress(true, true, true), [true, true, true]),
+        (suppress(false, false, false), [false, false, false]),
+    ] {
+        *app.world_mut()
+            .resource_mut::<environment::VisualFogSuppression>() = suppressed;
+        for (index, medium) in [Air, Water, Lava].into_iter().enumerate() {
+            let frame = fogged(&mut app, medium);
+            assert_eq!(frame.camera_medium(), medium);
+            assert_eq!(frame.rain_level(), native[index].rain_level());
+            if hidden[index] {
+                assert!(frame.fog_start() >= 1.0e5, "{medium:?} still fogged");
+            } else {
+                assert_eq!(frame.fog_start(), native[index].fog_start());
+                assert_eq!(frame.fog_end(), native[index].fog_end());
+            }
+        }
+    }
+}
+
+/// Mods that never ask leave fog alone, even without the resource.
+#[test]
+fn fog_stays_native_without_any_suppression() {
+    let mut app = atmosphere_app(true);
+    let frame = fogged(&mut app, meshing::CameraMedium::Water);
+    assert_eq!(frame.fog_end(), 60.0);
+}
+
+/// A potion of blindness still closes the view in while the fog is suppressed.
+#[test]
+fn fog_suppression_does_not_undo_blindness() {
+    let mut app = atmosphere_app(true);
+    app.insert_resource(suppress(true, true, true));
+    app.world_mut()
+        .resource_mut::<client_presentation::camera::VisionEffects>()
+        .blindness = 1.0;
+    let frame = fogged(&mut app, meshing::CameraMedium::Air);
+    assert!(frame.fog_end() < 10.0, "{}", frame.fog_end());
+}

@@ -10,6 +10,8 @@ pub(super) struct Environment {
     pub pending_weather: Option<Option<super::cinnabar::extension::environment::Weather>>,
     pub fullbright: bool,
     pub pending_fullbright: Option<bool>,
+    pub fog_suppression: crate::FogSuppression,
+    pub pending_fog_suppression: Option<crate::FogSuppression>,
     pub writes: u32,
 }
 
@@ -28,6 +30,7 @@ impl Environment {
     pub(super) fn accept(&mut self, transaction: Self, blocked: bool) {
         self.pending_surface_rules = transaction.pending_surface_rules;
         self.pending_fullbright = transaction.pending_fullbright;
+        self.pending_fog_suppression = transaction.pending_fog_suppression;
         if !blocked {
             self.pending_time = transaction.pending_time;
             self.pending_weather = transaction.pending_weather;
@@ -45,12 +48,15 @@ impl Environment {
             pending_weather,
             fullbright: _,
             pending_fullbright,
+            fog_suppression: _,
+            pending_fog_suppression,
             writes,
         } = self;
         *pending_surface_rules = None;
         *pending_time = None;
         *pending_weather = None;
         *pending_fullbright = None;
+        *pending_fog_suppression = None;
         *writes = 0;
     }
 
@@ -66,6 +72,7 @@ impl Environment {
     /// Drops frame-only staging while retaining successfully published overrides.
     pub fn begin_frame(&mut self) {
         self.pending_fullbright = None;
+        self.pending_fog_suppression = None;
     }
     /// Starts the shared environment import budget for one guest callback.
     pub fn begin_callback(&mut self) {
@@ -79,6 +86,9 @@ impl Environment {
         }
         if let Some(enabled) = self.pending_fullbright.take() {
             self.fullbright = enabled;
+        }
+        if let Some(fog) = self.pending_fog_suppression.take() {
+            self.fog_suppression = fog;
         }
         if let Some(value) = self.pending_weather.take() {
             self.weather_override = value;

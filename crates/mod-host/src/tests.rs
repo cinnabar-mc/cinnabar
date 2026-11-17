@@ -43,6 +43,7 @@ mod collection_reveal;
 use super::*;
 mod drawing_policy;
 mod embedded_assets;
+mod fog;
 mod fuel_recovery;
 mod fullbright;
 mod gameplay;

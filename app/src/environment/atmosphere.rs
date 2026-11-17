@@ -37,6 +37,7 @@ pub(crate) struct AtmospherePreferences<'w> {
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     weather: Option<Res<'w, super::VisualWeatherOverride>>,
+    fog: Option<Res<'w, super::VisualFogSuppression>>,
     server: Option<Res<'w, super::ClientPartEnvironment>>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
     cloud_distance: Option<ResMut<'w, render_scene::CloudDistanceChunks>>,
@@ -168,6 +169,16 @@ pub(crate) fn update_atmosphere_frame(
             derive_base_frame(clock, shown, elapsed, medium.0, &context),
             EnvironmentProfileRoute::default(),
         ),
+    };
+    // Before the vision effects, so blindness and darkness still close the view in.
+    let next_frame = if preferences
+        .fog
+        .as_deref()
+        .is_some_and(|fog| fog.covers(medium.0))
+    {
+        next_frame.without_fog()
+    } else {
+        next_frame
     };
     let next_frame = next_frame
         .with_camera_environment(*view_inputs)
