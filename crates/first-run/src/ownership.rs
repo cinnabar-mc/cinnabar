@@ -182,6 +182,13 @@ pub(crate) fn with_dialogs(
                     Consent::Declined | Consent::Unavailable => return false,
                 }
             }
+            // Declining sign-in still leaves the local install to check again.
+            Consent::Declined if offers_sign_in && actions.contains(&Action::Retry) => {
+                match prompter.confirm(title_text, "Try again?") {
+                    Consent::Accepted => sign_in = false,
+                    Consent::Declined | Consent::Unavailable => return false,
+                }
+            }
             Consent::Declined => return false,
             Consent::Unavailable => {
                 prompter.alert(title_text, &text);

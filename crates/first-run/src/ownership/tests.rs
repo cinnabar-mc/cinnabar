@@ -164,3 +164,28 @@ fn refusal_buttons_check_again_or_sign_in() {
     );
     assert!(code.body().contains("ABCD-1234"));
 }
+
+/// With both sources, declining sign-in must still let the player re-check the local install.
+#[test]
+fn dialogs_retry_the_local_install_after_declining_sign_in() {
+    for refusal in [Refusal::NotOwned, Refusal::SignInRequired] {
+        assert_eq!(
+            dialogs(
+                BOTH,
+                &[Consent::Declined, Consent::Accepted],
+                &[Answer::Denied(refusal), Answer::Allowed]
+            ),
+            (true, vec![false, false]),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            dialogs(
+                BOTH,
+                &[Consent::Declined, Consent::Declined],
+                &[Answer::Denied(refusal)]
+            ),
+            (false, vec![false]),
+            "{refusal:?}"
+        );
+    }
+}
