@@ -126,7 +126,7 @@ final class SetupScreen extends FrameLayout {
     }
 
     /**
-     * Shows one ownership gate screen from native setup's JSON. Buttons open their links in place,
+     * Shows one ownership gate screen from native setup's JSON. Buttons open their link in place,
      * quit setup, or dismiss the screen and pass their index to {@code answer}, which is null while
      * a check runs. An unreadable screen answers -1.
      */
@@ -137,10 +137,10 @@ final class SetupScreen extends FrameLayout {
             Choice[] choices = new Choice[buttons.length()];
             for (int index = 0; index < choices.length; index++) {
                 JSONObject button = buttons.getJSONObject(index);
-                JSONArray links = button.optJSONArray("open");
+                String link = button.optString("open", null);
                 int chosen = index;
-                if (links != null) {
-                    choices[index] = new Choice(button.getString("label"), false, () -> open(links));
+                if (link != null) {
+                    choices[index] = new Choice(button.getString("label"), false, () -> open(link));
                 } else if (button.optBoolean("quit")) {
                     choices[index] = new Choice(button.getString("label"), false, onCancel);
                 } else {
@@ -156,18 +156,12 @@ final class SetupScreen extends FrameLayout {
         }
     }
 
-    /** Opens the first of {@code links} that its named app, or any app, handles. */
-    private void open(JSONArray links) {
-        for (int index = 0; index < links.length(); index++) {
-            try {
-                JSONObject link = links.getJSONObject(index);
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(link.getString("url")));
-                if (link.has("app")) intent.setPackage(link.getString("app"));
-                getContext().startActivity(intent);
-                return;
-            } catch (ActivityNotFoundException | JSONException error) {
-                // The next link is the fallback.
-            }
+    /** Opens {@code link} in whichever app handles it. */
+    private void open(String link) {
+        try {
+            getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(link)));
+        } catch (ActivityNotFoundException error) {
+            android.util.Log.w("SetupScreen", "No app opens " + link, error);
         }
     }
 

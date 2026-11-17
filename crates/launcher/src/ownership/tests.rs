@@ -49,15 +49,14 @@ fn the_gate_applies_only_where_some_source_exists() {
 
 #[test]
 fn get_minecraft_follows_the_local_store() {
-    let phone = Sources::for_build(Some(Store::Android));
-    assert_eq!(phone.get_minecraft_links(), &android::STORE_LISTING[..]);
+    assert_eq!(
+        Sources::for_build(Some(Store::Android)).get_minecraft_url(),
+        android::STORE_LISTING
+    );
     for local_install in [Some(Store::Microsoft), None] {
         assert_eq!(
-            Sources::for_build(local_install).get_minecraft_links(),
-            &[Link {
-                url: GET_MINECRAFT_URL,
-                app: None
-            }][..]
+            Sources::for_build(local_install).get_minecraft_url(),
+            GET_MINECRAFT_URL
         );
     }
 }

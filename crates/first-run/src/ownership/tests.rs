@@ -219,7 +219,7 @@ impl GateHost for Host {
 }
 
 fn answers(button: &Button) -> bool {
-    button.open.is_empty() && !button.quit
+    button.open.is_none() && !button.quit
 }
 
 fn hosted(available: Sources, host: &mut Host, checks: &[Answer]) -> (bool, Vec<bool>) {
@@ -263,7 +263,7 @@ fn a_missing_android_install_offers_the_store_listing_then_checks_again() {
         (true, vec![false, false])
     );
     let refusal = &host.asked[0];
-    let listing = policy::android::STORE_LISTING.map(OpenLink::from);
+    let listing = Some(policy::android::STORE_LISTING.to_owned());
     assert!(refusal.buttons.iter().any(|button| button.open == listing));
     assert!(refusal.buttons.iter().any(|button| button.quit));
     assert_eq!(
@@ -306,10 +306,7 @@ fn a_host_signs_in_through_the_shown_code() {
         !code.buttons.iter().any(answers),
         "a running check waits on no answer"
     );
-    let link = [OpenLink {
-        url: "https://login.example.test/device".to_owned(),
-        app: None,
-    }];
+    let link = Some("https://login.example.test/device".to_owned());
     assert!(code.buttons.iter().any(|button| button.open == link));
 }
 

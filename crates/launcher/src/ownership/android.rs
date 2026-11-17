@@ -3,8 +3,6 @@
 //! game's files. The Amazon Appstore re-signs apps with a key it does not publish, so its copies
 //! cannot pass yet.
 
-use super::Link;
-
 /// [`PACKAGE`] as a literal, for links built at compile time.
 macro_rules! package {
     () => {
@@ -30,18 +28,9 @@ pub const STORE_SIGNER_SHA256: [u8; 32] = [
     0xae, 0x30, 0xf8, 0xee, 0x74, 0x11, 0xdf, 0x91, 0x04, 0x80, 0xad, 0x6b, 0x2d, 0x60, 0xdb, 0x83,
 ];
 
-/// The listing in Google Play itself, never another store's `market://` handler, then its web
-/// page for devices without Play.
-pub const STORE_LISTING: [Link; 2] = [
-    Link {
-        url: concat!("market://details?id=", package!()),
-        app: Some(STORE),
-    },
-    Link {
-        url: concat!("https://play.google.com/store/apps/details?id=", package!()),
-        app: None,
-    },
-];
+/// Play's web listing, which Play itself opens where it is installed.
+pub const STORE_LISTING: &str =
+    concat!("https://play.google.com/store/apps/details?id=", package!());
 
 /// API 28 added `hasSigningCertificate`.
 const SIGNING_CERTIFICATE_API: u32 = 28;

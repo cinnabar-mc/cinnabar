@@ -272,7 +272,9 @@ impl SetupApp {
                 }
             }
             Effect::GetMinecraft => {
-                launcher_host::desktop::open_url(launcher::ownership::GET_MINECRAFT_URL);
+                launcher_host::desktop::open_url(
+                    launcher::ownership::sources().get_minecraft_url(),
+                );
             }
             Effect::OpenEula => launcher_host::desktop::open_url(EULA_URL),
             Effect::Quit => self.finish(EXIT_QUIT, event_loop),

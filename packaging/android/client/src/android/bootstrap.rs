@@ -207,6 +207,7 @@ fn setup(
     let native_library_dir = PathBuf::from(String::from(env.get_string(native_library_dir)?));
     let layout = super::layout(&files_dir, &native_library_dir);
     launcher::install_layout::configure_android(layout.clone())?;
+    cinnabar::lifecycle::start_logging();
     launcher_host::ownership::android::use_context(env, activity)
         .context("read the app context")?;
     // Before every download, local world and join.

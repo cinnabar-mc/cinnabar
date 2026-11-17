@@ -153,7 +153,7 @@ const fn install_text(store: Store) -> &'static str {
             "On Windows, Cinnabar can use Minecraft installed from the Microsoft Store or the Xbox app. If you bought Minecraft for Windows or Minecraft: Java & Bedrock Edition for PC, it's already in your library there."
         }
         Store::Android => {
-            "On Android, Cinnabar can use Minecraft installed from Google Play. A copy bought on another platform or store, such as the Amazon Appstore, doesn't count here. If Google Play already installed it, update or reinstall it there so Android records where it came from."
+            "On Android, Cinnabar can use Minecraft installed from Google Play. A copy bought on another platform or store, such as the Amazon Appstore, doesn't count here. If Google Play installed it before an Android upgrade, update it there so Android records where it came from."
         }
     }
 }
@@ -218,7 +218,10 @@ pub(crate) fn with_dialogs(
         };
         let mut text = format!("{}\n\n{}", title(refusal), body(refusal, available));
         if actions.contains(&Action::GetMinecraft) {
-            text.push_str(&format!("\n\nGet Minecraft: {}", policy::GET_MINECRAFT_URL));
+            text.push_str(&format!(
+                "\n\nGet Minecraft: {}",
+                available.get_minecraft_url()
+            ));
         }
         text.push_str(&format!("\n\n{question}"));
         match prompter.confirm(title_text, &text) {
@@ -255,33 +258,16 @@ pub struct Prompt {
     pub buttons: Vec<Button>,
 }
 
-/// One button; one that neither opens links nor quits answers the host's wait.
+/// One button; one that neither opens a link nor quits answers the host's wait.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Button {
     pub label: String,
-    /// Links to try in order until one opens, staying on the screen.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub open: Vec<OpenLink>,
+    /// A link to open, staying on the screen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open: Option<String>,
     /// Closes setup without playing.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub quit: bool,
-}
-
-/// A link a button opens, only in `app` when that names a package.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct OpenLink {
-    pub url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub app: Option<String>,
-}
-
-impl From<policy::Link> for OpenLink {
-    fn from(link: policy::Link) -> Self {
-        Self {
-            url: link.url.to_owned(),
-            app: link.app.map(str::to_owned),
-        }
-    }
 }
 
 impl Prompt {
@@ -289,17 +275,9 @@ impl Prompt {
         let button = |action: Action| Button {
             label: screen.button_label(action).to_owned(),
             open: match (action, screen) {
-                (Action::GetMinecraft, _) => available
-                    .get_minecraft_links()
-                    .iter()
-                    .copied()
-                    .map(OpenLink::from)
-                    .collect(),
-                (Action::OpenLink, Screen::SignIn { uri, .. }) => vec![OpenLink {
-                    url: uri.clone(),
-                    app: None,
-                }],
-                _ => Vec::new(),
+                (Action::GetMinecraft, _) => Some(available.get_minecraft_url().to_owned()),
+                (Action::OpenLink, Screen::SignIn { uri, .. }) => Some(uri.clone()),
+                _ => None,
             },
             quit: action == Action::Quit,
         };

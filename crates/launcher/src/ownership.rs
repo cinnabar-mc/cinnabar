@@ -29,13 +29,6 @@ const _: () = assert!(
 /// Where the failure screen sends a player who doesn't own Minecraft.
 pub const GET_MINECRAFT_URL: &str = "https://www.minecraft.net/";
 
-/// A link and, when only one app may open it, that app's package.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Link {
-    pub url: &'static str,
-    pub app: Option<&'static str>,
-}
-
 /// How long a successful account check lets the game start without another.
 pub const PASS_LIFETIME_SECS: u64 = 30 * 24 * 60 * 60;
 /// Two not-owned answers this far apart revoke a pass; one alone may be a service glitch.
@@ -107,15 +100,12 @@ impl Sources {
         if self.account { MSA_CLIENT_ID } else { None }
     }
 
-    /// Where "Get Minecraft" sends the player, in the order to try.
+    /// Where "Get Minecraft" sends the player.
     #[must_use]
-    pub const fn get_minecraft_links(self) -> &'static [Link] {
+    pub const fn get_minecraft_url(self) -> &'static str {
         match self.local_install {
-            Some(Store::Android) => &android::STORE_LISTING,
-            Some(Store::Microsoft) | None => &[Link {
-                url: GET_MINECRAFT_URL,
-                app: None,
-            }],
+            Some(Store::Android) => android::STORE_LISTING,
+            Some(Store::Microsoft) | None => GET_MINECRAFT_URL,
         }
     }
 }

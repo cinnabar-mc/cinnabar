@@ -188,17 +188,30 @@ fn a_shell_install_claiming_play_fails_where_the_initiator_is_known() {
 }
 
 #[test]
-fn get_minecraft_opens_the_play_listing_first() {
-    assert!(STORE_LISTING[0].url.starts_with("market://"));
-    assert_eq!(STORE_LISTING[0].app, Some(STORE));
-    assert!(STORE_LISTING.iter().all(|link| link.url.ends_with(PACKAGE)));
+fn get_minecraft_opens_the_full_game_on_play() {
+    assert!(STORE_LISTING.starts_with("https://play.google.com/"));
+    assert!(STORE_LISTING.ends_with(&format!("id={PACKAGE}")));
 }
 
 /// Android 11+ hides other packages, and installers it can't see, unless the manifest declares
 /// them.
 #[test]
 fn the_manifest_can_see_the_game_and_its_store() {
-    let manifest = include_str!("../../../../../packaging/android/AndroidManifest.xml");
+    let source = include_str!("../../../../../packaging/android/AndroidManifest.xml");
+    // Commented-out declarations don't count, and spacing doesn't matter.
+    let manifest: String = source
+        .split("<!--")
+        .enumerate()
+        .map(|(index, part)| {
+            if index == 0 {
+                part
+            } else {
+                part.split_once("-->").map_or("", |(_, rest)| rest)
+            }
+        })
+        .flat_map(str::split_whitespace)
+        .collect::<Vec<_>>()
+        .join(" ");
     for package in [PACKAGE, STORE] {
         let query = format!("<package android:name=\"{package}\" />");
         assert!(manifest.contains(&query), "{package}");
