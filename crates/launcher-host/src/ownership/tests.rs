@@ -46,7 +46,7 @@ fn a_sign_in_shows_its_code_and_reports_a_new_account() {
         Finding {
             check: Check::Verified,
             reason: "entitled".into(),
-            signed_in: true
+            account: "6f1c2a9e-0000-4000-8000-000000000001".into()
         }
     );
     assert_eq!(
@@ -65,21 +65,21 @@ fn a_stored_account_check_is_not_a_new_sign_in() {
         r#"{"v":1,"event":"ownership","result":"not_owned","reason":"no_minecraft_entitlement"}"#,
     ]);
     assert_eq!(finding.check, Check::NotOwned);
-    assert!(!finding.signed_in && codes.is_empty());
+    assert!(codes.is_empty());
 }
 
-/// A shown code alone replaces nothing; only the helper's answer says new credentials were saved.
+/// A shown code alone replaces nothing; the answer names the sign-in still stored.
 #[test]
 fn an_unfinished_sign_in_keeps_the_old_account() {
     let (finding, codes) = run(&[
         r#"{"v":1,"event":"checking_cache"}"#,
         r#"{"v":1,"event":"device_code","verification_uri":"https://login.example.test/device","user_code":"ABCD-1234"}"#,
-        r#"{"v":1,"event":"ownership","result":"sign_in_required","reason":"device_complete:http_400:access_denied"}"#,
+        r#"{"v":1,"event":"ownership","result":"sign_in_required","reason":"device_complete:http_400:access_denied","account":"old"}"#,
     ]);
     assert_eq!(codes.len(), 1);
     assert_eq!(
-        (finding.check, finding.signed_in),
-        (Check::SignInRequired, false)
+        (finding.check, finding.account.as_str()),
+        (Check::SignInRequired, "old")
     );
 }
 
@@ -113,6 +113,6 @@ fn reasons_are_short_printable_codes() {
         "refresh:http_400:invalid_grant"
     );
     assert_eq!(log_safe("a b\nc"), "abc");
-    assert_eq!(log_safe("\n"), "unspecified");
+    assert_eq!(log_safe("\n"), "");
     assert_eq!(log_safe(&"x".repeat(100)).len(), 64);
 }

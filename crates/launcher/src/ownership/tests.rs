@@ -8,6 +8,7 @@ fn pass(verified_at: u64) -> Pass {
         verified_at,
         not_owned_since: None,
         latest_clock: verified_at,
+        sign_in: String::new(),
     }
 }
 
@@ -142,7 +143,7 @@ fn revocation_needs_two_not_owned_answers_a_day_apart() {
     let (second, verdict) = record(first, Check::NotOwned, false, T0 + 2 * DAY - 1);
     assert_eq!(verdict, Verdict::Allow);
     assert_eq!(
-        second.and_then(|pass| pass.not_owned_since),
+        second.as_ref().and_then(|pass| pass.not_owned_since),
         Some(T0 + DAY),
         "a repeat keeps the first answer's time"
     );
@@ -198,14 +199,39 @@ fn a_check_finishing_after_removal_restores_no_pass() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("license/microsoft-token.json");
     let pass_file = dir.path().join("license/ownership.json");
-    assert_eq!(
-        record_check(&cache, &pass_file, Check::Verified, false, T0).unwrap(),
-        Verdict::Allow
-    );
+    let (verdict, saved) = record_check(&cache, &pass_file, Check::Verified, "a", T0);
+    assert_eq!(verdict, Verdict::Allow);
+    saved.unwrap();
     assert_eq!(load_pass(&pass_file), None);
     std::fs::write(&cache, b"{}").unwrap();
-    record_check(&cache, &pass_file, Check::Verified, false, T0).unwrap();
-    assert_eq!(load_pass(&pass_file), Some(pass(T0)));
+    record_check(&cache, &pass_file, Check::Verified, "a", T0)
+        .1
+        .unwrap();
+    assert_eq!(
+        load_pass(&pass_file),
+        Some(Pass {
+            sign_in: "a".into(),
+            ..pass(T0)
+        })
+    );
+}
+
+/// A pass proves only the sign-in it was earned by, so a replacement starts without it.
+#[test]
+fn another_sign_in_never_inherits_a_pass() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("license/microsoft-token.json");
+    let pass_file = dir.path().join("license/ownership.json");
+    save_pass(&pass_file, Some(&pass(T0))).unwrap();
+    std::fs::write(&cache, b"{}").unwrap();
+    record_check(&cache, &pass_file, Check::Verified, "a", T0)
+        .1
+        .unwrap();
+    for check in [Check::Unverifiable, Check::NotOwned] {
+        let (verdict, _) = record_check(&cache, &pass_file, check, "b", T0 + DAY);
+        assert_eq!(verdict, Verdict::Deny(check));
+    }
+    assert_eq!(load_pass(&pass_file), None);
 }
 
 #[test]

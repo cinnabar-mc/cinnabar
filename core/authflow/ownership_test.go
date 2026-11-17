@@ -108,17 +108,18 @@ func TestOwnershipSignInPublishesTheCodeAndKeepsTheDocument(t *testing.T) {
 		check:  LicenseCheck{Result: ResultVerified, Reason: "entitled", Signed: []byte("signed-sentinel")},
 	}
 	events := runOwnership(t, path, true, licenses)
-	if events[1].Kind != "device_code" || last(events).Result != ResultVerified || !last(events).SignedIn {
+	if events[1].Kind != "device_code" || last(events).Result != ResultVerified || last(events).Account == "" {
 		t.Fatalf("events = %+v", events)
 	}
+	account := last(events).Account
 	if saved, err := os.ReadFile(authcache.EntitlementsPath(path)); err != nil || string(saved) != "signed-sentinel" {
 		t.Fatalf("entitlement document = %q, %v", saved, err)
 	}
 	// The stored account then checks without signing in again.
 	licenses.signIn = nil
 	licenses.check = LicenseCheck{Result: ResultNotOwned, Reason: "no_minecraft_entitlement"}
-	if got := last(runOwnership(t, path, false, licenses)); got.Result != ResultNotOwned || got.SignedIn {
-		t.Fatalf("cached check = %+v", got)
+	if got := last(runOwnership(t, path, false, licenses)); got.Result != ResultNotOwned || got.Account != account {
+		t.Fatalf("cached check = %+v, want account %q", got, account)
 	}
 }
 
@@ -130,9 +131,13 @@ func TestOwnershipSignInReplacesTheStoredAccount(t *testing.T) {
 		signIn: &oauth2.Token{AccessToken: "new", RefreshToken: "new-refresh", Expiry: time.Now().Add(time.Hour)},
 		check:  LicenseCheck{Result: ResultVerified, Reason: "entitled"},
 	}
+	old := authcache.SignInGeneration(path)
 	events := runOwnership(t, path, true, licenses)
 	if events[1].Kind != "device_code" || len(licenses.checked) != 1 || licenses.checked[0] != "new-refresh" {
 		t.Fatalf("events = %+v, checked = %v", events, licenses.checked)
+	}
+	if got := last(events).Account; got == "" || got == old {
+		t.Fatalf("replacement reported account %q, old %q", got, old)
 	}
 }
 
@@ -141,9 +146,10 @@ func TestOwnershipFailedSignInIsNotANewAccount(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "license.json")
 	seedLicense(t, path, "old-refresh")
 	licenses := &failingSignIn{fakeLicenses{t: t}}
+	old := authcache.SignInGeneration(path)
 	events := runOwnership(t, path, true, licenses)
-	if got := last(events); events[1].Kind != "device_code" || got.Result != ResultSignInRequired || got.SignedIn {
-		t.Fatalf("events = %+v", events)
+	if got := last(events); events[1].Kind != "device_code" || got.Result != ResultSignInRequired || got.Account != old {
+		t.Fatalf("events = %+v, want account %q", events, old)
 	}
 	contents, err := os.ReadFile(path)
 	if err != nil || !strings.Contains(string(contents), "old-refresh") {
@@ -229,13 +235,13 @@ func TestOwnershipEventsMatchTheSharedFixture(t *testing.T) {
 	var output bytes.Buffer
 	_ = emit(&output, event{Version: 1, Kind: "checking_cache"})
 	_ = emit(&output, event{Version: 1, Kind: "device_code", VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"})
-	_ = finishOwnership(&output, nil, LicenseCheck{Result: ResultVerified, Reason: "entitled"}, true)
+	_ = finishOwnership(&output, nil, LicenseCheck{Result: ResultVerified, Reason: "entitled"}, "6f1c2a9e-0000-4000-8000-000000000001")
 	for _, check := range []LicenseCheck{
 		{Result: ResultNotOwned, Reason: "no_minecraft_entitlement"},
 		{Result: ResultSignInRequired, Reason: "no_license_account"},
 		{Result: ResultUnverifiable, Reason: "refresh:transport"},
 	} {
-		_ = finishOwnership(&output, nil, check, false)
+		_ = finishOwnership(&output, nil, check, "")
 	}
 	got := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {

@@ -66,8 +66,8 @@ pub struct Finding {
     pub check: Check,
     /// A short credential-free code for the log.
     pub reason: String,
-    /// A new license account's credentials replaced the old ones.
-    pub signed_in: bool,
+    /// The stored license sign-in the answer is about; empty when none is stored.
+    pub account: String,
 }
 
 impl Finding {
@@ -75,7 +75,7 @@ impl Finding {
         Self {
             check: Check::Unverifiable,
             reason: reason.to_owned(),
-            signed_in: false,
+            account: String::new(),
         }
     }
 }
@@ -96,7 +96,7 @@ enum WireEvent {
         result: Check,
         reason: String,
         #[serde(default)]
-        signed_in: bool,
+        account: String,
     },
 }
 
@@ -165,12 +165,12 @@ fn follow(child: Spawned, cancel: &AtomicBool, mut on_code: impl FnMut(&str, &st
                 v: 1,
                 result,
                 reason,
-                signed_in,
+                account,
             }) => {
                 break Finding {
                     check: result,
                     reason: log_safe(&reason),
-                    signed_in,
+                    account: log_safe(&account),
                 };
             }
             _ => break Finding::unverifiable("helper_output"),
@@ -183,18 +183,13 @@ fn follow(child: Spawned, cancel: &AtomicBool, mut on_code: impl FnMut(&str, &st
     finding
 }
 
-/// Keeps a helper's reason code to a short, printable token.
+/// Keeps a helper's reason code or sign-in generation to a short, printable token.
 fn log_safe(reason: &str) -> String {
-    let safe: String = reason
+    reason
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-'))
         .take(64)
-        .collect();
-    if safe.is_empty() {
-        "unspecified".to_owned()
-    } else {
-        safe
-    }
+        .collect()
 }
 
 #[cfg(test)]

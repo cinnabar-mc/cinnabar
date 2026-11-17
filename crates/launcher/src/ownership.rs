@@ -99,7 +99,7 @@ pub enum Verdict {
 }
 
 /// The license account's last check results; local evidence, not a signed proof.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Pass {
     /// Unix seconds of the last check that found Minecraft.
     pub verified_at: u64,
@@ -108,6 +108,9 @@ pub struct Pass {
     pub not_owned_since: Option<u64>,
     /// The latest local time any check saw, so a clock set back is noticed.
     pub latest_clock: u64,
+    /// The license sign-in generation these results belong to.
+    #[serde(default)]
+    pub sign_in: String,
 }
 
 /// Whether `pass` lets a launch at `now` (unix seconds) play before checking.
@@ -127,29 +130,35 @@ pub fn start(pass: Option<&Pass>, now: u64) -> Start {
     }
 }
 
-/// The pass after `check` at `now`, and whether play may continue. `fresh_sign_in` means the
-/// check used a newly signed-in account, so the old pass no longer applies. Only a verified
-/// check extends a pass.
+/// The pass after `check` at `now`, and whether play may continue. `other_account` means the
+/// check was about a different sign-in than the pass, which then no longer applies. Only a
+/// verified check extends a pass.
 #[must_use]
 pub fn record(
     pass: Option<Pass>,
     check: Check,
-    fresh_sign_in: bool,
+    other_account: bool,
     now: u64,
 ) -> (Option<Pass>, Verdict) {
-    let pass = pass.filter(|_| !fresh_sign_in).map(|pass| Pass {
+    let pass = pass.filter(|_| !other_account).map(|pass| Pass {
         latest_clock: pass.latest_clock.max(now),
         ..pass
     });
     match (check, pass) {
-        (Check::Verified, pass) => (
-            Some(Pass {
-                verified_at: now,
-                not_owned_since: None,
-                latest_clock: pass.map_or(now, |pass| pass.latest_clock),
-            }),
-            Verdict::Allow,
-        ),
+        (Check::Verified, pass) => {
+            let (latest_clock, sign_in) = pass.map_or((now, String::new()), |pass| {
+                (pass.latest_clock, pass.sign_in)
+            });
+            (
+                Some(Pass {
+                    verified_at: now,
+                    not_owned_since: None,
+                    latest_clock,
+                    sign_in,
+                }),
+                Verdict::Allow,
+            )
+        }
         (Check::NotOwned, Some(pass)) => match pass.not_owned_since {
             Some(since) if now >= since.saturating_add(REVOKE_AFTER_SECS) => {
                 (None, Verdict::Deny(Check::NotOwned))
@@ -175,21 +184,33 @@ pub fn record(
     }
 }
 
-/// Records `check` in the pass at `pass_path` while holding the license account's lock, so it
-/// cannot race [`forget_license`]. A check whose account was removed meanwhile records nothing.
+/// Records `check` of license sign-in `sign_in` in the pass at `pass_path`, holding the license
+/// account's lock so it cannot race [`forget_license`]; returns whether play may continue and
+/// whether the pass was saved. A check whose account was removed meanwhile saves nothing.
 pub fn record_check(
     license_cache: &Path,
     pass_path: &Path,
     check: Check,
-    fresh_sign_in: bool,
+    sign_in: &str,
     now: u64,
-) -> io::Result<Verdict> {
-    let _leases = crate::accounts::cache_leases(license_cache)?;
-    let (pass, verdict) = record(load_pass(pass_path), check, fresh_sign_in, now);
-    if license_cache.is_file() {
-        save_pass(pass_path, pass.as_ref())?;
-    }
-    Ok(verdict)
+) -> (Verdict, io::Result<()>) {
+    let leases = crate::accounts::cache_leases(license_cache);
+    let pass = load_pass(pass_path);
+    let other_account = pass.as_ref().is_some_and(|pass| pass.sign_in != sign_in);
+    let (pass, verdict) = record(pass, check, other_account, now);
+    let saved = match leases {
+        Err(error) => Err(error),
+        Ok(_leases) if license_cache.is_file() => save_pass(
+            pass_path,
+            pass.map(|pass| Pass {
+                sign_in: sign_in.to_owned(),
+                ..pass
+            })
+            .as_ref(),
+        ),
+        Ok(_) => Ok(()),
+    };
+    (verdict, saved)
 }
 
 /// The saved pass; a missing or unreadable one is none.

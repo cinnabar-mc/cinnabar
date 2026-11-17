@@ -106,23 +106,16 @@ fn account(
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return Verdict::Deny(Check::Unverifiable);
     }
-    let verdict = policy::record_check(
+    let (verdict, saved) = policy::record_check(
         &layout.license_cache(),
         &layout.ownership_pass_file(),
         finding.check,
-        finding.signed_in,
+        &finding.account,
         unix_now(),
-    )
-    .unwrap_or_else(|error| {
+    );
+    if let Err(error) = saved {
         tracing::warn!(kind = ?error.kind(), "ownership pass not saved");
-        policy::record(
-            policy::load_pass(&layout.ownership_pass_file()),
-            finding.check,
-            finding.signed_in,
-            unix_now(),
-        )
-        .1
-    });
+    }
     tracing::info!(
         source = "account",
         result = ?finding.check,

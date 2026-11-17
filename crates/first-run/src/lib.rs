@@ -56,9 +56,22 @@ pub enum Outcome {
 /// background are promoted without setup. Android's setup activity also tries to prepare local
 /// worlds before starting the game.
 pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
-    let verify = layout.is_installed() && !ownership::open_without_asking(layout);
-    let promoted = next::promote(layout);
-    if !verify && !needs_preparation(layout) {
+    ensure(layout, true)
+}
+
+/// Runs only the ownership gate, for launches that bring their own carriers.
+pub fn ensure_owned(layout: &InstallLayout) -> Result<Outcome> {
+    ensure(layout, false)
+}
+
+fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
+    let plan = window::Plan {
+        verify: layout.is_installed() && !ownership::open_without_asking(layout),
+        prepare,
+    };
+    let promoted = prepare && next::promote(layout);
+    let needed = prepare && needs_preparation(layout);
+    if !plan.verify && !needed {
         return Ok(if promoted {
             Outcome::Prepared
         } else {
@@ -73,22 +86,22 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     let _ = fs::remove_file(progress_file(layout));
     after_window(
         layout,
-        window::run_in_child(verify),
+        window::run_in_child(plan),
         &NativePrompter,
         env_consent(),
-        verify,
+        plan,
     )
 }
 
 /// Finishes setup once the setup window process has ended with `child`. A window that could not
-/// open, or whose process crashed (often inside a graphics driver), leaves setup, and the
-/// ownership gate when `verify`, to `prompter`.
+/// open, or whose process crashed (often inside a graphics driver), leaves the rest of `plan` to
+/// `prompter`.
 fn after_window(
     layout: &InstallLayout,
     child: window::ChildOutcome,
     prompter: &dyn Prompter,
     env_consent: bool,
-    verify: bool,
+    plan: window::Plan,
 ) -> Result<Outcome> {
     match child {
         window::ChildOutcome::Prepared => return Ok(Outcome::Prepared),
@@ -100,12 +113,14 @@ fn after_window(
         ),
         window::ChildOutcome::Unavailable => {}
     }
-    if verify {
+    if plan.verify {
         let title = setup_title(
             std::env::var(bootstrap_ui::window::TITLE_ENV)
                 .ok()
                 .as_deref(),
         );
+        // The prompts wait on the player, which an update helper must not take for a hang.
+        reporter(layout, |_| {})(Status::awaiting_ownership());
         let owned = ownership::with_dialogs(
             launcher::ownership::sources(),
             prompter,
@@ -117,6 +132,9 @@ fn after_window(
         if !owned {
             return Ok(Outcome::Quit);
         }
+    }
+    if !plan.prepare {
+        return Ok(Outcome::NotNeeded);
     }
     ensure_with(layout, prompter, env_consent)
 }

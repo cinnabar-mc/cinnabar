@@ -52,7 +52,7 @@ type event struct {
 	Message         string `json:"message,omitempty"`
 	Result          string `json:"result,omitempty"`
 	Reason          string `json:"reason,omitempty"`
-	SignedIn        bool   `json:"signed_in,omitempty"`
+	Account         string `json:"account,omitempty"`
 }
 
 // Run validates or acquires a token, persists it through authcache, emits a

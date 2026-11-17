@@ -26,7 +26,7 @@ use super::{
         screen::{self, Action, Effect, Meter, Screen},
         status::Status,
     },
-    EXIT_QUIT, EXIT_UNAVAILABLE, EXIT_VERIFIED, view,
+    EXIT_QUIT, EXIT_UNAVAILABLE, EXIT_VERIFIED, Plan, view,
 };
 use bootstrap_ui::{
     OVERLAY_INTERVAL, PANORAMA_TINT, Preferences,
@@ -69,6 +69,7 @@ pub(super) struct SetupApp {
     updating: bool,
     /// Consent to the current terms is already recorded.
     consented: bool,
+    plan: Plan,
     text: Text,
     /// Uploaded once the GPU exists.
     faces: Option<render_model::PanoramaFaces>,
@@ -105,11 +106,11 @@ impl SetupApp {
         logo: Option<Image>,
         consented: bool,
         updating: bool,
-        verify: bool,
+        plan: Plan,
     ) -> Self {
         let (sender, updates) = mpsc::channel();
         let (gate_sender, gate_events) = mpsc::channel();
-        let screen = if verify {
+        let screen = if plan.verify {
             Screen::Verifying
         } else if consented {
             Screen::Starting
@@ -125,6 +126,7 @@ impl SetupApp {
             text,
             updating,
             consented,
+            plan,
             faces: Some(faces),
             logo,
             window: None,
@@ -208,7 +210,7 @@ impl SetupApp {
     /// The screen after the gate opens, or `None` when nothing needs preparing.
     fn after_gate(&mut self) -> Option<Screen> {
         self.gate = None;
-        if !needs_preparation(&self.layout) {
+        if !self.plan.prepare || !needs_preparation(&self.layout) {
             return None;
         }
         if self.consented {

@@ -18,6 +18,8 @@ use launcher::install_layout::InstallLayout;
 pub const SETUP_FLAG: &str = "--first-run-setup";
 /// Follows [`SETUP_FLAG`] when the ownership gate must run before any preparation.
 const VERIFY_FLAG: &str = "--verify-ownership";
+/// Follows [`VERIFY_FLAG`] when the launch brings its own carriers, so nothing is prepared.
+const GATE_ONLY_FLAG: &str = "--ownership-only";
 const EXIT_QUIT: i32 = 3;
 /// No window could open; the parent falls back to native dialogs.
 const EXIT_UNAVAILABLE: i32 = 4;
@@ -38,6 +40,15 @@ impl Actions for Screen {
     }
 }
 
+/// What the setup window does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct Plan {
+    /// Run the ownership gate first.
+    pub verify: bool,
+    /// Prepare carriers when they need it.
+    pub prepare: bool,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(super) enum ChildOutcome {
     Prepared,
@@ -48,16 +59,18 @@ pub(super) enum ChildOutcome {
     Unavailable,
 }
 
-/// Runs the setup window as `<current exe> --first-run-setup` and waits for it; `verify` runs the
-/// ownership gate first.
-pub(super) fn run_in_child(verify: bool) -> ChildOutcome {
+/// Runs the setup window as `<current exe> --first-run-setup` for `plan` and waits for it.
+pub(super) fn run_in_child(plan: Plan) -> ChildOutcome {
     let Ok(executable) = std::env::current_exe() else {
         return ChildOutcome::Unavailable;
     };
     let mut command = Command::new(executable);
     command.arg(SETUP_FLAG);
-    if verify {
+    if plan.verify {
         command.arg(VERIFY_FLAG);
+        if !plan.prepare {
+            command.arg(GATE_ONLY_FLAG);
+        }
     }
     match command.status() {
         Ok(status) => outcome(status.code()),
@@ -100,9 +113,13 @@ pub fn run_setup_process() -> i32 {
     event_loop.set_control_flow(ControlFlow::Poll);
     let consented = super::env_consent() || super::consent_recorded(&layout);
     let updating = super::updating(&layout);
-    let verify = std::env::args().skip(2).any(|arg| arg == VERIFY_FLAG);
+    let flags: Vec<_> = std::env::args().skip(2).collect();
+    let plan = Plan {
+        verify: flags.iter().any(|arg| arg == VERIFY_FLAG),
+        prepare: !flags.iter().any(|arg| arg == GATE_ONLY_FLAG),
+    };
     let logo = bootstrap_ui::decode_logo();
-    let mut app = app::SetupApp::new(layout, text, faces, logo, consented, updating, verify);
+    let mut app = app::SetupApp::new(layout, text, faces, logo, consented, updating, plan);
     let failed = event_loop.run_app(&mut app).is_err();
     app.stop_worker();
     app.exit_code()
