@@ -96,8 +96,20 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
         multiview_mask: None,
     });
     pass.set_render_pipeline(pipeline);
-    pass.set_bind_group(0, binding, &[]);
     pass.set_bind_group(1, &lightmap.bind_group, &[]);
-    pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count.max(1));
+    for span in &gpu.artwork_routing.draw_spans {
+        let binding = match (span.catalog_page, span.catalog_layer) {
+            (Some(page), Some(layer)) => gpu
+                .catalog_bind_groups
+                .iter()
+                .find(|group| group.page == page && group.layer == layer)
+                .map(|group| &group.bind_group),
+            _ => Some(binding),
+        };
+        if let Some(binding) = binding {
+            pass.set_bind_group(0, binding, &[]);
+            pass.draw(0..gpu.maximum_vertex_count, span.instances.clone());
+        }
+    }
     Ok(())
 }

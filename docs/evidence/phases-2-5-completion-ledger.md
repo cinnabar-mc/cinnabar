@@ -385,8 +385,17 @@ The missing hand registration is fixed in the shared session-pack installation
 path: prepared ranges are sent to the hand builder, with independent owner readiness.
 The production-path regression failed on the missing hand geometry before the fix
 and passes afterward; the full `client-presentation` library suite passes 994 tests.
-Owner-level pack replacement/disconnect coverage and GPU routing remain open; this
-diagnostic and CPU regression close no visual or animation gate.
+Owner-level pack replacement/disconnect coverage remains open; this diagnostic and
+CPU regression close no visual or animation gate. The hand GPU now retains demanded
+catalog pages and routes ordered draws by their explicit page/layer, sharing selection
+with shader-pack hands and normalizing the player-skin sentinel. Production resource
+selection and GPU fragment readback were RED before the fix; 25 focused hand-render
+tests pass, covering independent page/layer patterns, legacy artwork controls, invalid
+references, page replacement and warm-upload allocation retention. A rebuilt headless Metal
+candidate corrects the weapon texture in BDS idle and switch-back captures; bone/stairs
+controls remain visible, with unchanged CPU artwork/material context and player view.
+This qualifies the reproduced texture symptom only; broader material/raster, matched
+official-client presentation, animation and performance qualification remain open.
 
 The owner separately reports a manual GUI test through the refreshed
 `Cinnabar Dev.app`: the ammunition counter and third-person weapon are visible. In a

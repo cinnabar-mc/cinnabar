@@ -49,6 +49,16 @@ fn current_bone(index: u32) -> BoneMatrix {
         return previous_bones[count + index];
     }
 }
+@if(CATALOG_ROUTING) {
+    struct CatalogLayer {
+        layer: u32,
+        enabled: u32,
+        padding: vec2<u32>,
+    }
+
+    @group(0) @binding(15) var<uniform> catalog_layer: CatalogLayer;
+}
+
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
 @group(0) @binding(8) var<uniform> hand_material: HandMaterial;
@@ -138,7 +148,9 @@ fn hand_vertex(
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
-    let texture_layer = instance_words[instance_base + 15u];
+    let raw_texture_layer = instance_words[instance_base + 15u];
+    // Arms use MAX as a skin sentinel, not a packed item role/layer bitfield.
+    let texture_layer = select(raw_texture_layer, 0u, raw_texture_layer == 0xffffffffu);
     let partial_tick = clamp(word_f32(instance_base + 16u), 0.0, 1.0);
     let span = geometry_spans[geometry_id];
 
@@ -228,10 +240,13 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if reverse_cube {
         discard;
     }
-    let layer = i32(input.skin_layer & hand_material.layer_mask.x);
-    let skin_color = textureSampleGrad(skins, skin_sampler, uv, layer, uv_dx, uv_dy);
-    let main_color = textureSampleGrad(item_atlas, skin_sampler, uv, layer, uv_dx, uv_dy);
-    let off_color = textureSampleGrad(offhand_atlas, skin_sampler, uv, layer, uv_dx, uv_dy);
+    var layer = input.skin_layer & hand_material.layer_mask.x;
+    @if(CATALOG_ROUTING) {
+        layer = select(layer, catalog_layer.layer, catalog_layer.enabled != 0u);
+    }
+    let skin_color = textureSampleGrad(skins, skin_sampler, uv, i32(layer), uv_dx, uv_dy);
+    let main_color = textureSampleGrad(item_atlas, skin_sampler, uv, i32(layer), uv_dx, uv_dy);
+    let off_color = textureSampleGrad(offhand_atlas, skin_sampler, uv, i32(layer), uv_dx, uv_dy);
     let hand_color = select(main_color, off_color, (input.skin_layer & hand_material.texture_flags.y) != 0u);
     let paper_color = textureSampleGrad(map_background, skin_sampler, uv, 0, uv_dx, uv_dy);
     let item_color = select(hand_color, paper_color, (input.skin_layer & hand_material.layer_mask.y) != 0u);

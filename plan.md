@@ -902,8 +902,10 @@ controller model that has the parent bone, then the body, as native
 the body slot and draws before controller models listed ahead of it, which differs from native
 list order only where a blended model overlaps the body. Other entities still choose their
 primary rig controller at compilation, and the UI paperdoll still draws only the body.
-First-person controller models reach CPU hand publication, but their GPU catalog-artwork
-routing remains incomplete. How native substitutes a skin's model for controllers other
+First-person controller models reach CPU hand publication and the hand GPU consumes their
+retained catalog page/layer locations. Native and shader-pack consumers share validated routing;
+the player-skin sentinel remains independent of held-item/map flags. Matched native material
+and presentation qualification remains incomplete. How native substitutes a skin's model for controllers other
 than the body is unverified, and version-matched in-game acceptance remains incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
@@ -943,7 +945,15 @@ than the body is unverified, and version-matched in-game acceptance remains inco
   animations. This supersedes the earlier blank-hand GUI result for that later
   check. The stills do not provide a temporal animation recording, identify the
   exact draw path, or establish matched native texture/placement/animation parity.
-  Keep generic GPU routing, broader rendered coverage and performance qualification
+  The hand GPU now retains demanded catalog pages and ordered page/layer draw spans,
+  normalizing the skin sentinel without occupying an item or map slot. Production resource
+  selection and GPU fragment readback were RED before the fix; all 25 focused hand-render
+  tests pass, including independent pages/layers, skin/item/map controls, changed-page
+  replacement and allocation-free warm artwork uploads. A rebuilt headless Metal candidate
+  corrects the weapon palette in BDS idle and switch-back captures, with bone/stairs controls
+  visible and unchanged CPU artwork/material context and player view. This qualifies the
+  reproduced texture symptom, not exact official-client presentation. Broader material/raster
+  composition, rendered coverage and performance qualification remain
   open. Manually populated synthetic publication is a separate pass. The idle
   diagnostic itself did not exercise firing, reload or fresh ammunition HUD delivery.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping

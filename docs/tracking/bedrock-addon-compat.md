@@ -248,10 +248,21 @@ passed afterward; the full `client-presentation` library suite passes 994 tests.
 Owner-level pack replacement/disconnect coverage remains pending. The later owner
 GUI screenshots confirm a weapon rendered in first person for one tested case, but
 do not identify whether the generic catalog artwork/location route produced it.
-Keep broader GPU routing, rendered regression, native parity and full animation
-qualification open. Keep normal arms, held items and map artwork independent; do not
-reuse a reserved texture slot or add a weapon-specific path. The earlier CPU
-registration diagnostic itself did not exercise firing, reload or fresh HUD delivery.
+The hand GPU now consumes per-draw catalog page/layer locations through retained demanded
+pages and ordered native instance spans; shader-pack hand selection shares the validated
+route. The player-skin sentinel is normalized independently of held-item/map role flags.
+Production texture selection and GPU fragment readback failed before the fix and pass
+afterward. All 25 focused hand-render tests pass, including distinct page/layer patterns,
+skin/main/offhand/map controls, changed-page replacement, invalid references and
+allocation-free warm artwork uploads. A rebuilt candidate passes a headless Metal BDS
+idle capture and switch-back check: the weapon uses the intended gray/red artwork
+instead of skin-like colors, and ordinary bone/stairs controls remain visible.
+The CPU artwork/material context, player position and rotation match across the A/B.
+This is a scoped texture fix, not a matched official-client presentation comparison.
+Keep broader material/raster routing, native parity, full animation and performance
+qualification open. Normal arms, held items, map and glint resources remain independent;
+there is no reserved weapon slot or weapon-specific path. The earlier CPU registration
+diagnostic itself did not exercise firing, reload or fresh HUD delivery.
 
 ### Rejections need source-level attribution
 
