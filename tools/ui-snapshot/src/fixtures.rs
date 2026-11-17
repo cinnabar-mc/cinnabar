@@ -90,10 +90,12 @@ pub enum Fixture {
     /// Gameplay touch controls and their utility overlays.
     #[cfg(feature = "test-support")]
     TouchUtilities(TouchUtilityView),
-    /// The survival HUD's hotbar flush with the bottom edge or at vanilla Bedrock's height.
+    /// The survival HUD's hotbar flush with the bottom edge or at vanilla Bedrock's height,
+    /// optionally under gameplay touch controls.
     #[cfg(feature = "test-support")]
     BedrockHotbar {
         raised: bool,
+        touch: bool,
     },
     Loading(ui::LoadingStage),
     /// The client-owned cover shown while a resource-pack snapshot is published.

@@ -12,8 +12,8 @@ use protocol::{ActorAttribute, PlayerGameMode, TextCategory, TextEvent, TextKind
 use std::{path::Path, sync::Arc};
 
 /// Paints full health and hunger, an empty hotbar and one chat line, with the hotbar flush
-/// (`raised` false) or at vanilla Bedrock's height.
-pub(super) fn png(state: &State, dir: &Path, raised: bool) -> Result<Vec<u8>, Error> {
+/// (`raised` false) or at vanilla Bedrock's height, and with gameplay touch controls when `touch`.
+pub(super) fn png(state: &State, dir: &Path, raised: bool, touch: bool) -> Result<Vec<u8>, Error> {
     let pack = dir
         .parent()
         .and_then(Path::parent)
@@ -30,6 +30,7 @@ pub(super) fn png(state: &State, dir: &Path, raised: bool) -> Result<Vec<u8>, Er
     presentation.enable_json_ui(carriers.ui)?;
     presentation.set_vanilla_texture_root(pack);
     presentation.set_gui_scale_preference(Some(state.gui_scale));
+    presentation.enable_touch_controls(touch);
     let mut settings = SettingsOptions::default();
     let option = SETTINGS_OPTIONS
         .iter()
