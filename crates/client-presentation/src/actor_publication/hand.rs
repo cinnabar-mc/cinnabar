@@ -259,6 +259,32 @@ impl HandSource {
             .chain(self.controller_draws.iter().cloned())
     }
 
+    /// Labels the same selected draws for an explicitly requested registration observation.
+    #[cfg(feature = "developer-control")]
+    pub(super) fn inspection_submissions(
+        &self,
+    ) -> Vec<(
+        &'static str,
+        ActorRigSubmission,
+        Option<render_model::ActorArtworkLocation>,
+    )> {
+        let categories = std::iter::repeat_n("map_paper", self.maps.paper.iter().flatten().count())
+            .chain(
+                self.submissions()
+                    .into_iter()
+                    .zip(["body", "main_item", "offhand_item"])
+                    .filter_map(|(submission, category)| submission.map(|_| category)),
+            )
+            .chain(std::iter::repeat_n(
+                "controller",
+                self.controller_draws.len(),
+            ));
+        self.all_located_submissions()
+            .zip(categories)
+            .map(|((submission, location), category)| (category, submission, location))
+            .collect()
+    }
+
     /// Includes each received map's paper with the current camera motion.
     pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
         self.all_located_submissions()

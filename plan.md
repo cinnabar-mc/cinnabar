@@ -916,14 +916,36 @@ than the body is unverified, and version-matched in-game acceptance remains inco
   source/operation budgets and genuine nested-input guards retained. Compiler/evaluator
   regressions and an isolated complete pre-animation compilation pass. First-person controller
   model publication carries sampled geometry, poses, materials and independent artwork, with
-  interpolated/completed-sample and ordinary sampling-reuse regressions passing. The local
-  play build succeeds, but the GPU hand path does not consume the catalog artwork/locations;
-  a headless BDS replay shows no visible first-person weapon or authored weapon animation. Ammo updates,
-  eligible tactical refill and two ordinary held-item controls pass; matched rendered
-  qualification and general GPU composition remain incomplete.
-  The owner manually tested the refreshed `Cinnabar Dev.app` and reports a visible
-  ammunition counter and third-person weapon. In first person the former gray rectangle
-  is absent, but no weapon is drawn; this does not qualify authored weapon animations.
+  interpolated/completed-sample and ordinary sampling-reuse regressions passing.
+  The pre-registration-fix headless BDS replay at 1280 by 720 showed no visible
+  first-person weapon or authored animation; that is historical evidence for the
+  earlier build, not the latest GUI result. After the generic session-geometry
+  registration fix and refreshed-app test, the owner supplied two screenshots
+  showing a visible first-person weapon in aim and reload poses and reports
+  observing both animations. The direct catalog artwork/location route through
+  the generic hand controller GPU path remains unqualified; the screenshots do
+  not identify the path that produced this draw. Ammo updates, eligible tactical
+  refill and two ordinary held-item controls pass; matched native presentation,
+  general GPU composition and the full animation gate remain open.
+  The pre-fix on-demand final hand-frame diagnostic showed only an ordinary item draw
+  in three live idle samples and after switching back, with two missing-geometry
+  builder rejections and no controller-model instance. A visible bone control had
+  no such rejections. The pre-fix one-shot pre/post-build witness identified both selected
+  controller geometries: their requested rig IDs were resident in the world scene,
+  but absent from the hand builder before and after the normal build. Session
+  geometry installation previously updated only the world scene. The production
+  session-pack installation path now sends prepared ranges to both owners and tracks
+  their readiness independently. Its regression failed on the missing hand geometry
+  before the fix and passes after; all 994 `client-presentation` library tests pass.
+  Owner-level pack replacement/disconnect coverage remains pending. The latest
+  owner GUI screenshots show a first-person weapon in aiming and reload poses after
+  testing the refreshed `Cinnabar Dev.app`; the owner reports observing both
+  animations. This supersedes the earlier blank-hand GUI result for that later
+  check. The stills do not provide a temporal animation recording, identify the
+  exact draw path, or establish matched native texture/placement/animation parity.
+  Keep generic GPU routing, broader rendered coverage and performance qualification
+  open. Manually populated synthetic publication is a separate pass. The idle
+  diagnostic itself did not exercise firing, reload or fresh ammunition HUD delivery.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.

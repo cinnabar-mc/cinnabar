@@ -9,16 +9,22 @@ or a host-provided weapon HUD.
 
 Status: generic dependency-admission and actionbar-layering fixes are implemented
 and covered by passing regression tests. A headless BDS retest confirms visible,
-updating ammunition count/type and an eligible tactical reload. The owner also
-manually tested the refreshed `Cinnabar Dev.app`: the ammunition counter is
-visible and the weapon is visible in third person. In first person the previous
-gray rectangle is gone, but no held weapon is drawn. This owner-reported GUI
-observation does not qualify weapon textures, placement or authored animations.
-Flat Molang chain handling
+updating ammunition count/type and an eligible tactical reload; this is state/HUD
+evidence, not rendered animation evidence. In the latest owner GUI check of the
+refreshed `Cinnabar Dev.app`, the owner reports that the weapon appears in first
+person and that aiming and reloading animations are visible. Two user-supplied
+still captures show an aiming pose and a canted reload pose; the reload HUD reads
+`Нет патронов` / `Патроны 7.62x39мм`. The PNGs are saved under
+`.local/tasks/bedrock-addon-compat/implementation/first-person-weapon-visual-20261117/`.
+This supersedes the earlier owner GUI observation that no held weapon was drawn.
+The stills document this rendered case, not animation timing/continuity, exact
+native texture/placement parity, other weapons or performance; those gates remain
+open. Flat Molang chain handling
 now passes compiler/evaluator regressions and retains the complete pre-animation
 program in an isolated pack probe. Additional first-person player-controller
-models reach CPU hand publication in passing regressions, but GPU artwork routing
-and live animated rendering remain incomplete.
+models reach CPU hand publication in passing regressions. The owner now reports
+one GUI-rendered weapon case with aiming and reload animations; broad GPU artwork
+routing, native-reference parity and full animation acceptance remain incomplete.
 
 ## Original reported behavior
 
@@ -186,7 +192,7 @@ All exact pre-animation fragments compile, and an isolated production-library
 pack probe retains the complete program. Other optional reference fallbacks remain;
 this is not proof of controller selection, a rendered model or authored animations.
 
-### First-person controller publication is implemented; GPU composition remains open
+### First-person controller publication is implemented; owner-visible output observed, broader GPU parity remains open
 
 The baseline hand path published an arm-masked body and held items without the
 controller-layer compositor used by `presentation/entity_layers.rs` for actor
@@ -202,26 +208,50 @@ The actual hand-publication regression covers distinct geometry, non-rest pose,
 material and artwork at interpolated and completed samples. The owning library
 run passes 1,923 tests, with three pre-existing ignored tests and no failures.
 
-The developer-control play build succeeds, but its hand GPU paths do not yet
-consume the catalog artwork and per-draw locations. Headless rendered frames at
-1280 by 720 show no visible gun during idle, firing or tactical reload, including
-after switching away and back. The HUD visibly follows 29 to 28 rounds, remains
-at 28 after releasing Use, then reaches 31 after the eligible Attack stimulus;
-the delivered text is `31/30`, not a client-normalized capacity. Sandstone stairs
-and a bone remain visible as ordinary first-person held items. This is not a
-complete vanilla, animation or hardware-performance qualification.
+The pre-registration-fix headless rendered frames at 1280 by 720 show no visible
+gun during idle, firing or tactical reload, including after switching away and back.
+That older candidate result is historical and does not represent the later owner GUI
+check. Its HUD visibly follows 29 to 28 rounds, remains at 28 after releasing Use,
+then reaches 31 after the eligible Attack stimulus; the delivered text is `31/30`,
+not a client-normalized capacity. Sandstone stairs and a bone remain visible as
+ordinary first-person held items. This was not a complete vanilla, animation or
+hardware-performance qualification.
 
-Separately, after the development bundle was refreshed from the tested binaries,
-the owner manually checked `Cinnabar Dev.app` and reported a visible ammunition
-counter and a weapon visible in third person. In first person the gray rectangle
-no longer appears, but nothing is drawn in its place. This is user-reported GUI
-evidence, not an additional agent capture or a native comparison; third-person
-animation and exact texture/placement correctness were not reported as tested.
+After the refreshed `Cinnabar Dev.app` was made available, the owner reports that a
+weapon now appears in first person and that aiming and reloading animations were
+observed. The owner supplied two still captures: an aiming pose and a canted reload
+pose; the latter HUD reads `Нет патронов` and `Патроны 7.62x39мм`. These screenshots
+are retained under `.local/tasks/bedrock-addon-compat/implementation/first-person-weapon-visual-20261117/`.
+This later owner GUI result supersedes the earlier report that nothing was drawn in
+first person for that check. It is not an agent capture or a native-client comparison;
+still frames show poses but not animation timing or continuity, and do not establish
+exact native texture/placement parity, other weapons or performance.
 
-Next, carry the published catalog artwork and material routing through the
-near-camera GPU pass and add an actual rendered regression. Keep normal arms,
-held items and map artwork independent; do not reuse a reserved texture slot or
-add a weapon-specific render path. Then repeat model and animation qualification.
+The pre-fix diagnostic developer-control build exposed the final CPU hand frame on
+demand. Three idle samples and a switch-back sample with the reproduction weapon
+selected each contained only one ordinary main-hand item draw, no controller-model
+instance, and two `missing_geometry` builder rejections. No instances or pose
+endpoints were omitted from those snapshots; the large item mesh's vertex listing
+was bounded. A bone control rendered visibly and reported no missing geometry.
+A one-shot pre/post-build observation attributed the gap: both selected
+player-controller geometries were resident under their requested rig IDs in the
+world scene, absent from the hand builder before and after its normal build, and
+absent from the final manifest. Session geometry preparation installed
+entity/equipment ranges only in `ActorRenderScene`; the hand builder started from
+startup assets and received later skin/item meshes, not the prepared session
+controller range. These are historical pre-fix diagnostic findings.
+
+Session installation now sends the same prepared entity/equipment ranges to the
+world scene and hand builder, tracking each owner's readiness independently. A
+production-path regression failed before the hand registration was added, then
+passed afterward; the full `client-presentation` library suite passes 994 tests.
+Owner-level pack replacement/disconnect coverage remains pending. The later owner
+GUI screenshots confirm a weapon rendered in first person for one tested case, but
+do not identify whether the generic catalog artwork/location route produced it.
+Keep broader GPU routing, rendered regression, native parity and full animation
+qualification open. Keep normal arms, held items and map artwork independent; do not
+reuse a reserved texture slot or add a weapon-specific path. The earlier CPU
+registration diagnostic itself did not exercise firing, reload or fresh HUD delivery.
 
 ### Rejections need source-level attribution
 

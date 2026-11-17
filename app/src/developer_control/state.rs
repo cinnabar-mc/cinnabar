@@ -383,6 +383,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actors": actors,
         "actor_draw": super::actors::snapshot(world),
         "hand_draw": super::actors::hand_snapshot(world),
+
         "player_motion": player_motion(world),
         "local_mods": local_mods,
         "primitive_shapes": crate::primitive_shapes::snapshot(world),
@@ -441,6 +442,11 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
     });
     // Keep added diagnostics outside the large snapshot macro's expansion budget.
+    snapshot["hand_registration"] = json!(
+        world
+            .get_resource::<client_presentation::actor_publication::ActorFrameState>()
+            .and_then(|actors| actors.hand_inspection())
+    );
     snapshot["frame_stats"] = frame_stats(world);
     snapshot["terrain_culling"] = json!({
         "occlusion_enabled": world.get_resource::<render_scene::ChunkOcclusionCulling>().map(|preference| preference.0),

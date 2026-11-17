@@ -684,6 +684,46 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
     }
 }
 
+#[test]
+fn session_pack_geometry_is_installed_in_the_hand_builder() {
+    let (pack, startup) = equipment_pack_fixture();
+    let resources = crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), None);
+    assert!(
+        !resources.entities.is_empty(),
+        "fixture must prepare session entity geometry"
+    );
+    assert!(
+        !resources.equipment.is_empty(),
+        "fixture must prepare session equipment geometry"
+    );
+    let expected_ids: Vec<_> = resources
+        .entities
+        .iter()
+        .chain(&resources.equipment)
+        .map(|geometry| geometry.id)
+        .collect();
+    let mut scene = render_scene::ActorRenderScene::default();
+    let mut hand = super::HandRigBuilder(render_model::ActorRigFrameBuilder::new([]).unwrap());
+    let mut ready = super::SessionGeometryReady::default();
+    super::apply_session_pack_to_owners(
+        &mut scene,
+        &mut hand,
+        &resources,
+        Some(&pack),
+        super::SessionIconInput::Staged(None),
+        &mut ready,
+        None,
+        None,
+    );
+
+    for id in expected_ids {
+        assert!(
+            hand.0.contains_geometry(id),
+            "session geometry {id:?} was not installed in the first-person hand builder"
+        );
+    }
+}
+
 /// A server pack's glint replaces the startup glint for the session; disconnect restores it.
 #[test]
 fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
