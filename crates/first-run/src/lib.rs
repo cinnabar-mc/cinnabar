@@ -81,7 +81,11 @@ fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
         });
     }
     if cfg!(target_os = "android") {
-        // Android's setup activity runs `prepare_headless` before the game activity starts.
+        // Android's setup activity runs the gate and `prepare_headless` before the game activity
+        // starts; a game restored after the process ended can only point back to it.
+        if plan.verify {
+            bail!("{}", ownership::restored_refusal());
+        }
         bail!("setup is incomplete; close and reopen the app to finish setup");
     }
     // An earlier run's report must not describe this one.

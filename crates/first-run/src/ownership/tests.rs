@@ -323,3 +323,11 @@ fn a_host_signs_in_through_the_shown_code() {
     let link = Some("https://login.example.test/device".to_owned());
     assert!(code.buttons.iter().any(|button| button.open == link));
 }
+
+/// A restored Android game refused by the gate explains ownership, not unfinished setup.
+#[test]
+fn a_restored_refusal_carries_the_install_guidance_and_notice() {
+    let text = restored_refusal();
+    assert!(text.starts_with(title(Refusal::NotInstalled)));
+    assert!(text.contains(NOTICE));
+}

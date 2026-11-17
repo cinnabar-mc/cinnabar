@@ -153,6 +153,17 @@ pub(crate) fn body(refusal: Refusal, available: Sources) -> String {
     text
 }
 
+/// What a game started without its setup screen shows when the local install fails, as when
+/// Android restores it after the process ended.
+pub(crate) fn restored_refusal() -> String {
+    let refusal = Refusal::NotInstalled;
+    format!(
+        "{}\n{}\nClose and reopen the app to check again.",
+        title(refusal),
+        body(refusal, policy::sources())
+    )
+}
+
 /// The sign-in prompt's text.
 pub(crate) fn code_prompt(uri: &str, code: &str) -> String {
     format!(
