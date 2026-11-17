@@ -165,7 +165,7 @@ final class SetupScreen extends FrameLayout {
         }
     }
 
-    /** Shows a prompt in place of the progress display; the first choice is the default. */
+    /** Shows a prompt in place of the progress display; the first choice is highlighted. */
     private void show(String title, String body, Choice[] choices) {
         dismissPrompt();
         Context context = getContext();
@@ -222,13 +222,13 @@ final class SetupScreen extends FrameLayout {
             }
         };
         actions.setGravity(Gravity.CENTER);
-        Button primary = null;
+        boolean first = true;
         for (Choice choice : choices) {
-            Button view = button(choice.label, primary == null, () -> {
+            Button view = button(choice.label, first, () -> {
                 if (choice.dismisses) dismissPrompt();
                 choice.action.run();
             });
-            if (primary == null) primary = view;
+            first = false;
             // Grows past the usual height when a large font scale wraps the label.
             view.setMinHeight(dp(BUTTON_HEIGHT_DP));
             actions.addView(view, new LinearLayout.LayoutParams(
@@ -244,7 +244,11 @@ final class SetupScreen extends FrameLayout {
         prompt.addView(column, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER_HORIZONTAL));
         overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
-        if (primary != null) primary.requestFocus();
+        // The prompt takes focus itself, so it opens at the top and no off-screen button is focused;
+        // keys scroll it and move on to the buttons.
+        prompt.setFocusable(true);
+        prompt.setDescendantFocusability(FOCUS_BEFORE_DESCENDANTS);
+        prompt.requestFocus();
         announceForAccessibility(title);
     }
 

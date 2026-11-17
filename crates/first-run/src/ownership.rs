@@ -17,7 +17,7 @@ use launcher_host::{
 use serde::Serialize;
 
 use crate::{
-    Progress, reporter,
+    Progress,
     screen::{Action, Effect, Meter, Screen, refused_actions},
     status::Status,
 };
@@ -284,8 +284,6 @@ pub fn verify_with_host(
     if !layout.is_installed() || open_without_asking(layout) {
         return true;
     }
-    // The status file describes this launch, not the last one that finished setup.
-    reporter(layout, |_| {})(Status::awaiting_ownership());
     with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
         verify(layout, sign_in, cancel, on_code)
     })
