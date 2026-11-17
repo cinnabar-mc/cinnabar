@@ -6,6 +6,10 @@
     android:versionName="@VERSION_NAME@">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
+    <!-- The ownership gate reads this package's signer and installer. -->
+    <queries>
+        <package android:name="com.mojang.minecraftpe" />
+    </queries>
     <application
         android:label="@PRODUCT_NAME@"
         android:icon="@mipmap/ic_launcher"

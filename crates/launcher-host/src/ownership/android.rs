@@ -1,0 +1,243 @@
+//! Android's local-install probe: `PackageManager` reads for the decision in
+//! [`launcher::ownership::android`].
+
+use std::sync::OnceLock;
+
+use jni::{
+    JNIEnv, JavaVM,
+    objects::{GlobalRef, JByteArray, JObject, JObjectArray, JString},
+};
+use launcher::ownership::android::{self as policy, InstallSource, Packages};
+use sha2::{Digest, Sha256};
+
+/// `PackageManager.CERT_INPUT_SHA256`.
+const CERT_INPUT_SHA256: i32 = 1;
+/// `PackageManager.GET_SIGNATURES`.
+const GET_SIGNATURES: i32 = 0x40;
+/// Local references one probe creates, with room to spare.
+const LOCAL_FRAME: i32 = 32;
+
+/// The application context, for processes whose activity is not the `NativeActivity`.
+static CONTEXT: OnceLock<(JavaVM, GlobalRef)> = OnceLock::new();
+
+/// Lets [`found`] run where `ndk_context` is not set, such as the setup activity; later calls
+/// keep the first context.
+pub fn use_context(env: &mut JNIEnv<'_>, context: &JObject<'_>) -> jni::errors::Result<()> {
+    if CONTEXT.get().is_some() {
+        return Ok(());
+    }
+    let application = env
+        .call_method(
+            context,
+            "getApplicationContext",
+            "()Landroid/content/Context;",
+            &[],
+        )?
+        .l()?;
+    let global = env.new_global_ref(application)?;
+    let _ = CONTEXT.set((env.get_java_vm()?, global));
+    Ok(())
+}
+
+/// Checks the local install on the calling thread, uncached; any JNI failure is not found.
+pub(super) fn found() -> bool {
+    let install = with_context(|env, context| {
+        env.with_local_frame(LOCAL_FRAME, |env| -> jni::errors::Result<_> {
+            let manager = env
+                .call_method(
+                    context,
+                    "getPackageManager",
+                    "()Landroid/content/pm/PackageManager;",
+                    &[],
+                )?
+                .l()?;
+            Ok(policy::check(&mut Jni { env, manager }))
+        })
+    });
+    let install = install.unwrap_or_else(|error| {
+        tracing::warn!(%error, "ownership probe failed");
+        policy::Install::Missing
+    });
+    tracing::info!(
+        source = "local_install",
+        result = install.reason(),
+        "ownership probed"
+    );
+    install == policy::Install::Verified
+}
+
+/// Runs `probe` with an attached environment and the application context.
+fn with_context<T>(
+    probe: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> jni::errors::Result<T>,
+) -> jni::errors::Result<T> {
+    if let Some((vm, context)) = CONTEXT.get() {
+        let mut env = vm.attach_current_thread()?;
+        return clearing(&mut *env, |env| probe(env, context.as_obj()));
+    }
+    let context = ndk_context::android_context();
+    // SAFETY: android-activity publishes the process's live VM and Application here.
+    let vm = unsafe { JavaVM::from_raw(context.vm().cast())? };
+    let mut env = vm.attach_current_thread()?;
+    let application = unsafe { JObject::from_raw(context.context().cast()) };
+    clearing(&mut *env, |env| probe(env, &application))
+}
+
+/// Runs `call`, clearing any Java exception it left pending.
+fn clearing<'local, T>(
+    env: &mut JNIEnv<'local>,
+    call: impl FnOnce(&mut JNIEnv<'local>) -> jni::errors::Result<T>,
+) -> jni::errors::Result<T> {
+    let result = call(env);
+    if result.is_err() && env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
+    result
+}
+
+/// [`Packages`] over a live `PackageManager`.
+struct Jni<'a, 'local> {
+    env: &'a mut JNIEnv<'local>,
+    manager: JObject<'local>,
+}
+
+impl<'local> Jni<'_, 'local> {
+    /// One read; a failure or thrown exception reads as `None`.
+    fn read<T>(
+        &mut self,
+        read: impl FnOnce(&mut JNIEnv<'local>, &JObject<'local>) -> jni::errors::Result<T>,
+    ) -> Option<T> {
+        let Self { env, manager } = self;
+        clearing(env, |env| read(env, manager)).ok()
+    }
+}
+
+impl Packages for Jni<'_, '_> {
+    fn sdk(&mut self) -> u32 {
+        self.read(|env, _| {
+            env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?
+                .i()
+        })
+        .and_then(|sdk| u32::try_from(sdk).ok())
+        .unwrap_or(0)
+    }
+
+    fn installed(&mut self, package: &str) -> bool {
+        self.read(|env, manager| package_info(env, manager, package, 0).map(|info| !info.is_null()))
+            .unwrap_or(false)
+    }
+
+    fn has_signing_certificate(&mut self, package: &str, sha256: &[u8; 32]) -> bool {
+        self.read(|env, manager| {
+            let name = env.new_string(package)?;
+            let digest = env.byte_array_from_slice(sha256)?;
+            env.call_method(
+                manager,
+                "hasSigningCertificate",
+                "(Ljava/lang/String;[BI)Z",
+                &[(&name).into(), (&digest).into(), CERT_INPUT_SHA256.into()],
+            )?
+            .z()
+        })
+        .unwrap_or(false)
+    }
+
+    fn signature_digests(&mut self, package: &str) -> Vec<[u8; 32]> {
+        self.read(|env, manager| {
+            let info = package_info(env, manager, package, GET_SIGNATURES)?;
+            let signatures = env
+                .get_field(&info, "signatures", "[Landroid/content/pm/Signature;")?
+                .l()?;
+            if signatures.is_null() {
+                return Ok(Vec::new());
+            }
+            let signatures = JObjectArray::from(signatures);
+            let mut digests = Vec::new();
+            for index in 0..env.get_array_length(&signatures)? {
+                let signature = env.get_object_array_element(&signatures, index)?;
+                let bytes = env
+                    .call_method(&signature, "toByteArray", "()[B", &[])?
+                    .l()?;
+                let bytes = env.convert_byte_array(JByteArray::from(bytes))?;
+                digests.push(Sha256::digest(&bytes).into());
+            }
+            Ok(digests)
+        })
+        .unwrap_or_default()
+    }
+
+    fn install_source(&mut self, package: &str) -> InstallSource {
+        self.read(|env, manager| {
+            let name = env.new_string(package)?;
+            let info = env
+                .call_method(
+                    manager,
+                    "getInstallSourceInfo",
+                    "(Ljava/lang/String;)Landroid/content/pm/InstallSourceInfo;",
+                    &[(&name).into()],
+                )?
+                .l()?;
+            Ok(InstallSource {
+                installing: string_call(env, &info, "getInstallingPackageName")?,
+                initiating: string_call(env, &info, "getInitiatingPackageName")?,
+            })
+        })
+        .unwrap_or_default()
+    }
+
+    fn installer(&mut self, package: &str) -> Option<String> {
+        self.read(|env, manager| {
+            let name = env.new_string(package)?;
+            let installer = env
+                .call_method(
+                    manager,
+                    "getInstallerPackageName",
+                    "(Ljava/lang/String;)Ljava/lang/String;",
+                    &[(&name).into()],
+                )?
+                .l()?;
+            optional_string(env, installer)
+        })
+        .flatten()
+    }
+}
+
+/// `getPackageInfo(package, flags)`; throws `NameNotFoundException` when not installed for this
+/// user.
+fn package_info<'local>(
+    env: &mut JNIEnv<'local>,
+    manager: &JObject<'_>,
+    package: &str,
+    flags: i32,
+) -> jni::errors::Result<JObject<'local>> {
+    let name = env.new_string(package)?;
+    env.call_method(
+        manager,
+        "getPackageInfo",
+        "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;",
+        &[(&name).into(), flags.into()],
+    )?
+    .l()
+}
+
+/// Calls a no-argument `String` getter on `info`.
+fn string_call(
+    env: &mut JNIEnv<'_>,
+    info: &JObject<'_>,
+    getter: &str,
+) -> jni::errors::Result<Option<String>> {
+    let value = env
+        .call_method(info, getter, "()Ljava/lang/String;", &[])?
+        .l()?;
+    optional_string(env, value)
+}
+
+/// A Java string that may be null.
+fn optional_string(
+    env: &mut JNIEnv<'_>,
+    value: JObject<'_>,
+) -> jni::errors::Result<Option<String>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(env.get_string(&JString::from(value))?.into()))
+}

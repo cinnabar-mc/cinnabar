@@ -2004,16 +2004,21 @@ the lowest priority with bounded parallelism, and its first launch promotes them
 setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
 captures of a game running beside the background build remain incomplete.
 Packaged launches pass an ownership gate before first-run setup, downloads, worlds or joins.
-Proof sources plug in per platform and any one passes: Minecraft for Windows registered for
-the user (Windows package API, best-effort, checked every launch), and a Microsoft account
-signed in through Cinnabar's own app when `CINNABAR_MSA_CLIENT_ID` is built in. The account
-check keeps a 30-day pass, re-checks in the background, survives outages with a prior pass and
-revokes only after two not-owned answers a day apart; the account manager lists that account
-and warns before removing it. The gate is on where a source exists: Windows now; macOS and
-Linux once the client ID is set, which waits on Mojang approving Cinnabar's app; Android after
-its install source lands; iOS needs an in-game gate, since its setup runs no first-run window.
-No release has qualified the account path against real accounts (owned, Game Pass, Java-only,
-child, non-owner) or the Windows source against a current Store or Xbox app install.
+Proof sources plug in per platform and any one passes: a store install, best-effort and checked
+every launch, and a Microsoft account signed in through Cinnabar's own app when
+`CINNABAR_MSA_CLIENT_ID` is built in. On Windows the store install is Minecraft for Windows
+registered for the user (Windows package API); on Android it is `com.mojang.minecraftpe`, never
+the trial, signed by Mojang's certificate and installed by Google Play or the Amazon Appstore, not
+by `adb` (`PackageManager` metadata only). Android's setup activity draws the gate's screens
+before setup downloads, local worlds and joins. The account check keeps a 30-day pass,
+re-checks in the background, survives outages with a prior pass and revokes only after two
+not-owned answers a day apart; the account manager lists that account and warns before removing
+it. The gate is on where a source exists: Windows and Android now; macOS and Linux once the
+client ID is set, which waits on Mojang approving Cinnabar's app; iOS needs an in-game gate,
+since its setup runs no first-run window. No release has qualified the account path against real
+accounts (owned, Game Pass, Java-only, child, non-owner), the Windows source against a current
+Store or Xbox app install, or the Android source on Play, Amazon and sideloaded devices across
+API 26–35.
 Bootstrap windows initialize only the platform-preferred graphics API by default, preserving explicit `WGPU_BACKEND` overrides, so unused Windows Vulkan drivers are not loaded before setup can fall back to system dialogs. Affected Intel driver and dual-GPU acceptance remain incomplete.
 Particle atlas updates scope dynamic tile staging as well as base allocation. A failed tile update drops its partial atlas, keeps the generation uncommitted and retries the base plus current patches after retirement. Repeated failures keep exponential backoff until both the base and tiles upload successfully. Low-memory desktop GPU acceptance remains incomplete.
 

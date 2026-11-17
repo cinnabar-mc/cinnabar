@@ -24,30 +24,39 @@ fn license_files() -> (tempfile::TempDir, PathBuf, PathBuf) {
 fn the_gate_applies_only_where_some_source_exists() {
     let none = Sources::default();
     assert!(!none.gated());
+    for store in [Store::Microsoft, Store::Android] {
+        assert!(
+            Sources {
+                local_install: Some(store),
+                account: false
+            }
+            .gated()
+        );
+    }
     assert!(
         Sources {
-            local_install: true,
-            account: false
-        }
-        .gated()
-    );
-    assert!(
-        Sources {
-            local_install: false,
+            local_install: None,
             account: true
         }
         .gated()
     );
     assert_eq!(
-        sources().local_install,
-        cfg!(windows),
-        "only Windows can find a store install"
-    );
-    assert_eq!(
-        Sources::for_build(false).gated(),
+        Sources::for_build(None).gated(),
         MSA_CLIENT_ID.is_some(),
         "without a local source, only a built-in client ID turns the gate on"
     );
+}
+
+#[test]
+fn get_minecraft_follows_the_local_store() {
+    let phone = Sources::for_build(Some(Store::Android));
+    assert_eq!(phone.get_minecraft_urls(), &android::STORE_LISTING[..]);
+    for local_install in [Some(Store::Microsoft), None] {
+        assert_eq!(
+            Sources::for_build(local_install).get_minecraft_urls(),
+            &[GET_MINECRAFT_URL][..]
+        );
+    }
 }
 
 #[test]

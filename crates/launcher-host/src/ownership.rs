@@ -1,5 +1,8 @@
-//! The ownership gate's proof sources: Minecraft installed from the Windows store, and the license
-//! account, checked by a one-shot `bedrock-core -auth-events -ownership` helper.
+//! The ownership gate's proof sources: Minecraft installed from this platform's store, and the
+//! license account, checked by a one-shot `bedrock-core -auth-events -ownership` helper.
+
+#[cfg(target_os = "android")]
+pub mod android;
 
 use std::{
     process::Command,
@@ -11,7 +14,7 @@ use std::{
 use crossbeam_channel::{RecvTimeoutError, bounded};
 use launcher::{
     install_layout::InstallLayout,
-    ownership::{self as policy, Check, Verdict},
+    ownership::{self as policy, Check, Store, Verdict},
 };
 
 use crate::{
@@ -27,6 +30,14 @@ pub const MINECRAFT_PACKAGE_FAMILY: &str = "Microsoft.MinecraftUWP_8wekyb3d8bbwe
 
 /// How often a running check looks for cancellation.
 const CANCEL_POLL: Duration = Duration::from_millis(100);
+
+/// The store [`local_install_found`] looks for on this platform.
+#[cfg(windows)]
+const PROBED_STORE: Option<Store> = Some(Store::Microsoft);
+#[cfg(target_os = "android")]
+const PROBED_STORE: Option<Store> = Some(Store::Android);
+#[cfg(not(any(windows, target_os = "android")))]
+const PROBED_STORE: Option<Store> = None;
 
 /// Whether Minecraft for Windows is registered for the current user. Best-effort: package
 /// registration shows the game is installed, not that its license is current.
@@ -55,12 +66,25 @@ pub fn local_install_found() -> bool {
     matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0
 }
 
+/// Whether Minecraft from Google Play or the Amazon Appstore is installed, signed by Mojang.
+/// Best-effort: package metadata shows the game is installed, not that its license is current.
+#[cfg(target_os = "android")]
+#[must_use]
+pub fn local_install_found() -> bool {
+    android::found()
+}
+
 /// No store install can prove ownership on this platform.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 #[must_use]
 pub const fn local_install_found() -> bool {
     false
 }
+
+const _: () = assert!(
+    Store::same(PROBED_STORE, policy::LOCAL_STORE),
+    "every local store needs a probe here, and every probe needs its store in the policy"
+);
 
 /// One account check's answer.
 #[derive(Clone, Debug, Eq, PartialEq)]

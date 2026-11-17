@@ -1,10 +1,13 @@
 package @APPLICATION_ID@;
 
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.text.util.Linkify;
 import android.util.TypedValue;
@@ -18,6 +21,8 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.util.function.IntConsumer;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -37,10 +42,25 @@ final class SetupScreen extends FrameLayout {
     private final StartupScreen startup;
     private final FrameLayout overlay;
     private final Button cancel;
+    private final Runnable onCancel;
     private LinearLayout prompt;
+
+    /** One prompt button; a dismissing one closes the prompt before its action runs. */
+    private static final class Choice {
+        final String label;
+        final boolean dismisses;
+        final Runnable action;
+
+        Choice(String label, boolean dismisses, Runnable action) {
+            this.label = label;
+            this.dismisses = dismisses;
+            this.action = action;
+        }
+    }
 
     SetupScreen(Context context, Runnable onCancel) {
         super(context);
+        this.onCancel = onCancel;
         startup = new StartupScreen(context);
         // The window background holds the launcher icon, which must not show behind a prompt.
         setBackgroundColor(startup.color("background"));
@@ -101,6 +121,55 @@ final class SetupScreen extends FrameLayout {
     /** Asks a question in place of the progress display; either answer dismisses the prompt. */
     void prompt(String title, String body, String acceptLabel, Runnable accept,
             String declineLabel, Runnable decline) {
+        show(title, body, new Choice[] {
+            new Choice(acceptLabel, true, accept), new Choice(declineLabel, true, decline)});
+    }
+
+    /**
+     * Shows one ownership gate screen from native setup's JSON. Buttons open their links in place,
+     * quit setup, or dismiss the screen and pass their index to {@code answer}, which is null while
+     * a check runs. An unreadable screen answers -1.
+     */
+    void gate(String message, IntConsumer answer) {
+        try {
+            JSONObject value = new JSONObject(message);
+            JSONArray buttons = value.getJSONArray("buttons");
+            Choice[] choices = new Choice[buttons.length()];
+            for (int index = 0; index < choices.length; index++) {
+                JSONObject button = buttons.getJSONObject(index);
+                JSONArray links = button.optJSONArray("open");
+                int chosen = index;
+                if (links != null) {
+                    choices[index] = new Choice(button.getString("label"), false, () -> open(links));
+                } else if (button.optBoolean("quit")) {
+                    choices[index] = new Choice(button.getString("label"), false, onCancel);
+                } else {
+                    choices[index] = new Choice(button.getString("label"), answer != null,
+                            () -> { if (answer != null) answer.accept(chosen); });
+                }
+            }
+            // Native paragraphs end at single line breaks; a blank line separates them here.
+            show(value.getString("title"), value.getString("body").replace("\n", "\n\n"), choices);
+        } catch (JSONException error) {
+            android.util.Log.w("SetupScreen", "Cannot read gate screen", error);
+            if (answer != null) answer.accept(-1);
+        }
+    }
+
+    /** Opens the first of {@code links} some installed app handles. */
+    private void open(JSONArray links) {
+        for (int index = 0; index < links.length(); index++) {
+            try {
+                getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(links.getString(index))));
+                return;
+            } catch (ActivityNotFoundException | JSONException error) {
+                // The next link is the fallback.
+            }
+        }
+    }
+
+    /** Shows a prompt in place of the progress display; the first choice is the default. */
+    private void show(String title, String body, Choice[] choices) {
         dismissPrompt();
         Context context = getContext();
         cancel.setVisibility(GONE);
@@ -150,19 +219,24 @@ final class SetupScreen extends FrameLayout {
 
         LinearLayout actions = new LinearLayout(context);
         actions.setGravity(Gravity.CENTER);
-        Button primary = button(acceptLabel, true, () -> { dismissPrompt(); accept.run(); });
-        actions.addView(primary, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP)));
-        LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP));
-        second.leftMargin = margin;
-        actions.addView(button(declineLabel, false, () -> { dismissPrompt(); decline.run(); }), second);
+        Button primary = null;
+        for (Choice choice : choices) {
+            Button view = button(choice.label, primary == null, () -> {
+                if (choice.dismisses) dismissPrompt();
+                choice.action.run();
+            });
+            LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP));
+            if (primary != null) position.leftMargin = margin;
+            else primary = view;
+            actions.addView(view, position);
+        }
         prompt.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT,
                 Gravity.CENTER_HORIZONTAL));
-        primary.requestFocus();
+        if (primary != null) primary.requestFocus();
         announceForAccessibility(title);
     }
 

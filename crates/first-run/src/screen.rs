@@ -187,7 +187,7 @@ impl Screen {
 
 /// A refusal's buttons; "Get Minecraft" appears only when the game is missing or not owned.
 pub(super) const fn refused_actions(refusal: Refusal, sources: Sources) -> &'static [Action] {
-    match (refusal, sources.local_install, sources.account) {
+    match (refusal, sources.local_install.is_some(), sources.account) {
         (Refusal::NotInstalled, ..) => &[Action::GetMinecraft, Action::Retry, Action::Quit],
         // Closing the window quits, so the row stays within three buttons.
         (Refusal::NotOwned, true, _) => &[Action::SignIn, Action::GetMinecraft, Action::Retry],
@@ -278,6 +278,8 @@ fn megabytes(bytes: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use launcher::ownership::Store;
+
     use super::*;
 
     /// Four buttons overflow the setup panel's action row.
@@ -290,9 +292,12 @@ mod tests {
             Refusal::Unverifiable,
         ];
         for refusal in refusals {
-            for (local_install, account) in
-                [(false, false), (false, true), (true, false), (true, true)]
-            {
+            for (local_install, account) in [
+                (None, false),
+                (None, true),
+                (Some(Store::Microsoft), false),
+                (Some(Store::Android), true),
+            ] {
                 let sources = Sources {
                     local_install,
                     account,

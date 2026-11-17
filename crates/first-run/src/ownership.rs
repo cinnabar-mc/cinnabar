@@ -1,18 +1,26 @@
 //! The ownership gate at the start of every packaged launch: play continues only when a proof
 //! source this platform offers finds that the player owns Minecraft.
 
-use std::sync::atomic::AtomicBool;
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
+};
 
 use launcher::{
     install_layout::InstallLayout,
-    ownership::{self as policy, Check, Sources, Verdict},
+    ownership::{self as policy, Check, Sources, Store, Verdict},
 };
 use launcher_host::{
     native_dialog::{Consent, Prompter},
     ownership as sources,
 };
+use serde::Serialize;
 
-use crate::screen::{Action, refused_actions};
+use crate::{
+    Progress,
+    screen::{Action, Effect, Meter, Screen, refused_actions},
+    status::Status,
+};
 
 /// Why the gate stayed closed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,7 +74,7 @@ pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
 
 /// Whether `available` includes a local install and it was found.
 fn found_locally(available: Sources) -> bool {
-    let found = available.local_install && sources::local_install_found();
+    let found = available.local_install.is_some() && sources::local_install_found();
     if found {
         tracing::info!(source = "local_install", "ownership verified");
     }
@@ -112,18 +120,31 @@ pub(crate) const fn title(refusal: Refusal) -> &'static str {
     }
 }
 
+/// Where `store`'s install comes from, for refusals.
+const fn install_text(store: Store) -> &'static str {
+    match store {
+        Store::Microsoft => {
+            "On Windows, Cinnabar can use Minecraft installed from the Microsoft Store or the Xbox app. If you bought Minecraft for Windows or Minecraft: Java & Bedrock Edition for PC, it's already in your library there."
+        }
+        Store::Android => {
+            "On Android, Cinnabar can use Minecraft installed from Google Play, or from the Amazon Appstore on Fire devices. A copy bought on another platform doesn't count here."
+        }
+    }
+}
+
 /// The refusal's explanation for `available` sources, ending with the notice.
 pub(crate) fn body(refusal: Refusal, available: Sources) -> String {
-    let install = "On Windows, Cinnabar can use Minecraft installed from the Microsoft Store or the Xbox app. If you bought Minecraft for Windows or Minecraft: Java & Bedrock Edition for PC, it's already in your library there.";
+    let install = available.local_install.map(install_text);
     let mut text = match refusal {
         Refusal::NotInstalled => format!(
-            "Cinnabar is for people who own Minecraft. {install} Install it, then select Try again."
+            "Cinnabar is for people who own Minecraft. {} Install it, then select Try again.",
+            install.unwrap_or_default()
         ),
         Refusal::NotOwned => "The Microsoft account you signed in with doesn't own Minecraft for PC. A copy bought on a phone or console doesn't include PC. Sign in with the account that bought it, or get Minecraft.".to_owned(),
         Refusal::SignInRequired => "Cinnabar is for people who own Minecraft. Sign in once with the Microsoft account that owns Minecraft for PC so Cinnabar can confirm it. Afterwards you can play with any of your accounts.".to_owned(),
         Refusal::Unverifiable => "Cinnabar couldn't reach Microsoft to confirm that you own Minecraft. Check your connection, then try again.".to_owned(),
     };
-    if available.local_install && refusal != Refusal::NotInstalled {
+    if let Some(install) = install.filter(|_| refusal != Refusal::NotInstalled) {
         text.push('\n');
         text.push_str(install);
     }
@@ -195,6 +216,126 @@ pub(crate) fn with_dialogs(
                 return false;
             }
         }
+    }
+}
+
+/// One gate screen for a host that draws its own setup interface.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Prompt {
+    pub title: String,
+    /// Paragraphs split on `\n`.
+    pub body: String,
+    /// In display order; the first is the default.
+    pub buttons: Vec<Button>,
+}
+
+/// One button; one that neither opens links nor quits answers the host's wait.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Button {
+    pub label: String,
+    /// Links to try in order until one opens, staying on the screen.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub open: Vec<String>,
+    /// Closes setup without playing.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub quit: bool,
+}
+
+impl Prompt {
+    fn new(screen: &Screen, available: Sources) -> Self {
+        let button = |action: Action| Button {
+            label: screen.button_label(action).to_owned(),
+            open: match (action, screen) {
+                (Action::GetMinecraft, _) => available
+                    .get_minecraft_urls()
+                    .iter()
+                    .map(|url| (*url).to_owned())
+                    .collect(),
+                (Action::OpenLink, Screen::SignIn { uri, .. }) => vec![uri.clone()],
+                _ => Vec::new(),
+            },
+            quit: action == Action::Quit,
+        };
+        Self {
+            title: screen.title(false).to_owned(),
+            body: screen.body(),
+            buttons: screen.actions().iter().copied().map(button).collect(),
+        }
+    }
+}
+
+/// A setup interface that draws the gate's screens itself, as Android's setup activity does.
+pub trait GateHost {
+    /// Shows a report while a check runs.
+    fn progress(&mut self, update: &Progress);
+    /// Shows `prompt` while a check runs; its buttons only open links or quit.
+    fn show(&mut self, prompt: &Prompt);
+    /// Shows `prompt` and returns the index of the answering button pressed, or `None` once the
+    /// host has closed.
+    fn choose(&mut self, prompt: &Prompt) -> Option<usize>;
+}
+
+/// Runs the gate through `host` for a packaged install; returns whether play may continue.
+/// Setting `cancel` ends it unanswered.
+pub fn verify_with_host(
+    layout: &InstallLayout,
+    cancel: &AtomicBool,
+    host: &mut dyn GateHost,
+) -> bool {
+    if !layout.is_installed() || open_without_asking(layout) {
+        return true;
+    }
+    with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
+        verify(layout, sign_in, cancel, on_code)
+    })
+}
+
+/// [`verify_with_host`] after the silent checks, with `verify` for this install.
+fn with_host(
+    available: Sources,
+    cancel: &AtomicBool,
+    host: &mut dyn GateHost,
+    verify: &mut Verify<'_>,
+) -> bool {
+    let mut sign_in = false;
+    loop {
+        let checking = Status::awaiting_ownership();
+        if let Some(update) = Progress::new(&checking, &mut Meter::default(), Instant::now(), false)
+        {
+            host.progress(&update);
+        }
+        let answer = verify(sign_in, &mut |uri, code| {
+            let screen = Screen::SignIn {
+                uri: uri.to_owned(),
+                code: code.to_owned(),
+            };
+            host.show(&Prompt::new(&screen, available));
+        });
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
+        let screen = match answer {
+            Answer::Allowed => return true,
+            Answer::Denied(refusal) => Screen::Refused {
+                refusal,
+                sources: available,
+            },
+        };
+        let prompt = Prompt::new(&screen, available);
+        sign_in = loop {
+            let Some(&action) = host
+                .choose(&prompt)
+                .and_then(|index| screen.actions().get(index))
+            else {
+                return false;
+            };
+            match screen.on_action(action).1 {
+                Effect::Verify { sign_in } => break sign_in,
+                Effect::Quit => return false,
+                // The host opens links itself.
+                _ => {}
+            }
+        };
     }
 }
 

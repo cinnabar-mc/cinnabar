@@ -3,7 +3,8 @@
 //! Runs before the game window: the ownership gate on every launch, then, when needed, consent,
 //! a download of the pinned public pack and one `assetc prepare`. Android also tries to prepare
 //! local worlds before starting the game. A setup window in a child process shows desktop setup;
-//! without one, native dialogs do. Android's setup activity draws setup on its startup screen.
+//! without one, native dialogs do. Android's setup activity draws setup, gate included, on its
+//! startup screen.
 //! Progress is mirrored to `logs/first-run-status.json`.
 
 mod download;
@@ -27,6 +28,7 @@ use sha2::{Digest, Sha256};
 
 pub use headless::prepare_headless;
 pub use next::prepare_next_release;
+pub use ownership::{Button, GateHost, Prompt, verify_with_host};
 use prepare::prepare;
 pub use progress::Progress;
 use status::Status;
