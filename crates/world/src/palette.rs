@@ -334,13 +334,25 @@ impl PalettedStorage {
         if self.bits_per_index == 0 || palette_len >= 1_usize << self.bits_per_index {
             return;
         }
-        for linear in 0..BLOCKS_PER_SUB_CHUNK {
-            if self
-                .palette_index(linear)
-                .is_some_and(|index| index >= palette_len)
-            {
-                write_palette_index(&mut self.words, self.bits_per_index, linear, 0);
+        // Every packed storage a server sends passes through here, so cells are read a word at a
+        // time. Missing words, padding slots and surplus words keep their bits.
+        let bits = usize::from(self.bits_per_index);
+        let per_word = 32 / bits;
+        let mask = (1_u32 << bits) - 1;
+        // The early return bounds the length below the 16-bit index capacity.
+        let palette_len = palette_len as u32;
+        let mut cells = BLOCKS_PER_SUB_CHUNK;
+        for word in &mut self.words {
+            let slots = cells.min(per_word);
+            cells -= slots;
+            let mut repaired = *word;
+            for slot in 0..slots {
+                let shift = slot * bits;
+                if (repaired >> shift) & mask >= palette_len {
+                    repaired &= !(mask << shift);
+                }
             }
+            *word = repaired;
         }
     }
 
