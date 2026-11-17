@@ -18,6 +18,7 @@ use render_model::{
     UiRenderVertex, UiScissor, UiTexturePage,
 };
 use render_scene::PipelineWarmupReadiness;
+use render_scene::startup_work::{WorldGpuStart, WorldWorkAdmission};
 use {
     crate::{
         AimAssistHighlightPlugin, AtmospherePlugin, ModRenderPlugin, PanoramaRenderPlugin,
@@ -33,17 +34,11 @@ const GRADE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) * 
 
 /// Builds standalone custom renderers with an output format different from their scene pipelines.
 fn app() -> App {
-    app_with_admission(
-        render_scene::startup_work::WorldWorkAdmission::default(),
-        false,
-    )
+    app_with_admission(WorldWorkAdmission::default(), false)
 }
 
 /// Builds the same renderer with an explicit menu admission boundary.
-fn app_with_admission(
-    admission: render_scene::startup_work::WorldWorkAdmission,
-    world_owners: bool,
-) -> App {
+fn app_with_admission(admission: WorldWorkAdmission, world_owners: bool) -> App {
     let mut app = App::new();
     app.insert_resource(admission);
     app.add_plugins(MinimalPlugins)
@@ -271,67 +266,14 @@ fn first_use_after_readiness_creates_no_pipelines() {
 
 #[test]
 fn menu_first_frame_queues_only_menu_variants_then_warms_the_world() {
-    let admission = render_scene::startup_work::WorldWorkAdmission::after_menu();
+    let admission = WorldWorkAdmission::after_menu(WorldGpuStart::AfterMenu);
     let mut app = app_with_admission(admission.clone(), true);
-    let stats = app.world().resource::<UiRenderStatsResource>().clone();
-    let mut input = ui();
-    let mut avatar = input.batches[0];
-    avatar.depth_test = 1;
-    avatar.depth_write = 1;
-    avatar.isolated_depth_scope = Some(1);
-    avatar.first_index = input.indices.len() as u32;
-    input.indices = input.indices.iter().copied().cycle().take(12).collect();
-    input.batches = std::sync::Arc::from([input.batches[0], avatar]);
-    app.world_mut()
-        .resource_mut::<UiRenderSceneResource>()
-        .publish(input, &stats)
-        .unwrap();
-    app.world_mut()
-        .resource_mut::<PanoramaScene>()
-        .show(Some(PanoramaView {
-            yaw_radians: 0.0,
-            pitch_radians: 0.0,
-            vertical_fov_radians: 1.0,
-            aspect: 1.0,
-            tint: [0.0; 4],
-        }));
+    show_menu(&mut app);
     for _ in 0..10 {
         app.update();
     }
-    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
-    let mut labels: Vec<_> = cache
-        .pipelines()
-        .map(|pipeline| match &pipeline.descriptor {
-            bevy::render::render_resource::PipelineDescriptor::RenderPipelineDescriptor(
-                descriptor,
-            ) => descriptor
-                .label
-                .as_deref()
-                .unwrap_or("unlabeled")
-                .to_owned(),
-            bevy::render::render_resource::PipelineDescriptor::ComputePipelineDescriptor(
-                descriptor,
-            ) => format!(
-                "compute: {}",
-                descriptor.label.as_deref().unwrap_or("unlabeled")
-            ),
-            _ => "unexpected mesh pipeline".to_owned(),
-        })
-        .collect();
-    labels.sort();
-    assert_eq!(
-        labels,
-        [
-            "blit pipeline",
-            "gamma-space UI composite",
-            "gamma-space UI composite",
-            "menu panorama pipeline",
-            "retained UI damage clear",
-            "shared retained UI overlay pipeline",
-            "shared retained UI overlay pipeline",
-            "tonemapping pipeline",
-        ]
-    );
+    let labels = pipeline_labels(&app);
+    assert_eq!(labels, MENU_VARIANTS.map(String::from));
     let before = labels.len();
     assert_eq!(
         app.sub_app(RenderApp)
@@ -359,22 +301,120 @@ fn menu_first_frame_queues_only_menu_variants_then_warms_the_world() {
             > 0,
         "a requested world must upload its atlas"
     );
-    assert!(
+    let warmed = pipeline_labels(&app);
+    assert!(warmed.len() > before);
+    assert_eq!(
+        warmed
+            .iter()
+            .filter(|label| *label == "blit pipeline")
+            .count(),
+        1,
+        "tracking the output blit reuses the variant upscaling compiled"
+    );
+}
+
+/// The menu's own first-use variants, in label order.
+const MENU_VARIANTS: [&str; 8] = [
+    "blit pipeline",
+    "gamma-space UI composite",
+    "gamma-space UI composite",
+    "menu panorama pipeline",
+    "retained UI damage clear",
+    "shared retained UI overlay pipeline",
+    "shared retained UI overlay pipeline",
+    "tonemapping pipeline",
+];
+
+#[test]
+fn a_join_policy_keeps_world_shaders_out_of_the_menu_until_a_join() {
+    let admission = WorldWorkAdmission::after_menu(WorldGpuStart::OnJoin);
+    let mut app = app_with_admission(admission.clone(), true);
+    show_menu(&mut app);
+    for _ in 0..10 {
+        app.update();
+    }
+    assert_eq!(pipeline_labels(&app), MENU_VARIANTS.map(String::from));
+
+    admission.menu_presented();
+    test_time::eventually("the idle menu uploads the world atlas", || {
+        app.update();
         app.sub_app(RenderApp)
             .world()
-            .resource::<PipelineCache>()
-            .pipelines()
-            .count()
-            > before
+            .resource::<crate::ChunkTextureUploadStats>()
+            .upload_count
+            > 0
+    });
+    for _ in 0..10 {
+        app.update();
+    }
+    assert_eq!(
+        pipeline_labels(&app),
+        MENU_VARIANTS.map(String::from),
+        "the presented menu compiles nothing it does not draw"
     );
+    let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
+    assert!(!readiness.is_ready());
+
+    admission.join_requested();
+    test_time::eventually("a join warms the world pipelines", || {
+        app.update();
+        readiness.is_ready()
+    });
+    assert!(pipeline_labels(&app).len() > MENU_VARIANTS.len());
+}
+
+/// Publishes one menu frame's content: a HUD batch, an isolated avatar model and the panorama.
+fn show_menu(app: &mut App) {
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
+    let mut input = ui();
+    let mut avatar = input.batches[0];
+    avatar.depth_test = 1;
+    avatar.depth_write = 1;
+    avatar.isolated_depth_scope = Some(1);
+    avatar.first_index = input.indices.len() as u32;
+    input.indices = input.indices.iter().copied().cycle().take(12).collect();
+    input.batches = std::sync::Arc::from([input.batches[0], avatar]);
+    app.world_mut()
+        .resource_mut::<UiRenderSceneResource>()
+        .publish(input, &stats)
+        .unwrap();
+    app.world_mut()
+        .resource_mut::<PanoramaScene>()
+        .show(Some(PanoramaView {
+            yaw_radians: 0.0,
+            pitch_radians: 0.0,
+            vertical_fov_radians: 1.0,
+            aspect: 1.0,
+            tint: [0.0; 4],
+        }));
+}
+
+/// The label of every pipeline the cache holds, sorted.
+fn pipeline_labels(app: &App) -> Vec<String> {
+    use bevy::render::render_resource::PipelineDescriptor;
+    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
+    let mut labels: Vec<_> = cache
+        .pipelines()
+        .map(|pipeline| match &pipeline.descriptor {
+            PipelineDescriptor::RenderPipelineDescriptor(descriptor) => descriptor
+                .label
+                .as_deref()
+                .unwrap_or("unlabeled")
+                .to_owned(),
+            PipelineDescriptor::ComputePipelineDescriptor(descriptor) => format!(
+                "compute: {}",
+                descriptor.label.as_deref().unwrap_or("unlabeled")
+            ),
+            _ => "unexpected mesh pipeline".to_owned(),
+        })
+        .collect();
+    labels.sort();
+    labels
 }
 
 #[test]
 fn a_requested_sample_count_compiles_before_the_camera_switches_to_it() {
-    let mut app = app_with_admission(
-        render_scene::startup_work::WorldWorkAdmission::default(),
-        true,
-    );
+    let mut app = app_with_admission(WorldWorkAdmission::default(), true);
     // Start single-sampled: the validation backend guarantees only one and four samples.
     set_samples(&mut app, Msaa::Off);
     let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();

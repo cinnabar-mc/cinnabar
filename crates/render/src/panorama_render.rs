@@ -65,7 +65,7 @@ struct Installed;
 /// Installs GPU resources and the backdrop pass once the camera schedule is available.
 fn install(app: &mut App) {
     app.init_resource::<PanoramaScene>();
-    crate::pipeline_warmup::register::<PanoramaPipeline>(app);
+    crate::pipeline_warmup::register_interface::<PanoramaPipeline>(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };

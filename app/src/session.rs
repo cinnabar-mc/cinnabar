@@ -277,6 +277,7 @@ pub(crate) struct SessionResources<'w> {
     far_terrain: Option<ResMut<'w, crate::far_terrain::FarTerrain>>,
     packet_mods: Option<Res<'w, crate::modding::packets::PacketMods>>,
     mod_registration: Option<Res<'w, crate::modding::registration::Watcher>>,
+    world_work: Option<Res<'w, render_scene::startup_work::WorldWorkAdmission>>,
 }
 
 /// An isolated startup snapshot for lifecycle tests without changing process-wide carriers.
@@ -376,6 +377,10 @@ fn attempt_connect(
         bridge::join_profile::JoinProfile::begin();
     }
     bridge::join_profile::JoinProfile::current().mark("session_controller");
+    // Platforms that keep world shaders out of the menu start compiling them here.
+    if let Some(admission) = &session.world_work {
+        admission.join_requested();
+    }
     let JoinIntent {
         address,
         auth_cache,

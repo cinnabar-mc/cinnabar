@@ -264,3 +264,165 @@ fn warmup_queues_after_the_blocking_blit_and_before_render() {
     render.world_mut().run_schedule(Render);
     assert_eq!(render.world().resource::<Queued>().0, [0, 2]);
 }
+
+/// An owner the menu draws with, registered ahead of world owners.
+#[derive(Resource, Default)]
+struct MenuOwner {
+    ids: WarmupIds,
+}
+
+impl PrewarmPipelines for MenuOwner {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        _view: WarmView,
+        ids: &mut WarmupIds,
+    ) -> Result<(), BevyError> {
+        let id = cache.queue_render_pipeline(descriptor(Handle::default(), ColorWrites::BLUE));
+        self.ids.push(id);
+        ids.push(id);
+        Ok(())
+    }
+}
+
+/// A menu launch's render app with one interface owner, one world owner and one world camera.
+fn staged_app(admission: WorldWorkAdmission) -> App {
+    let mut app = App::new();
+    app.insert_resource(admission);
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    register_interface::<MenuOwner>(&mut app);
+    register::<TwoModes>(&mut app);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(cache());
+    world.init_resource::<MenuOwner>();
+    world.insert_resource(TwoModes {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    world.spawn((
+        crate::render_test_support::camera(false),
+        Msaa::Off,
+        Camera3d::default(),
+    ));
+    app
+}
+
+/// Runs one render frame, then compiles what it queued as `RenderSystems::Render` would.
+fn staged_frame(app: &mut App) {
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(Render);
+    world.resource_mut::<PipelineCache>().process_queue();
+}
+
+fn world_owner_calls(app: &App) -> usize {
+    app.sub_app(RenderApp).world().resource::<TwoModes>().calls
+}
+
+fn menu_owner_variants(app: &App) -> WarmupIds {
+    let owner = app.sub_app(RenderApp).world().resource::<MenuOwner>();
+    owner.ids.clone()
+}
+
+#[test]
+fn interface_variants_settle_before_any_world_variant_is_queued() {
+    use render_scene::startup_work::WorldGpuStart;
+    let admission = WorldWorkAdmission::after_menu(WorldGpuStart::AfterMenu);
+    let mut app = staged_app(admission.clone());
+    let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
+    staged_frame(&mut app);
+    assert!(
+        menu_owner_variants(&app).is_empty(),
+        "nothing before the menu"
+    );
+    assert_eq!(world_owner_calls(&app), 0);
+
+    admission.menu_presented();
+    app.sub_app_mut(RenderApp).world_mut().run_schedule(Render);
+    let menu = menu_owner_variants(&app);
+    assert_eq!(menu.len(), 1, "the interface owner queues first");
+    assert_eq!(
+        world_owner_calls(&app),
+        0,
+        "world variants wait while an interface variant is still compiling"
+    );
+    assert!(!admission.is_admitted());
+    assert!(!readiness.is_ready());
+
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.resource_mut::<PipelineCache>().process_queue();
+    world.run_schedule(Render);
+    assert!(admission.is_admitted());
+    assert_eq!(world_owner_calls(&app), 1);
+    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
+    assert!(
+        menu.iter()
+            .all(|&id| progress::settled(cache.get_render_pipeline_state(id))),
+        "every interface variant had settled when the world owner queued"
+    );
+    assert!(!readiness.is_ready(), "the world variants are only queued");
+    staged_frame(&mut app);
+    staged_frame(&mut app);
+    assert!(readiness.is_ready());
+}
+
+#[test]
+fn a_join_policy_compiles_nothing_behind_the_menu_and_warms_on_a_join() {
+    use render_scene::startup_work::WorldGpuStart;
+    let admission = WorldWorkAdmission::after_menu(WorldGpuStart::OnJoin);
+    let mut app = staged_app(admission.clone());
+    let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
+    admission.menu_presented();
+    for _ in 0..4 {
+        staged_frame(&mut app);
+    }
+    assert!(menu_owner_variants(&app).is_empty());
+    assert_eq!(world_owner_calls(&app), 0);
+    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
+    assert_eq!(cache.pipelines().count(), 0, "the idle menu queued nothing");
+    assert!(!readiness.is_ready());
+
+    admission.join_requested();
+    staged_frame(&mut app);
+    assert_eq!(menu_owner_variants(&app).len(), 1);
+    assert_eq!(world_owner_calls(&app), 0, "the interface still goes first");
+    for _ in 0..3 {
+        staged_frame(&mut app);
+    }
+    assert_eq!(world_owner_calls(&app), 1);
+    assert!(readiness.is_ready(), "a join's loading gate still releases");
+}
+
+/// Nothing is warmed for either count while shader work waits for a join, so holding the old
+/// count would only make the join compile both.
+#[test]
+fn a_sample_count_change_before_the_first_join_switches_without_warming() {
+    use render_scene::startup_work::WorldGpuStart;
+    let request = SampleCountRequest {
+        samples: Msaa::Sample4,
+        hdr: false,
+        enhanced: false,
+    };
+    let admission = WorldWorkAdmission::after_menu(WorldGpuStart::OnJoin);
+    let mut app = staged_app(admission.clone());
+    admission.menu_presented();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world
+        .resource_mut::<SampleCountPreflight>()
+        .request(Some(request));
+    world.run_schedule(Render);
+    assert!(world.resource::<SampleCountPreflight>().is_ready(request));
+    assert_eq!(world_owner_calls(&app), 0);
+
+    // Once a join has started warm-up, the same request waits for its variants again.
+    admission.join_requested();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(Render);
+    assert!(!world.resource::<SampleCountPreflight>().is_ready(request));
+    for _ in 0..4 {
+        staged_frame(&mut app);
+    }
+    let world = app.sub_app(RenderApp).world();
+    assert!(world.resource::<SampleCountPreflight>().is_ready(request));
+}

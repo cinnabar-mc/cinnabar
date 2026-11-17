@@ -201,7 +201,7 @@ impl Plugin for ChunkRenderPlugin {
                         .after(crate::transparent_phase::sort),
                     prepare_chunk_texture_assets
                         .in_set(ChunkPublicationStage::Attributes)
-                        .run_if(render_scene::startup_work::world_work_allowed),
+                        .run_if(render_scene::startup_work::world_uploads_allowed),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_biome_tints
                         .in_set(ChunkPublicationStage::Attributes)
