@@ -1,4 +1,5 @@
 use super::*;
+use crate::ownership::{Sources, Store};
 
 const TRIAL: &str = "com.mojang.minecrafttrialpe";
 const AMAZON: &str = "com.amazon.venezia";
@@ -11,6 +12,8 @@ struct Device {
     sdk: u32,
     /// Each installed package and its signers.
     packages: Vec<(&'static str, Vec<[u8; 32]>)>,
+    /// Installed packages the user or system disabled.
+    disabled: Vec<&'static str>,
     installing: Option<&'static str>,
     initiating: Option<&'static str>,
     /// Reads this device's API level lacks, which a correct check never makes.
@@ -25,6 +28,7 @@ impl Device {
                 (PACKAGE, vec![SIGNER_SHA256]),
                 (STORE, vec![STORE_SIGNER_SHA256]),
             ],
+            disabled: Vec::new(),
             installing: Some(STORE),
             initiating: Some(STORE),
             missing_api_reads: 0,
@@ -63,6 +67,10 @@ impl Packages for Device {
 
     fn installed(&mut self, package: &str) -> bool {
         self.signers(package).is_some()
+    }
+
+    fn enabled(&mut self, package: &str) -> bool {
+        self.installed(package) && !self.disabled.contains(&package)
     }
 
     fn has_signing_certificate(&mut self, package: &str, sha256: &[u8; 32]) -> bool {
@@ -154,19 +162,68 @@ fn other_installers_fail() {
     }
 }
 
-/// An app that takes Play's package name on a device without Play is not Play.
+/// The sources a device offers on Android, after probing Play.
+fn device_sources(device: &mut Device) -> Sources {
+    let android = Sources {
+        local_install: Some(Store::Android),
+        account: false,
+    };
+    android.with_store_usable(store_available(device).is_ok())
+}
+
+/// Without an enabled, genuine Play the device has no proof source, so the gate is off there.
 #[test]
-fn an_impostor_store_fails() {
+fn a_device_without_a_usable_play_is_ungated() {
     for sdk in API_LEVELS {
-        assert!(store_authentic(&mut Device::play_install(sdk)), "API {sdk}");
-        for signers in [vec![OTHER_SIGNER], vec![]] {
-            let device = Device::play_install(sdk).signed(STORE, signers);
-            assert!(!store_authentic(&mut device.clone()), "API {sdk}");
-            assert_eq!(device.check(), Install::NotFromStore, "API {sdk}");
+        let mut absent = Device::play_install(sdk);
+        absent.packages.retain(|(name, _)| *name != STORE);
+        let disabled = Device {
+            disabled: vec![STORE],
+            ..Device::play_install(sdk)
+        };
+        let impostor = Device::play_install(sdk).signed(STORE, vec![OTHER_SIGNER]);
+        let unsigned = Device::play_install(sdk).signed(STORE, vec![]);
+        for (mut device, reason) in [
+            (absent, StoreUnavailable::Absent),
+            (disabled, StoreUnavailable::Disabled),
+            (impostor, StoreUnavailable::NotGenuine),
+            (unsigned, StoreUnavailable::NotGenuine),
+        ] {
+            assert_eq!(store_available(&mut device), Err(reason), "API {sdk}");
+            let sources = device_sources(&mut device);
+            assert!(!sources.gated(), "{reason:?} on API {sdk}");
+            assert_eq!(sources.store_app(), None);
         }
-        let mut without_play = Device::play_install(sdk);
-        without_play.packages.retain(|(name, _)| *name != STORE);
-        assert!(!store_authentic(&mut without_play), "API {sdk}");
+    }
+}
+
+/// With an enabled, genuine Play the gate is on, and only a genuine Play install of the game
+/// passes it.
+#[test]
+fn a_device_with_play_is_gated_on_the_game_install() {
+    for sdk in API_LEVELS {
+        let mut device = Device::play_install(sdk);
+        let sources = device_sources(&mut device);
+        assert!(sources.gated(), "API {sdk}");
+        assert_eq!(sources.store_app(), Some(STORE));
+        assert_eq!(device.check(), Install::Verified, "API {sdk}");
+
+        let mut missing = Device::play_install(sdk);
+        missing.packages.retain(|(name, _)| *name != PACKAGE);
+        let sideloaded = Device {
+            installing: Some("com.android.packageinstaller"),
+            initiating: Some("com.android.packageinstaller"),
+            ..Device::play_install(sdk)
+        };
+        let resigned = Device::play_install(sdk).signed(PACKAGE, vec![OTHER_SIGNER]);
+        for (mut device, refused) in [
+            (missing, Install::Missing),
+            (sideloaded, Install::NotFromStore),
+            (resigned, Install::ForeignSigner),
+        ] {
+            assert!(device_sources(&mut device).gated(), "API {sdk}");
+            assert_eq!(device.check(), refused, "API {sdk}");
+        }
     }
 }
 

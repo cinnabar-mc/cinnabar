@@ -240,7 +240,7 @@ impl SetupApp {
             },
             GateEvent::Answer(Answer::Denied(refusal)) => Screen::Refused {
                 refusal,
-                sources: launcher::ownership::sources(),
+                sources: launcher_host::ownership::available(),
             },
         };
         if matches!(next, Screen::SignIn { .. } | Screen::Refused { .. }) {
@@ -273,7 +273,7 @@ impl SetupApp {
             }
             Effect::GetMinecraft => {
                 launcher_host::desktop::open_url(
-                    launcher::ownership::sources().get_minecraft_url(),
+                    launcher_host::ownership::available().get_minecraft_url(),
                 );
             }
             Effect::OpenEula => launcher_host::desktop::open_url(EULA_URL),

@@ -74,20 +74,6 @@ pub fn local_install_found() -> bool {
     android::found()
 }
 
-/// The store app that should open "Get Minecraft", when it is genuine.
-#[cfg(target_os = "android")]
-#[must_use]
-pub fn store_app() -> Option<&'static str> {
-    android::store_authentic().then_some(policy::android::STORE)
-}
-
-/// Links open in whichever app handles them.
-#[cfg(not(target_os = "android"))]
-#[must_use]
-pub const fn store_app() -> Option<&'static str> {
-    None
-}
-
 /// No store install can prove ownership on this platform.
 #[cfg(not(any(windows, target_os = "android")))]
 #[must_use]
@@ -99,6 +85,25 @@ const _: () = assert!(
     Store::same(PROBED_STORE, policy::LOCAL_STORE),
     "every local store needs a probe here, and every probe needs its store in the policy"
 );
+
+/// The proof sources this build offers on this device: [`policy::sources`] with this platform's
+/// probe of whether its store can vouch for installs here.
+#[must_use]
+pub fn available() -> policy::Sources {
+    policy::sources(store_usable())
+}
+
+/// Whether Google Play is installed, enabled and genuine; without it Android has no local source.
+#[cfg(target_os = "android")]
+fn store_usable() -> bool {
+    android::store_usable()
+}
+
+/// The Microsoft Store is part of Windows, and other platforms have no local store.
+#[cfg(not(target_os = "android"))]
+const fn store_usable() -> bool {
+    true
+}
 
 /// One account check's answer.
 #[derive(Clone, Debug, Eq, PartialEq)]

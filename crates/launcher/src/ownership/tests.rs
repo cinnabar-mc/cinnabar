@@ -47,6 +47,22 @@ fn the_gate_applies_only_where_some_source_exists() {
     );
 }
 
+/// A store that can't vouch for installs on the device leaves only the account source.
+#[test]
+fn an_unusable_store_drops_only_the_local_source() {
+    for account in [false, true] {
+        let platform = Sources {
+            local_install: Some(Store::Android),
+            account,
+        };
+        assert_eq!(platform.with_store_usable(true), platform);
+        let unusable = platform.with_store_usable(false);
+        assert_eq!(unusable.local_install, None);
+        assert_eq!(unusable.gated(), account);
+    }
+    assert_eq!(sources(false).local_install, None);
+}
+
 #[test]
 fn get_minecraft_follows_the_local_store() {
     assert_eq!(

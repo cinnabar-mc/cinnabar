@@ -42,9 +42,9 @@ pub(crate) enum Answer {
 /// Whether play may continue without asking the player: the gate is off, the local install was
 /// found, or a valid pass exists (which is then re-checked in the background).
 pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
-    let available = policy::sources();
+    let available = sources::available();
     if !available.gated() {
-        tracing::info!("ownership gate off: no proof source on this platform in this build");
+        tracing::info!("ownership gate off: no proof source on this device in this build");
         return true;
     }
     if found_locally(available) {
@@ -89,7 +89,7 @@ pub(crate) fn verify(
     cancel: &AtomicBool,
     on_code: &mut dyn FnMut(&str, &str),
 ) -> Answer {
-    let available = policy::sources();
+    let available = sources::available();
     if !sign_in && found_locally(available) {
         return Answer::Allowed;
     }
@@ -156,7 +156,7 @@ pub(crate) fn body(refusal: Refusal, available: Sources) -> String {
 /// What a game started without its setup screen shows when the local install fails, as when
 /// Android restores it after the process ended; its only way back is reopening the app.
 pub(crate) fn restored_refusal() -> String {
-    let install = policy::sources()
+    let install = sources::available()
         .local_install
         .map(install_text)
         .unwrap_or_default();
@@ -304,8 +304,8 @@ pub fn verify_with_host(
     if !layout.is_installed() || open_without_asking(layout) {
         return true;
     }
-    let available = policy::sources();
-    let store_app = available.local_install.and(sources::store_app());
+    let available = sources::available();
+    let store_app = available.store_app();
     with_host(
         available,
         store_app,

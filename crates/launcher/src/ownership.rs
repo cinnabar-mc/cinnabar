@@ -59,8 +59,9 @@ impl Store {
     }
 }
 
-/// The store install this platform can look for. The host's probe must match it, which
-/// `launcher_host::ownership` asserts at compile time.
+/// The store install this platform can look for, where the store can vouch for installs on the
+/// device. The host's probe must match it, which `launcher_host::ownership` asserts at compile
+/// time.
 pub const LOCAL_STORE: Option<Store> = if cfg!(windows) {
     Some(Store::Microsoft)
 } else if cfg!(target_os = "android") {
@@ -108,26 +109,53 @@ impl Sources {
             Some(Store::Microsoft) | None => GET_MINECRAFT_URL,
         }
     }
+
+    /// The app that opens "Get Minecraft" first; the Android source is offered only where Play
+    /// is genuine.
+    #[must_use]
+    pub const fn store_app(self) -> Option<&'static str> {
+        match self.local_install {
+            Some(Store::Android) => Some(android::STORE),
+            Some(Store::Microsoft) | None => None,
+        }
+    }
+
+    /// These sources without the store install when `store_usable` says the store cannot vouch
+    /// for installs on this device, which leaves the gate off where nothing else can pass it.
+    #[must_use]
+    pub const fn with_store_usable(self, store_usable: bool) -> Self {
+        Self {
+            local_install: if store_usable {
+                self.local_install
+            } else {
+                None
+            },
+            ..self
+        }
+    }
 }
 
-/// This build's sources on this platform. iOS starts without the first-run gate, so it offers
-/// none yet. Android's game activity can start without its setup activity, as when restored after
-/// the process ends, so it offers no account source until it can ask for a sign-in there.
+/// This build's sources on this device; `store_usable` is the host's probe of whether
+/// [`LOCAL_STORE`] can vouch for installs here. iOS starts without the first-run gate, so it
+/// offers none yet. Android's game activity can start without its setup activity, as when
+/// restored after the process ends, so it offers no account source until it can ask for a
+/// sign-in there.
 #[must_use]
-pub const fn sources() -> Sources {
-    if cfg!(target_os = "ios") {
-        return Sources {
+pub const fn sources(store_usable: bool) -> Sources {
+    let platform = if cfg!(target_os = "ios") {
+        Sources {
             local_install: None,
             account: false,
-        };
-    }
-    if cfg!(target_os = "android") {
-        return Sources {
+        }
+    } else if cfg!(target_os = "android") {
+        Sources {
             local_install: LOCAL_STORE,
             account: false,
-        };
-    }
-    Sources::for_build(LOCAL_STORE)
+        }
+    } else {
+        Sources::for_build(LOCAL_STORE)
+    };
+    platform.with_store_usable(store_usable)
 }
 
 /// One account check's answer.

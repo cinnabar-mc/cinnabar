@@ -1,7 +1,7 @@
 //! Android's local-install probe: `PackageManager` reads for the decision in
 //! [`launcher::ownership::android`].
 
-use std::sync::OnceLock;
+use std::sync::{Once, OnceLock};
 
 use jni::{
     JNIEnv, JavaVM,
@@ -14,6 +14,12 @@ use sha2::{Digest, Sha256};
 const CERT_INPUT_SHA256: i32 = 1;
 /// `PackageManager.GET_SIGNATURES`.
 const GET_SIGNATURES: i32 = 0x40;
+/// `PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS`, so a package disabled until used still
+/// reads as installed.
+const MATCH_DISABLED_UNTIL_USED: i32 = 0x8000;
+/// `PackageManager.COMPONENT_ENABLED_STATE_DISABLED`, `_DISABLED_USER` and
+/// `_DISABLED_UNTIL_USED`.
+const DISABLED_STATES: [i32; 3] = [2, 3, 4];
 /// Local references one probe creates, with room to spare.
 const LOCAL_FRAME: i32 = 32;
 
@@ -55,9 +61,29 @@ pub(super) fn found() -> bool {
     install == policy::Install::Verified
 }
 
-/// Whether Google Play is installed and genuine; any JNI failure is not.
-pub(super) fn store_authentic() -> bool {
-    with_packages(|packages: &mut Jni<'_, '_>| policy::store_authentic(packages)).unwrap_or(false)
+/// Whether Google Play can vouch for installs here, logging the first refusal's reason. A probe
+/// that cannot reach `PackageManager` keeps the source, so the gate stays on and the install
+/// check reports the failure.
+pub(super) fn store_usable() -> bool {
+    static LOGGED: Once = Once::new();
+    let available = with_packages(|packages: &mut Jni<'_, '_>| policy::store_available(packages));
+    match available {
+        Ok(Ok(())) => true,
+        Ok(Err(unavailable)) => {
+            LOGGED.call_once(|| {
+                tracing::info!(
+                    source = "local_install",
+                    unavailable = unavailable.reason(),
+                    "ownership source unavailable; gate off on this device"
+                );
+            });
+            false
+        }
+        Err(error) => {
+            tracing::warn!(%error, "ownership store probe failed");
+            true
+        }
+    }
 }
 
 /// Runs `read` over this app's `PackageManager`.
@@ -133,8 +159,36 @@ impl Packages for Jni<'_, '_> {
     }
 
     fn installed(&mut self, package: &str) -> bool {
-        self.read(|env, manager| package_info(env, manager, package, 0).map(|info| !info.is_null()))
-            .unwrap_or(false)
+        self.read(|env, manager| {
+            package_info(env, manager, package, MATCH_DISABLED_UNTIL_USED)
+                .map(|info| !info.is_null())
+        })
+        .unwrap_or(false)
+    }
+
+    fn enabled(&mut self, package: &str) -> bool {
+        self.read(|env, manager| {
+            let name = env.new_string(package)?;
+            let info = env
+                .call_method(
+                    manager,
+                    "getApplicationInfo",
+                    "(Ljava/lang/String;I)Landroid/content/pm/ApplicationInfo;",
+                    &[(&name).into(), MATCH_DISABLED_UNTIL_USED.into()],
+                )?
+                .l()?;
+            let enabled = env.get_field(&info, "enabled", "Z")?.z()?;
+            let setting = env
+                .call_method(
+                    manager,
+                    "getApplicationEnabledSetting",
+                    "(Ljava/lang/String;)I",
+                    &[(&name).into()],
+                )?
+                .i()?;
+            Ok(enabled && !DISABLED_STATES.contains(&setting))
+        })
+        .unwrap_or(false)
     }
 
     fn has_signing_certificate(&mut self, package: &str, sha256: &[u8; 32]) -> bool {
@@ -154,7 +208,12 @@ impl Packages for Jni<'_, '_> {
 
     fn signature_digests(&mut self, package: &str) -> Vec<[u8; 32]> {
         self.read(|env, manager| {
-            let info = package_info(env, manager, package, GET_SIGNATURES)?;
+            let info = package_info(
+                env,
+                manager,
+                package,
+                GET_SIGNATURES | MATCH_DISABLED_UNTIL_USED,
+            )?;
             let signatures = env
                 .get_field(&info, "signatures", "[Landroid/content/pm/Signature;")?
                 .l()?;

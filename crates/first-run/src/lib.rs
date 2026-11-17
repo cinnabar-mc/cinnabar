@@ -128,7 +128,7 @@ fn after_window(
         // The prompts wait on the player, which an update helper must not take for a hang.
         reporter(layout, |_| {})(Status::awaiting_ownership());
         let owned = ownership::with_dialogs(
-            launcher::ownership::sources(),
+            launcher_host::ownership::available(),
             prompter,
             &title,
             &mut |sign_in, on_code| {

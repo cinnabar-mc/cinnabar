@@ -1,7 +1,8 @@
 //! Android's local-install proof: Mojang's Minecraft package, signed by Mojang and installed by
 //! Google Play, itself signed by Google. Best-effort: `PackageManager` metadata only, never the
-//! game's files. The Amazon Appstore re-signs apps with a key it does not publish, so its copies
-//! cannot pass yet.
+//! game's files. Devices without an enabled, genuine Play have no such proof, so the source is
+//! offered only where [`store_available`] passes. The Amazon Appstore re-signs apps with a key it
+//! does not publish, so its copies cannot pass yet.
 
 /// [`PACKAGE`] as a literal, for links built at compile time.
 macro_rules! package {
@@ -41,8 +42,11 @@ const INSTALL_SOURCE_API: u32 = 30;
 pub trait Packages {
     /// `Build.VERSION.SDK_INT`.
     fn sdk(&mut self) -> u32;
-    /// Whether `package` is installed for this user.
+    /// Whether `package` is installed for this user, enabled or not.
     fn installed(&mut self, package: &str) -> bool;
+    /// Whether `package` is enabled: `ApplicationInfo.enabled`, and its enabled setting is not
+    /// disabled, disabled by the user or disabled until used.
+    fn enabled(&mut self, package: &str) -> bool;
     /// `hasSigningCertificate(package, sha256, CERT_INPUT_SHA256)`, from API 28.
     fn has_signing_certificate(&mut self, package: &str, sha256: &[u8; 32]) -> bool;
     /// SHA-256 of each certificate `GET_SIGNATURES` lists, before API 28.
@@ -58,6 +62,27 @@ pub trait Packages {
 pub struct InstallSource {
     pub installing: Option<String>,
     pub initiating: Option<String>,
+}
+
+/// Why Google Play cannot vouch for installs on this device.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StoreUnavailable {
+    Absent,
+    Disabled,
+    /// Not signed by Google's certificate.
+    NotGenuine,
+}
+
+impl StoreUnavailable {
+    /// A short code for the log.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::Absent => "absent",
+            Self::Disabled => "disabled",
+            Self::NotGenuine => "not_genuine",
+        }
+    }
 }
 
 /// What the local install showed.
@@ -84,8 +109,9 @@ impl Install {
     }
 }
 
-/// Checks [`PACKAGE`]'s presence, signer and installer through `packages`. From API 30 Play must
-/// also have started the install, which rules out `adb install -i`; earlier levels cannot tell.
+/// Checks [`PACKAGE`]'s presence, signer and installer through `packages`, on a device where
+/// [`store_available`] passes. From API 30 Play must also have started the install, which rules
+/// out `adb install -i`; earlier levels cannot tell.
 pub fn check(packages: &mut impl Packages) -> Install {
     let sdk = packages.sdk();
     if !packages.installed(PACKAGE) {
@@ -100,17 +126,27 @@ pub fn check(packages: &mut impl Packages) -> Install {
     } else {
         packages.installer(PACKAGE).as_deref() == Some(STORE)
     };
-    if from_store && store_authentic(packages) {
+    if from_store && store_available(packages).is_ok() {
         Install::Verified
     } else {
         Install::NotFromStore
     }
 }
 
-/// Whether [`STORE`] is installed and signed by Google, so links may be sent to it.
-pub fn store_authentic(packages: &mut impl Packages) -> bool {
+/// Whether [`STORE`] is installed for this user, enabled and signed by Google, so it can vouch
+/// for installs and open links.
+pub fn store_available(packages: &mut impl Packages) -> Result<(), StoreUnavailable> {
     let sdk = packages.sdk();
-    packages.installed(STORE) && signed_by(packages, sdk, STORE, &STORE_SIGNER_SHA256)
+    if !packages.installed(STORE) {
+        return Err(StoreUnavailable::Absent);
+    }
+    if !packages.enabled(STORE) {
+        return Err(StoreUnavailable::Disabled);
+    }
+    if !signed_by(packages, sdk, STORE, &STORE_SIGNER_SHA256) {
+        return Err(StoreUnavailable::NotGenuine);
+    }
+    Ok(())
 }
 
 /// Whether `package` is signed by the certificate with `sha256`, through the reads `sdk` offers.
