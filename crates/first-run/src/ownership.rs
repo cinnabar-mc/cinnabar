@@ -154,13 +154,15 @@ pub(crate) fn body(refusal: Refusal, available: Sources) -> String {
 }
 
 /// What a game started without its setup screen shows when the local install fails, as when
-/// Android restores it after the process ended.
+/// Android restores it after the process ended; its only way back is reopening the app.
 pub(crate) fn restored_refusal() -> String {
-    let refusal = Refusal::NotInstalled;
+    let install = policy::sources()
+        .local_install
+        .map(install_text)
+        .unwrap_or_default();
     format!(
-        "{}\n{}\nClose and reopen the app to check again.",
-        title(refusal),
-        body(refusal, policy::sources())
+        "{}\nCinnabar is for people who own Minecraft. {install} Install it, then close and reopen the app.\n{NOTICE}",
+        title(Refusal::NotInstalled)
     )
 }
 

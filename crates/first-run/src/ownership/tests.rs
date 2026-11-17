@@ -329,5 +329,14 @@ fn a_host_signs_in_through_the_shown_code() {
 fn a_restored_refusal_carries_the_install_guidance_and_notice() {
     let text = restored_refusal();
     assert!(text.starts_with(title(Refusal::NotInstalled)));
-    assert!(text.contains(NOTICE));
+    assert!(text.ends_with(NOTICE));
+    let label = Screen::Refused {
+        refusal: Refusal::NotInstalled,
+        sources: PHONE,
+    }
+    .button_label(Action::Retry);
+    assert!(
+        !text.contains(label),
+        "a restored game has no {label} button"
+    );
 }
