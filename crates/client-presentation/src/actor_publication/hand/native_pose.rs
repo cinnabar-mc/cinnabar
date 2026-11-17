@@ -62,6 +62,7 @@ pub(in super::super) struct NativePoseCache {
     sample_key: Option<PoseKey>,
     sampled: Option<SampledLayers>,
     render_scratch: Vec<actor_animation::RenderTextureLayer>,
+    controller_pose: crate::presentation::entity_layers::LayerPoseCache,
     pose: Option<[RenderPose; 2]>,
     skin_layers: Option<Arc<[actor_animation::SkinRenderLayer]>>,
     pub(in super::super) held_item_scale: Option<f32>,
@@ -198,6 +199,58 @@ impl NativePoseCache {
             inputs.presentation.submission.input.previous_bones = previous;
             inputs.presentation.submission.input.current_bones = current;
         }
+    }
+
+    /// Resolves the sampled actor's additional geometry draws for a first-person frame.
+    pub(in super::super) fn controller_draws(
+        &mut self,
+        inputs: &HandInputs<'_>,
+        base: &ActorRigSubmission,
+    ) -> Vec<(
+        ActorRigSubmission,
+        Option<render_model::ActorArtworkLocation>,
+    )> {
+        if !inputs
+            .stream
+            .authority()
+            .actor_render_frame(inputs.alpha)
+            .may_replace_body_geometry(base.input.identity.runtime_id)
+        {
+            return Vec::new();
+        }
+        let Some(()) = self.sample_layers(
+            inputs.stream,
+            &inputs.presentation,
+            NativePoseInput {
+                consume: inputs.consume_ticks,
+                animation: inputs.item_animation,
+                alpha: inputs.alpha,
+                camera: inputs.sampling_camera,
+                sample_skin: false,
+                visibility_only: false,
+            },
+        ) else {
+            return Vec::new();
+        };
+        let Some(rig) = inputs
+            .stream
+            .authority()
+            .actor_rig(base.input.identity.runtime_id)
+        else {
+            return Vec::new();
+        };
+        let Some(sample) = self.sampled.as_ref() else {
+            return Vec::new();
+        };
+        let layers = sample.render.as_deref().unwrap_or(rig.render);
+        self.controller_pose.begin_frame();
+        crate::presentation::entity_layers::ordered_draws(
+            base,
+            layers,
+            inputs.artwork,
+            &mut self.controller_pose,
+            true,
+        )
     }
 
     /// The body-only sampled persona slice; borrowed completed layers stay on the actor snapshot.

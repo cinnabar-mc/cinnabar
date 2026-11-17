@@ -3,10 +3,13 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use assets::RuntimeEntityAssets;
 use bytemuck::{Pod, Zeroable};
-use glam::{Vec3, Vec4};
+use glam::Vec3;
 
 #[path = "frame/bone_arena.rs"]
 mod bone_arena;
+#[path = "frame/bounds.rs"]
+mod bounds;
+pub use bounds::actor_bounds_are_visible;
 #[path = "frame/eligibility.rs"]
 mod eligibility;
 use bone_arena::PoseMatrixCache;
@@ -566,6 +569,29 @@ impl ActorRigFrameBuilder {
         submissions: impl IntoIterator<Item = (ActorRigSubmission, Option<ActorArtworkLocation>)>,
         page_of: impl Fn(&ActorRenderIdentity, Option<ActorArtworkLocation>) -> ActorArtworkPageId,
     ) -> ActorRigRenderFrame {
+        self.build_located_mode(partial_tick, view, submissions, page_of, false)
+    }
+
+    /// Builds already ordered draws without actor-identity deduplication.
+    #[must_use]
+    pub fn build_ordered_located(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = (ActorRigSubmission, Option<ActorArtworkLocation>)>,
+        page_of: impl Fn(&ActorRenderIdentity, Option<ActorArtworkLocation>) -> ActorArtworkPageId,
+    ) -> ActorRigRenderFrame {
+        self.build_located_mode(partial_tick, view, submissions, page_of, true)
+    }
+
+    fn build_located_mode(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = (ActorRigSubmission, Option<ActorArtworkLocation>)>,
+        page_of: impl Fn(&ActorRenderIdentity, Option<ActorArtworkLocation>) -> ActorArtworkPageId,
+        retain_order: bool,
+    ) -> ActorRigRenderFrame {
         self.scratch.instance_locations.clear();
         let Some(frame_generation) = self.frame_generation.checked_add(1) else {
             return ActorRigRenderFrame {
@@ -608,14 +634,18 @@ impl ActorRigFrameBuilder {
         let mut order = std::mem::take(&mut scratch.order);
         order.clear();
         order.extend(0..ordered.len() as u32);
-        order.sort_unstable_by(|&a, &b| {
-            let (left, right) = (&ordered[a as usize], &ordered[b as usize]);
-            key(left)
-                .cmp(&key(right))
-                .then(right.input.identity.cmp(&left.input.identity))
-                .then(a.cmp(&b))
-        });
-        order.dedup_by_key(|index| key(&ordered[*index as usize]));
+        if retain_order {
+            order.sort_unstable();
+        } else {
+            order.sort_unstable_by(|&a, &b| {
+                let (left, right) = (&ordered[a as usize], &ordered[b as usize]);
+                key(left)
+                    .cmp(&key(right))
+                    .then(right.input.identity.cmp(&left.input.identity))
+                    .then(a.cmp(&b))
+            });
+            order.dedup_by_key(|index| key(&ordered[*index as usize]));
+        }
         self.admit_staged(
             order
                 .iter()
@@ -655,7 +685,11 @@ impl ActorRigFrameBuilder {
                 index,
             }
         }));
-        draw_order.sort_unstable_by_key(|draw| (draw.layer, draw.page, draw.rig, draw.rank));
+        if retain_order {
+            draw_order.sort_unstable_by_key(|draw| draw.rank);
+        } else {
+            draw_order.sort_unstable_by_key(|draw| (draw.layer, draw.page, draw.rig, draw.rank));
+        }
         for draw in &draw_order {
             let submission = &ordered[draw.index as usize];
             let location = locations[draw.index as usize];
@@ -838,51 +872,6 @@ pub fn actor_rig_submission_is_visible(
     let scale = submission.culling_scale();
     let feet = submission.world_from_actor.map(|row| row[3]);
     actor_bounds_are_visible(feet, scale, submission.culling_bounds, view)
-}
-
-/// Tests an authored model visibility box against the same distance and frustum as default actors.
-#[must_use]
-pub fn actor_bounds_are_visible(
-    feet: [f32; 3],
-    scale: f32,
-    bounds: assets::SkinGeometryBounds,
-    view: Option<ActorCullView>,
-) -> bool {
-    let Some(view) = view.filter(ActorCullView::is_valid) else {
-        return true;
-    };
-    let feet = Vec3::from_array(feet);
-    if !view.contains_distance(feet.to_array()) {
-        return false;
-    }
-    let (low, high) = bounds.at(feet.to_array(), scale);
-    // A box containing the eye must survive even when its forward face is before the near plane.
-    if (0..3).all(|axis| {
-        low[axis] <= view.camera_position[axis] && view.camera_position[axis] <= high[axis]
-    }) {
-        return true;
-    }
-    let corners: [Vec4; 8] = std::array::from_fn(|index| {
-        let point = Vec3::from_array(std::array::from_fn(|axis| {
-            if index & (1 << axis) == 0 {
-                low[axis]
-            } else {
-                high[axis]
-            }
-        }));
-        view.clip_from_world * point.extend(1.0)
-    });
-    !outside_clip_plane(&corners, |clip| clip.x < -clip.w)
-        && !outside_clip_plane(&corners, |clip| clip.x > clip.w)
-        && !outside_clip_plane(&corners, |clip| clip.y < -clip.w)
-        && !outside_clip_plane(&corners, |clip| clip.y > clip.w)
-        && !outside_clip_plane(&corners, |clip| clip.z < 0.0)
-        && !outside_clip_plane(&corners, |clip| clip.z > clip.w)
-        && !outside_clip_plane(&corners, |clip| clip.w <= 0.0)
-}
-
-fn outside_clip_plane(corners: &[Vec4; 8], outside: impl Fn(&Vec4) -> bool) -> bool {
-    corners.iter().all(outside)
 }
 
 /// Builds finite affine rows, rejecting invalid inputs and overflow during composition.

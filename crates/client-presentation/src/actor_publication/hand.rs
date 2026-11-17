@@ -12,6 +12,8 @@ use render_model::{ActorRigSubmission, HandItemAtlas, HandRigLight};
 #[cfg(test)]
 mod bootstrap_tests;
 #[cfg(test)]
+mod controller_model_tests;
+#[cfg(test)]
 mod item_switch_tests;
 #[cfg(test)]
 mod lighting_tests;
@@ -113,6 +115,7 @@ pub(super) fn publish_hand_rig(
     scene: &mut HandRigScene,
     revision: &mut u64,
     source: Option<HandSource>,
+    artwork: &render_model::ActorArtworkPages,
     fov_radians: Option<f32>,
     mut light: HandRigLight,
     (partial_tick, glint): (f32, Option<&render_scene::UiGlintSettings>),
@@ -125,13 +128,16 @@ pub(super) fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let frame = builder.build(
+    let frame = builder.build_ordered_located(
         partial_tick,
         None,
-        source.all_submissions().map(|mut submission| {
-            super::equipment_layers::animate_glint(&mut submission, partial_tick, glint);
-            submission
-        }),
+        source
+            .all_located_submissions()
+            .map(|(mut submission, location)| {
+                super::equipment_layers::animate_glint(&mut submission, partial_tick, glint);
+                (submission, location)
+            }),
+        |_, location| location.map_or(0, |location| location.page()),
     );
     let mut atlases = [None, None];
     for (index, entry) in source.items.into_iter().enumerate() {
@@ -143,6 +149,8 @@ pub(super) fn publish_hand_rig(
     }
     *revision = revision.wrapping_add(1).max(1);
     if scene.publish(frame, skin, light, fov, *revision) {
+        scene.set_artwork(Arc::new(artwork.clone()));
+        scene.set_draw_locations(Arc::from(builder.instance_locations()));
         scene.set_item_atlases(atlases);
         scene.set_item_glint(source.item_glint);
         scene.set_map_background(source.maps.background);
@@ -196,6 +204,10 @@ pub(super) struct HandSource {
     pub(super) presentation: ActorRigPresentation,
     pub(super) visibility: actor_animation::RenderVisibility,
     pub(super) body: Option<ActorRigSubmission>,
+    pub(super) controller_draws: Vec<(
+        ActorRigSubmission,
+        Option<render_model::ActorArtworkLocation>,
+    )>,
     pub(super) items: [Option<(FirstPersonItem, HandItemAtlas)>; 2],
     pub(super) maps: maps::MapLayers,
     /// The held-item glint raster, bound whenever an item draws with the glint material.
@@ -220,8 +232,15 @@ impl HandSource {
         }
     }
 
-    /// Includes each received map's paper with the current camera motion.
-    pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
+    /// Pairs controller artwork with the same camera-space draws used for readiness.
+    pub(super) fn all_located_submissions(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ActorRigSubmission,
+            Option<render_model::ActorArtworkLocation>,
+        ),
+    > + '_ {
         self.maps
             .paper
             .iter()
@@ -229,9 +248,21 @@ impl HandSource {
             .map(|(paper, camera)| {
                 let mut paper = paper.clone();
                 paper.world_from_actor = camera_space_rows(self.motion * *camera);
-                paper
+                (paper, None)
             })
-            .chain(self.submissions().into_iter().flatten())
+            .chain(
+                self.submissions()
+                    .into_iter()
+                    .flatten()
+                    .map(|submission| (submission, None)),
+            )
+            .chain(self.controller_draws.iter().cloned())
+    }
+
+    /// Includes each received map's paper with the current camera motion.
+    pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
+        self.all_located_submissions()
+            .map(|(submission, _)| submission)
     }
 
     /// Places the exact body/item submissions shared by validation and final construction.
@@ -507,6 +538,7 @@ pub(super) fn vanilla_hand_source(
             visibility: Default::default(),
             presentation,
             body,
+            controller_draws: Vec::new(),
             items,
             maps,
             item_glint: artwork.item_glint.clone(),
@@ -599,9 +631,10 @@ pub(super) fn source(
     let mut source =
         unmasked_source(inputs.clone(), java_mode, equipment, cache).or_else(|| {
             (visibility.hides_body() || visibility.hides_held_items()).then_some(HandSource {
-                presentation: inputs.presentation,
+                presentation: inputs.presentation.clone(),
                 visibility,
                 body: None,
+                controller_draws: Vec::new(),
                 items: [None, None],
                 maps: Default::default(),
                 item_glint: None,
@@ -610,6 +643,17 @@ pub(super) fn source(
             })
         })?;
     source.apply_visibility(visibility);
+    if !visibility.hides_body() {
+        let base = source
+            .body
+            .as_ref()
+            .unwrap_or(&source.presentation.submission);
+        source.controller_draws = cache.native_pose.controller_draws(&inputs, base);
+        let camera = hand_camera_from_rig(source.presentation.authored_scale, source.motion);
+        for (submission, _) in &mut source.controller_draws {
+            submission.world_from_actor = camera;
+        }
+    }
     Some(source)
 }
 

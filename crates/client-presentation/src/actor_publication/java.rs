@@ -750,6 +750,7 @@ pub(super) fn hand_source(
         visibility: Default::default(),
         presentation: inputs.presentation,
         body,
+        controller_draws: Vec::new(),
         items: [main_layer, off_layer],
         maps: Default::default(),
         item_glint: inputs.artwork.item_glint.clone(),

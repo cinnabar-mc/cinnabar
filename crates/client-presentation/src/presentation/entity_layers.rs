@@ -400,6 +400,34 @@ fn layered(
     submission
 }
 
+/// Resolves camera-space controller draws without assigning synthetic actor-layer IDs.
+/// Locations stay paired with their draws and controller order is retained.
+pub(crate) fn ordered_draws(
+    body: &ActorRigSubmission,
+    layers: &[RenderTextureLayer],
+    artwork: &ActorArtworkPages,
+    cache: &mut LayerPoseCache,
+    player_skin: bool,
+) -> Vec<(ActorRigSubmission, Option<ActorArtworkLocation>)> {
+    let mut draws = Vec::new();
+    for layer in layers {
+        if player_skin && layer.geometry.is_none() {
+            continue;
+        }
+        let Some(layer) = resolve_layer(body, layer, artwork, cache, player_skin) else {
+            continue;
+        };
+        if layer.model.is_none() {
+            continue;
+        }
+        let location = layer.location;
+        let mut submission = layered(body, &layer, 0, cache);
+        submission.input.identity.layer = body.input.identity.layer;
+        draws.push((submission, location));
+    }
+    draws
+}
+
 /// Applies each entity body's selected texture layers to the batch: the first replaces the
 /// body's texture, the rest are appended as extra layers of the same actor.
 #[cfg(any(test, feature = "test-support"))]

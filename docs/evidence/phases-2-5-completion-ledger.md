@@ -361,8 +361,14 @@ remain open. Flat boolean chains now use n-ary nodes and iterative short-circuit
 Compiler/evaluator regressions cover dynamic long chains and precedence; source/operation
 boundaries, lazy folding, branch targets and genuine nested-input guards have owning coverage.
 An isolated pack probe retains complete pre-animation; other optional fallbacks and rendered
-qualification remain open. Additional player-controller models are composed for actor batches
-but not yet published through the first-person hand path; model and animation acceptance remain open.
+qualification remain open. The local first-person CPU candidate publishes ordered controller
+geometry, sampled poses, materials and independent artwork. Its actual publication regression
+passes at interpolated/completed samples, alongside ordinary sampling reuse. Owning libraries
+pass 1,923 tests with three pre-existing ignored tests; the developer-control play build succeeds.
+The hand GPU paths do not yet consume catalog artwork/per-draw locations. Headless BDS frames
+show no visible weapon, so model and authored-animation acceptance remain open. Visible ammo
+updates and an eligible tactical refill pass, as do sandstone-stairs and bone held-item controls;
+these do not close broader native or performance gates.
 
 Local leg cycles consume completed physics movement in both animation modes.
 Deterministic coverage checks independent actor cadence, movement retries and frame

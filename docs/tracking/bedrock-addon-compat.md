@@ -9,11 +9,13 @@ or a host-provided weapon HUD.
 
 Status: generic dependency-admission and actionbar-layering fixes are implemented
 and covered by passing regression tests. A headless BDS retest confirms visible,
-updating ammunition count/type, but the held weapon still appears as a gray plane;
-authored gun animation acceptance remains incomplete. Flat Molang chain handling
+updating ammunition count/type and an eligible tactical reload. The latest local
+CPU candidate shows no visible held weapon; authored gun animation acceptance
+remains incomplete. Flat Molang chain handling
 now passes compiler/evaluator regressions and retains the complete pre-animation
 program in an isolated pack probe. Additional first-person player-controller
-models and live animated rendering remain active work.
+models reach CPU hand publication in passing regressions, but GPU artwork routing
+and live animated rendering remain incomplete.
 
 ## Reported behavior
 
@@ -102,7 +104,7 @@ test suites during parallel read-only analysis.
       afterward.
 - [ ] The weapon model renders with the expected texture and placement.
 - [ ] Shooting and reloading produce the authored animation behavior.
-- [ ] Ammunition count and type render and follow authoritative state updates.
+- [x] Ammunition count and type render and follow authoritative state updates.
 - [ ] Vanilla held items and independent generic add-on fixtures remain correct.
 - [ ] Real before/after rendered frames cover the visual changes; recordings or
       sampled animation frames cover animation behavior.
@@ -181,20 +183,35 @@ All exact pre-animation fragments compile, and an isolated production-library
 pack probe retains the complete program. Other optional reference fallbacks remain;
 this is not proof of controller selection, a rendered model or authored animations.
 
-### Additional player-controller models are not composed into first person
+### First-person controller publication is implemented; GPU composition remains open
 
-`crates/client-presentation/src/actor_publication/hand.rs` publishes an arm-masked
-body and held items, but does not apply the controller-layer compositor used by
-`presentation/entity_layers.rs` for actor batches. The reproduction describes its
-weapon with an additional first-person player-controller geometry. This is a
-confirmed implementation gap; its contribution after the admission fix still
-requires live evidence.
+The baseline hand path published an arm-masked body and held items without the
+controller-layer compositor used by `presentation/entity_layers.rs` for actor
+batches. The reproduction describes its weapon with an additional first-person
+player-controller geometry.
 
-A follow-up must carry selected additional geometries, their sampled first-person
-poses, materials and artwork through hand publication and the near-camera pass.
-Keep normal arms, held items and map artwork independent; do not reuse a reserved
-texture slot or add a weapon-specific render path. Add a regression at actual hand
-publication, then qualify the rendered frame and animated sequence.
+The local CPU candidate resolves ordered additional geometries with sampled
+first-person poses, materials and independent artwork into `HandRigFrame`.
+Borrowed completed layers remain usable, repeated draw identities retain their
+order, and hidden bodies suppress their controller draws. An existing cached
+geometry-candidate query avoids redundant sampling for ordinary body-only rigs.
+The actual hand-publication regression covers distinct geometry, non-rest pose,
+material and artwork at interpolated and completed samples. The owning library
+run passes 1,923 tests, with three pre-existing ignored tests and no failures.
+
+The developer-control play build succeeds, but its hand GPU paths do not yet
+consume the catalog artwork and per-draw locations. Headless rendered frames at
+1280 by 720 show no visible gun during idle, firing or tactical reload, including
+after switching away and back. The HUD visibly follows 29 to 28 rounds, remains
+at 28 after releasing Use, then reaches 31 after the eligible Attack stimulus;
+the delivered text is `31/30`, not a client-normalized capacity. Sandstone stairs
+and a bone remain visible as ordinary first-person held items. This is not a
+complete vanilla, animation or hardware-performance qualification.
+
+Next, carry the published catalog artwork and material routing through the
+near-camera GPU pass and add an actual rendered regression. Keep normal arms,
+held items and map artwork independent; do not reuse a reserved texture slot or
+add a weapon-specific render path. Then repeat model and animation qualification.
 
 ### Rejections need source-level attribution
 

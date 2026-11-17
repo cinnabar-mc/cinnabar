@@ -901,9 +901,10 @@ controller model that has the parent bone, then the body, as native
 `attemptToSetParentBoneMapping` does. A player's body layer keeps
 the body slot and draws before controller models listed ahead of it, which differs from native
 list order only where a blended model overlaps the body. Other entities still choose their
-primary rig controller at compilation, the UI paperdoll and first-person hand draw only the body, how native substitutes a
-skin's model for controllers other than the body is unverified, and version-matched in-game
-acceptance remains incomplete.
+primary rig controller at compilation, and the UI paperdoll still draws only the body.
+First-person controller models reach CPU hand publication, but their GPU catalog-artwork
+routing remains incomplete. How native substitutes a skin's model for controllers other
+than the body is unverified, and version-matched in-game acceptance remains incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -913,8 +914,13 @@ acceptance remains incomplete.
   reference truncation remain unqualified against native behavior. Flat boolean chains use
   n-ary nodes and iterative short-circuit lowering rather than recursive tree growth, with
   source/operation budgets and genuine nested-input guards retained. Compiler/evaluator
-  regressions and an isolated complete pre-animation compilation pass; first-person controller
-  model publication and matched rendered qualification remain incomplete.
+  regressions and an isolated complete pre-animation compilation pass. First-person controller
+  model publication carries sampled geometry, poses, materials and independent artwork, with
+  interpolated/completed-sample and ordinary sampling-reuse regressions passing. The local
+  play build succeeds, but the GPU hand path does not consume the catalog artwork/locations;
+  a headless BDS replay shows no visible weapon or authored weapon animation. Ammo updates,
+  eligible tactical refill and two ordinary held-item controls pass; matched rendered
+  qualification and general GPU composition remain incomplete.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.

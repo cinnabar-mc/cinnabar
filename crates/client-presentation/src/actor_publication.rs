@@ -512,6 +512,7 @@ pub fn prepare_actor_render_frame(
         &mut params.hand_scene,
         &mut state.hand_revision,
         hand_source.filter(|_| !input.hide_hand),
+        artwork,
         hand_camera_fov,
         hand_light,
         (step.partial_tick, params.glint_settings.as_deref()),
