@@ -1,6 +1,9 @@
 //! Pack UI definitions follow the index's paths, including custom extensions.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
+    sync::Arc,
+};
 
 use assets::SPLASH_RESOURCE_PATH;
 use resource_pack::LayeredPackView;
@@ -11,9 +14,10 @@ use ui_screens::menu_renderers::splashes::{MAX_SPLASH_SOURCE_BYTES, SplashSource
 /// Bound on splash text decoded across the whole stack.
 const MAX_SPLASH_STACK_BYTES: usize = 16 * 1024 * 1024;
 use json_ui::UI_DEFS_PATH as INDEX;
-/// Indexes and definitions are read under admission's per-file bound only: the
-/// game's definition loader applies no stack-wide byte budget, so one never
-/// drops a valid document because earlier ones were large.
+/// Indexes and definitions are read under the subscriber per-file allowance only:
+/// the game's definition loader applies no stack-wide byte budget, so a valid
+/// document is never dropped because earlier ones were large. Each layer reads a
+/// stored entry once, so retained bytes stay within the stack's admitted entries.
 const MAX_DEFINITION_BYTES: u64 = resource_pack::MAX_FILE_BYTES;
 
 /// Collects indexed definitions and records dependencies for lazily loaded artwork.
@@ -55,8 +59,26 @@ pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPa
             .map(|path| (*path).to_owned())
             .chain(declared.iter().cloned())
             .collect();
-        let mut files = Vec::new();
+        // Spellings that resolve to one stored entry share one read. The kept
+        // spelling is a declared one when any is, since only declared paths load.
+        let mut entries: BTreeMap<&str, String> = BTreeMap::new();
         for path in paths {
+            let Some(stored) = layer.resolved_path(&path) else {
+                continue;
+            };
+            match entries.entry(stored) {
+                Entry::Vacant(slot) => {
+                    slot.insert(path);
+                }
+                Entry::Occupied(mut slot) => {
+                    if !declared.contains(slot.get()) && declared.contains(&path) {
+                        slot.insert(path);
+                    }
+                }
+            }
+        }
+        let mut files = Vec::new();
+        for path in entries.into_values() {
             let Some(bytes) = layer
                 .read_file_with_limit(&path, MAX_DEFINITION_BYTES)
                 .ok()

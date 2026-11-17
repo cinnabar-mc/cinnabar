@@ -255,20 +255,24 @@ fn ui_index_loads_custom_paths_and_extensions() {
 }
 
 /// Definitions totalling more than sixteen MiB all load: the definition loader
-/// applies no stack-wide byte budget, so a large generated document never
-/// pushes a later one out of the catalog.
+/// applies no stack-wide byte budget, so large generated documents never push a
+/// later one out of the catalog.
 #[test]
 fn ui_definitions_past_sixteen_mib_all_load() {
-    let large = format!(
-        r##"{{"namespace":"large","card":{{"type":"panel","property_bag":{{"#padding":"{}"}}}}}}"##,
-        "x".repeat(17 * 1024 * 1024)
-    );
+    let document = |namespace: &str| {
+        format!(
+            r##"{{"namespace":"{namespace}","card":{{"type":"panel","property_bag":{{"#padding":"{}"}}}}}}"##,
+            "x".repeat(9 * 1024 * 1024)
+        )
+    };
+    let (first, second) = (document("first"), document("second"));
     let view = files_pack(&[
         (
             "ui/_ui_defs.json",
-            br#"{"ui_defs":["ui/a_large.json","ui/z_small.json"]}"#,
+            br#"{"ui_defs":["ui/a_first.json","ui/b_second.json","ui/z_small.json"]}"#,
         ),
-        ("ui/a_large.json", large.as_bytes()),
+        ("ui/a_first.json", first.as_bytes()),
+        ("ui/b_second.json", second.as_bytes()),
         (
             "ui/z_small.json",
             br#"{"namespace":"small","card":{"type":"panel"}}"#,
@@ -281,8 +285,47 @@ fn ui_definitions_past_sixteen_mib_all_load() {
             .iter()
             .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
     );
-    assert!(catalog.lookup("large", "card").is_some());
-    assert!(catalog.lookup("small", "card").is_some());
+    for namespace in ["first", "second", "small"] {
+        assert!(catalog.lookup(namespace, "card").is_some(), "{namespace}");
+    }
+}
+
+/// An index listing many spellings of one stored document reads it once, so
+/// retained definition bytes stay within the pack's admitted entries.
+#[test]
+fn ui_index_spellings_of_one_document_read_it_once() {
+    let spellings = [
+        "ui/card.json",
+        "ui/CARD.json",
+        "ui/Card.json",
+        "ui/cArD.json",
+    ];
+    let index = format!(
+        r#"{{"ui_defs":{}}}"#,
+        serde_json::to_string(&spellings[1..]).unwrap()
+    );
+    let view = files_pack(&[
+        ("ui/_ui_defs.json", index.as_bytes()),
+        (
+            "ui/card.json",
+            br#"{"namespace":"spelled","card":{"type":"panel"}}"#,
+        ),
+    ]);
+    let pack = super::collect_server_ui(&view).unwrap();
+    let copies: Vec<_> = pack.ui_layers[0]
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case(spellings[0]))
+        .collect();
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    // The kept spelling is a declared one, so the document still loads.
+    assert!(spellings[1..].contains(&copies[0].0.as_str()));
+    let mut catalog = json_ui::Catalog::default();
+    catalog.apply_pack(
+        pack.ui_layers[0]
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+    );
+    assert!(catalog.lookup("spelled", "card").is_some());
 }
 
 #[test]
