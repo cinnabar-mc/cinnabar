@@ -135,7 +135,7 @@ pub(crate) fn body(refusal: Refusal, available: Sources) -> String {
 /// The sign-in prompt's text.
 pub(crate) fn code_prompt(uri: &str, code: &str) -> String {
     format!(
-        "Open {uri} and enter the code {code}, then return here. Use the Microsoft account that owns Minecraft for PC."
+        "Open {uri} and enter the code {code}, then return here. Sign in with any of your Microsoft accounts that owns Minecraft for PC; it doesn't have to be the one you play on. You only need to do this once."
     )
 }
 
