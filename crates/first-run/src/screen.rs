@@ -196,12 +196,8 @@ const fn refused_actions(refusal: Refusal, sources: Sources) -> &'static [Action
     }
     match (refusal, sources.local_install) {
         (Refusal::NotInstalled, _) => &[Action::GetMinecraft, Action::Retry, Action::Quit],
-        (Refusal::NotOwned, true) => &[
-            Action::SignIn,
-            Action::GetMinecraft,
-            Action::Retry,
-            Action::Quit,
-        ],
+        // Closing the window quits, so the row stays within three buttons.
+        (Refusal::NotOwned, true) => &[Action::SignIn, Action::GetMinecraft, Action::Retry],
         (Refusal::NotOwned, false) => &[Action::SignIn, Action::GetMinecraft, Action::Quit],
         (Refusal::SignInRequired, true) => &[Action::SignIn, Action::Retry, Action::Quit],
         (Refusal::SignInRequired, false) => &[Action::SignIn, Action::Quit],
@@ -289,6 +285,32 @@ fn megabytes(bytes: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Four buttons overflow the setup panel's action row.
+    #[test]
+    fn refusals_fit_the_action_row() {
+        let refusals = [
+            Refusal::NotInstalled,
+            Refusal::NotOwned,
+            Refusal::SignInRequired,
+            Refusal::Unverifiable,
+        ];
+        for refusal in refusals {
+            for (local_install, account) in
+                [(false, false), (false, true), (true, false), (true, true)]
+            {
+                let sources = Sources {
+                    local_install,
+                    account,
+                };
+                let actions = refused_actions(refusal, sources);
+                assert!(
+                    (1..=3).contains(&actions.len()),
+                    "{refusal:?} {sources:?}: {actions:?}"
+                );
+            }
+        }
+    }
 
     fn status(phase: Phase) -> Status {
         Status::new(phase, 3, 19, "Compiling entity assets")
