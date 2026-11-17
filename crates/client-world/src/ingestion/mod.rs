@@ -22,7 +22,7 @@ pub use jobs::{BlockMutationBatch, DecodeCompletion, DecodeJob, QueuedDecodeJob}
 pub use lanes::{Consumers, Footprint, FootprintColumns, LaneContext, classify};
 pub use ordered::{CommitBudget, CommitStep, DecodeCommit, OrderedCommitState};
 pub use prepare::{
-    light_neutral_sections, light_semantics_changed, prepare_block_mutations, prepare_sub_chunks,
+    light_neutral_sections, mutation_changes_light, prepare_block_mutations, prepare_sub_chunks,
 };
 pub use protocol::{CustomBlocks, CustomStateValue};
 
