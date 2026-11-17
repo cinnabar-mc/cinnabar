@@ -102,17 +102,22 @@ fn render_bootstrap_states_without_downloaded_assets() {
     std::fs::create_dir_all(&root).unwrap();
     let mut text = font();
     let logo = bootstrap_ui::decode_logo();
-    for (name, screen) in [
+    let names = [
         "consent",
         "starting",
         "downloading",
         "unpacking",
         "error",
         "done",
-    ]
-    .into_iter()
-    .zip(screens())
-    {
+        "verifying",
+        "sign-in",
+        "not-installed",
+        "not-owned",
+    ];
+    let screens = screens();
+    // A missing name would silently drop a state from capture coverage.
+    assert_eq!(names.len(), screens.len());
+    for (name, screen) in names.into_iter().zip(screens) {
         for appearance in [Appearance::Default, Appearance::Dark] {
             let mut canvas = Canvas::new(1024, 640);
             canvas.fill(

@@ -260,20 +260,27 @@ pub fn forget_license(license_cache: &Path, pass: &Path) -> io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let _lock = crate::accounts::try_lease(&path)?;
+    // The pass goes first, so a partial cleanup can never leave a pass without its account.
+    save_pass(pass, None)?;
     let directory = license_cache.parent().unwrap_or(Path::new("."));
     let name = license_cache
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let mut files = Vec::new();
     for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        let file = entry.file_name().to_string_lossy().into_owned();
+        let file = entry?.file_name().to_string_lossy().into_owned();
         // Lock files stay: other processes may hold them.
         if file.starts_with(&name) && !file.ends_with(".lock") {
-            crate::accounts::remove_optional(&entry.path())?;
+            files.push(file);
         }
     }
-    save_pass(pass, None)
+    // The credentials go last: the account row stays while they exist, so a partial failure can retry.
+    files.sort_by_key(|file| *file == name);
+    for file in files {
+        crate::accounts::remove_optional(&directory.join(file))?;
+    }
+    Ok(())
 }
 
 /// Whether `id` has the GUID shape of an application (client) ID.

@@ -288,3 +288,19 @@ fn client_ids_must_be_guids() {
     assert!(!valid_client_id("not-a-client-id"));
     assert!(!valid_client_id("00000000-0000-0000-0000-00000000abc "));
 }
+
+/// A partial cleanup must drop the pass yet keep the credentials, so removal can be retried.
+#[test]
+fn a_failed_forget_drops_the_pass_and_keeps_the_credentials() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("license/microsoft-token.json");
+    let pass_file = dir.path().join("license/ownership.json");
+    std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    std::fs::write(&cache, b"{}").unwrap();
+    save_pass(&pass_file, Some(&pass(T0))).unwrap();
+    // A directory beside the credentials cannot be removed as a file.
+    std::fs::create_dir_all(dir.path().join("license/microsoft-token.json.stuck/inner")).unwrap();
+    assert!(forget_license(&cache, &pass_file).is_err());
+    assert_eq!(load_pass(&pass_file), None);
+    assert!(cache.exists());
+}
