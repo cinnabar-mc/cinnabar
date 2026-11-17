@@ -181,13 +181,16 @@ pub(crate) fn code_prompt(uri: &str, code: &str) -> String {
     )
 }
 
+/// One gate check: whether to sign in, and where to show a sign-in code's URI and code.
+pub(crate) type Verify<'a> = dyn FnMut(bool, &mut dyn FnMut(&str, &str)) -> Answer + 'a;
+
 /// Runs the gate with native dialogs when no setup window can open; returns whether play may
 /// continue. `verify` is [`verify`] for this install.
 pub(crate) fn with_dialogs(
     available: Sources,
     prompter: &dyn Prompter,
     title_text: &str,
-    verify: &mut dyn FnMut(bool, &mut dyn FnMut(&str, &str)) -> Answer,
+    verify: &mut Verify<'_>,
 ) -> bool {
     let mut sign_in = false;
     loop {
