@@ -918,3 +918,57 @@ fn keyboard_mouse_mode_preserves_raw_touches_for_menu() {
     let pending = app.world().resource::<PendingDeviceFrame>();
     assert!(pending.frame.as_ref().unwrap().touches.is_empty());
 }
+
+/// A pressed touch control reaches the router as a press while a contact routes to it, so fast
+/// taps that never leave the button up for a whole frame still press once each.
+#[test]
+fn pressed_touch_controls_reach_the_device_frame_with_their_contact() {
+    use semantic_input::touch;
+
+    let mut app = App::new();
+    app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .init_resource::<Touches>()
+        .init_resource::<SemanticTouchTargets>()
+        .init_resource::<PendingDeviceFrame>()
+        .add_systems(Update, collect_raw_input);
+    app.world_mut()
+        .spawn((Window::default(), CursorOptions::default(), PrimaryWindow));
+    let mut runtime = SemanticInputRuntime::default();
+    for (tap, presses) in [
+        vec![touch::ATTACK],
+        vec![touch::ATTACK, touch::ATTACK],
+        vec![touch::ATTACK, touch::USE],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        {
+            let mut targets = app.world_mut().resource_mut::<SemanticTouchTargets>();
+            targets.release_all();
+            for hit_id in presses {
+                targets.press(hit_id);
+            }
+            // The tapping finger already lifted, so it routes once as a pulse.
+            targets.pulse(TouchContact {
+                contact_id: tap as u64,
+                activity_sequence: 0,
+                position: [0.8, 0.5],
+                delta: [0.0; 2],
+                hit_id: Some(touch::ATTACK),
+            });
+        }
+        app.update();
+        let frame = app
+            .world_mut()
+            .resource_mut::<PendingDeviceFrame>()
+            .frame
+            .take()
+            .unwrap();
+        assert_eq!(frame.touch_presses, [touch::ATTACK], "tap {tap}");
+        runtime.route_device_frame(frame).unwrap();
+        let attack = runtime.finalize_routed_input().unwrap().phases[Action::Attack as usize];
+        assert!(attack.pressed, "tap {tap}");
+    }
+}

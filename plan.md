@@ -621,6 +621,10 @@ Interaction rotation retains picked aim independently of body, head and camera i
 Active assistance publishes its target direction, or body facing when no target is found,
 to the matching unsent tick. Ordinary crosshair input uses the direction lookup table.
 The touch and classic control modes aim interactions along the ray through the finger and report their interaction model; picking from the camera origin in third person, the idle selection between touches and camera-actor substitution remain incomplete.
+Each finger landing on a touch control is its own press, including while another finger holds
+the control or before a frame saw it released. Incomplete: a control pressed twice within one
+frame presses once, as touch has no ordered event stream like desktop, and native handling of
+two fingers on one button is unverified.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks

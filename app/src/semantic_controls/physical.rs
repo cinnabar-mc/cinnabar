@@ -365,11 +365,23 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             bounded_touches.ignored + bounded_contacts.ignored,
         )
     };
+    // Only a control some routed contact carries can report a press.
+    let mut touch_presses = Vec::new();
+    for hit_id in touch_targets.pressed_controls() {
+        if !touch_presses.contains(hit_id)
+            && touches
+                .iter()
+                .any(|contact| contact.hit_id == Some(*hit_id))
+        {
+            touch_presses.push(*hit_id);
+        }
+    }
     TranslatedDeviceFrame {
         frame: DeviceFrame {
             keyboard_mouse,
             controllers,
             touches,
+            touch_presses,
             ..DeviceFrame::default()
         },
         ignored_controllers: bounded_gamepads.ignored,

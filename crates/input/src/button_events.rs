@@ -39,13 +39,23 @@ pub(crate) fn button_edges(chord: InputChord, frame: &DeviceFrame) -> (bool, boo
                 .iter()
                 .any(|sample| sample.button_edges.released.contains(&button)),
         ),
-        _ => (false, false),
+        // A press needs a contact still routed to its control, so quarantine also drops it.
+        PhysicalControl::TouchControl(hit_id) => (
+            frame.touch_presses.contains(&hit_id)
+                && frame
+                    .touches
+                    .iter()
+                    .any(|contact| contact.hit_id == Some(hit_id)),
+            false,
+        ),
+        PhysicalControl::MouseAxis(_) | PhysicalControl::GamepadAxis { .. } => (false, false),
     }
 }
 
 /// Consumes finalized events so later authority changes inspect only the current held state.
 pub(crate) fn discard_button_edges(frame: &mut DeviceFrame) {
     frame.desktop_events = None;
+    frame.touch_presses.clear();
     if let Some(keyboard) = frame.keyboard_mouse.as_mut() {
         keyboard.key_edges = Default::default();
         keyboard.mouse_edges = Default::default();
