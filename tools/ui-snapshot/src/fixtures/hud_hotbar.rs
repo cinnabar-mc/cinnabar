@@ -1,21 +1,38 @@
 //! The survival HUD with the Bedrock Hotbar Position setting off and on, and its Video row.
 use super::*;
 
-/// The hotbar flush with the bottom edge, then at vanilla Bedrock's height, then the setting.
+/// The hotbar flush with the bottom edge, at vanilla Bedrock's height, under touch controls, then
+/// the setting.
 pub(super) const STATES: &[State] = &[
     #[cfg(feature = "test-support")]
     State {
         name: "hud-hotbar-java",
         size: [640, 360],
         gui_scale: 2,
-        fixture: || Fixture::BedrockHotbar { raised: false },
+        fixture: || Fixture::BedrockHotbar {
+            raised: false,
+            touch: false,
+        },
     },
     #[cfg(feature = "test-support")]
     State {
         name: "hud-hotbar-bedrock",
         size: [640, 360],
         gui_scale: 2,
-        fixture: || Fixture::BedrockHotbar { raised: true },
+        fixture: || Fixture::BedrockHotbar {
+            raised: true,
+            touch: false,
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "hud-hotbar-touch",
+        size: [640, 360],
+        gui_scale: 2,
+        fixture: || Fixture::BedrockHotbar {
+            raised: true,
+            touch: true,
+        },
     },
     State {
         name: "settings-video-bedrock-hotbar",

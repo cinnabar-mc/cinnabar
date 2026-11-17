@@ -106,7 +106,8 @@ impl UiPresentationRuntime {
             renderer.context(),
             ui_screens::hud_placement::HudPlacement::from_settings(
                 self.screens.chat.settings.options(),
-            ),
+            )
+            .with_touch_hotbar(self.screens.touch.enabled()),
         );
         let reference = if crosshair {
             Reference::HudCrosshairHudCrosshairScreen.as_str()
