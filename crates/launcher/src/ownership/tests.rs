@@ -234,6 +234,26 @@ fn another_sign_in_never_inherits_a_pass() {
     assert_eq!(load_pass(&pass_file), None);
 }
 
+/// A failed helper names no sign-in; that must not read as a replacement.
+#[test]
+fn an_unknown_sign_in_keeps_the_pass() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("license/microsoft-token.json");
+    let pass_file = dir.path().join("license/ownership.json");
+    std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    std::fs::write(&cache, b"{}").unwrap();
+    record_check(&cache, &pass_file, Check::Verified, "a", T0)
+        .1
+        .unwrap();
+    let (verdict, saved) = record_check(&cache, &pass_file, Check::Unverifiable, "", T0 + DAY);
+    saved.unwrap();
+    assert_eq!(verdict, Verdict::Allow);
+    assert_eq!(
+        load_pass(&pass_file).map(|pass| pass.sign_in),
+        Some("a".into())
+    );
+}
+
 #[test]
 fn client_ids_must_be_guids() {
     assert!(valid_client_id("00000000-0000-0000-0000-00000000abcd"));

@@ -54,8 +54,8 @@ var (
 )
 
 // Ownership checks whether the license account owns Minecraft and emits one terminal
-// ownership event naming the stored sign-in generation; tokens and entitlement payloads never
-// reach the stream or the log.
+// ownership event naming the checked sign-in generation, or none when it is unknown; tokens and
+// entitlement payloads never reach the stream or the log.
 func Ownership(ctx context.Context, config OwnershipConfig) error {
 	writer := config.Writer
 	if writer == nil {
@@ -113,18 +113,23 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 		}
 		return finish(LicenseCheck{Result: ResultUnverifiable, Reason: "token:" + failureReason(err)})
 	}
+	// The token's own sign-in: another process may replace the account while the check runs.
+	account := authcache.SignInGeneration(config.Path)
 	checkCtx, cancelCheck := context.WithTimeout(ctx, checkTimeout)
 	check := licenses.Check(checkCtx, token)
 	cancelCheck()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if authcache.SignInGeneration(config.Path) != account {
+		return finishOwnership(writer, config.Logger, LicenseCheck{Result: ResultUnverifiable, Reason: "account_changed"}, "")
+	}
 	if len(check.Signed) != 0 {
 		if err := authcache.SaveEntitlements(config.Path, check.Signed); err != nil && config.Logger != nil {
 			config.Logger.Warn("entitlement document not saved", "diagnostic", authcache.FailureDiagnostic(err))
 		}
 	}
-	return finish(check)
+	return finishOwnership(writer, config.Logger, check, account)
 }
 
 // signInFailure classifies why no license token was available.

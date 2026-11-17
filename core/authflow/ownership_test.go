@@ -141,6 +141,30 @@ func TestOwnershipSignInReplacesTheStoredAccount(t *testing.T) {
 	}
 }
 
+// A result for an account replaced during its check names no account, so it certifies nobody.
+func TestOwnershipDropsAResultWhoseAccountChanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "license.json")
+	seedLicense(t, path, "refresh-sentinel")
+	licenses := &replacingCheck{fakeLicenses: fakeLicenses{t: t, check: LicenseCheck{Result: ResultVerified, Reason: "entitled"}}, path: path}
+	if got := last(runOwnership(t, path, false, licenses)); got.Result != ResultUnverifiable || got.Account != "" {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
+// replacingCheck signs in another account while its entitlement check runs.
+type replacingCheck struct {
+	fakeLicenses
+	path string
+}
+
+func (r *replacingCheck) Check(ctx context.Context, token *oauth2.Token) LicenseCheck {
+	if err := os.Remove(r.path); err != nil {
+		r.t.Fatal(err)
+	}
+	seedLicense(r.t, r.path, "other-refresh")
+	return r.fakeLicenses.Check(ctx, token)
+}
+
 // A device code alone replaces nothing: a sign-in that never completes keeps the stored account.
 func TestOwnershipFailedSignInIsNotANewAccount(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "license.json")

@@ -395,7 +395,7 @@ pub(crate) fn cache_leases(path: &Path) -> io::Result<(File, File)> {
     cache_leases_with(path, lease)
 }
 
-fn cache_try_leases(path: &Path) -> io::Result<(File, File)> {
+pub(crate) fn cache_try_leases(path: &Path) -> io::Result<(File, File)> {
     cache_leases_with(path, try_lease)
 }
 

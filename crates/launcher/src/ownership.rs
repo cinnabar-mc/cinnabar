@@ -184,9 +184,10 @@ pub fn record(
     }
 }
 
-/// Records `check` of license sign-in `sign_in` in the pass at `pass_path`, holding the license
-/// account's lock so it cannot race [`forget_license`]; returns whether play may continue and
-/// whether the pass was saved. A check whose account was removed meanwhile saves nothing.
+/// Records `check` of license sign-in `sign_in` (empty when unknown) in the pass at `pass_path`,
+/// holding the license account's lock so it cannot race [`forget_license`]; returns whether play
+/// may continue and whether the pass was saved. Only a different known sign-in drops the pass,
+/// and a check whose account was removed meanwhile saves nothing.
 pub fn record_check(
     license_cache: &Path,
     pass_path: &Path,
@@ -196,14 +197,19 @@ pub fn record_check(
 ) -> (Verdict, io::Result<()>) {
     let leases = crate::accounts::cache_leases(license_cache);
     let pass = load_pass(pass_path);
-    let other_account = pass.as_ref().is_some_and(|pass| pass.sign_in != sign_in);
+    let other_account =
+        !sign_in.is_empty() && pass.as_ref().is_some_and(|pass| pass.sign_in != sign_in);
     let (pass, verdict) = record(pass, check, other_account, now);
     let saved = match leases {
         Err(error) => Err(error),
         Ok(_leases) if license_cache.is_file() => save_pass(
             pass_path,
             pass.map(|pass| Pass {
-                sign_in: sign_in.to_owned(),
+                sign_in: if sign_in.is_empty() {
+                    pass.sign_in
+                } else {
+                    sign_in.to_owned()
+                },
                 ..pass
             })
             .as_ref(),
@@ -232,9 +238,9 @@ pub fn save_pass(path: &Path, pass: Option<&Pass>) -> io::Result<()> {
 }
 
 /// Forgets the license account: its credentials, the files the core keeps beside them, and
-/// the pass. Waits for a check in progress to release the credentials.
+/// the pass. Fails with [`io::ErrorKind::WouldBlock`] while a check holds the credentials.
 pub fn forget_license(license_cache: &Path, pass: &Path) -> io::Result<()> {
-    let _leases = crate::accounts::cache_leases(license_cache)?;
+    let _leases = crate::accounts::cache_try_leases(license_cache)?;
     let directory = license_cache.parent().unwrap_or(Path::new("."));
     let name = license_cache
         .file_name()
