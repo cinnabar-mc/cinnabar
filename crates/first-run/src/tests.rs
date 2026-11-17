@@ -79,7 +79,7 @@ fn crashed_setup_window_falls_back_to_native_dialogs() {
     ];
     for crash in crashes {
         assert_eq!(
-            after_window(&layout, crash, &fake, false).unwrap(),
+            after_window(&layout, crash, &fake, false, false).unwrap(),
             Outcome::Quit
         );
     }

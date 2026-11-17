@@ -391,7 +391,7 @@ fn derived_path(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn cache_leases(path: &Path) -> io::Result<(File, File)> {
+pub(crate) fn cache_leases(path: &Path) -> io::Result<(File, File)> {
     cache_leases_with(path, lease)
 }
 
@@ -535,7 +535,7 @@ fn read_private_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn read_optional(path: &Path) -> io::Result<Option<Vec<u8>>> {
+pub(crate) fn read_optional(path: &Path) -> io::Result<Option<Vec<u8>>> {
     match read_private(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -550,14 +550,14 @@ fn replace_optional(path: &Path, bytes: Option<&[u8]>) -> io::Result<()> {
     }
 }
 
-fn remove_optional(path: &Path) -> io::Result<()> {
+pub(crate) fn remove_optional(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         result => result,
     }
 }
 
-fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_private_bounded(path, bytes, MAX_FILE_BYTES)
 }
 

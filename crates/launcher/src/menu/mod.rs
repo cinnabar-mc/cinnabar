@@ -87,6 +87,8 @@ pub enum MenuDialog {
     /// Confirms leaving the joined Realm with this service id.
     LeaveRealm(u32),
     RemoveShaderPack(u16, u64),
+    /// Confirms forgetting the account that proves Minecraft ownership.
+    RemoveLicenseAccount,
     StorageDelete,
     StorageError,
     /// A dismissible host notice whose body is supplied by the menu view.
@@ -209,6 +211,9 @@ pub enum MenuAction {
     ImportShaderPacks,
     RemoveShaderPackDialog(u16, u64),
     ConfirmRemoveShaderPack(u16, u64),
+    /// Asks to forget the account that proves Minecraft ownership.
+    RemoveLicenseAccountDialog,
+    ConfirmRemoveLicenseAccount,
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,

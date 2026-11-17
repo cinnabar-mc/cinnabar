@@ -20,11 +20,13 @@ use winit::{
 
 use super::{
     super::{
-        EULA_URL, prepare, record_consent, reporter,
+        EULA_URL, needs_preparation,
+        ownership::{self, Answer},
+        prepare, record_consent, reporter,
         screen::{self, Action, Effect, Meter, Screen},
         status::Status,
     },
-    EXIT_QUIT, EXIT_UNAVAILABLE, view,
+    EXIT_QUIT, EXIT_UNAVAILABLE, EXIT_VERIFIED, view,
 };
 use bootstrap_ui::{
     OVERLAY_INTERVAL, PANORAMA_TINT, Preferences,
@@ -44,10 +46,29 @@ struct Worker {
     handle: JoinHandle<()>,
 }
 
+impl Worker {
+    /// Cancels the work and waits briefly for it to stop.
+    fn stop(self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        let deadline = Instant::now() + CANCEL_GRACE;
+        while !self.handle.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+/// What the ownership gate's worker reports.
+enum GateEvent {
+    Code { uri: String, code: String },
+    Answer(Answer),
+}
+
 pub(super) struct SetupApp {
     layout: InstallLayout,
     /// Earlier carriers exist, so screens say "Updating".
     updating: bool,
+    /// Consent to the current terms is already recorded.
+    consented: bool,
     text: Text,
     /// Uploaded once the GPU exists.
     faces: Option<render_model::PanoramaFaces>,
@@ -59,6 +80,9 @@ pub(super) struct SetupApp {
     sender: Sender<Status>,
     updates: Receiver<Status>,
     worker: Option<Worker>,
+    gate: Option<Worker>,
+    gate_sender: Sender<GateEvent>,
+    gate_events: Receiver<GateEvent>,
     hits: Vec<(Action, Rect)>,
     pointer: Pointer,
     hovered: Option<Action>,
@@ -81,9 +105,13 @@ impl SetupApp {
         logo: Option<Image>,
         consented: bool,
         updating: bool,
+        verify: bool,
     ) -> Self {
         let (sender, updates) = mpsc::channel();
-        let screen = if consented {
+        let (gate_sender, gate_events) = mpsc::channel();
+        let screen = if verify {
+            Screen::Verifying
+        } else if consented {
             Screen::Starting
         } else {
             reporter(&layout, |_| {})(Status::awaiting_consent());
@@ -96,6 +124,7 @@ impl SetupApp {
             layout,
             text,
             updating,
+            consented,
             faces: Some(faces),
             logo,
             window: None,
@@ -105,6 +134,9 @@ impl SetupApp {
             sender,
             updates,
             worker: None,
+            gate: None,
+            gate_sender,
+            gate_events,
             hits: Vec::new(),
             pointer: Pointer::default(),
             hovered: None,
@@ -144,29 +176,100 @@ impl SetupApp {
         self.worker = Some(Worker { cancel, handle });
     }
 
-    /// Cancels a running worker and waits briefly for it to kill its step.
+    /// Cancels running workers and waits briefly for them to kill their steps.
     pub(super) fn stop_worker(&mut self) {
-        let Some(worker) = self.worker.take() else {
-            return;
-        };
-        worker.cancel.store(true, Ordering::Relaxed);
-        let deadline = Instant::now() + CANCEL_GRACE;
-        while !worker.handle.is_finished() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(20));
+        for worker in [self.worker.take(), self.gate.take()].into_iter().flatten() {
+            worker.stop();
         }
+    }
+
+    /// Runs the ownership gate on a worker; `sign_in` replaces the license account first.
+    fn start_gate(&mut self, sign_in: bool) {
+        if let Some(gate) = self.gate.take() {
+            gate.stop();
+        }
+        let (layout, sender) = (self.layout.clone(), self.gate_sender.clone());
+        let cancel = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancel);
+        let handle = std::thread::spawn(move || {
+            let answer = ownership::verify(&layout, sign_in, &flag, &mut |uri, code| {
+                let _ = sender.send(GateEvent::Code {
+                    uri: uri.to_owned(),
+                    code: code.to_owned(),
+                });
+            });
+            if !flag.load(Ordering::Relaxed) {
+                let _ = sender.send(GateEvent::Answer(answer));
+            }
+        });
+        self.gate = Some(Worker { cancel, handle });
+    }
+
+    /// The screen after the gate opens, or `None` when nothing needs preparing.
+    fn after_gate(&mut self) -> Option<Screen> {
+        self.gate = None;
+        if !needs_preparation(&self.layout) {
+            return None;
+        }
+        if self.consented {
+            self.start_worker();
+            Some(Screen::Starting)
+        } else {
+            reporter(&self.layout, |_| {})(Status::awaiting_consent());
+            Some(Screen::Consent)
+        }
+    }
+
+    /// Applies one gate report; the window closes once the gate opens with nothing to prepare.
+    fn on_gate(&mut self, event: GateEvent, event_loop: &ActiveEventLoop) {
+        let next = match event {
+            GateEvent::Code { uri, code } => {
+                launcher_host::desktop::open_url(&uri);
+                Screen::SignIn { uri, code }
+            }
+            GateEvent::Answer(Answer::Allowed) => match self.after_gate() {
+                Some(next) => next,
+                None => return self.finish(EXIT_VERIFIED, event_loop),
+            },
+            GateEvent::Answer(Answer::Denied(refusal)) => Screen::Refused {
+                refusal,
+                sources: launcher::ownership::sources(),
+            },
+        };
+        if matches!(next, Screen::SignIn { .. } | Screen::Refused { .. }) {
+            reporter(&self.layout, |_| {})(Status::awaiting_ownership());
+        }
+        self.show(next);
+    }
+
+    fn show(&mut self, next: Screen) {
+        self.input.reset(&next);
+        self.hovered = None;
+        self.screen = next;
+        self.overlay_dirty = true;
     }
 
     fn act(&mut self, action: Action, event_loop: &ActiveEventLoop) {
         let (next, effect) = self.screen.on_action(action);
+        let link = match &self.screen {
+            Screen::SignIn { uri, .. } => Some(uri.clone()),
+            _ => None,
+        };
         if let Some(next) = next {
-            self.input.reset(&next);
-            self.hovered = None;
-            self.screen = next;
-            self.overlay_dirty = true;
+            self.show(next);
         }
         match effect {
             Effect::None => {}
             Effect::StartWorker => self.start_worker(),
+            Effect::Verify { sign_in } => self.start_gate(sign_in),
+            Effect::OpenSignInLink => {
+                if let Some(uri) = link {
+                    launcher_host::desktop::open_url(&uri);
+                }
+            }
+            Effect::GetMinecraft => {
+                launcher_host::desktop::open_url(launcher::ownership::GET_MINECRAFT_URL);
+            }
             Effect::OpenEula => launcher_host::desktop::open_url(EULA_URL),
             Effect::Quit => self.finish(EXIT_QUIT, event_loop),
         }
@@ -245,7 +348,9 @@ impl ApplicationHandler for SetupApp {
         }
         self.window = Some(window);
         self.controllers = bootstrap_ui::controllers();
-        if self.screen == Screen::Starting {
+        if self.screen == Screen::Verifying {
+            self.start_gate(false);
+        } else if self.screen == Screen::Starting {
             self.start_worker();
         }
     }
@@ -370,6 +475,12 @@ impl ApplicationHandler for SetupApp {
                 if let Some(action) = action {
                     self.act(action, event_loop);
                 }
+            }
+        }
+        while let Ok(event) = self.gate_events.try_recv() {
+            self.on_gate(event, event_loop);
+            if self.exit.is_some() {
+                return;
             }
         }
         let now = Instant::now();

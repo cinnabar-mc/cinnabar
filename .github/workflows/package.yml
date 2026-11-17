@@ -37,6 +37,8 @@ defaults:
 
 env:
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
+  # Cinnabar's Microsoft app registration; unset leaves account ownership checks out of the build.
+  CINNABAR_MSA_CLIENT_ID: ${{ vars.CINNABAR_MSA_CLIENT_ID }}
   # The build cache saves target/; keep compiler intermediates there, not in the shared build-dir.
   CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_TERM_COLOR: always

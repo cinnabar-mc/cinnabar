@@ -1,0 +1,218 @@
+package authflow
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/df-mc/go-xsapi/v2/xal"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/sandertv/gophertunnel/minecraft/auth/mcservices"
+	"golang.org/x/oauth2"
+)
+
+// fakeLicenses stands in for Microsoft sign-in and Minecraft services.
+type fakeLicenses struct {
+	t          *testing.T
+	signIn     *oauth2.Token
+	refreshErr error
+	check      LicenseCheck
+	checked    []string
+}
+
+func (f *fakeLicenses) DeviceAuth(context.Context) (*oauth2.DeviceAuthResponse, error) {
+	if f.signIn == nil {
+		f.t.Fatal("ownership check started a sign-in")
+	}
+	return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"}, nil
+}
+
+func (f *fakeLicenses) DeviceToken(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+	return f.signIn, nil
+}
+
+func (f *fakeLicenses) TokenSource(_ context.Context, token *oauth2.Token) oauth2.TokenSource {
+	return tokenFunc(func() (*oauth2.Token, error) {
+		if f.refreshErr != nil {
+			return nil, f.refreshErr
+		}
+		return token, nil
+	})
+}
+
+func (f *fakeLicenses) Check(_ context.Context, token *oauth2.Token) LicenseCheck {
+	f.checked = append(f.checked, token.RefreshToken)
+	return f.check
+}
+
+type tokenFunc func() (*oauth2.Token, error)
+
+func (f tokenFunc) Token() (*oauth2.Token, error) { return f() }
+
+// seedLicense stores a license account whose access token has expired, so a check must refresh.
+func seedLicense(t *testing.T, path, refresh string) {
+	t.Helper()
+	_, err := authcache.Source(context.Background(), authcache.Config{
+		Path: path,
+		Request: func(context.Context, io.Writer) (*oauth2.Token, error) {
+			return &oauth2.Token{AccessToken: "old", RefreshToken: refresh, Expiry: time.Now().Add(-time.Hour)}, nil
+		},
+		Refresh: staticRefresh,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runOwnership(t *testing.T, path string, signIn bool, licenses Licenses) []event {
+	t.Helper()
+	var output bytes.Buffer
+	if err := Ownership(context.Background(), OwnershipConfig{Path: path, SignIn: signIn, Licenses: licenses, Writer: &output}); err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"access-sentinel", "refresh-sentinel", "signed-sentinel"} {
+		if strings.Contains(output.String(), secret) {
+			t.Fatalf("ownership events leaked %q", secret)
+		}
+	}
+	return decodeEvents(t, output.Bytes())
+}
+
+func last(events []event) event { return events[len(events)-1] }
+
+func TestOwnershipWithoutALicenseAccountAsksForSignIn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "license.json")
+	licenses := &fakeLicenses{t: t}
+	events := runOwnership(t, path, false, licenses)
+	if got := last(events); got.Result != ResultSignInRequired || len(events) != 2 {
+		t.Fatalf("events = %+v", events)
+	}
+	if len(licenses.checked) != 0 {
+		t.Fatal("services were called without a license account")
+	}
+}
+
+func TestOwnershipSignInPublishesTheCodeAndKeepsTheDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "license.json")
+	licenses := &fakeLicenses{
+		t:      t,
+		signIn: &oauth2.Token{AccessToken: "access-sentinel", RefreshToken: "refresh-sentinel", Expiry: time.Now().Add(time.Hour)},
+		check:  LicenseCheck{Result: ResultVerified, Reason: "entitled", Signed: []byte("signed-sentinel")},
+	}
+	events := runOwnership(t, path, true, licenses)
+	if events[1].Kind != "device_code" || last(events).Result != ResultVerified {
+		t.Fatalf("events = %+v", events)
+	}
+	if saved, err := os.ReadFile(authcache.EntitlementsPath(path)); err != nil || string(saved) != "signed-sentinel" {
+		t.Fatalf("entitlement document = %q, %v", saved, err)
+	}
+	// The stored account then checks without signing in again.
+	licenses.signIn = nil
+	licenses.check = LicenseCheck{Result: ResultNotOwned, Reason: "no_minecraft_entitlement"}
+	if got := last(runOwnership(t, path, false, licenses)); got.Result != ResultNotOwned {
+		t.Fatalf("cached check = %+v", got)
+	}
+}
+
+func TestOwnershipSignInReplacesTheStoredAccount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "license.json")
+	seedLicense(t, path, "old-refresh")
+	licenses := &fakeLicenses{
+		t:      t,
+		signIn: &oauth2.Token{AccessToken: "new", RefreshToken: "new-refresh", Expiry: time.Now().Add(time.Hour)},
+		check:  LicenseCheck{Result: ResultVerified, Reason: "entitled"},
+	}
+	events := runOwnership(t, path, true, licenses)
+	if events[1].Kind != "device_code" || len(licenses.checked) != 1 || licenses.checked[0] != "new-refresh" {
+		t.Fatalf("events = %+v, checked = %v", events, licenses.checked)
+	}
+}
+
+// A refresh that never reached Microsoft says nothing about the account; a refused one needs sign-in.
+func TestOwnershipRefreshFailuresSplitOfflineFromRejected(t *testing.T) {
+	cases := []struct {
+		err  error
+		want string
+	}{
+		{&url.Error{Op: "Post", URL: "https://login.example.test", Err: errors.New("offline")}, ResultUnverifiable},
+		{&oauth2.RetrieveError{ErrorCode: "invalid_grant"}, ResultSignInRequired},
+		{&oauth2.RetrieveError{ErrorCode: "temporarily_unavailable"}, ResultUnverifiable},
+	}
+	for _, c := range cases {
+		path := filepath.Join(t.TempDir(), "license.json")
+		seedLicense(t, path, "refresh-sentinel")
+		licenses := &fakeLicenses{t: t, refreshErr: c.err}
+		if got := last(runOwnership(t, path, false, licenses)); got.Result != c.want {
+			t.Fatalf("refresh error %v: result = %+v, want %s", c.err, got, c.want)
+		}
+		if len(licenses.checked) != 0 {
+			t.Fatal("services were called without a token")
+		}
+	}
+}
+
+// Only an answer without a Minecraft item is not-owned; errors never are.
+func TestEntitlementAnswersClassify(t *testing.T) {
+	cases := []struct {
+		entitlements *mcservices.Entitlements
+		err          error
+		want         string
+	}{
+		{&mcservices.Entitlements{Items: []mcservices.Item{{Name: "product_minecraft_bedrock"}}}, nil, ResultVerified},
+		{&mcservices.Entitlements{Items: []mcservices.Item{{Name: "game_minecraft"}}}, nil, ResultVerified},
+		{&mcservices.Entitlements{Items: []mcservices.Item{{Name: "product_dungeons"}}}, nil, ResultNotOwned},
+		{&mcservices.Entitlements{}, nil, ResultNotOwned},
+		{nil, mcservices.ErrUnauthorized, ResultSignInRequired},
+		{nil, mcservices.ErrAppNotApproved, ResultUnverifiable},
+		{nil, mcservices.ErrMalformedResponse, ResultUnverifiable},
+		{nil, mcservices.ErrRequestIDMismatch, ResultUnverifiable},
+		{nil, &mcservices.XboxError{XErr: mcservices.XErrChildAccount}, ResultUnverifiable},
+		{nil, &xal.StatusError{StatusCode: 503}, ResultUnverifiable},
+		{nil, context.DeadlineExceeded, ResultUnverifiable},
+	}
+	for _, c := range cases {
+		if got := classifyEntitlements(c.entitlements, c.err); got.Result != c.want {
+			t.Fatalf("classify(%v, %v) = %+v, want %s", c.entitlements, c.err, got, c.want)
+		}
+	}
+	if got := classifyEntitlements(nil, &mcservices.XboxError{XErr: mcservices.XErrNoProfile}); got.Reason != "xerr_2148916233" {
+		t.Fatalf("xbox reason = %q", got.Reason)
+	}
+}
+
+// The launcher parses the same lines (crates/launcher-host ownership tests read this fixture).
+func TestOwnershipEventsMatchTheSharedFixture(t *testing.T) {
+	file, err := os.Open(filepath.Join("testdata", "ownership_events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	var want []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		want = append(want, scanner.Text())
+	}
+	var output bytes.Buffer
+	_ = emit(&output, event{Version: 1, Kind: "checking_cache"})
+	_ = emit(&output, event{Version: 1, Kind: "device_code", VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"})
+	for _, check := range []LicenseCheck{
+		{Result: ResultVerified, Reason: "entitled"},
+		{Result: ResultNotOwned, Reason: "no_minecraft_entitlement"},
+		{Result: ResultSignInRequired, Reason: "no_license_account"},
+		{Result: ResultUnverifiable, Reason: "refresh:transport"},
+	} {
+		_ = finishOwnership(&output, nil, check)
+	}
+	got := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("events =\n%s\nfixture =\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

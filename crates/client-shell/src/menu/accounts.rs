@@ -129,7 +129,9 @@ impl MenuRuntime {
             | MenuAction::CancelSignIn
             | MenuAction::CloseSignIn
             | MenuAction::AddAccount
-            | MenuAction::SignOut => true,
+            | MenuAction::SignOut
+            | MenuAction::RemoveLicenseAccountDialog
+            | MenuAction::ConfirmRemoveLicenseAccount => true,
             _ => false,
         }
     }
@@ -154,6 +156,7 @@ impl MenuRuntime {
             }
             return;
         }
+        self.feeds.license_account = self.layout.license_cache().is_file();
         let store = self.account_store();
         match store.list() {
             Ok(accounts) => {
@@ -220,6 +223,24 @@ impl MenuRuntime {
         self.sign_in_cancelled = false;
         self.accounts.operation = Some(Operation::Switch(account.id.clone()));
         self.retry_target = None;
+        self.focused = 0;
+    }
+
+    /// Forgets the ownership account off the menu thread: a running check may hold its lock.
+    pub(super) fn remove_license_account(&mut self) {
+        let (cache, pass) = (
+            self.layout.license_cache(),
+            self.layout.ownership_pass_file(),
+        );
+        let _ = std::thread::Builder::new()
+            .name("forget-license".into())
+            .spawn(move || {
+                if let Err(error) = launcher::ownership::forget_license(&cache, &pass) {
+                    bevy::log::warn!(kind = ?error.kind(), "ownership account not removed");
+                }
+            });
+        self.feeds.license_account = false;
+        self.dialog = Some(MenuDialog::Accounts);
         self.focused = 0;
     }
 

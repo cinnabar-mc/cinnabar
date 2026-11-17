@@ -118,6 +118,7 @@ Android must recognize the same signing key to install later APKs over an existi
 | `CINNABAR_ANDROID_KEYSTORE_BASE64` (`release` environment secret) | Base64-encoded persistent Android release keystore; required for APK publication |
 | `CINNABAR_ANDROID_KEY_ALIAS`, `CINNABAR_ANDROID_STORE_PASSWORD`, `CINNABAR_ANDROID_KEY_PASSWORD` (`release` environment secrets) | Alias and passwords for the Android release keystore; all required |
 | `UPDATE_TRUSTED_KEYS` (variable) | Keys the client trusts for update manifests |
+| `CINNABAR_MSA_CLIENT_ID` (variable) | Cinnabar's Microsoft app (client) ID, compiled in for the account ownership check; unset leaves that source out |
 | `DISCORD_CHANGELOG_WEBHOOK` | Posts each new `v*` release's changelog to Discord, grouped by PR label (`packaging/changelog.py`) |
 
 Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Gatekeeper then blocks

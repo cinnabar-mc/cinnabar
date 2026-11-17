@@ -34,6 +34,25 @@ fn screens() -> Vec<Screen> {
                 .into(),
         },
         Screen::Done,
+        Screen::Verifying,
+        Screen::SignIn {
+            uri: "https://www.microsoft.com/link".into(),
+            code: "ABCD1234".into(),
+        },
+        Screen::Refused {
+            refusal: crate::ownership::Refusal::NotInstalled,
+            sources: launcher::ownership::Sources {
+                local_install: true,
+                account: false,
+            },
+        },
+        Screen::Refused {
+            refusal: crate::ownership::Refusal::NotOwned,
+            sources: launcher::ownership::Sources {
+                local_install: true,
+                account: true,
+            },
+        },
     ]
 }
 

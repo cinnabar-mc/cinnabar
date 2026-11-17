@@ -18,7 +18,7 @@ use url::Url;
 use crate::lifecycle::children::Spawned;
 
 const MAX_LINE_BYTES: usize = 4096;
-const EVENT_CAPACITY: usize = 8;
+pub(crate) const EVENT_CAPACITY: usize = 8;
 const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
 use launcher::menu::auth::AuthState;
@@ -67,7 +67,7 @@ enum ErrorStage {
 }
 
 #[derive(Debug)]
-enum ReaderMessage {
+pub(crate) enum ReaderMessage {
     Line(Vec<u8>),
     Invalid(&'static str),
     End,
@@ -412,7 +412,7 @@ impl Drop for AuthSupervisor {
     }
 }
 
-fn read_events(mut reader: impl Read, sender: Sender<ReaderMessage>) {
+pub(crate) fn read_events(mut reader: impl Read, sender: Sender<ReaderMessage>) {
     let mut decoder = LineDecoder::default();
     let mut chunk = [0u8; 512];
     loop {
@@ -425,7 +425,7 @@ fn read_events(mut reader: impl Read, sender: Sender<ReaderMessage>) {
     decoder.finish(&sender);
 }
 
-fn valid_https_uri(value: &str) -> bool {
+pub(crate) fn valid_https_uri(value: &str) -> bool {
     Url::parse(value).is_ok_and(|uri| {
         uri.scheme() == "https"
             && uri.host_str().is_some()
@@ -434,7 +434,7 @@ fn valid_https_uri(value: &str) -> bool {
     })
 }
 
-fn valid_code(value: &str) -> bool {
+pub(crate) fn valid_code(value: &str) -> bool {
     !value.is_empty() && value.len() <= 64 && value.bytes().all(|byte| byte.is_ascii_graphic())
 }
 

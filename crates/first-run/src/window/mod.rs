@@ -16,9 +16,13 @@ use super::screen::{Action, Screen};
 use launcher::install_layout::InstallLayout;
 
 pub const SETUP_FLAG: &str = "--first-run-setup";
+/// Follows [`SETUP_FLAG`] when the ownership gate must run before any preparation.
+const VERIFY_FLAG: &str = "--verify-ownership";
 const EXIT_QUIT: i32 = 3;
 /// No window could open; the parent falls back to native dialogs.
 const EXIT_UNAVAILABLE: i32 = 4;
+/// Ownership was verified and nothing needed preparing.
+const EXIT_VERIFIED: i32 = 5;
 /// The setup window's default logical size.
 const SETUP_SIZE: LogicalSize<f64> = LogicalSize::new(1024.0, 640.0);
 
@@ -37,18 +41,25 @@ impl Actions for Screen {
 #[derive(Debug, Eq, PartialEq)]
 pub(super) enum ChildOutcome {
     Prepared,
+    Verified,
     Quit,
     /// The process ended without choosing an outcome: a panic, a native fault or a signal.
     Crashed(Option<i32>),
     Unavailable,
 }
 
-/// Runs the setup window as `<current exe> --first-run-setup` and waits for it.
-pub(super) fn run_in_child() -> ChildOutcome {
+/// Runs the setup window as `<current exe> --first-run-setup` and waits for it; `verify` runs the
+/// ownership gate first.
+pub(super) fn run_in_child(verify: bool) -> ChildOutcome {
     let Ok(executable) = std::env::current_exe() else {
         return ChildOutcome::Unavailable;
     };
-    match Command::new(executable).arg(SETUP_FLAG).status() {
+    let mut command = Command::new(executable);
+    command.arg(SETUP_FLAG);
+    if verify {
+        command.arg(VERIFY_FLAG);
+    }
+    match command.status() {
         Ok(status) => outcome(status.code()),
         Err(_) => ChildOutcome::Unavailable,
     }
@@ -57,6 +68,7 @@ pub(super) fn run_in_child() -> ChildOutcome {
 fn outcome(code: Option<i32>) -> ChildOutcome {
     match code {
         Some(0) => ChildOutcome::Prepared,
+        Some(EXIT_VERIFIED) => ChildOutcome::Verified,
         Some(EXIT_QUIT) => ChildOutcome::Quit,
         Some(EXIT_UNAVAILABLE) => ChildOutcome::Unavailable,
         code => ChildOutcome::Crashed(code),
@@ -88,8 +100,9 @@ pub fn run_setup_process() -> i32 {
     event_loop.set_control_flow(ControlFlow::Poll);
     let consented = super::env_consent() || super::consent_recorded(&layout);
     let updating = super::updating(&layout);
+    let verify = std::env::args().skip(2).any(|arg| arg == VERIFY_FLAG);
     let logo = bootstrap_ui::decode_logo();
-    let mut app = app::SetupApp::new(layout, text, faces, logo, consented, updating);
+    let mut app = app::SetupApp::new(layout, text, faces, logo, consented, updating, verify);
     let failed = event_loop.run_app(&mut app).is_err();
     app.stop_worker();
     app.exit_code()
@@ -104,6 +117,7 @@ mod tests {
     #[test]
     fn child_exit_codes_map_to_outcomes() {
         assert_eq!(outcome(Some(0)), ChildOutcome::Prepared);
+        assert_eq!(outcome(Some(EXIT_VERIFIED)), ChildOutcome::Verified);
         assert_eq!(outcome(Some(EXIT_QUIT)), ChildOutcome::Quit);
         assert_eq!(outcome(Some(EXIT_UNAVAILABLE)), ChildOutcome::Unavailable);
         assert_eq!(outcome(Some(101)), ChildOutcome::Crashed(Some(101)));
