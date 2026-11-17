@@ -62,16 +62,26 @@ pub(super) fn found() -> bool {
     verified
 }
 
-/// Whether Google Play can vouch for installs here, logging the first refusal's reason. Only a
-/// clean answer turns the source off: a probe whose reads failed keeps it, so the gate stays on
-/// and the install check reports the failure.
-pub(super) fn store_usable() -> bool {
+/// What probing Google Play found.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum StoreProbe {
+    Genuine,
+    /// Cleanly absent, disabled or not genuine.
+    Unavailable,
+    /// A read failed, so nothing is known.
+    Unreadable,
+}
+
+/// Probes Google Play, logging the first unavailable answer's reason. Only a clean answer makes
+/// it unavailable; a probe whose reads failed is unreadable, which keeps the gate on so the
+/// install check reports the failure.
+pub(super) fn store_probe() -> StoreProbe {
     static LOGGED: Once = Once::new();
     let available = with_packages(|packages: &mut Jni<'_, '_>| {
         (policy::store_available(packages), packages.failed)
     });
     match available {
-        Ok((Ok(()), _)) => true,
+        Ok((Ok(()), false)) => StoreProbe::Genuine,
         Ok((Err(unavailable), false)) => {
             LOGGED.call_once(|| {
                 tracing::info!(
@@ -80,15 +90,15 @@ pub(super) fn store_usable() -> bool {
                     "ownership source unavailable; gate off on this device"
                 );
             });
-            false
+            StoreProbe::Unavailable
         }
-        Ok((Err(_), true)) => {
+        Ok((_, true)) => {
             tracing::warn!("ownership store probe failed");
-            true
+            StoreProbe::Unreadable
         }
         Err(error) => {
             tracing::warn!(%error, "ownership store probe failed");
-            true
+            StoreProbe::Unreadable
         }
     }
 }

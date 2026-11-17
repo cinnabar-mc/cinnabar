@@ -306,7 +306,7 @@ pub fn verify_with_host(
         return true;
     }
     let available = sources::available();
-    let store_app = available.store_app();
+    let store_app = available.local_install.and(sources::store_app());
     with_host(
         available,
         store_app,

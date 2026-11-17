@@ -96,13 +96,27 @@ pub fn available() -> policy::Sources {
 /// Whether Google Play is installed, enabled and genuine; without it Android has no local source.
 #[cfg(target_os = "android")]
 fn store_usable() -> bool {
-    android::store_usable()
+    android::store_probe() != android::StoreProbe::Unavailable
 }
 
 /// The Microsoft Store is part of Windows, and other platforms have no local store.
 #[cfg(not(target_os = "android"))]
 const fn store_usable() -> bool {
     true
+}
+
+/// The app that opens "Get Minecraft" first: Google Play, once a clean probe found it genuine.
+#[cfg(target_os = "android")]
+#[must_use]
+pub fn store_app() -> Option<&'static str> {
+    (android::store_probe() == android::StoreProbe::Genuine).then_some(policy::android::STORE)
+}
+
+/// Links open in whichever app handles them.
+#[cfg(not(target_os = "android"))]
+#[must_use]
+pub const fn store_app() -> Option<&'static str> {
+    None
 }
 
 /// One account check's answer.

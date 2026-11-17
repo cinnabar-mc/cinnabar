@@ -192,7 +192,6 @@ fn a_device_without_a_usable_play_is_ungated() {
             assert_eq!(store_available(&mut device), Err(reason), "API {sdk}");
             let sources = device_sources(&mut device);
             assert!(!sources.gated(), "{reason:?} on API {sdk}");
-            assert_eq!(sources.store_app(), None);
         }
     }
 }
@@ -205,7 +204,6 @@ fn a_device_with_play_is_gated_on_the_game_install() {
         let mut device = Device::play_install(sdk);
         let sources = device_sources(&mut device);
         assert!(sources.gated(), "API {sdk}");
-        assert_eq!(sources.store_app(), Some(STORE));
         assert_eq!(device.check(), Install::Verified, "API {sdk}");
 
         let mut missing = Device::play_install(sdk);

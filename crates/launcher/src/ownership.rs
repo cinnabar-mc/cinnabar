@@ -110,16 +110,6 @@ impl Sources {
         }
     }
 
-    /// The app that opens "Get Minecraft" first; the Android source is offered only where Play
-    /// is genuine.
-    #[must_use]
-    pub const fn store_app(self) -> Option<&'static str> {
-        match self.local_install {
-            Some(Store::Android) => Some(android::STORE),
-            Some(Store::Microsoft) | None => None,
-        }
-    }
-
     /// These sources without the store install when `store_usable` says the store cannot vouch
     /// for installs on this device, which leaves the gate off where nothing else can pass it.
     #[must_use]
