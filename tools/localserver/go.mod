@@ -63,6 +63,6 @@ replace (
 	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261117123305-02078462a0d1
 )
 
-replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f
+replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261111133013-1a61b926deac
 
 replace github.com/pion/sctp => github.com/cinnabar-mc/sctp v1.12.1-0.20261110160758-dbe1066d869f

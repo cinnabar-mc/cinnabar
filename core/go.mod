@@ -60,7 +60,7 @@ replace (
 	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261117123305-02078462a0d1
 )
 
-replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f
+replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261111133013-1a61b926deac
 
 // cinnabar-v4.2 keeps a DTLS transport connected when the peer negotiates no SRTP profile, as
 // data-channel-only NetherNet servers do; upstream fails the transport.
