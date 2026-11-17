@@ -68,6 +68,16 @@ fn a_clock_set_back_or_a_long_gap_forces_a_check() {
 }
 
 #[test]
+fn verifying_after_the_clock_moves_back_restores_fast_starts() {
+    let seen = Pass {
+        latest_clock: T0 + 5 * DAY,
+        ..pass(T0)
+    };
+    let (next, _) = record(Some(seen), Check::Verified, false, T0 + DAY);
+    assert_eq!(start(next.as_ref(), T0 + DAY + 60), Start::Play);
+}
+
+#[test]
 fn a_clock_problem_never_blocks_by_itself() {
     let seen = Pass {
         latest_clock: T0 + 5 * DAY,

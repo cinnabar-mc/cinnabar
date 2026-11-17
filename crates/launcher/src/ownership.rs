@@ -149,20 +149,16 @@ pub fn record(
         ..pass
     });
     match (check, pass) {
-        (Check::Verified, pass) => {
-            let (latest_clock, sign_in) = pass.map_or((now, String::new()), |pass| {
-                (pass.latest_clock, pass.sign_in)
-            });
-            (
-                Some(Pass {
-                    verified_at: now,
-                    not_owned_since: None,
-                    latest_clock,
-                    sign_in,
-                }),
-                Verdict::Allow,
-            )
-        }
+        // A fresh verification also settles a clock that was set back.
+        (Check::Verified, pass) => (
+            Some(Pass {
+                verified_at: now,
+                not_owned_since: None,
+                latest_clock: now,
+                sign_in: pass.map(|pass| pass.sign_in).unwrap_or_default(),
+            }),
+            Verdict::Allow,
+        ),
         (Check::NotOwned, Some(pass)) => match pass.not_owned_since {
             Some(since) if now >= since.saturating_add(REVOKE_AFTER_SECS) => {
                 (None, Verdict::Deny(Check::NotOwned))
