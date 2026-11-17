@@ -337,6 +337,53 @@ fn ui_index_spellings_of_one_document_share_one_read() {
     assert!(catalog.lookup("spelled", "card").is_some());
 }
 
+/// Repeated spellings of a loaded document are each parsed again, so they share a
+/// bounded allowance; the document itself always loads under its stored name.
+#[test]
+fn ui_index_spellings_of_a_loaded_document_share_a_bounded_allowance() {
+    let stored = "ui/cardpanel.json";
+    let mut document = br#"{"namespace":"spelled","card":{"type":"panel"},"pad":""#.to_vec();
+    document.resize(document.len() + 1024 * 1024, b'x');
+    document.extend_from_slice(br#""}"#);
+    let spellings: Vec<String> = (0..64u32)
+        .map(|mask| {
+            let name: String = "cardpanel"
+                .chars()
+                .enumerate()
+                .map(|(i, c)| {
+                    if mask & (1 << i) == 0 {
+                        c
+                    } else {
+                        c.to_ascii_uppercase()
+                    }
+                })
+                .collect();
+            format!("ui/{name}.json")
+        })
+        .collect();
+    assert_eq!(spellings[0], stored);
+    let index = format!(
+        r#"{{"ui_defs":{}}}"#,
+        serde_json::to_string(&spellings).unwrap()
+    );
+    let view = files_pack(&[
+        ("ui/_ui_defs.json", index.as_bytes()),
+        (stored, document.as_slice()),
+    ]);
+    let pack = super::collect_server_ui(&view).unwrap();
+    let kept: Vec<_> = pack.ui_layers[0]
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case(stored))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert!(kept.contains(&stored), "the stored name always loads");
+    assert_eq!(
+        kept.len(),
+        1 + super::ui::MAX_SPELLING_BYTES / document.len(),
+        "repeated spellings stop at the allowance"
+    );
+}
+
 #[test]
 fn ui_index_in_higher_pack_selects_lower_at_prefixed_document() {
     let path = "@behub/components/label.json";
