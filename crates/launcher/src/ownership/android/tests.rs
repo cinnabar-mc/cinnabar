@@ -158,10 +158,15 @@ fn other_installers_fail() {
 #[test]
 fn an_impostor_store_fails() {
     for sdk in API_LEVELS {
+        assert!(store_authentic(&mut Device::play_install(sdk)), "API {sdk}");
         for signers in [vec![OTHER_SIGNER], vec![]] {
             let device = Device::play_install(sdk).signed(STORE, signers);
+            assert!(!store_authentic(&mut device.clone()), "API {sdk}");
             assert_eq!(device.check(), Install::NotFromStore, "API {sdk}");
         }
+        let mut without_play = Device::play_install(sdk);
+        without_play.packages.retain(|(name, _)| *name != STORE);
+        assert!(!store_authentic(&mut without_play), "API {sdk}");
     }
 }
 

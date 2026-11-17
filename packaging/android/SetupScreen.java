@@ -138,9 +138,10 @@ final class SetupScreen extends FrameLayout {
             for (int index = 0; index < choices.length; index++) {
                 JSONObject button = buttons.getJSONObject(index);
                 String link = button.optString("open", null);
+                String app = button.optString("app", null);
                 int chosen = index;
                 if (link != null) {
-                    choices[index] = new Choice(button.getString("label"), false, () -> open(link));
+                    choices[index] = new Choice(button.getString("label"), false, () -> open(link, app));
                 } else if (button.optBoolean("quit")) {
                     choices[index] = new Choice(button.getString("label"), false, onCancel);
                 } else {
@@ -156,10 +157,19 @@ final class SetupScreen extends FrameLayout {
         }
     }
 
-    /** Opens {@code link} in whichever app handles it. */
-    private void open(String link) {
+    /** Opens {@code link} in {@code app} when given and able, otherwise in whichever app handles it. */
+    private void open(String link, String app) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(link));
+        if (app != null) {
+            try {
+                getContext().startActivity(new Intent(intent).setPackage(app));
+                return;
+            } catch (ActivityNotFoundException error) {
+                // Any app that handles the link is the fallback.
+            }
+        }
         try {
-            getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(link)));
+            getContext().startActivity(intent);
         } catch (ActivityNotFoundException error) {
             android.util.Log.w("SetupScreen", "No app opens " + link, error);
         }

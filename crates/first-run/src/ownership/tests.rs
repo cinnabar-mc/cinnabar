@@ -218,6 +218,8 @@ impl GateHost for Host {
     }
 }
 
+const PLAY: &str = policy::android::STORE;
+
 fn answers(button: &Button) -> bool {
     button.open.is_none() && !button.quit
 }
@@ -227,6 +229,7 @@ fn hosted(available: Sources, host: &mut Host, checks: &[Answer]) -> (bool, Vec<
     let mut sign_ins = Vec::new();
     let owned = with_host(
         available,
+        Some(PLAY),
         &AtomicBool::new(false),
         host,
         &mut |sign_in, on_code| {
@@ -264,7 +267,17 @@ fn a_missing_android_install_offers_the_store_listing_then_checks_again() {
     );
     let refusal = &host.asked[0];
     let listing = Some(policy::android::STORE_LISTING.to_owned());
-    assert!(refusal.buttons.iter().any(|button| button.open == listing));
+    let get = refusal.buttons.iter().find(|button| button.open == listing);
+    assert_eq!(get.and_then(|button| button.app.as_deref()), Some(PLAY));
+    assert_eq!(
+        refusal
+            .buttons
+            .iter()
+            .filter(|button| button.app.is_some())
+            .count(),
+        1,
+        "only Get Minecraft goes to the store app"
+    );
     assert!(refusal.buttons.iter().any(|button| button.quit));
     assert_eq!(
         refusal.buttons.len(),
@@ -282,6 +295,7 @@ fn a_host_that_closes_or_cancels_never_plays() {
     let mut host = Host::default();
     assert!(!with_host(
         PHONE,
+        None,
         &AtomicBool::new(true),
         &mut host,
         &mut |_, _| Answer::Allowed

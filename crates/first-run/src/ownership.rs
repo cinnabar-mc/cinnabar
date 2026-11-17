@@ -239,13 +239,17 @@ pub struct Button {
     /// A link to open, staying on the screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub open: Option<String>,
+    /// The app to try first for `open`, before any app that handles it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
     /// Closes setup without playing.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub quit: bool,
 }
 
 impl Prompt {
-    fn new(screen: &Screen, available: Sources) -> Self {
+    /// `store_app` opens "Get Minecraft" when it is installed.
+    fn new(screen: &Screen, available: Sources, store_app: Option<&str>) -> Self {
         let button = |action: Action| Button {
             label: screen.button_label(action).to_owned(),
             open: match (action, screen) {
@@ -253,6 +257,9 @@ impl Prompt {
                 (Action::OpenLink, Screen::SignIn { uri, .. }) => Some(uri.clone()),
                 _ => None,
             },
+            app: store_app
+                .filter(|_| action == Action::GetMinecraft)
+                .map(str::to_owned),
             quit: action == Action::Quit,
         };
         Self {
@@ -284,14 +291,21 @@ pub fn verify_with_host(
     if !layout.is_installed() || open_without_asking(layout) {
         return true;
     }
-    with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
-        verify(layout, sign_in, cancel, on_code)
-    })
+    let available = policy::sources();
+    let store_app = available.local_install.and(sources::store_app());
+    with_host(
+        available,
+        store_app,
+        cancel,
+        host,
+        &mut |sign_in, on_code| verify(layout, sign_in, cancel, on_code),
+    )
 }
 
 /// [`verify_with_host`] after the silent checks, with `verify` for this install.
 fn with_host(
     available: Sources,
+    store_app: Option<&str>,
     cancel: &AtomicBool,
     host: &mut dyn GateHost,
     verify: &mut Verify<'_>,
@@ -308,7 +322,7 @@ fn with_host(
                 uri: uri.to_owned(),
                 code: code.to_owned(),
             };
-            host.show(&Prompt::new(&screen, available));
+            host.show(&Prompt::new(&screen, available, store_app));
         });
         if cancel.load(Ordering::Relaxed) {
             return false;
@@ -320,7 +334,7 @@ fn with_host(
                 sources: available,
             },
         };
-        let prompt = Prompt::new(&screen, available);
+        let prompt = Prompt::new(&screen, available, store_app);
         sign_in = loop {
             let Some(&action) = host
                 .choose(&prompt)

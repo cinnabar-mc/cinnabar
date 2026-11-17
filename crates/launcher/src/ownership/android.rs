@@ -100,11 +100,17 @@ pub fn check(packages: &mut impl Packages) -> Install {
     } else {
         packages.installer(PACKAGE).as_deref() == Some(STORE)
     };
-    if from_store && signed_by(packages, sdk, STORE, &STORE_SIGNER_SHA256) {
+    if from_store && store_authentic(packages) {
         Install::Verified
     } else {
         Install::NotFromStore
     }
+}
+
+/// Whether [`STORE`] is installed and signed by Google, so links may be sent to it.
+pub fn store_authentic(packages: &mut impl Packages) -> bool {
+    let sdk = packages.sdk();
+    packages.installed(STORE) && signed_by(packages, sdk, STORE, &STORE_SIGNER_SHA256)
 }
 
 /// Whether `package` is signed by the certificate with `sha256`, through the reads `sdk` offers.

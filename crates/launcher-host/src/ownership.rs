@@ -74,6 +74,20 @@ pub fn local_install_found() -> bool {
     android::found()
 }
 
+/// The store app that should open "Get Minecraft", when it is genuine.
+#[cfg(target_os = "android")]
+#[must_use]
+pub fn store_app() -> Option<&'static str> {
+    android::store_authentic().then_some(policy::android::STORE)
+}
+
+/// Links open in whichever app handles them.
+#[cfg(not(target_os = "android"))]
+#[must_use]
+pub const fn store_app() -> Option<&'static str> {
+    None
+}
+
 /// No store install can prove ownership on this platform.
 #[cfg(not(any(windows, target_os = "android")))]
 #[must_use]

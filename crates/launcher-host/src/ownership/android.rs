@@ -41,19 +41,8 @@ pub fn use_context(env: &mut JNIEnv<'_>, context: &JObject<'_>) -> jni::errors::
 
 /// Checks the local install on the calling thread, uncached; any JNI failure is not found.
 pub(super) fn found() -> bool {
-    let install = with_context(|env, context| {
-        env.with_local_frame(LOCAL_FRAME, |env| -> jni::errors::Result<_> {
-            let manager = env
-                .call_method(
-                    context,
-                    "getPackageManager",
-                    "()Landroid/content/pm/PackageManager;",
-                    &[],
-                )?
-                .l()?;
-            Ok(policy::check(&mut Jni { env, manager }))
-        })
-    });
+    // A closure, since the generic policy functions name no single `Jni` lifetime.
+    let install = with_packages(|packages: &mut Jni<'_, '_>| policy::check(packages));
     let install = install.unwrap_or_else(|error| {
         tracing::warn!(%error, "ownership probe failed");
         policy::Install::Missing
@@ -64,6 +53,28 @@ pub(super) fn found() -> bool {
         "ownership probed"
     );
     install == policy::Install::Verified
+}
+
+/// Whether Google Play is installed and genuine; any JNI failure is not.
+pub(super) fn store_authentic() -> bool {
+    with_packages(|packages: &mut Jni<'_, '_>| policy::store_authentic(packages)).unwrap_or(false)
+}
+
+/// Runs `read` over this app's `PackageManager`.
+fn with_packages<T>(read: impl FnOnce(&mut Jni<'_, '_>) -> T) -> jni::errors::Result<T> {
+    with_context(|env, context| {
+        env.with_local_frame(LOCAL_FRAME, |env| -> jni::errors::Result<_> {
+            let manager = env
+                .call_method(
+                    context,
+                    "getPackageManager",
+                    "()Landroid/content/pm/PackageManager;",
+                    &[],
+                )?
+                .l()?;
+            Ok(read(&mut Jni { env, manager }))
+        })
+    })
 }
 
 /// Runs `probe` with an attached environment and the application context.
