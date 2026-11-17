@@ -44,6 +44,16 @@ pub(super) fn observe(
         stream,
         runtime.selected_projectile(player_runtime, &context.ui),
     );
+    // A Java Edition 1.7.10 server's swords block while the use button is held.
+    let air_use = if context
+        .physics
+        .as_deref()
+        .is_some_and(|physics| physics.java_physics())
+    {
+        client_interaction::item_use::selection::java_air_use(player_runtime, stream, air_use)
+    } else {
+        air_use
+    };
     let creative = player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative);
     let inventory_revision = player_runtime.selected_hotbar_slot().and_then(|slot| {
         context

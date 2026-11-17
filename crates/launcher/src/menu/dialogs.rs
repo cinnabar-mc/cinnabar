@@ -136,6 +136,20 @@ pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> 
             translated(translate, "gui.cancel", "Cancel"),
             MenuAction::ConfirmLeaveRealm(id),
         ),
+        MenuDialog::RemoveJavaAccount(index) => (
+            "Remove Java account?".into(),
+            format!(
+                "Remove {} from your Java accounts? You can add it again by signing in.",
+                view.feeds
+                    .java_accounts
+                    .accounts
+                    .get(index)
+                    .map_or("this account", |account| account.name.as_str())
+            ),
+            "Remove".into(),
+            translated(translate, "gui.cancel", "Cancel"),
+            MenuAction::ConfirmRemoveJavaAccount(index),
+        ),
         // The popup's title is one line, so the server names it and the body asks.
         MenuDialog::RemoveSaved(index) => (
             view.servers

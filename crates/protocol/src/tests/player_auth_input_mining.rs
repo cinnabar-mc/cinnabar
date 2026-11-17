@@ -30,6 +30,8 @@ fn snapshot() -> PlayerAuthInputSnapshot {
         input_mode: PlayerInputMode::Mouse,
         interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
+        java_position: None,
+        java_sink: None,
     }
 }
 

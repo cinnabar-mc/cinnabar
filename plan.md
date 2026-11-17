@@ -1896,6 +1896,126 @@ coverage, supported slot/ownership enforcement, player-preview acceptance and ha
 qualification. Payments and moderation remain incomplete; rollout must respect API/client
 compatibility. Existing catalog content is owned by the API repository.
 
+### Java Edition 1.7.10 servers
+
+Java Edition 1.7.10 (protocol 5) servers are a second server protocol. Its behaviour
+references are the official 1.7.10 client and recordings of that client run headlessly.
+
+Implemented: [`java-sim`](crates/java-sim/README.md) reproduces the 1.7.10 client's player
+tick, block collision model for ids 0 to 175 and movement packets. Recorded client traces,
+including seeded random walks, replay bit for bit, and collision boxes match the recorded
+game for every id and metadata except those listed below.
+
+Implemented: the core joins a `java/<host>[:<port>]` target and translates the session to
+Bedrock packets ([`core/javaedition`](core/javaedition/translate/session.go)): login with
+encryption, Java Edition sign-in for online-mode servers, chunks and block changes with
+fence, pane, wall and stair connections, the player's position, health, hunger, experience,
+abilities, game mode, time and rain, chat, the player list, scoreboards in the sidebar, list and
+below-name slots with their team prefixes and suffixes, remote players, mobs and
+objects with their movement, held items and status flags, and the player inventory. From the
+client it translates movement, sprinting and sneaking, mining, block placement and item use,
+attacks and entity interaction, the held slot, chat, commands and respawning. Tests cover a
+scripted server, a vanilla 1.7.10 server when one is supplied, and the client's own packet and
+chunk decoders reading the translation.
+
+Implemented: Java accounts ([`javaedition/auth`](core/javaedition/auth/accounts.go)). The
+Java Edition services refuse tokens from the account's Bedrock sign-in ("Invalid app
+registration"), so Java accounts are a second kind of account, independent of the Bedrock
+ones: each is a device-code sign-in through the Nintendo Switch edition's Microsoft app, which
+the services accept, saved with its Java profile. The Accounts dialog lists both kinds, adds
+either, selects the Java account Java joins use and removes it; the core owns the accounts
+through `java_accounts.v1`, asks before removing one and opens the sign-in link. Each
+account shows its skin's face and hat, read from the session service and kept for a day. An
+online-mode join without a usable Java account starts adding one and fails with the code to
+enter. Each account's Java session is reused until it nears its expiry; a refresh Microsoft
+does not answer keeps the sign-in and asks the player to reconnect, and only a refusal asks
+for a new code. Cores sharing the accounts directory add through their own unfinished sign-in
+files and move finished ones into place under both tokens' locks. A server's own login
+refusal reaches the player as its text. The web client offers no Java accounts.
+
+Implemented: on a Java session the local player follows 1.7.10 movement. The core names the
+edition in the session handoff, and the simulator then runs `java-sim` behind the player
+state ([`sim` Java mode](crates/sim/src/simulator/java.rs)), reading each block as the
+1.7.10 block its Bedrock state came from. The recorded client traces replay bit for bit
+through the simulator over the core's translation of their worlds, and the physics
+controller's ticks equal `java-sim`'s for the same keys. The movement input carries what its
+single-precision position loses, so the server receives the simulated position exactly.
+Sprinting follows the 1.7.10 rules (the sprint key, the double tap, hunger, item use and
+every condition that ends a sprint), and the sprint they decide is what the server is told.
+The server's movement speed snapshots, which carry Speed and Slowness, reach `java-sim`
+whole, with each one replacing the attribute on the tick it arrives as in the game. Rejected
+transactions and keep-alives reach the client as latency probes, which it answers after
+applying every earlier packet, so the server gets its answers in the 1.7.10 order. After a
+server teleport, movement the client simulated before applying it is held back until it
+answers a probe sent after the teleport, as the 1.7.10 client never reports such a position.
+A swing the server plays on the player is answered with the player's swing once the client
+has played it, and a held slot outside the hotbar is ignored. A column the server sent with
+only empty sections is loaded, and the player falls through it under full gravity; over a
+column never sent it sinks at the fixed speed the 1.7.10 client uses.
+
+Incomplete:
+
+- The client has joined an offline-mode vanilla 1.7.10 server on the same machine, where it
+  spawned, loaded its chunks, walked, sprinted, jumped and chatted without a movement warning,
+  and a public online-mode network through the Java Edition sign-in, where it reached the
+  lobby and walked. Its anticheat flagged the movement before transactions were answered and
+  sprinting followed the 1.7.10 rules. Since then, the packets the client sends while walking,
+  sprinting, sprint-jumping and blocking with a sword, and while recovering from server
+  setbacks, were compared with the real 1.7.10 client's on a server running NoCheatPlus and
+  are identical bit for bit; that NoCheatPlus setup flags both clients alike, so it is no
+  verdict on its own, and other anticheats have not been tried. Combat, teleports and inventories have not been exercised in the client.
+  A public network's Sonar anti-bot rejected the client over checks it now follows (the
+  transaction answer, the held-slot and swing replies and the fall through its empty column);
+  the client has not rejoined it since. Sonar's riding check, which it runs only during bot
+  attacks, still fails because `java-sim` does not model riding.
+- Server positions reach the client in single precision: a teleport or the join position
+  crosses in the Bedrock movement packet, with the feet lifted onto the ground when rounding
+  sinks them into it, so the client stands up to one single-precision step from where the
+  server placed it until it next moves. The client's own positions reach the server in
+  double precision, with the stance less the camera sink of sneaking and stepping.
+- The client receives a column later than the core sends it, so a Java tick waits until the
+  column under the player has arrived, where the 1.7.10 client, having already applied it,
+  would tick. Where the server never sends that column at all, the player waits instead of
+  sinking. A column the server unloads reaches the client as an empty column, which it cannot
+  tell from one sent empty, so gravity still applies over it; vanilla servers never unload the
+  column a player stands in.
+- On a Java session the client keeps its own flight rules and gives `java-sim` the
+  resulting flying state, so the 1.7.10 double-tap jump timer does not decide flight.
+  Bedrock's swimming and crawling poses can still engage. Reach, the pick ray and the
+  sneaking eye height are still Bedrock's.
+- `java-sim` does not model riding, sleeping, moving-piston collision, or boats and other
+  solid entities. Anvils, chests and ladders with metadata outside 2 to 5 collide in the game
+  with the bounds last computed for any block of their kind; `java-sim` uses each block's own
+  bounds, and such ladders are left out of the shape comparison. Metadata the game never
+  places (a stair's fourth bit, for one) reaches the client as the block's lowest listed
+  metadata and collides as that. Attribute modifiers of one operation combine in Java 8's
+  hash order, without the tree order of a bucket of eight or more, and a move is limited to
+  100 blocks per axis in a tick, where the game has no limit.
+- Each tick's clicks, mining and item use go out before its movement, every attack press
+  swings first, mining swings every tick, and air uses, throws and drops do not swing, as in
+  the 1.7.10 client. Swords block while the use button is held. A block placement's swing
+  keeps the Bedrock client's order relative to the placement. Explosions destroy their blocks
+  and add their push to the player's motion on the next tick.
+- Inventory windows other than the player's, window clicks, crafting, creative inventory,
+  enchanting and item NBT (names, enchantments) are not translated. Potions and spawn eggs
+  lose their variant.
+- Block entities (signs, chests, skulls, beds' colour, flower pot contents), redstone wire,
+  fire and tripwire connections, door halves and the upper half of double plants take their
+  table state without their neighbours or tile data. Stair corner states follow the
+  collision model's rule but are not checked against recorded shapes.
+- Biome ids pass through by number, unchecked against the pinned registry. The Bedrock
+  nether is 128 blocks high, so Java nether blocks above that are not shown.
+- Remote player skins and capes, entity armour, most entity metadata, paintings, experience
+  orbs, item frames, effects of other entities, attributes other than the local player's
+  movement speed, sounds, particles, explosion effects, block-break progress, team colours on
+  name tags, titles, maps, statistics, tab completion and plugin channels other than the brand
+  are not translated.
+- The death, respawn and dimension-change sequences are translated but have only been
+  checked packet by packet, not in the client. NBT the core writes uses standard UTF-8
+  where Java uses its modified form, which differs for NUL and for characters outside the
+  basic plane.
+- Server lists cannot ping Java servers.
+
 ## Phase 7 — Local worlds
 
 All player local worlds use BDS, including Infinite and Flat terrain. Creation and import

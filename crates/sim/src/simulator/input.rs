@@ -112,6 +112,27 @@ pub struct MovementInput {
     /// so the glide input pushes it upward before this tick's travel.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub glide_ascent: bool,
+    /// Whether the session is a Java Edition 1.7.10 server, whose physics the tick then
+    /// follows instead of Bedrock's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub java_physics: bool,
+    /// The sprint key as the player holds it. A Java tick decides sprinting from it by the
+    /// 1.7.10 rules instead of taking `sprinting`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sprint_key: bool,
+    /// The food level the server last sent, which a Java tick's sprint rule reads; `None`
+    /// counts as fed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub food_level: Option<u8>,
+    /// Whether the server lets the player fly, which a Java tick's sprint rule also reads.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub may_fly: bool,
+    /// A Java Edition server's last movement speed snapshot; `None` keeps the 1.7.10 default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java_speed: Option<super::JavaSpeedSnapshot>,
+    /// A Java Edition server's recent explosion pushes of the player.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java_pushes: Option<super::JavaPushes>,
 }
 
 impl MovementInput {

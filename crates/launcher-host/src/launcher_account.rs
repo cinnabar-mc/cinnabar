@@ -38,6 +38,7 @@ mod feeds;
 mod shared_players;
 use feeds::{CoreFeeds, catalog_round};
 mod invites;
+mod java_accounts;
 mod message_reports;
 pub mod profile_worker;
 mod realm_leave;
@@ -107,6 +108,8 @@ struct Snapshot {
     people: Option<Result<Vec<bridge::Person>, ()>>,
     realm_membership: Option<RealmMembershipResponse>,
     realm_leave: Option<RealmLeaveResponse>,
+    /// The Java accounts worker's latest answer, taken once.
+    java_accounts: Option<Result<launcher::java_accounts::JavaAccounts, ()>>,
 }
 
 impl Snapshot {
@@ -159,6 +162,7 @@ pub struct LauncherAccount {
     invites: Sender<invites::Request>,
     realm_membership: tokio::sync::mpsc::UnboundedSender<realm_membership::Request>,
     realm_leave: tokio::sync::mpsc::UnboundedSender<realm_leave::Request>,
+    java_accounts: tokio::sync::mpsc::UnboundedSender<bridge::JavaAccountAction>,
     cinnabar_rosters: Sender<cinnabar_players::Roster>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
@@ -192,6 +196,7 @@ impl LauncherAccount {
         );
         let realm_membership = realm_membership::start(socket_dir.clone(), Arc::clone(&snapshot));
         let realm_leave = realm_leave::start(socket_dir.clone(), Arc::clone(&snapshot));
+        let java_accounts = java_accounts::start(socket_dir.clone(), Arc::clone(&snapshot));
         let cinnabar_rosters = cinnabar_players::start(socket_dir.clone(), Arc::clone(&snapshot));
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
@@ -219,6 +224,7 @@ impl LauncherAccount {
             invites,
             realm_membership,
             realm_leave,
+            java_accounts,
             cinnabar_rosters,
             _alive: alive,
             socket_dir,
@@ -895,6 +901,12 @@ impl AccountControl for LauncherAccount {
     }
     fn realm_leave(&mut self) -> Option<RealmLeaveResponse> {
         self.realm_leave_control()
+    }
+    fn request_java_accounts(&mut self, action: bridge::JavaAccountAction) -> bool {
+        self.request_java_accounts_control(action)
+    }
+    fn java_accounts(&mut self) -> Option<Result<launcher::java_accounts::JavaAccounts, ()>> {
+        self.java_accounts_control()
     }
 
     fn request_people(&mut self) {

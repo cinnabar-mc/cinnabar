@@ -96,6 +96,7 @@ pub(super) fn apply(
         server_authoritative_block_breaking,
         rewind_history_size,
         base_game_version,
+        java_edition,
         overworld_range,
         hardcore,
         hud_rules,
@@ -270,6 +271,7 @@ pub(super) fn apply(
         position: resolved.position,
         rewind_history_size,
         base_game_version,
+        java_edition,
         auto_fly: auto_fly.enabled(),
         collision_registry_complete: collisions.is_complete(),
     })

@@ -88,6 +88,8 @@ pub(super) fn tick_without_travel(
         tick_result: result,
         controls,
         jump_initiated,
+        java_sprinting: None,
+        java_sink: None,
     })
 }
 
@@ -123,6 +125,8 @@ pub(super) fn tick_mode(
             tick_result: result,
             controls,
             jump_initiated: false,
+            java_sprinting: None,
+            java_sink: None,
         });
     }
     let mut controls = controls;
@@ -318,6 +322,8 @@ pub(super) fn tick_mode(
         tick_result: result,
         controls,
         jump_initiated: false,
+        java_sprinting: None,
+        java_sink: None,
     })
 }
 

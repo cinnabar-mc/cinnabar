@@ -28,6 +28,7 @@ pub use contract::{
 mod endpoint;
 mod error;
 mod framed;
+mod java_accounts;
 pub mod join_profile;
 pub mod latency_trace;
 pub mod leave_profile;
@@ -68,6 +69,9 @@ pub use framed::BridgeCodec;
 #[cfg(not(target_arch = "wasm32"))]
 pub use framed::FramedStream;
 pub use framed::{FrameQueue, FrameRead, FrameWritten, FramedReader};
+#[cfg(not(target_arch = "wasm32"))]
+pub use java_accounts::java_accounts;
+pub use java_accounts::{JavaAccount, JavaAccountAction, JavaAccountAdd, JavaAccounts};
 #[cfg(not(target_arch = "wasm32"))]
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,

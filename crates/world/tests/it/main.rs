@@ -3,6 +3,7 @@ mod block_entity;
 mod block_entity_store;
 mod chunk;
 mod decode_commit;
+mod java_level_chunk;
 mod light;
 mod light_prior_cache;
 mod light_solver_oracle;

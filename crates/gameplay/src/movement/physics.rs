@@ -270,6 +270,8 @@ pub struct LocalPhysicsController {
     discard_next_elapsed: bool,
     /// A snapped server teleport suppresses travel on the next completed tick.
     skip_travel_pending: bool,
+    /// Whether ticks follow Java Edition 1.7.10 movement; see `set_java_physics`.
+    java_physics: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
     input_edges: super::input_state::PendingInputEdges,
@@ -341,6 +343,7 @@ impl Default for LocalPhysicsController {
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
             skip_travel_pending: false,
+            java_physics: false,
             previous_jump_held: false,
             jump_edge_pending: false,
             input_edges: Default::default(),

@@ -8,6 +8,12 @@ mod flight;
 mod immobile;
 mod input;
 mod inside;
+mod java;
+mod java_speed;
+pub use java_speed::{
+    JavaPush, JavaPushes, JavaSpeedModifier, JavaSpeedSnapshot, MAX_JAVA_PUSHES,
+    MAX_JAVA_SPEED_MODIFIERS,
+};
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
@@ -168,6 +174,13 @@ impl Simulator {
         world: &impl CollisionWorld,
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
+        if input.java_physics {
+            let mut next = state.clone();
+            let output = java::tick(&mut next, input, world)?;
+            next.previous_rotation = Some(rotation);
+            *state = next;
+            return Ok(output);
+        }
         // Arms stand where the preceding tick left them until this tick's update moves them.
         world.begin_tick(state.tick);
         let start = state.climber;
@@ -697,6 +710,8 @@ impl Simulator {
             tick_result: result,
             controls,
             jump_initiated,
+            java_sprinting: None,
+            java_sink: None,
         })
     }
 }

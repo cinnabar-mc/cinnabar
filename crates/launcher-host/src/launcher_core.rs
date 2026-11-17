@@ -139,7 +139,9 @@ fn launcher_command(
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
         .arg("-device-file")
-        .arg(layout.device_profile_file());
+        .arg(layout.device_profile_file())
+        .arg("-java-accounts")
+        .arg(layout.java_accounts_dir());
     // Direct-mode account cores run alongside game cores that own this exclusive lease.
     if lease_game_cache {
         command
@@ -188,8 +190,8 @@ pub fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::Join
 }
 
 /// The `connect.v1` target for a menu address (the proxy's realm and friend
-/// prefixes, a raw NetherNet target passed on unchanged, else a server that
-/// gets the default port when it names none).
+/// prefixes, a raw NetherNet or Java target passed on unchanged, else a server
+/// that gets the default port when it names none).
 pub fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
     if let Some(id) = address.strip_prefix(launcher::menu::EXPERIENCE_ADDRESS_PREFIX) {
@@ -201,8 +203,9 @@ pub fn target_for(address: &str) -> ConnectTarget {
     if let Some(xuid) = address.strip_prefix(launcher::menu::FRIEND_ADDRESS_PREFIX) {
         return ConnectTarget::Friend(xuid.to_owned());
     }
-    // The core rejects a raw NetherNet target whose ID carries a port.
-    if launcher::menu::is_nethernet_target(address) {
+    // The core rejects a raw NetherNet target whose ID carries a port, and a Java target
+    // follows Java's own address rules, so neither gets the Bedrock default port.
+    if launcher::menu::is_nethernet_target(address) || launcher::menu::is_java_target(address) {
         return ConnectTarget::RakNet(address.to_owned());
     }
     let has_port = address.rsplit_once(':').is_some_and(|(host, port)| {
@@ -340,6 +343,8 @@ mod tests {
             target_for(&format!("{}2535", bridge::contract::FRIEND_TARGET_PREFIX)),
             ConnectTarget::Friend("2535".into())
         );
+        let java = format!("{}play.example.net", bridge::contract::JAVA_TARGET_PREFIX);
+        assert_eq!(target_for(&java), ConnectTarget::RakNet(java.clone()));
         assert_eq!(
             target_for("play.example.net:19133"),
             ConnectTarget::RakNet("play.example.net:19133".into())

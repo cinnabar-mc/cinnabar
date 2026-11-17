@@ -17,6 +17,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
+	"github.com/hashimthearab/rust-mcbe/core/javaedition/auth"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -445,6 +446,7 @@ type preparedSlot struct {
 // *minecraft.Conn identity until Accept transfers ownership to the session.
 type preparedConnections struct {
 	account                     *authcache.Account
+	javaEdition                 *auth.Accounts // nil joins Java servers signed out
 	logger                      *slog.Logger
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
@@ -488,6 +490,9 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		logger := joinprofile.Logger(ctx, logger)
+		if target.java {
+			return dialJavaUpstream(ctx, target.address, connections.javaEdition, dialer.IdentityData.DisplayName, logger)
+		}
 		return connectUpstream(ctx, target.address, authenticationMode(dialer.TokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			attempt := withJoinStages(localHopDialer(target, address, dialer, accountTokenSource(connections.account)), logger)
 			dial := attempt.DialContextNetwork

@@ -15,6 +15,7 @@ fn attack_painting(ticker: &MovementTicker, support: &DestroyTarget) -> MeleeRun
         &PressContext {
             refused_destroy: None,
             actor_life: None,
+            java_session: false,
             tick: sample.tick,
             player_position: sample.position,
             input_mode: protocol::PlayerInputMode::Mouse,

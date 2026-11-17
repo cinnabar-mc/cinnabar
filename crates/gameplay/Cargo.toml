@@ -38,6 +38,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+java-sim = { path = "../java-sim" }
 meshing = { path = "../meshing" }
 protocol = { path = "../protocol", features = ["test-support"] }
 

@@ -29,6 +29,7 @@ fn admit_attack(
     }
     let stack = protocol::NetworkItemStack::empty();
     let press = PressContext {
+        java_session: false,
         refused_destroy: None,
         actor_life: None,
         tick: 100,

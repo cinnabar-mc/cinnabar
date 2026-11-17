@@ -102,4 +102,12 @@ pub trait AccountControl {
     fn realm_leave(&mut self) -> Option<RealmLeaveResponse> {
         None
     }
+    /// Queues one `java_accounts.v1` action off the frame; `false` when it cannot be sent.
+    fn request_java_accounts(&mut self, _action: bridge::JavaAccountAction) -> bool {
+        false
+    }
+    /// The latest Java accounts answer, or `Err` when the core could not be asked.
+    fn java_accounts(&mut self) -> Option<Result<launcher::java_accounts::JavaAccounts, ()>> {
+        None
+    }
 }

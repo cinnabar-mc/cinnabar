@@ -45,6 +45,12 @@ pub struct LocalMovementFacts {
     /// Native swim continuation stops without usable food above the sprint floor,
     /// unless the movement abilities permit flight.
     pub swim_hunger_blocked: bool,
+    /// The food level the server last sent, in whole points.
+    pub food_level: Option<u8>,
+    /// A Java Edition server's last movement speed snapshot.
+    pub java_speed: Option<sim::JavaSpeedSnapshot>,
+    /// A Java Edition server's recent explosion pushes.
+    pub java_pushes: Option<sim::JavaPushes>,
 }
 
 impl LocalMovementFacts {
@@ -188,7 +194,81 @@ pub fn read(
         swim_hunger_blocked: !hunger_exempt && hunger_below_floor.unwrap_or(true),
         sprint_blocked: !hunger_exempt && hunger_below_floor.unwrap_or(true),
         sprint_start_blocked: item_in_use,
+        java_speed: player.facts.java_movement().and_then(java_speed_snapshot),
+        java_pushes: player.facts.java_push().map(java_pushes),
+        food_level: player.facts.hunger().map(|hunger| {
+            u8::try_from(hunger.current() / hunger.scale().max(1)).unwrap_or(u8::MAX)
+        }),
     }
+}
+
+/// Modifier id under which the core sends a Java speed snapshot's base value.
+const JAVA_SPEED_BASE_ID: &str = "base";
+
+/// Decodes the core's encoding of a Java Edition movement speed snapshot: the attribute's value
+/// is the snapshot's sequence, and each modifier carries its exact amount as the hexadecimal
+/// bits of a double in its name, with the base value under the id `base`. A snapshot that
+/// does not decode is left out, keeping the previous one.
+fn java_speed_snapshot(attribute: &protocol::ActorAttribute) -> Option<sim::JavaSpeedSnapshot> {
+    let exact = |name: &str| u64::from_str_radix(name, 16).ok().map(f64::from_bits);
+    let mut snapshot = sim::JavaSpeedSnapshot {
+        sequence: attribute.current as u32,
+        ..Default::default()
+    };
+    let mut base = None;
+    for modifier in attribute.modifiers.iter() {
+        let amount = exact(&modifier.name)?;
+        if &*modifier.id == JAVA_SPEED_BASE_ID {
+            base = Some(amount);
+            continue;
+        }
+        let index = usize::from(snapshot.modifier_count);
+        if index == sim::MAX_JAVA_SPEED_MODIFIERS {
+            continue;
+        }
+        snapshot.modifiers[index] = sim::JavaSpeedModifier {
+            id: u128::from_str_radix(&modifier.id.replace('-', ""), 16).ok()?,
+            amount,
+            operation: u8::try_from(modifier.operation).ok()?,
+        };
+        snapshot.modifier_count += 1;
+    }
+    snapshot.base = base?;
+    Some(snapshot)
+}
+
+/// Decodes the core's encoding of a Java Edition server's recent explosion pushes: each push
+/// is three modifiers whose ids are its number and an axis, `x`, `y` or `z`, and whose single
+/// precision amounts are exact, as 1.7.10 sends them.
+fn java_pushes(attribute: &protocol::ActorAttribute) -> sim::JavaPushes {
+    let mut pushes = sim::JavaPushes::default();
+    for modifier in attribute.modifiers.iter() {
+        let Some((sequence, axis)) = modifier.id.split_once(':') else {
+            continue;
+        };
+        let (Ok(sequence), Some(axis)) = (
+            sequence.parse::<u32>(),
+            ["x", "y", "z"].iter().position(|name| *name == axis),
+        ) else {
+            continue;
+        };
+        let held = usize::from(pushes.count);
+        let index = match pushes.pushes[..held]
+            .iter()
+            .position(|push| push.sequence == sequence)
+        {
+            Some(index) => index,
+            None if held < sim::MAX_JAVA_PUSHES => {
+                pushes.pushes[held].sequence = sequence;
+                pushes.count += 1;
+                held
+            }
+            None => continue,
+        };
+        pushes.pushes[index].motion[axis] = f64::from(modifier.amount);
+    }
+    pushes.pushes[..usize::from(pushes.count)].sort_by_key(|push| push.sequence);
+    pushes
 }
 
 /// The boat the local player steers, with its seat in the boat's frame.
@@ -243,6 +323,9 @@ fn flight_speed(
     (speed.is_finite() && (bit != ability_bit::FLY_SPEED || speed >= 0.0))
         .then_some(f64::from(speed))
 }
+
+#[cfg(test)]
+mod java_attribute_tests;
 
 #[cfg(test)]
 mod tests {

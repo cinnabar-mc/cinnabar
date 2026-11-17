@@ -251,6 +251,7 @@ impl LocalPhysicsController {
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
             input.liquid_attach_height = Some(f64::from(self.eye_offset.height(1.0)));
+            input.java_physics = self.java_physics;
             let entry_velocity = [
                 state.velocity.x as f32,
                 state.velocity.y as f32,
@@ -360,12 +361,18 @@ impl LocalPhysicsController {
                     frame.completed_ticks += 1;
                     self.prediction_sync.tick();
                     // The simulator owns initiation; held inputs alone cannot prove a jump.
+                    // A Java tick decided sprinting by the 1.7.10 rules; that is what the
+                    // server is told and what the client's own sprint state follows.
+                    let sprinting = output.java_sprinting.unwrap_or(input.sprinting);
+                    if output.java_sprinting.is_some() {
+                        self.modes.set_sprinting(sprinting);
+                    }
                     let mut processed = ProcessedMovementState::next(
                         self.processed_jump_arc_active,
                         output.jump_initiated,
                         state.on_ground,
                         input.sneaking,
-                        input.sprinting,
+                        sprinting,
                     );
                     processed.mode = input.mode;
                     processed.pose_flags = Some(self.modes.pose_flags());
@@ -377,6 +384,12 @@ impl LocalPhysicsController {
                     processed.vehicle = self.vehicle.commit(state.tick);
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
+                    processed.java_sink = output.java_sink;
+                    processed.java_position = self.java_physics.then_some([
+                        state.position.x,
+                        state.position.y,
+                        state.position.z,
+                    ]);
                     if input.immobile || input.mode == sim::MovementMode::Riding {
                         // Frozen travel and mount-owned jumping cannot continue a local jump arc.
                         processed.jump_initiated = false;

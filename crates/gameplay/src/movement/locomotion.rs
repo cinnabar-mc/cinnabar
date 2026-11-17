@@ -288,6 +288,12 @@ impl ModeTracker {
         .map(|axis| axis as f32)
     }
 
+    /// Takes a sprint state decided outside these rules, as a Java tick decides it.
+    pub(super) fn set_sprinting(&mut self, sprinting: bool) {
+        self.sprinting = sprinting;
+        self.sprint_request_released &= !sprinting;
+    }
+
     pub(super) fn restore_controls(&mut self, sprinting: bool, sneaking: bool) {
         self.sprinting = sprinting;
         self.sneaking = sneaking;

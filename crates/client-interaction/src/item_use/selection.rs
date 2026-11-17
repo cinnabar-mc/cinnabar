@@ -90,6 +90,39 @@ pub fn selected_air_use_with_projectile(
     air_use_for_stack(stack, stream, projectile_override)
 }
 
+/// A 1.7.10 sword's use: blocking, held for up to `ItemSword.getMaxItemUseDuration` ticks.
+/// While it lasts the player is slowed as by any use and cannot sprint, which a Java tick
+/// applies itself.
+const JAVA_SWORD_BLOCK: AirUse = AirUse::Hold {
+    max_ticks: 72_000,
+    needs: assets::item_use::ItemUseRequirement::Nothing,
+    slowdown: 0.2,
+    cooldown: None,
+};
+
+/// The selected stack's air use on a Java Edition 1.7.10 server, which differs from
+/// Bedrock's for swords: right-clicking one blocks until the button is released.
+pub fn java_air_use(
+    player_runtime: &client_state::PlayerRuntime,
+    stream: &WorldStream,
+    bedrock: Option<AirUse>,
+) -> Option<AirUse> {
+    let identifier = player_runtime
+        .selected_backing_stack()
+        .and_then(|stack| stream.authority().canonical_item_stack(stack))
+        .and_then(|canonical| canonical.identifier);
+    java_air_use_for(identifier.as_deref(), bedrock)
+}
+
+/// The air use of the item `identifier` names on a Java Edition 1.7.10 server.
+fn java_air_use_for(identifier: Option<&str>, bedrock: Option<AirUse>) -> Option<AirUse> {
+    if identifier.is_some_and(assets::facts::java_legacy::java_legacy_sword) {
+        Some(JAVA_SWORD_BLOCK)
+    } else {
+        bedrock
+    }
+}
+
 /// Classifies one admitted stack without choosing between backing and presented inventory.
 pub(super) fn air_use_for_stack(
     stack: &protocol::NetworkItemStack,
@@ -207,4 +240,26 @@ pub fn loading_projectile(
             .filter_map(|slot| ui.inventory_ledger(player_runtime).backing_stack(slot))
             .any(|stack| role(stack) == assets::item_use::ItemProjectileRole::Arrow))
     .then_some(assets::item_use::ItemProjectileRole::Arrow)
+}
+
+#[cfg(test)]
+mod java_tests {
+    use super::*;
+
+    /// A sword blocks on a Java server, held like a bow; other items keep their Bedrock use.
+    #[test]
+    fn a_java_sword_blocks_until_released() {
+        assert_eq!(
+            java_air_use_for(Some("minecraft:diamond_sword"), Some(AirUse::Swing)),
+            Some(JAVA_SWORD_BLOCK)
+        );
+        let bow = Some(AirUse::Hold {
+            max_ticks: 72_000,
+            needs: assets::item_use::ItemUseRequirement::Arrow,
+            slowdown: 0.2,
+            cooldown: None,
+        });
+        assert_eq!(java_air_use_for(Some("minecraft:bow"), bow), bow);
+        assert_eq!(java_air_use_for(None, None), None);
+    }
 }

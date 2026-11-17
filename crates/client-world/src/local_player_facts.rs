@@ -25,6 +25,10 @@ pub struct LocalPlayerFacts {
     player_mode_from_default: bool,
     server_authoritative_block_breaking: Option<bool>,
     hunger: Option<LocalPlayerStat>,
+    /// A Java Edition server's last movement speed snapshot, as the core encoded it.
+    java_movement: Option<ActorAttribute>,
+    /// A Java Edition server's recent explosion pushes, as the core encoded them.
+    java_push: Option<ActorAttribute>,
     mount_unique_id: Option<i64>,
     movement: ActorMovementFacts,
     input_locks: protocol::ClientInputLocks,
@@ -208,6 +212,28 @@ impl LocalPlayerFacts {
         };
         self.hunger = Some(hunger);
         true
+    }
+
+    /// Retains a Java Edition server's movement speed snapshot, which the movement facts decode.
+    pub fn apply_java_movement(&mut self, attribute: &ActorAttribute) {
+        self.java_movement = Some(attribute.clone());
+    }
+
+    /// Retains a Java Edition server's recent explosion pushes, which the movement facts decode.
+    pub fn apply_java_push(&mut self, attribute: &ActorAttribute) {
+        self.java_push = Some(attribute.clone());
+    }
+
+    /// Returns a Java Edition server's recent explosion pushes, as the core encoded them.
+    #[must_use]
+    pub const fn java_push(&self) -> Option<&ActorAttribute> {
+        self.java_push.as_ref()
+    }
+
+    /// Returns a Java Edition server's last movement speed snapshot, as the core encoded it.
+    #[must_use]
+    pub const fn java_movement(&self) -> Option<&ActorAttribute> {
+        self.java_movement.as_ref()
     }
 
     /// Returns the hunger attribute in the same units used by the existing HUD adapter.

@@ -143,6 +143,14 @@ impl MenuRuntime {
             MenuAction::AddAccount | MenuAction::SwitchAccount(_) => {
                 self.show_notice("Sign out before using another account in this browser tab.");
             }
+            MenuAction::AddJavaAccount
+            | MenuAction::SwitchJavaAccount(_)
+            | MenuAction::RemoveJavaAccount
+            | MenuAction::ConfirmRemoveJavaAccount(_)
+            | MenuAction::OpenJavaSignInLink
+            | MenuAction::CancelJavaAccount => {
+                self.show_notice("Java accounts are not available in this browser tab.");
+            }
             MenuAction::PlayRealm(_) | MenuAction::PlayFriend(_) => {
                 self.show_notice(SERVICE_JOINS_UNAVAILABLE);
             }

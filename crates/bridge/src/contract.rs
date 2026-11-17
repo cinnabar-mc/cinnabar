@@ -155,6 +155,18 @@ pub const NETHERNET_SIGNALING_HTTP: &str = "http";
 /// Prefix for a host:port joined over RakNet without probing it for NetherNet.
 pub const RAKNET_TARGET_PREFIX: &str = "raknet/";
 
+/// Prefix for a Java Edition 1.7.10 server, given as a host with an optional port.
+pub const JAVA_TARGET_PREFIX: &str = "java/";
+
+/// Session handoff edition of a translated Java Edition 1.7.10 server.
+pub const JAVA_EDITION: &str = "java-1.7.10";
+
+/// Attribute carrying a Java Edition 1.7.10 server's recent explosion pushes of the local player, which the client's Java physics adds to its motion.
+pub const JAVA_PUSH_ATTRIBUTE: &str = "cinnabar:java_push";
+
+/// Attribute carrying a Java Edition 1.7.10 server's movement speed snapshots for the local player, base and modifiers with exact amounts, which the client's Java physics applies whole on the tick they arrive.
+pub const JAVA_MOVEMENT_ATTRIBUTE: &str = "cinnabar:java_movement";
+
 /// Version of the control JSON-RPC envelope.
 pub const JSON_RPC_VERSION: &str = "2.0";
 
@@ -223,6 +235,36 @@ pub const METHOD_LOCAL_WORLD: &str = "local_world.v1";
 
 /// Control method for world invite.
 pub const METHOD_WORLD_INVITE: &str = "world_invite.v1";
+
+/// Control method listing, adding, selecting and removing Java Edition accounts.
+pub const METHOD_JAVA_ACCOUNTS: &str = "java_accounts.v1";
+
+/// java_accounts.v1 action reporting the accounts and the sign-in under way.
+pub const JAVA_ACCOUNTS_LIST: &str = "list";
+
+/// java_accounts.v1 action starting the device-code sign-in of a new Java account.
+pub const JAVA_ACCOUNTS_ADD: &str = "add";
+
+/// java_accounts.v1 action stopping the sign-in under way.
+pub const JAVA_ACCOUNTS_CANCEL: &str = "cancel";
+
+/// java_accounts.v1 action selecting the account Java joins use.
+pub const JAVA_ACCOUNTS_SELECT: &str = "select";
+
+/// java_accounts.v1 action removing an account and its sign-in.
+pub const JAVA_ACCOUNTS_REMOVE: &str = "remove";
+
+/// No Java account sign-in is under way.
+pub const JAVA_ACCOUNT_ADD_IDLE: &str = "idle";
+
+/// A Java account sign-in waits for the player to enter its code.
+pub const JAVA_ACCOUNT_ADD_AWAITING_CODE: &str = "awaiting_code";
+
+/// The code was entered and the Java profile is being read.
+pub const JAVA_ACCOUNT_ADD_SIGNING_IN: &str = "signing_in";
+
+/// The last Java account sign-in failed; the reason says why.
+pub const JAVA_ACCOUNT_ADD_FAILED: &str = "failed";
 
 /// Control error code for parse error.
 pub const RPC_PARSE_ERROR: i64 = -32700;

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
@@ -31,6 +31,7 @@ mod primary_lookup;
 mod snapshot;
 pub use snapshot::CollisionSnapshot;
 mod identity;
+mod identity_wire;
 mod observation;
 mod physics_table;
 mod raycast;
@@ -72,71 +73,6 @@ pub struct CollisionRegistryIdentity {
 pub struct WorldCollisionIdentity {
     pub registry: CollisionRegistryIdentity,
     pub chunks: Box<[ChunkCollisionRevision]>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WorldIdentityWire {
-    protocol: u32,
-    id_space: CollisionIdSpace,
-    preg_sha256: [u8; 32],
-    chunks: Vec<ChunkRevisionWire>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ChunkRevisionWire {
-    dimension: i32,
-    x: i32,
-    z: i32,
-    revision: u64,
-}
-
-impl Serialize for WorldCollisionIdentity {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        WorldIdentityWire {
-            protocol: self.registry.protocol,
-            id_space: self.registry.id_space,
-            preg_sha256: self.registry.preg_sha256,
-            chunks: self
-                .chunks
-                .iter()
-                .map(|revision| ChunkRevisionWire {
-                    dimension: revision.chunk.dimension,
-                    x: revision.chunk.x,
-                    z: revision.chunk.z,
-                    revision: revision.revision,
-                })
-                .collect(),
-        }
-        .serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for WorldCollisionIdentity {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let wire = WorldIdentityWire::deserialize(deserializer)?;
-        Self::new(
-            CollisionRegistryIdentity {
-                protocol: wire.protocol,
-                id_space: wire.id_space,
-                preg_sha256: wire.preg_sha256,
-            },
-            wire.chunks
-                .into_iter()
-                .map(|revision| ChunkCollisionRevision {
-                    chunk: ChunkKey::new(revision.dimension, revision.x, revision.z),
-                    revision: revision.revision,
-                }),
-        )
-        .map_err(D::Error::custom)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -804,6 +740,23 @@ impl CollisionWorld for PaletteWorld<'_> {
         self.require_movement_origin(feet)
     }
 
+    /// Records the column's revision, or its absence: movement terrain records the boundary
+    /// revision, so a replay notices the column arriving, and other terrain fails the
+    /// observation, as any unavailable read does.
+    fn require_column(&self, chunk_x: i32, chunk_z: i32) -> Result<(), WorldQueryError> {
+        let key = ChunkKey::new(self.dimension, chunk_x, chunk_z);
+        if self.store.collision_revision(key).is_none() {
+            let absent = WorldQueryError::UnloadedChunk(key);
+            // Either outcome is latched in the observation, which reports it when it ends.
+            let _ = self.record_column_read(
+                self.unloaded_boundary_revision(key)
+                    .ok_or_else(|| absent.clone()),
+            );
+            return Err(absent);
+        }
+        self.column_revision(key).map(|_| ())
+    }
+
     fn registry_identity(&self) -> CollisionRegistryIdentity {
         self.registry.identity()
     }
@@ -823,6 +776,10 @@ impl CollisionWorld for PaletteWorld<'_> {
             value: self.primary_runtime_id(block)? == self.registry.air_runtime_id,
             identity: self.identity_for_block(block)?,
         }))
+    }
+
+    fn primary_block(&self, block: [i32; 3]) -> Result<Option<u32>, WorldQueryError> {
+        self.primary_runtime_id(block).map(Some)
     }
 
     fn snapshot(&self) -> Option<CollisionSnapshot> {

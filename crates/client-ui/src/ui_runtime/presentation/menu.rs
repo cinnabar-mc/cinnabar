@@ -705,6 +705,16 @@ fn append_dialog(
                 }),
             MenuAction::ConfirmLeaveRealm(id),
         ),
+        MenuDialog::RemoveJavaAccount(index) => (
+            "Remove Java account?",
+            view.feeds
+                .java_accounts
+                .accounts
+                .get(index)
+                .map(|account| account.name.as_str())
+                .unwrap_or("This Java account will be removed."),
+            MenuAction::ConfirmRemoveJavaAccount(index),
+        ),
         MenuDialog::RemoveSaved(index) => (
             "Remove saved server?",
             view.servers

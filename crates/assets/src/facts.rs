@@ -72,6 +72,7 @@ pub mod presentation;
 mod presentation_generated;
 pub use presentation_generated::{UiItemIcon, dimension_fallback_biome, dimension_id};
 
+pub mod java_legacy;
 pub mod java_mapping;
 pub use java_mapping::{JavaBlockMapping, JavaBlockState, java_biome, java_block_state};
 

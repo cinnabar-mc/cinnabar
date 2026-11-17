@@ -105,6 +105,14 @@ const (
 	NetherNetSignalingHTTP = "http"
 	// RakNetTargetPrefix: Prefix for a host:port joined over RakNet without probing it for NetherNet.
 	RakNetTargetPrefix = "raknet/"
+	// JavaTargetPrefix: Prefix for a Java Edition 1.7.10 server, given as a host with an optional port.
+	JavaTargetPrefix = "java/"
+	// JavaEdition: Session handoff edition of a translated Java Edition 1.7.10 server.
+	JavaEdition = "java-1.7.10"
+	// JavaPushAttribute: Attribute carrying a Java Edition 1.7.10 server's recent explosion pushes of the local player, which the client's Java physics adds to its motion.
+	JavaPushAttribute = "cinnabar:java_push"
+	// JavaMovementAttribute: Attribute carrying a Java Edition 1.7.10 server's movement speed snapshots for the local player, base and modifiers with exact amounts, which the client's Java physics applies whole on the tick they arrive.
+	JavaMovementAttribute = "cinnabar:java_movement"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.
@@ -151,6 +159,26 @@ const (
 	MethodLocalWorld = "local_world.v1"
 	// MethodWorldInvite: Control method for world invite.
 	MethodWorldInvite = "world_invite.v1"
+	// MethodJavaAccounts: Control method listing, adding, selecting and removing Java Edition accounts.
+	MethodJavaAccounts = "java_accounts.v1"
+	// JavaAccountsList: java_accounts.v1 action reporting the accounts and the sign-in under way.
+	JavaAccountsList = "list"
+	// JavaAccountsAdd: java_accounts.v1 action starting the device-code sign-in of a new Java account.
+	JavaAccountsAdd = "add"
+	// JavaAccountsCancel: java_accounts.v1 action stopping the sign-in under way.
+	JavaAccountsCancel = "cancel"
+	// JavaAccountsSelect: java_accounts.v1 action selecting the account Java joins use.
+	JavaAccountsSelect = "select"
+	// JavaAccountsRemove: java_accounts.v1 action removing an account and its sign-in.
+	JavaAccountsRemove = "remove"
+	// JavaAccountAddIdle: No Java account sign-in is under way.
+	JavaAccountAddIdle = "idle"
+	// JavaAccountAddAwaitingCode: A Java account sign-in waits for the player to enter its code.
+	JavaAccountAddAwaitingCode = "awaiting_code"
+	// JavaAccountAddSigningIn: The code was entered and the Java profile is being read.
+	JavaAccountAddSigningIn = "signing_in"
+	// JavaAccountAddFailed: The last Java account sign-in failed; the reason says why.
+	JavaAccountAddFailed = "failed"
 	// RPCParseError: Control error code for parse error.
 	RPCParseError = -32700
 	// RPCInvalidRequest: Control error code for invalid request.

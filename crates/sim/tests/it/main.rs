@@ -20,6 +20,7 @@ mod flight_native;
 mod glide_native;
 mod historical_world;
 mod immobile;
+mod java_physics;
 mod liquid;
 mod liquid_contact_native;
 mod liquid_exit_native;

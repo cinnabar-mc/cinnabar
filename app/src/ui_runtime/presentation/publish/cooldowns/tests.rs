@@ -175,6 +175,7 @@ fn hotbar_publishes_shared_attack_cooldowns_and_expiry() {
     let outcome = melee.resolve(
         gameplay::melee::Crosshair::Miss,
         &gameplay::melee::PressContext {
+            java_session: false,
             refused_destroy: None,
             actor_life: None,
             tick: 100,

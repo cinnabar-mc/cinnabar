@@ -42,6 +42,9 @@ impl MenuRuntime {
             return;
         }
         self.reload_accounts();
+        // A failed add's reason belongs to the dialog that showed it, however it was left.
+        self.dismiss_java_accounts();
+        self.refresh_java_accounts();
         self.dialog = Some(MenuDialog::Accounts);
         self.focused = 0;
         self.feeds.account_error = None;
@@ -54,6 +57,7 @@ impl MenuRuntime {
     pub fn set_presentation_accounts(&mut self, enabled: bool) -> bool {
         if enabled
             && (self.account_change_pending()
+                || self.feeds.java_accounts.add.in_progress()
                 || self.auth_restart_requested
                 || self.auth_process.as_ref().is_some_and(|process| {
                     matches!(
@@ -70,6 +74,8 @@ impl MenuRuntime {
         self.presentation_accounts = enabled;
         self.feeds.account_error = None;
         self.reload_accounts();
+        self.feeds.java_accounts = Default::default();
+        self.refresh_java_accounts();
         true
     }
 
@@ -79,6 +85,7 @@ impl MenuRuntime {
         if let std::borrow::Cow::Owned(profile) = self.presented_profile() {
             feeds.profile = profile;
         }
+        feeds.java_accounts.unavailable = !self.java_accounts_available();
         feeds
     }
 
@@ -129,6 +136,12 @@ impl MenuRuntime {
             | MenuAction::CancelSignIn
             | MenuAction::CloseSignIn
             | MenuAction::AddAccount
+            | MenuAction::AddJavaAccount
+            | MenuAction::SwitchJavaAccount(_)
+            | MenuAction::RemoveJavaAccount
+            | MenuAction::ConfirmRemoveJavaAccount(_)
+            | MenuAction::OpenJavaSignInLink
+            | MenuAction::CancelJavaAccount
             | MenuAction::SignOut => true,
             _ => false,
         }
@@ -224,8 +237,17 @@ impl MenuRuntime {
     }
 
     pub(super) fn dismiss_accounts(&mut self) {
+        if matches!(self.dialog, Some(MenuDialog::RemoveJavaAccount(_))) {
+            // Declining the removal returns to the accounts it was asked from.
+            self.dialog = Some(MenuDialog::Accounts);
+            self.focused = 0;
+            return;
+        }
         if self.dialog == Some(MenuDialog::Accounts) && self.feeds.account_adding {
             self.cancel_add_account();
+        }
+        if self.dialog == Some(MenuDialog::Accounts) {
+            self.dismiss_java_accounts();
         }
         self.dialog = None;
         if self.sign_in_focus().is_some() {

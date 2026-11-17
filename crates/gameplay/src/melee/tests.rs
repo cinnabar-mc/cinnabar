@@ -171,6 +171,7 @@ pub(super) fn press(input_mode: PlayerInputMode) -> PressContext {
     PressContext {
         refused_destroy: None,
         actor_life: None,
+        java_session: false,
         tick: 101,
         player_position: [0.5, 2.620_01, 0.5],
         input_mode,
@@ -216,6 +217,29 @@ fn one_press_attacks_once_before_its_swing_and_held_frames_do_nothing() {
         assert!(runtime.observe_input(false, true));
         let held = runtime.resolve(ZOMBIE, &press(PlayerInputMode::Mouse), &mut swings);
         assert!(held.packets.is_empty() && !held.missed_swing);
+    }
+}
+
+/// On a Java session every press swings first, as `Minecraft.clickMouse` does, even while the
+/// previous swing is still under way, and only then attacks.
+#[test]
+fn a_java_press_swings_before_it_attacks_every_time() {
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let java = PressContext {
+        java_session: true,
+        ..press(PlayerInputMode::Mouse)
+    };
+    for click in 0..3 {
+        assert!(runtime.observe_input(true, true));
+        let outcome = runtime.resolve(ZOMBIE, &java, &mut swings);
+        assert_eq!(
+            kinds(&outcome.packets),
+            ["AnimatePacket", "InventoryTransactionPacket"],
+            "click {click}"
+        );
+        // Releasing the button sends nothing; the next press is a new click.
+        runtime.observe_input(false, false);
     }
 }
 

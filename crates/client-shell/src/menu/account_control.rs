@@ -174,6 +174,7 @@ impl MenuRuntime {
         self.sync_invites(control);
         self.sync_realm_membership(control);
         self.sync_realm_leave(control);
+        self.sync_java_accounts(control, std::time::Instant::now());
     }
 
     /// Sign out without a launcher core: the saved tokens are removed here.

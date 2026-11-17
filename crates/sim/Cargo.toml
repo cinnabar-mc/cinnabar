@@ -8,6 +8,8 @@ publish = false
 [package.metadata.cinnabar]
 reads = [
     "assets/block-projection-v2225.json",
+    "core/javaedition/legacy/blocks.tsv",
+    "crates/java-sim/fixtures/traces/*",
     "crates/assets/data/block-physics-v2225.bin",
     "tools/bedsimtrace-controls/*",
     "tools/bedsimtrace-v0.1.4/*",
@@ -19,6 +21,7 @@ reads = [
 simulation-clock = { path = "../simulation-clock" }
 assets = { path = "../assets" }
 block-transform = { path = "../block-transform" }
+java-sim = { path = "../java-sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2.workspace = true
@@ -27,6 +30,7 @@ world = { path = "../world" }
 
 [dev-dependencies]
 criterion.workspace = true
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 test-alloc = { path = "../test-alloc" }
 
 [[bench]]

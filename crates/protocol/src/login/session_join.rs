@@ -168,6 +168,7 @@ impl LoginSequence {
             spawned.terrain_before_spawn,
         );
         session.identity = handoff.identity;
+        session.java_edition = handoff.edition.as_deref() == Some(bridge::contract::JAVA_EDITION);
         Ok((session, prepared))
     }
 }

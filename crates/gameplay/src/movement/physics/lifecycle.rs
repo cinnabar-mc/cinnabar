@@ -53,6 +53,14 @@ impl LocalPhysicsController {
             .expect("local physics history capacity is non-zero");
     }
 
+    /// Starts a new Java Edition player at the next tick, as the 1.7.10 client does after a
+    /// respawn or a dimension change, which otherwise move the player like a teleport.
+    pub fn replace_java_player(&mut self) {
+        if let Some(state) = self.state.as_mut() {
+            state.forget_java_player();
+        }
+    }
+
     /// Replaces prediction state from a server network-position anchor.
     ///
     /// Bedrock player movement positions carry the protocol network offset;

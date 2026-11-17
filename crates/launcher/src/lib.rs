@@ -46,6 +46,7 @@ pub mod dressing_room;
 pub mod global_resources;
 pub mod graphics_backend;
 pub mod install_layout;
+pub mod java_accounts;
 pub mod local_worlds;
 pub mod menu;
 pub mod minecraft_import;

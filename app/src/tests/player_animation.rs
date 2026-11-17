@@ -756,6 +756,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
     };
     let empty = protocol::NetworkItemStack::empty();
     let press = PressContext {
+        java_session: false,
         refused_destroy: None,
         actor_life: None,
         tick: 101,

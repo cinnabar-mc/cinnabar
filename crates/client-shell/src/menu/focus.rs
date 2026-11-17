@@ -1,6 +1,7 @@
 //! Keyboard and gamepad focus: the actions each launcher screen cycles
 //! through, and moving or activating the focused one.
 
+use launcher::java_accounts::JavaAccountAdd;
 use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingKind};
 use launcher::menu::view::{SettingsFocusAxis, SettingsFocusLandmark, SettingsFocusTarget};
 use {
@@ -429,6 +430,15 @@ impl MenuRuntime {
                     if self.feeds.account_adding {
                         return vec![MenuAction::CancelSignIn];
                     }
+                    let java = &self.feeds.java_accounts;
+                    if java.add.in_progress() {
+                        let mut actions = Vec::new();
+                        if matches!(java.add, JavaAccountAdd::AwaitingCode { .. }) {
+                            actions.push(MenuAction::OpenJavaSignInLink);
+                        }
+                        actions.extend([MenuAction::CancelJavaAccount, MenuAction::DismissDialog]);
+                        return actions;
+                    }
                     let mut actions: Vec<_> = self
                         .feeds
                         .accounts
@@ -439,8 +449,21 @@ impl MenuRuntime {
                         })
                         .map(|(index, _)| MenuAction::SwitchAccount(index))
                         .collect();
+                    actions.extend(
+                        java.accounts
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, account)| Some(&account.id) != java.selected.as_ref())
+                            .map(|(index, _)| MenuAction::SwitchJavaAccount(index)),
+                    );
+                    actions.push(MenuAction::AddAccount);
+                    if self.java_accounts_available() {
+                        actions.push(MenuAction::AddJavaAccount);
+                        if java.selected.is_some() {
+                            actions.push(MenuAction::RemoveJavaAccount);
+                        }
+                    }
                     actions.extend([
-                        MenuAction::AddAccount,
                         MenuAction::Navigate(MenuScreen::Profile),
                         MenuAction::DismissDialog,
                     ]);
@@ -482,6 +505,10 @@ impl MenuRuntime {
                 ],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
+                    MenuAction::DismissDialog,
+                ],
+                MenuDialog::RemoveJavaAccount(index) => vec![
+                    MenuAction::ConfirmRemoveJavaAccount(index),
                     MenuAction::DismissDialog,
                 ],
                 MenuDialog::LeaveRealm(id) => {

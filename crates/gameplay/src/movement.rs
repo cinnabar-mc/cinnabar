@@ -492,6 +492,8 @@ impl MovementTicker {
             input_mode: sample.input_mode,
             interaction_model: self.interaction_model(sample.input_mode),
             vehicle: sample.processed.vehicle.map(|vehicle| vehicle.input()),
+            java_position: sample.processed.java_position,
+            java_sink: sample.processed.java_sink,
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
@@ -884,6 +886,7 @@ impl MovementTicker {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
                     pending.snapshot.position = replayed.position;
+                    pending.snapshot.java_position = replayed.processed.java_position;
                     if let Some(mining) = pending.mining.as_mut() {
                         mining.replay_at(replayed.position);
                     }
