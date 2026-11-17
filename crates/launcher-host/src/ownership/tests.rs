@@ -68,6 +68,21 @@ fn a_stored_account_check_is_not_a_new_sign_in() {
     assert!(!finding.signed_in && codes.is_empty());
 }
 
+/// A shown code alone replaces nothing; only the helper's answer says new credentials were saved.
+#[test]
+fn an_unfinished_sign_in_keeps_the_old_account() {
+    let (finding, codes) = run(&[
+        r#"{"v":1,"event":"checking_cache"}"#,
+        r#"{"v":1,"event":"device_code","verification_uri":"https://login.example.test/device","user_code":"ABCD-1234"}"#,
+        r#"{"v":1,"event":"ownership","result":"sign_in_required","reason":"device_complete:http_400:access_denied"}"#,
+    ]);
+    assert_eq!(codes.len(), 1);
+    assert_eq!(
+        (finding.check, finding.signed_in),
+        (Check::SignInRequired, false)
+    );
+}
+
 #[test]
 fn a_helper_that_ends_or_misbehaves_is_unverifiable() {
     for lines in [
@@ -88,7 +103,7 @@ fn cancelling_stops_a_waiting_helper() {
     let (child, directory) = event_child_holding(&[r#"{"v":1,"event":"checking_cache"}"#]);
     let finding = follow(child.into(), &AtomicBool::new(true), |_, _| {});
     let _ = fs::remove_dir_all(directory);
-    assert_eq!(finding, Finding::unverifiable("cancelled", false));
+    assert_eq!(finding, Finding::unverifiable("cancelled"));
 }
 
 #[test]

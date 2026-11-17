@@ -66,16 +66,16 @@ pub struct Finding {
     pub check: Check,
     /// A short credential-free code for the log.
     pub reason: String,
-    /// The check signed in a new license account, replacing the old one.
+    /// A new license account's credentials replaced the old ones.
     pub signed_in: bool,
 }
 
 impl Finding {
-    fn unverifiable(reason: &str, signed_in: bool) -> Self {
+    fn unverifiable(reason: &str) -> Self {
         Self {
             check: Check::Unverifiable,
             reason: reason.to_owned(),
-            signed_in,
+            signed_in: false,
         }
     }
 }
@@ -95,6 +95,8 @@ enum WireEvent {
         v: u8,
         result: Check,
         reason: String,
+        #[serde(default)]
+        signed_in: bool,
     },
 }
 
@@ -109,7 +111,7 @@ pub fn check_account(
     on_code: impl FnMut(&str, &str),
 ) -> Finding {
     let Some(executable) = crate::core_process::core_executable(layout) else {
-        return Finding::unverifiable("core_missing", false);
+        return Finding::unverifiable("core_missing");
     };
     let mut command = Command::new(executable);
     command
@@ -124,7 +126,7 @@ pub fn check_account(
     }
     match core_output::spawn(&mut command, CoreRole::SignIn) {
         Ok(child) => follow(child, cancel, on_code),
-        Err(_) => Finding::unverifiable("core_start", false),
+        Err(_) => Finding::unverifiable("core_start"),
     }
 }
 
@@ -132,23 +134,22 @@ pub fn check_account(
 fn follow(child: Spawned, cancel: &AtomicBool, mut on_code: impl FnMut(&str, &str)) -> Finding {
     let Some(stdout) = child.take_stdout() else {
         child.kill();
-        return Finding::unverifiable("core_stdout", false);
+        return Finding::unverifiable("core_stdout");
     };
     let (sender, receiver) = bounded(EVENT_CAPACITY);
     let reader = thread::spawn(move || read_events(stdout, sender));
-    let mut signed_in = false;
     let finding = loop {
         if cancel.load(Ordering::Relaxed) {
-            break Finding::unverifiable("cancelled", signed_in);
+            break Finding::unverifiable("cancelled");
         }
         let line = match receiver.recv_timeout(CANCEL_POLL) {
             Ok(ReaderMessage::Line(line)) => line,
             Err(RecvTimeoutError::Timeout) => continue,
             Ok(ReaderMessage::Invalid(_)) => {
-                break Finding::unverifiable("helper_output", signed_in);
+                break Finding::unverifiable("helper_output");
             }
             Ok(ReaderMessage::End) | Err(RecvTimeoutError::Disconnected) => {
-                break Finding::unverifiable("helper_exited", signed_in);
+                break Finding::unverifiable("helper_exited");
             }
         };
         match serde_json::from_slice::<WireEvent>(&line) {
@@ -158,13 +159,13 @@ fn follow(child: Spawned, cancel: &AtomicBool, mut on_code: impl FnMut(&str, &st
                 verification_uri,
                 user_code,
             }) if valid_https_uri(&verification_uri) && valid_code(&user_code) => {
-                signed_in = true;
                 on_code(&verification_uri, &user_code);
             }
             Ok(WireEvent::Ownership {
                 v: 1,
                 result,
                 reason,
+                signed_in,
             }) => {
                 break Finding {
                     check: result,
@@ -172,7 +173,7 @@ fn follow(child: Spawned, cancel: &AtomicBool, mut on_code: impl FnMut(&str, &st
                     signed_in,
                 };
             }
-            _ => break Finding::unverifiable("helper_output", signed_in),
+            _ => break Finding::unverifiable("helper_output"),
         }
     };
     // The helper saves everything before it answers, so nothing is lost by stopping it now.

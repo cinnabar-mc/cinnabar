@@ -75,7 +75,7 @@ impl Screen {
             Self::Consent => &[Action::Accept, Action::ViewEula, Action::Quit],
             Self::Verifying => &[Action::Quit],
             Self::SignIn { .. } => &[Action::OpenLink, Action::Quit],
-            Self::Refused { refusal, sources } => refused_actions(*refusal, sources.local_install),
+            Self::Refused { refusal, sources } => refused_actions(*refusal, *sources),
             Self::Failed { .. } => &[Action::Retry, Action::Quit],
             Self::Done => &[],
             Self::Starting | Self::Downloading { .. } | Self::Preparing { .. } => &[Action::Quit],
@@ -116,7 +116,7 @@ impl Screen {
             (
                 Action::SignIn,
                 Self::Refused {
-                    refusal: Refusal::NotOwned,
+                    refusal: Refusal::NotOwned | Refusal::Unverifiable,
                     ..
                 },
             ) => "Use another account",
@@ -186,8 +186,15 @@ impl Screen {
 }
 
 /// A refusal's buttons; "Get Minecraft" appears only when the game is missing or not owned.
-const fn refused_actions(refusal: Refusal, local_install: bool) -> &'static [Action] {
-    match (refusal, local_install) {
+const fn refused_actions(refusal: Refusal, sources: Sources) -> &'static [Action] {
+    if matches!(refusal, Refusal::Unverifiable) {
+        return if sources.account {
+            &[Action::Retry, Action::SignIn, Action::Quit]
+        } else {
+            &[Action::Retry, Action::Quit]
+        };
+    }
+    match (refusal, sources.local_install) {
         (Refusal::NotInstalled, _) => &[Action::GetMinecraft, Action::Retry, Action::Quit],
         (Refusal::NotOwned, true) => &[
             Action::SignIn,

@@ -175,6 +175,23 @@ pub fn record(
     }
 }
 
+/// Records `check` in the pass at `pass_path` while holding the license account's lock, so it
+/// cannot race [`forget_license`]. A check whose account was removed meanwhile records nothing.
+pub fn record_check(
+    license_cache: &Path,
+    pass_path: &Path,
+    check: Check,
+    fresh_sign_in: bool,
+    now: u64,
+) -> io::Result<Verdict> {
+    let _leases = crate::accounts::cache_leases(license_cache)?;
+    let (pass, verdict) = record(load_pass(pass_path), check, fresh_sign_in, now);
+    if license_cache.is_file() {
+        save_pass(pass_path, pass.as_ref())?;
+    }
+    Ok(verdict)
+}
+
 /// The saved pass; a missing or unreadable one is none.
 #[must_use]
 pub fn load_pass(path: &Path) -> Option<Pass> {

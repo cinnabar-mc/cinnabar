@@ -106,16 +106,23 @@ fn account(
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return Verdict::Deny(Check::Unverifiable);
     }
-    let path = layout.ownership_pass_file();
-    let (pass, verdict) = policy::record(
-        policy::load_pass(&path),
+    let verdict = policy::record_check(
+        &layout.license_cache(),
+        &layout.ownership_pass_file(),
         finding.check,
         finding.signed_in,
         unix_now(),
-    );
-    if let Err(error) = policy::save_pass(&path, pass.as_ref()) {
+    )
+    .unwrap_or_else(|error| {
         tracing::warn!(kind = ?error.kind(), "ownership pass not saved");
-    }
+        policy::record(
+            policy::load_pass(&layout.ownership_pass_file()),
+            finding.check,
+            finding.signed_in,
+            unix_now(),
+        )
+        .1
+    });
     tracing::info!(
         source = "account",
         result = ?finding.check,
@@ -190,6 +197,8 @@ pub(crate) fn with_dialogs(
         };
         let offers_sign_in =
             available.account && matches!(refusal, Refusal::NotOwned | Refusal::SignInRequired);
+        // A stored account the service keeps refusing must still be replaceable.
+        let switch = available.account && refusal == Refusal::Unverifiable;
         let question = if offers_sign_in {
             "Sign in with a Microsoft account now?"
         } else {
@@ -202,6 +211,12 @@ pub(crate) fn with_dialogs(
         text.push_str(&format!("\n\n{question}"));
         match prompter.confirm(title_text, &text) {
             Consent::Accepted => sign_in = offers_sign_in,
+            Consent::Declined if switch => {
+                match prompter.confirm(title_text, "Sign in with a different Microsoft account?") {
+                    Consent::Accepted => sign_in = true,
+                    Consent::Declined | Consent::Unavailable => return false,
+                }
+            }
             Consent::Declined => return false,
             Consent::Unavailable => {
                 prompter.alert(title_text, &text);

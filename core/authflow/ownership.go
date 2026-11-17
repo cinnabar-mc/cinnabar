@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"golang.org/x/oauth2"
@@ -43,6 +44,9 @@ type OwnershipConfig struct {
 	Logger   *slog.Logger
 }
 
+// checkTimeout bounds each non-interactive exchange: the token refresh and the entitlement check.
+const checkTimeout = 60 * time.Second
+
 var (
 	errNoLicense       = errors.New("no license account")
 	errLicenseRejected = errors.New("license account sign-in rejected")
@@ -50,7 +54,8 @@ var (
 )
 
 // Ownership checks whether the license account owns Minecraft and emits one terminal
-// ownership event; tokens and entitlement payloads never reach the stream or the log.
+// ownership event, marked signed_in once a new account's credentials are saved; tokens and
+// entitlement payloads never reach the stream or the log.
 func Ownership(ctx context.Context, config OwnershipConfig) error {
 	writer := config.Writer
 	if writer == nil {
@@ -60,17 +65,20 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 		return err
 	}
 	if config.Path == "" || config.Licenses == nil {
-		return finishOwnership(writer, config.Logger, LicenseCheck{Result: ResultUnverifiable, Reason: "configuration"})
+		return finishOwnership(writer, config.Logger, LicenseCheck{Result: ResultUnverifiable, Reason: "configuration"}, false)
 	}
 	licenses := config.Licenses
 	skipCached := config.SignIn
+	signedIn := false
 	var refreshErr error
+	refreshCtx, cancelRefresh := context.WithTimeout(ctx, checkTimeout)
+	defer cancelRefresh()
 	refresh := func(token *oauth2.Token, _ io.Writer) oauth2.TokenSource {
 		if skipCached {
 			skipCached = false
 			return nil
 		}
-		return recordingSource{source: licenses.TokenSource(ctx, token), failure: &refreshErr}
+		return recordingSource{source: licenses.TokenSource(refreshCtx, token), failure: &refreshErr}
 	}
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
 		skipCached = false
@@ -85,25 +93,30 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 			}
 		}
 		flow := DeviceFlow{Authorize: licenses.DeviceAuth, Token: licenses.DeviceToken, Pending: config.Path, Logger: config.Logger}
-		return flow.Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
+		token, err := flow.Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
 			return emit(writer, event{Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI, UserCode: response.UserCode})
 		})
+		signedIn = err == nil
+		return token, err
 	}
 	source, err := authcache.Source(ctx, authcache.Config{Path: config.Path, Writer: io.Discard, Request: request, Refresh: refresh})
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return finishOwnership(writer, config.Logger, signInFailure(err, refreshErr))
+		return finishOwnership(writer, config.Logger, signInFailure(err, refreshErr), false)
 	}
+	// Source saved any new account's credentials before returning.
 	token, err := source.Token()
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return finishOwnership(writer, config.Logger, LicenseCheck{Result: ResultUnverifiable, Reason: "token:" + failureReason(err)})
+		return finishOwnership(writer, config.Logger, LicenseCheck{Result: ResultUnverifiable, Reason: "token:" + failureReason(err)}, signedIn)
 	}
-	check := licenses.Check(ctx, token)
+	checkCtx, cancelCheck := context.WithTimeout(ctx, checkTimeout)
+	check := licenses.Check(checkCtx, token)
+	cancelCheck()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -112,7 +125,7 @@ func Ownership(ctx context.Context, config OwnershipConfig) error {
 			config.Logger.Warn("entitlement document not saved", "diagnostic", authcache.FailureDiagnostic(err))
 		}
 	}
-	return finishOwnership(writer, config.Logger, check)
+	return finishOwnership(writer, config.Logger, check, signedIn)
 }
 
 // signInFailure classifies why no license token was available.
@@ -162,9 +175,9 @@ func (s recordingSource) Token() (*oauth2.Token, error) {
 }
 
 // finishOwnership logs and emits the terminal ownership event.
-func finishOwnership(writer io.Writer, logger *slog.Logger, check LicenseCheck) error {
+func finishOwnership(writer io.Writer, logger *slog.Logger, check LicenseCheck, signedIn bool) error {
 	if logger != nil {
-		logger.Info("ownership checked", "result", check.Result, "reason", check.Reason)
+		logger.Info("ownership checked", "result", check.Result, "reason", check.Reason, "signed_in", signedIn)
 	}
-	return emit(writer, event{Version: 1, Kind: "ownership", Result: check.Result, Reason: check.Reason})
+	return emit(writer, event{Version: 1, Kind: "ownership", Result: check.Result, Reason: check.Reason, SignedIn: signedIn})
 }

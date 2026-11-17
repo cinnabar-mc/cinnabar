@@ -94,6 +94,19 @@ fn dialogs_offer_sign_in_only_with_an_account_source() {
         (true, vec![false, false]),
         "an unverifiable check retries without a new sign-in"
     );
+    assert_eq!(
+        dialogs(
+            ACCOUNT,
+            &[Consent::Declined, Consent::Accepted],
+            &[unverifiable, Answer::Allowed]
+        ),
+        (true, vec![false, true]),
+        "a stored account that keeps failing can be replaced"
+    );
+    assert_eq!(
+        dialogs(LOCAL, &[Consent::Declined], &[unverifiable]),
+        (false, vec![false])
+    );
 }
 
 #[test]
@@ -105,6 +118,7 @@ fn get_minecraft_is_offered_only_when_the_game_is_missing_or_not_owned() {
         (Refusal::SignInRequired, ACCOUNT, false),
         (Refusal::SignInRequired, BOTH, false),
         (Refusal::Unverifiable, BOTH, false),
+        (Refusal::Unverifiable, LOCAL, false),
     ] {
         let screen = Screen::Refused {
             refusal,
@@ -117,7 +131,7 @@ fn get_minecraft_is_offered_only_when_the_game_is_missing_or_not_owned() {
         );
         assert_eq!(
             screen.actions().contains(&Action::SignIn),
-            available.account && matches!(refusal, Refusal::NotOwned | Refusal::SignInRequired),
+            available.account,
             "{refusal:?}"
         );
         assert!(screen.body().ends_with(NOTICE));

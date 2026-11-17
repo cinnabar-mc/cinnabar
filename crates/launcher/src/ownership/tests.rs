@@ -194,6 +194,21 @@ fn passes_round_trip_and_forgetting_the_license_removes_its_files() {
 }
 
 #[test]
+fn a_check_finishing_after_removal_restores_no_pass() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("license/microsoft-token.json");
+    let pass_file = dir.path().join("license/ownership.json");
+    assert_eq!(
+        record_check(&cache, &pass_file, Check::Verified, false, T0).unwrap(),
+        Verdict::Allow
+    );
+    assert_eq!(load_pass(&pass_file), None);
+    std::fs::write(&cache, b"{}").unwrap();
+    record_check(&cache, &pass_file, Check::Verified, false, T0).unwrap();
+    assert_eq!(load_pass(&pass_file), Some(pass(T0)));
+}
+
+#[test]
 fn client_ids_must_be_guids() {
     assert!(valid_client_id("00000000-0000-0000-0000-00000000abcd"));
     assert!(!valid_client_id("00000000000000000000000000000000abcd"));
