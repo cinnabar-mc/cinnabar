@@ -37,14 +37,31 @@ pub(crate) fn screen_binding(virtualize: bool) -> json_ui::BindState {
     binding
 }
 
+/// The search tab's label while the craftable-only toggle is off.
+const ALL_ITEMS_LABEL: &str = "craftingScreen.tab.allItems";
+/// The search tab's label while the craftable-only toggle is on.
+const CRAFTABLE_ITEMS_LABEL: &str = "craftingScreen.tab.craftableItems";
 /// Tab labels by screen-state tab; the search tab's label is provisional.
 const TAB_LABELS: [&str; 5] = [
     "craftingScreen.tab.construction",
     "craftingScreen.tab.nature",
     "craftingScreen.tab.equipment",
     "craftingScreen.tab.items",
-    "craftingScreen.tab.allItems",
+    ALL_ITEMS_LABEL,
 ];
+
+/// The translation key of the heading over the book's list. Only the search tab lists every
+/// item, so only it names the filtered listing when the craftable-only toggle is on.
+fn tab_label_key(tab: InventoryTab, filtering: bool) -> &'static str {
+    match crate::container_actions::inventory_tab_ui(tab) {
+        Some(SEARCH_TAB) if filtering => CRAFTABLE_ITEMS_LABEL,
+        Some(index) => TAB_LABELS
+            .get(usize::from(index))
+            .copied()
+            .unwrap_or(ALL_ITEMS_LABEL),
+        None => ALL_ITEMS_LABEL,
+    }
+}
 /// The filter toggle's `$toggle_name`.
 const FILTER_TOGGLE: &str = "toggle.enableFiltering";
 /// Cell backgrounds: a plain entry, a folded and an unfolded group head, and
@@ -139,10 +156,7 @@ pub fn book_data(
     let controller = state.inventory;
     let tab = controller.options.left_tab;
     option_bindings(data, controller, creative, shown);
-    let label = crate::container_actions::inventory_tab_ui(tab)
-        .and_then(|tab| TAB_LABELS.get(usize::from(tab)))
-        .copied()
-        .unwrap_or("craftingScreen.tab.allItems");
+    let label = tab_label_key(tab, source.recipe_filtering());
     let label = source
         .translation(label)
         .map_or_else(|| label.to_owned(), |text| text.to_string());
