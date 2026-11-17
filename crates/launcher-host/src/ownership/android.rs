@@ -61,15 +61,17 @@ pub(super) fn found() -> bool {
     install == policy::Install::Verified
 }
 
-/// Whether Google Play can vouch for installs here, logging the first refusal's reason. A probe
-/// that cannot reach `PackageManager` keeps the source, so the gate stays on and the install
-/// check reports the failure.
+/// Whether Google Play can vouch for installs here, logging the first refusal's reason. Only a
+/// clean answer turns the source off: a probe whose reads failed keeps it, so the gate stays on
+/// and the install check reports the failure.
 pub(super) fn store_usable() -> bool {
     static LOGGED: Once = Once::new();
-    let available = with_packages(|packages: &mut Jni<'_, '_>| policy::store_available(packages));
+    let available = with_packages(|packages: &mut Jni<'_, '_>| {
+        (policy::store_available(packages), packages.failed)
+    });
     match available {
-        Ok(Ok(())) => true,
-        Ok(Err(unavailable)) => {
+        Ok((Ok(()), _)) => true,
+        Ok((Err(unavailable), false)) => {
             LOGGED.call_once(|| {
                 tracing::info!(
                     source = "local_install",
@@ -78,6 +80,10 @@ pub(super) fn store_usable() -> bool {
                 );
             });
             false
+        }
+        Ok((Err(_), true)) => {
+            tracing::warn!("ownership store probe failed");
+            true
         }
         Err(error) => {
             tracing::warn!(%error, "ownership store probe failed");
@@ -98,7 +104,11 @@ fn with_packages<T>(read: impl FnOnce(&mut Jni<'_, '_>) -> T) -> jni::errors::Re
                     &[],
                 )?
                 .l()?;
-            Ok(read(&mut Jni { env, manager }))
+            Ok(read(&mut Jni {
+                env,
+                manager,
+                failed: false,
+            }))
         })
     })
 }
@@ -119,6 +129,23 @@ fn with_context<T>(
     clearing(&mut *env, |env| probe(env, &application))
 }
 
+/// Clears any pending Java exception; true when it was `NameNotFoundException`, which means the
+/// package is not installed for this user.
+fn clear_absent_package(env: &mut JNIEnv<'_>) -> bool {
+    let thrown = env
+        .exception_occurred()
+        .ok()
+        .filter(|thrown| !thrown.is_null());
+    let _ = env.exception_clear();
+    thrown.is_some_and(|thrown| {
+        env.is_instance_of(
+            &thrown,
+            "android/content/pm/PackageManager$NameNotFoundException",
+        )
+        .unwrap_or(false)
+    })
+}
+
 /// Runs `call`, clearing any Java exception it left pending.
 fn clearing<'local, T>(
     env: &mut JNIEnv<'local>,
@@ -135,16 +162,29 @@ fn clearing<'local, T>(
 struct Jni<'a, 'local> {
     env: &'a mut JNIEnv<'local>,
     manager: JObject<'local>,
+    /// Set once a read fails for any reason but the package being absent.
+    failed: bool,
 }
 
 impl<'local> Jni<'_, 'local> {
-    /// One read; a failure or thrown exception reads as `None`.
+    /// One read; a failure or thrown exception reads as `None`, and any but
+    /// `NameNotFoundException` also sets [`Self::failed`].
     fn read<T>(
         &mut self,
         read: impl FnOnce(&mut JNIEnv<'local>, &JObject<'local>) -> jni::errors::Result<T>,
     ) -> Option<T> {
-        let Self { env, manager } = self;
-        clearing(env, |env| read(env, manager)).ok()
+        let Self {
+            env,
+            manager,
+            failed,
+        } = self;
+        match read(&mut **env, &*manager) {
+            Ok(value) => Some(value),
+            Err(_) => {
+                *failed |= !clear_absent_package(&mut **env);
+                None
+            }
+        }
     }
 }
 

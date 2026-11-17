@@ -274,9 +274,13 @@ fn the_manifest_can_see_the_game_and_its_store() {
         .flat_map(str::split_whitespace)
         .collect::<Vec<_>>()
         .join(" ");
+    let queries = manifest
+        .split_once("<queries>")
+        .and_then(|(_, rest)| rest.split_once("</queries>"))
+        .map_or("", |(queries, _)| queries);
     for package in [PACKAGE, STORE] {
-        let query = format!("<package android:name=\"{package}\" />");
-        assert!(manifest.contains(&query), "{package}");
+        let query = format!("<package android:name=\"{package}\"");
+        assert!(queries.contains(&query), "{package} is not under <queries>");
     }
     assert!(!manifest.contains("QUERY_ALL_PACKAGES"));
 }

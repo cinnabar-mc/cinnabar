@@ -90,7 +90,8 @@ pub(crate) fn verify(
     on_code: &mut dyn FnMut(&str, &str),
 ) -> Answer {
     let available = sources::available();
-    if !sign_in && found_locally(available) {
+    // A retry decides as the launch would: with no source left, the gate is off.
+    if !available.gated() || (!sign_in && found_locally(available)) {
         return Answer::Allowed;
     }
     let Some(client_id) = available.client_id() else {
