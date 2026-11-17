@@ -42,7 +42,7 @@ const CLOCK_SLACK_SECS: u64 = 10 * 60;
 pub enum Store {
     /// Minecraft for Windows from the Microsoft Store or the Xbox app.
     Microsoft,
-    /// [`android::PACKAGE`] from Google Play or the Amazon Appstore.
+    /// [`android::PACKAGE`] from Google Play.
     Android,
 }
 

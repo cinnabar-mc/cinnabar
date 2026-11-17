@@ -43,7 +43,7 @@ final class SetupScreen extends FrameLayout {
     private final FrameLayout overlay;
     private final Button cancel;
     private final Runnable onCancel;
-    private LinearLayout prompt;
+    private ScrollView prompt;
 
     /** One prompt button; a dismissing one closes the prompt before its action runs. */
     private static final class Choice {
@@ -175,16 +175,16 @@ final class SetupScreen extends FrameLayout {
         cancel.setVisibility(GONE);
         startup.setVisibility(GONE);
         // Limits line length on wide landscape screens.
-        prompt = new LinearLayout(context) {
+        LinearLayout column = new LinearLayout(context) {
             @Override protected void onMeasure(int width, int height) {
                 int limit = Math.min(MeasureSpec.getSize(width), dp(PROMPT_MAX_WIDTH_DP));
                 super.onMeasure(MeasureSpec.makeMeasureSpec(limit, MeasureSpec.EXACTLY), height);
             }
         };
-        prompt.setOrientation(LinearLayout.VERTICAL);
-        prompt.setGravity(Gravity.CENTER_HORIZONTAL);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.CENTER_HORIZONTAL);
         int margin = dp(BUTTON_GAP_DP);
-        prompt.setPadding(margin, margin, margin, margin);
+        column.setPadding(margin, margin, margin, margin);
 
         Bitmap logo = startup.logo();
         if (logo != null) {
@@ -192,7 +192,7 @@ final class SetupScreen extends FrameLayout {
             image.setImageBitmap(logo);
             image.setAdjustViewBounds(true);
             image.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-            prompt.addView(image, new LinearLayout.LayoutParams(
+            column.addView(image, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(LOGO_HEIGHT_DP)));
         }
         TextView heading = text(title, TITLE_SP);
@@ -200,7 +200,7 @@ final class SetupScreen extends FrameLayout {
         LinearLayout.LayoutParams headingPosition = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         headingPosition.topMargin = margin;
-        prompt.addView(heading, headingPosition);
+        column.addView(heading, headingPosition);
 
         TextView message = text("", BODY_SP);
         message.setTextColor(startup.color("foreground") & 0x00ffffff | BODY_ALPHA << 24);
@@ -208,14 +208,12 @@ final class SetupScreen extends FrameLayout {
         message.setLineSpacing(0, BODY_LINE_SPACING);
         message.setAutoLinkMask(Linkify.WEB_URLS);
         message.setText(body);
-        ScrollView scroll = new ScrollView(context);
-        scroll.setScrollbarFadingEnabled(false);
-        scroll.addView(message);
-        LinearLayout.LayoutParams scrollPosition = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1);
-        scrollPosition.topMargin = margin;
-        scrollPosition.bottomMargin = margin;
-        prompt.addView(scroll, scrollPosition);
+        // Takes the column's spare height, so the buttons sit at the bottom when everything fits.
+        LinearLayout.LayoutParams messagePosition = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        messagePosition.topMargin = margin;
+        messagePosition.bottomMargin = margin;
+        column.addView(message, messagePosition);
 
         // A row while the buttons fit, otherwise a column, so large font scales keep every action.
         LinearLayout actions = new LinearLayout(context) {
@@ -237,11 +235,16 @@ final class SetupScreen extends FrameLayout {
             actions.addView(view, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP)));
         }
-        prompt.addView(actions, new LinearLayout.LayoutParams(
+        column.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT,
+        // The whole prompt scrolls when stacked buttons or a large font scale outgrow the screen.
+        prompt = new ScrollView(context);
+        prompt.setFillViewport(true);
+        prompt.setScrollbarFadingEnabled(false);
+        prompt.addView(column, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER_HORIZONTAL));
+        overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         if (primary != null) primary.requestFocus();
         announceForAccessibility(title);
     }

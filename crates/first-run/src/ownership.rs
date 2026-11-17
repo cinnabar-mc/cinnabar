@@ -39,17 +39,35 @@ pub(crate) enum Answer {
     Denied(Refusal),
 }
 
-/// Set once [`verify_with_host`] opens the gate, so the game activity Android's setup activity
-/// starts in the same process doesn't ask again.
-static OPENED_BY_HOST: AtomicBool = AtomicBool::new(false);
+/// A gate a setup host opened, handed to the one game start that follows it in this process.
+pub(crate) struct Handoff(AtomicBool);
 
-/// Whether play may continue without asking the player: the gate is off, a setup activity in this
-/// process opened it, the local install was found, or a valid pass exists (which is then
-/// re-checked in the background).
-pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
-    if OPENED_BY_HOST.load(Ordering::Acquire) {
-        return true;
+impl Handoff {
+    const fn new() -> Self {
+        Self(AtomicBool::new(false))
     }
+
+    /// Starts a setup attempt; an earlier attempt's unclaimed answer no longer counts.
+    fn begin(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+
+    fn open(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    /// Whether the latest attempt opened the gate since the last claim; claims it.
+    pub(crate) fn claim(&self) -> bool {
+        self.0.swap(false, Ordering::AcqRel)
+    }
+}
+
+/// Lets the game activity Android's setup activity starts skip asking again.
+pub(crate) static HANDOFF: Handoff = Handoff::new();
+
+/// Whether play may continue without asking the player: the gate is off, the local install was
+/// found, or a valid pass exists (which is then re-checked in the background).
+pub(crate) fn open_without_asking(layout: &InstallLayout) -> bool {
     let available = policy::sources();
     if !available.gated() {
         tracing::info!("ownership gate off: no proof source on this platform in this build");
@@ -135,7 +153,7 @@ const fn install_text(store: Store) -> &'static str {
             "On Windows, Cinnabar can use Minecraft installed from the Microsoft Store or the Xbox app. If you bought Minecraft for Windows or Minecraft: Java & Bedrock Edition for PC, it's already in your library there."
         }
         Store::Android => {
-            "On Android, Cinnabar can use Minecraft installed from Google Play, or from the Amazon Appstore on Fire devices. A copy bought on another platform doesn't count here."
+            "On Android, Cinnabar can use Minecraft installed from Google Play. A copy bought on another platform or store, such as the Amazon Appstore, doesn't count here."
         }
     }
 }
@@ -284,19 +302,20 @@ pub trait GateHost {
 }
 
 /// Runs the gate through `host` for a packaged install; returns whether play may continue, which
-/// later gate checks in this process then trust. Setting `cancel` ends it unanswered.
+/// the next game start in this process then trusts. Setting `cancel` ends it unanswered.
 pub fn verify_with_host(
     layout: &InstallLayout,
     cancel: &AtomicBool,
     host: &mut dyn GateHost,
 ) -> bool {
+    HANDOFF.begin();
     let opened = !layout.is_installed()
         || open_without_asking(layout)
         || with_host(policy::sources(), cancel, host, &mut |sign_in, on_code| {
             verify(layout, sign_in, cancel, on_code)
         });
     if opened {
-        OPENED_BY_HOST.store(true, Ordering::Release);
+        HANDOFF.open();
     }
     opened
 }

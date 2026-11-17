@@ -309,3 +309,19 @@ fn a_host_signs_in_through_the_shown_code() {
     let link = ["https://login.example.test/device".to_owned()];
     assert!(code.buttons.iter().any(|button| button.open == link));
 }
+
+/// A setup attempt's answer reaches only the game start after it; a cancelled attempt's answer
+/// never reaches a later one.
+#[test]
+fn a_hosted_answer_is_claimed_once_by_its_own_attempt() {
+    let handoff = Handoff::new();
+    assert!(!handoff.claim());
+    handoff.begin();
+    handoff.open();
+    assert!(handoff.claim());
+    assert!(!handoff.claim());
+    handoff.begin();
+    handoff.open();
+    handoff.begin();
+    assert!(!handoff.claim(), "a fresh attempt must check again");
+}

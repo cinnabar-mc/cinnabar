@@ -66,7 +66,7 @@ pub fn local_install_found() -> bool {
     matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0
 }
 
-/// Whether Minecraft from Google Play or the Amazon Appstore is installed, signed by Mojang.
+/// Whether Minecraft from Google Play is installed, signed by Mojang.
 /// Best-effort: package metadata shows the game is installed, not that its license is current.
 #[cfg(target_os = "android")]
 #[must_use]

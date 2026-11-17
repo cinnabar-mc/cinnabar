@@ -125,7 +125,7 @@ pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> 
             "Remove ownership account?".into(),
             match crate::ownership::sources().local_install {
                 Some(crate::ownership::Store::Microsoft) => "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar needs Minecraft installed from the Microsoft Store or the Xbox app, or a new sign-in, the next time it starts.",
-                Some(crate::ownership::Store::Android) => "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar needs Minecraft installed from Google Play or the Amazon Appstore, or a new sign-in, the next time it starts.",
+                Some(crate::ownership::Store::Android) => "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar needs Minecraft installed from Google Play, or a new sign-in, the next time it starts.",
                 None => "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar asks you to sign in again the next time it starts.",
             }
             .into(),

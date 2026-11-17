@@ -1,5 +1,7 @@
-//! Android's local-install proof: Mojang's Minecraft package, signed by Mojang and installed by a
-//! store that sells it. Best-effort: `PackageManager` metadata only, never the game's files.
+//! Android's local-install proof: Mojang's Minecraft package, signed by Mojang and installed by
+//! Google Play, itself signed by Google. Best-effort: `PackageManager` metadata only, never the
+//! game's files. The Amazon Appstore re-signs apps with a key it does not publish, so its copies
+//! cannot pass yet.
 
 /// [`PACKAGE`] as a literal, for links built at compile time.
 macro_rules! package {
@@ -17,20 +19,20 @@ pub const SIGNER_SHA256: [u8; 32] = [
     0x7c, 0x44, 0x38, 0x5f, 0xb4, 0xec, 0xbc, 0x10, 0x13, 0xd9, 0x5a, 0x74, 0x35, 0x81, 0x6f, 0x9c,
 ];
 
-/// Installers of record that sell Minecraft: Google Play and the Amazon Appstore.
-pub const STORES: [&str; 2] = ["com.android.vending", "com.amazon.venezia"];
+/// The store whose install proves ownership.
+pub const STORE: &str = "com.android.vending";
 
-/// The Play listing, then the Amazon Appstore's for Fire devices, then Play's web page for
-/// devices without either store app.
-pub const STORE_LISTING: [&str; 3] = [
-    concat!("market://details?id=", package!()),
-    concat!("amzn://apps/android?p=", package!()),
-    concat!("https://play.google.com/store/apps/details?id=", package!()),
+/// SHA-256 of the certificate Google signs [`STORE`] with.
+pub const STORE_SIGNER_SHA256: [u8; 32] = [
+    0xf0, 0xfd, 0x6c, 0x5b, 0x41, 0x0f, 0x25, 0xcb, 0x25, 0xc3, 0xb5, 0x33, 0x46, 0xc8, 0x97, 0x2f,
+    0xae, 0x30, 0xf8, 0xee, 0x74, 0x11, 0xdf, 0x91, 0x04, 0x80, 0xad, 0x6b, 0x2d, 0x60, 0xdb, 0x83,
 ];
 
-/// Installs started by `adb` carry the shell, or on Android 11–13 no package, as their initiator,
-/// whatever installer they claim.
-const SHELL: &str = "com.android.shell";
+/// The Play listing, then its web page for devices without the store app.
+pub const STORE_LISTING: [&str; 2] = [
+    concat!("market://details?id=", package!()),
+    concat!("https://play.google.com/store/apps/details?id=", package!()),
+];
 
 /// API 28 added `hasSigningCertificate`.
 const SIGNING_CERTIFICATE_API: u32 = 28;
@@ -67,7 +69,7 @@ pub enum Install {
     Missing,
     /// Not signed by Mojang's certificate.
     ForeignSigner,
-    /// Not installed by a store that sells Minecraft.
+    /// Not installed by an authentic Google Play.
     NotFromStore,
 }
 
@@ -84,38 +86,36 @@ impl Install {
     }
 }
 
-/// Checks [`PACKAGE`]'s presence, signer and installer of record through `packages`.
+/// Checks [`PACKAGE`]'s presence, signer and installer through `packages`. From API 30 Play must
+/// also have started the install, which rules out `adb install -i`; earlier levels cannot tell.
 pub fn check(packages: &mut impl Packages) -> Install {
     let sdk = packages.sdk();
     if !packages.installed(PACKAGE) {
         return Install::Missing;
     }
-    let signed = if sdk >= SIGNING_CERTIFICATE_API {
-        packages.has_signing_certificate(PACKAGE, &SIGNER_SHA256)
-    } else {
-        let digests = packages.signature_digests(PACKAGE);
-        !digests.is_empty() && digests.iter().all(|digest| *digest == SIGNER_SHA256)
-    };
-    if !signed {
+    if !signed_by(packages, sdk, PACKAGE, &SIGNER_SHA256) {
         return Install::ForeignSigner;
     }
-    let installer = if sdk >= INSTALL_SOURCE_API {
+    let from_store = if sdk >= INSTALL_SOURCE_API {
         let source = packages.install_source(PACKAGE);
-        if source
-            .initiating
-            .as_deref()
-            .is_none_or(|initiator| initiator == SHELL)
-        {
-            return Install::NotFromStore;
-        }
-        source.installing
+        source.installing.as_deref() == Some(STORE) && source.initiating.as_deref() == Some(STORE)
     } else {
-        packages.installer(PACKAGE)
+        packages.installer(PACKAGE).as_deref() == Some(STORE)
     };
-    if installer.is_some_and(|installer| STORES.contains(&installer.as_str())) {
+    if from_store && signed_by(packages, sdk, STORE, &STORE_SIGNER_SHA256) {
         Install::Verified
     } else {
         Install::NotFromStore
+    }
+}
+
+/// Whether `package` is signed by the certificate with `sha256`, through the reads `sdk` offers.
+fn signed_by(packages: &mut impl Packages, sdk: u32, package: &str, sha256: &[u8; 32]) -> bool {
+    if sdk >= SIGNING_CERTIFICATE_API {
+        packages.has_signing_certificate(package, sha256)
+    } else {
+        let digests = packages.signature_digests(package);
+        !digests.is_empty() && digests.iter().all(|digest| digest == sha256)
     }
 }
 
