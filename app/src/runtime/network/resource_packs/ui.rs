@@ -8,20 +8,19 @@ use resource_pack::LayeredPackView;
 use super::ServerUiPack;
 use ui_screens::menu_renderers::splashes::{MAX_SPLASH_SOURCE_BYTES, SplashSource};
 
-/// Bound on definition bytes handed to the form engine across the whole stack.
-const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
+/// Bound on splash text decoded across the whole stack.
+const MAX_SPLASH_STACK_BYTES: usize = 16 * 1024 * 1024;
 use json_ui::UI_DEFS_PATH as INDEX;
+/// Indexes and definitions are read under admission's per-file bound only: the
+/// game's definition loader applies no stack-wide byte budget, so one never
+/// drops a valid document because earlier ones were large.
+const MAX_DEFINITION_BYTES: u64 = resource_pack::MAX_FILE_BYTES;
 
 /// Collects indexed definitions and records dependencies for lazily loaded artwork.
 pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
-    let mut total = 0usize;
+    let mut splash_bytes = 0usize;
     let mut declared = BTreeSet::new();
-    let mut index_bytes = 0usize;
-    for index in view.read_layers_capped(INDEX, MAX_SERVER_UI_BYTES as u64) {
-        index_bytes += index.len();
-        if index_bytes > MAX_SERVER_UI_BYTES {
-            break;
-        }
+    for index in view.read_layers_capped(INDEX, MAX_DEFINITION_BYTES) {
         if let Ok(paths) = json_ui::Catalog::declared_paths(&index) {
             declared.extend(paths);
         }
@@ -38,8 +37,8 @@ pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPa
         splashes: view
             .read_layers_capped(SPLASH_RESOURCE_PATH, MAX_SPLASH_SOURCE_BYTES)
             .filter_map(|bytes| {
-                total += bytes.len();
-                (total <= MAX_SERVER_UI_BYTES)
+                splash_bytes += bytes.len();
+                (splash_bytes <= MAX_SPLASH_STACK_BYTES)
                     .then(|| pack_runtime::pack_textures::parse_pack_json(&bytes))
                     .flatten()
                     .and_then(|root| SplashSource::from_json(&root))
@@ -58,11 +57,13 @@ pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPa
             .collect();
         let mut files = Vec::new();
         for path in paths {
-            let remaining = MAX_SERVER_UI_BYTES.saturating_sub(total) as u64;
-            let Some(bytes) = layer.read_file_with_limit(&path, remaining).ok().flatten() else {
+            let Some(bytes) = layer
+                .read_file_with_limit(&path, MAX_DEFINITION_BYTES)
+                .ok()
+                .flatten()
+            else {
                 continue;
             };
-            total += bytes.len();
             files.push((path, bytes.into_vec()));
         }
         pack.ui_layers.push(files);
