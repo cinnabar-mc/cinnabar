@@ -327,8 +327,10 @@ fn a_host_signs_in_through_the_shown_code() {
 /// A restored Android game refused by the gate explains ownership, not unfinished setup.
 #[test]
 fn a_restored_refusal_carries_the_install_guidance_and_notice() {
-    let text = restored_refusal();
+    let text = restored_refusal(PHONE);
     assert!(text.starts_with(title(Refusal::NotInstalled)));
+    assert!(text.contains(install_text(Store::Android)));
+    assert!(text.contains("reopen the app"));
     assert!(text.ends_with(NOTICE));
     let label = Screen::Refused {
         refusal: Refusal::NotInstalled,

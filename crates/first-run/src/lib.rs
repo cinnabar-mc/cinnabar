@@ -84,7 +84,10 @@ fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
         // Android's setup activity runs the gate and `prepare_headless` before the game activity
         // starts; a game restored after the process ended can only point back to it.
         if plan.verify {
-            bail!("{}", ownership::restored_refusal());
+            bail!(
+                "{}",
+                ownership::restored_refusal(launcher_host::ownership::available())
+            );
         }
         bail!("setup is incomplete; close and reopen the app to finish setup");
     }

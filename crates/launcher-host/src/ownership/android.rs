@@ -45,20 +45,21 @@ pub fn use_context(env: &mut JNIEnv<'_>, context: &JObject<'_>) -> jni::errors::
     Ok(())
 }
 
-/// Checks the local install on the calling thread, uncached; any JNI failure is not found.
+/// Checks the local install on the calling thread, uncached; any failed read, such as an
+/// unreadable API level, refuses rather than trusting a partial answer.
 pub(super) fn found() -> bool {
     // A closure, since the generic policy functions name no single `Jni` lifetime.
-    let install = with_packages(|packages: &mut Jni<'_, '_>| policy::check(packages));
-    let install = install.unwrap_or_else(|error| {
+    let install =
+        with_packages(|packages: &mut Jni<'_, '_>| (policy::check(packages), packages.failed));
+    if let Err(error) = &install {
         tracing::warn!(%error, "ownership probe failed");
-        policy::Install::Missing
-    });
-    tracing::info!(
-        source = "local_install",
-        result = install.reason(),
-        "ownership probed"
-    );
-    install == policy::Install::Verified
+    }
+    let (verified, result) = match install {
+        Ok((install, false)) => (install == policy::Install::Verified, install.reason()),
+        Ok((_, true)) | Err(_) => (false, "probe_failed"),
+    };
+    tracing::info!(source = "local_install", result, "ownership probed");
+    verified
 }
 
 /// Whether Google Play can vouch for installs here, logging the first refusal's reason. Only a

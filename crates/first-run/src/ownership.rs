@@ -156,8 +156,8 @@ pub(crate) fn body(refusal: Refusal, available: Sources) -> String {
 
 /// What a game started without its setup screen shows when the local install fails, as when
 /// Android restores it after the process ended; its only way back is reopening the app.
-pub(crate) fn restored_refusal() -> String {
-    let install = sources::available()
+pub(crate) fn restored_refusal(available: Sources) -> String {
+    let install = available
         .local_install
         .map(install_text)
         .unwrap_or_default();
