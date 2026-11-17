@@ -177,12 +177,13 @@ impl<'a> PackLayer<'a> {
         self.pack.read_file(path)
     }
 
-    /// The stored name `path` reads, matched as reads match it; a later override of
-    /// `path` still invalidates the subscriber.
+    /// The stored name `path` reads, matched as reads match it. Records the same
+    /// dependency as a read of `path` bounded by `limit`, so a later override of
+    /// `path` still invalidates the subscriber without replaying a larger read.
     #[must_use]
-    pub fn resolved_path(&self, path: &str) -> Option<&'a str> {
+    pub fn resolved_path(&self, path: &str, limit: u64) -> Option<&'a str> {
         if let Some(dependencies) = self.dependencies {
-            dependencies.file(path, u64::MAX);
+            dependencies.file(path, limit);
         }
         self.pack.resolved_path(path)
     }

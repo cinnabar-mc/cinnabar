@@ -80,7 +80,7 @@ pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPa
         let mut respelled = BTreeSet::new();
         let mut files = Vec::new();
         for path in paths {
-            let Some(stored) = layer.resolved_path(&path) else {
+            let Some(stored) = layer.resolved_path(&path, MAX_DEFINITION_BYTES) else {
                 continue;
             };
             let bytes = reads.entry(stored).or_insert_with(|| {
