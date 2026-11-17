@@ -108,7 +108,7 @@ pub(super) fn current_target(
     let authority = stream.authority();
     let hit = gameplay::melee::pick_actor_by(
         authority
-            .remote_actors()
+            .pick_candidates()
             .filter(|actor| match aim.target.map(|target| target.kind) {
                 Some(client_presentation::aim_assist::TargetKind::Actor(lifetime)) => {
                     actor.runtime_id == lifetime.runtime_id

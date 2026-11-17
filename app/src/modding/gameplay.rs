@@ -450,7 +450,7 @@ impl GameplayContext<'_> {
             .ok()??;
         let authority = stream.authority();
         let actor = gameplay::melee::pick_actor_by(
-            authority.remote_actors(),
+            authority.pick_candidates(),
             |actor| authority.pick_hit_boxes(actor),
             authority.local_mount_unique_id(),
             origin.origin().to_array(),
