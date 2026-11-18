@@ -5,7 +5,8 @@
 //! `v` downward. An up face starts its texture at the south-east corner and a down
 //! face at the north-east corner, each with `v` running along Z.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use serde_json::Value;
 
@@ -18,6 +19,47 @@ const MAX_BONES: usize = 256;
 
 /// Face order matches `assets::BlockFace`: west, east, down, up, north, south.
 pub const FACE_NAMES: [&str; 6] = ["west", "east", "down", "up", "north", "south"];
+
+/// The engine's reserved identifier for the built-in plant cross model.
+pub use pack_compile_input::CROSS_IDENTIFIER;
+
+/// The engine's built-in cross definition, as carried by 1.26.60. It is two 20.4-pixel
+/// planes turned ±45° about the block's vertical axis; projecting them yields the vanilla
+/// 14.4-pixel-wide cross. Both sides of each plane sample the whole 16×16 texture.
+const CROSS_DOCUMENT: &str = r#"{
+  "format_version": "1.21.60",
+  "minecraft:geometry": [{
+    "description": {
+      "identifier": "minecraft:geometry.cross",
+      "texture_width": 16,
+      "texture_height": 16
+    },
+    "bones": [
+      {
+        "name": "cube",
+        "cubes": [{
+          "origin": [-10.2, 0, 0], "size": [20.4, 16, 0],
+          "rotation": [0, -45, 0], "pivot": [0, 8, 0],
+          "uv": {
+            "north": {"uv": [0, 0], "uv_size": [16, 16], "material_instance": "cross"},
+            "south": {"uv": [0, 0], "uv_size": [16, 16], "material_instance": "cross"}
+          }
+        }]
+      },
+      {
+        "name": "cube",
+        "cubes": [{
+          "origin": [-10.2, 0, 0], "size": [20.4, 16, 0],
+          "rotation": [0, 45, 0], "pivot": [0, 8, 0],
+          "uv": {
+            "north": {"uv": [0, 0], "uv_size": [16, 16], "material_instance": "cross"},
+            "south": {"uv": [0, 0], "uv_size": [16, 16], "material_instance": "cross"}
+          }
+        }]
+      }
+    ]
+  }]
+}"#;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FaceUv {
@@ -77,6 +119,26 @@ impl Geometry {
             }],
             skipped_cubes: 0,
         }
+    }
+
+    /// The engine's built-in cross model, which plant-like blocks name by [`CROSS_IDENTIFIER`].
+    ///
+    /// Hidden-bone filters do not apply: Bedrock rejects bone visibility with the built-in
+    /// geometries.
+    pub fn cross() -> Self {
+        static CROSS: OnceLock<Geometry> = OnceLock::new();
+        CROSS
+            .get_or_init(|| {
+                let root: Value = serde_json::from_str(CROSS_DOCUMENT)
+                    .expect("the built-in cross model is valid JSON");
+                let mut catalog = BlockGeometryCatalog::default();
+                catalog.insert(&root);
+                catalog
+                    .compile(&HashSet::from([CROSS_IDENTIFIER]))
+                    .remove(CROSS_IDENTIFIER)
+                    .expect("the built-in cross model compiles")
+            })
+            .clone()
     }
 }
 

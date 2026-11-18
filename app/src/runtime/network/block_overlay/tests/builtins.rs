@@ -49,6 +49,63 @@ fn versioned_isotropic_bottom_keeps_positional_turns_available() {
 }
 
 #[test]
+fn versioned_builtin_cross_draws_plant_planes_and_a_block_item_icon() {
+    use super::super::super::item_icons::custom_block_icons;
+    let blocks = CustomBlocks {
+        blocks: vec![block(
+            "test:mustard",
+            1,
+            CustomBlockVisuals {
+                base: CustomVisualComponents {
+                    geometry: Some("minecraft:geometry.cross".into()),
+                    materials: materials("gen"),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )]
+        .into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    assert_eq!(compiled.gaps.missing_geometry, 0);
+    assert_eq!(compiled.gaps.missing_textures, 0);
+    let visual = compiled.overlay.visuals[0];
+    assert_eq!(visual.kind, VisualKind::Model);
+    assert_ne!(visual.model_template, assets::NO_MODEL_TEMPLATE);
+    let quads =
+        assets::model_template_parts(&compiled.overlay.model_templates, visual.model_template)
+            .into_iter()
+            .flatten()
+            .flat_map(|part| {
+                &compiled.overlay.model_quads[part.quad_start as usize..]
+                    [..part.quad_count as usize]
+            })
+            .collect::<Vec<_>>();
+    assert_eq!(quads.len(), 4, "two planes with both faces");
+    let mut min = [i16::MAX; 2];
+    let mut max = [i16::MIN; 2];
+    for quad in &quads {
+        for position in quad.positions {
+            for (axis, value) in [position[0], position[2]].into_iter().enumerate() {
+                min[axis] = min[axis].min(value);
+                max[axis] = max[axis].max(value);
+            }
+        }
+    }
+    // The 20.4-pixel planes reach 0.79..15.21 pixels in block space, in 1/16-pixel units.
+    assert_eq!((min, max), ([13, 13], [243, 243]));
+    let items = [(
+        Arc::<str>::from("test:mustard"),
+        Arc::<str>::from("test:mustard"),
+    )];
+    let icons = custom_block_icons(&compiled.overlay, &blocks, false, &items, None);
+    assert!(icons.misses.is_empty(), "{:?}", icons.misses);
+    assert_eq!(icons.icons.len(), 1);
+}
+
+#[test]
 fn versioned_builtin_full_block_resolves_textured_cube_without_pack_geometry() {
     let view = view();
     let blocks = CustomBlocks {

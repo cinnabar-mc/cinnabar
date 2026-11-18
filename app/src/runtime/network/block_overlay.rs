@@ -45,6 +45,7 @@ use pack_runtime::pack_textures::DecodedTexture;
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
+const CROSS: &str = geometry::CROSS_IDENTIFIER;
 const MIN_TILE: u32 = assets::TILE_SIZE;
 const MAX_OVERLAY_LAYERS: usize = assets::MAX_TEXTURE_LAYERS;
 /// Maximum shard count when only one base carrier page is reserved.
@@ -427,6 +428,7 @@ impl Builder<'_> {
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
                 self.model(components, &geometry::Geometry::full_block(), &[])
             }
+            Some(CROSS) => self.model(components, &geometry::Geometry::cross(), &[]),
             Some(identifier) => match geometries.get(identifier) {
                 Some(geometry) => self.model(components, geometry, &state.hidden_bones),
                 None => {
