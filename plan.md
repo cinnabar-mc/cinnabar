@@ -1563,7 +1563,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pending preparations before a new login.
   Destroy rates read ground contact from before the tick's movement. After a multi-tick
   block, the next start lands on the tick the 250 ms destroy deadline is reached, and a
-  held Creative destroy repeats on the tick after it.
+  held Creative destroy repeats on the tick after it. Its moving check reads the tick's
+  resolved displacement, so standing on the ground does not count as travel.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Block-action carriers retain every accumulated action in tick order.

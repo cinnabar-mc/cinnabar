@@ -45,6 +45,38 @@ fn the_next_block_starts_on_the_destroy_deadline_tick() {
     );
 }
 
+/// Standing on the ground reports a downward velocity but no displacement, so a held
+/// Creative destroy waits out only the delay instead of a block of travel.
+#[test]
+fn standing_still_mines_with_the_displacement_not_the_velocity() {
+    let mut ticker = crate::test_support::survival_mining::ticker_with_ticks(0);
+    let mut standing = crate::test_support::survival_mining::completed(101);
+    standing.velocity = [0.0, -0.0784, 0.0];
+    ticker.enqueue_completed_physics(standing).unwrap();
+    let ticks = ticker.unstepped_interaction_ticks(None);
+    assert_eq!(ticks.len(), 1);
+    assert_eq!(ticks[0].1.moved, 0.0, "standing still moves nowhere");
+
+    let instant = |position| DestroyTarget {
+        instant: true,
+        ..target(position, "minecraft:stone", None)
+    };
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, &instant([0, 0, 0]), Server);
+    let next = instant([0, -1, 0]);
+    let repeated = (1u32..=40)
+        .find(|_| {
+            !machine
+                .step(DestroyInput::Held(Some(&next)), ticks[0].1, Server)
+                .is_empty()
+        })
+        .expect("the held Creative destroy repeats");
+    assert_eq!(
+        simulation_clock::TICK_DURATION * (repeated - 1),
+        DESTROY_DELAY
+    );
+}
+
 /// A tick that lands still mines at the airborne rate: its destroy step precedes movement.
 #[test]
 fn a_landing_tick_mines_at_the_airborne_rate() {
