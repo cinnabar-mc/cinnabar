@@ -664,6 +664,49 @@ fn bedrock_hotbar_flag_raises_the_java_hud_to_the_vanilla_hotbar() {
     }
 }
 
+// With the touch inventory button the hotbar is 20 GUI px wider. The status rows and the bars
+// stacked on it span that button too, as vanilla's touch layout does, instead of keeping the
+// nine slots' width around the hotbar's shifted centre.
+#[test]
+fn touch_inventory_button_widens_the_java_status_rows_and_bars() {
+    let mut touch_model = model();
+    touch_model.touch_inventory = true;
+    let context = hud_context(&Context::desktop()).with_flag("cinnabar_touch_hotbar", true);
+    let (Some(plain), Some(touch)) = (
+        render_with(&model(), true),
+        render_in(&touch_model, true, &context),
+    ) else {
+        return;
+    };
+    let touch = touch.nodes.to_vec();
+    let x = |nodes: &[DrawNode], renderer: &str| custom(nodes, renderer)[0].dest.x;
+    let slots = x(&touch, "hotbar_slots_renderer");
+    assert_eq!(slots, x(&plain, "hotbar_slots_renderer") - 10.0);
+    // Hearts and armour keep starting one px left of the first slot; hunger moves right.
+    for renderer in ["heart_renderer", "armor_renderer"] {
+        assert_eq!(x(&touch, renderer), slots - 1.0, "{renderer}");
+    }
+    assert_eq!(
+        x(&touch, "hunger_renderer"),
+        x(&plain, "hunger_renderer") + 10.0
+    );
+    // The bar paints in slices; its extent is their union.
+    let bar = |nodes: &[DrawNode]| {
+        let slices = || {
+            named(nodes, "empty_progress_bar")
+                .into_iter()
+                .filter(|node| node.dest.y > 200.0)
+        };
+        let left = slices().map(|node| node.dest.x).fold(f64::MAX, f64::min);
+        let right = slices()
+            .map(|node| node.dest.x + node.dest.w)
+            .fold(f64::MIN, f64::max);
+        [left, right - left]
+    };
+    assert_eq!(bar(&plain), [149.0, 182.0]);
+    assert_eq!(bar(&touch), [139.0, 202.0]);
+}
+
 // The tip text rides its own `hud_tip_text` slot: it draws beside, not over, the
 // action bar's text, above the hotbar and inside its own factory instance.
 #[test]

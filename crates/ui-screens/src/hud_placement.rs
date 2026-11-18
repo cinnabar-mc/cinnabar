@@ -14,36 +14,54 @@ pub struct HudPlacement {
     /// The hotbar, everything stacked on it, and the chat raised to vanilla Bedrock's hotbar
     /// height rather than flush with the bottom edge as in Java.
     pub bedrock_hotbar: bool,
+    /// The hotbar ends in the touch inventory button, so the status rows and bars stacked on it
+    /// span that button too.
+    pub touch_hotbar: bool,
 }
+
+/// The pack flag set while the hotbar ends in the touch inventory button.
+const TOUCH_HOTBAR_FLAG: &str = "cinnabar_touch_hotbar";
 
 impl HudPlacement {
     /// Every placement, for resolving the HUD before its first paint.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 8] = [
         Self::new(false, false),
         Self::new(true, false),
         Self::new(false, true),
         Self::new(true, true),
+        Self::new(false, false).with_touch_hotbar(true),
+        Self::new(true, false).with_touch_hotbar(true),
+        Self::new(false, true).with_touch_hotbar(true),
+        Self::new(true, true).with_touch_hotbar(true),
     ];
 
     const fn new(chat_top: bool, bedrock_hotbar: bool) -> Self {
         Self {
             chat_top,
             bedrock_hotbar,
+            touch_hotbar: false,
         }
     }
 
-    /// The placement `options` selects.
+    /// This placement with the hotbar ending, or not, in the touch inventory button.
+    pub const fn with_touch_hotbar(mut self, touch_hotbar: bool) -> Self {
+        self.touch_hotbar = touch_hotbar;
+        self
+    }
+
+    /// The placement `options` selects, without the touch inventory button.
     pub fn from_settings(options: &SettingsOptions) -> Self {
-        Self {
-            chat_top: options.chat_at_top(),
-            bedrock_hotbar: options.value(BEDROCK_HOTBAR_OPTION.id) != 0,
-        }
+        Self::new(
+            options.chat_at_top(),
+            options.value(BEDROCK_HOTBAR_OPTION.id) != 0,
+        )
     }
 
     /// `context` with this placement's pack flags.
     pub fn placed(self, context: Context) -> Context {
         crate::chat_position::placed(context, self.chat_top)
             .with_flag(BEDROCK_HOTBAR_OPTION.name, self.bedrock_hotbar)
+            .with_flag(TOUCH_HOTBAR_FLAG, self.touch_hotbar)
     }
 }
 
@@ -160,7 +178,8 @@ mod tests {
                 .position(|option| option.name == name)
                 .unwrap()
         };
-        for expected in HudPlacement::ALL {
+        for expected in &HudPlacement::ALL[..4] {
+            let expected = *expected;
             let mut options = SettingsOptions::default();
             options.set(
                 index(CHAT_POSITION_OPTION.name),
