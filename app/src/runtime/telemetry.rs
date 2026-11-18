@@ -413,17 +413,14 @@ pub(crate) fn send_player_auth_inputs(
                 }
                 None => network.send_physics_packet(identity, packet, mining_guard),
             };
-            // The hover point is read from remote actors already stepped for this tick, while
-            // servers step them when this tick's PlayerAuthInput arrives; sent first, the point
-            // is checked against the previous step. A failed hover send stays unreported and
-            // retries next tick without restoring the admitted input.
+            // Servers step remote actors on PlayerAuthInput, so the already-stepped hover point
+            // follows it. A failed hover send retries next tick without restoring the input.
             if sent.is_ok()
                 && let Some((first_tick, snapshot)) = hover_snapshot
                 && identity.tick.get() >= first_tick
             {
                 let _ = hover.send_tick(session, identity.tick.get(), snapshot, |mut packet| {
-                    if let Some(mut state) = target.as_ref().and_then(|target| target.hover_capture)
-                    {
+                    if let Some(mut state) = target.as_ref().and_then(|t| t.hover_capture) {
                         state.transaction_frame = input.snapshot().map_or([0; 2], |input| {
                             [
                                 input.authority_generation.get().get(),
