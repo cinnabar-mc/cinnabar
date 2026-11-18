@@ -1,4 +1,4 @@
-# Builds the Windows payload, MSI and self-contained setup EXE. Requires WiX v5,
+# Builds the Windows payload, per-user and per-machine MSIs and the self-contained setup EXE. Requires WiX v5,
 # WixToolset.BootstrapperApplications.wixext v5, and ImageMagick.
 # Usage: build-installer.ps1 [-Out <dir>].
 param([string]$Out = ".local/dist/windows-release", [string]$Binaries = "",
@@ -51,10 +51,18 @@ if ($LASTEXITCODE -ne 0) { throw "logo rendering failed" }
 $signPaths = @($runtimeNames | ForEach-Object { Join-Path $payload $_ }) + @(Join-Path $kit "bin/assetc.exe")
 & (Join-Path $PSScriptRoot "execution-level.ps1") -Executable $signPaths -Embed
 & (Join-Path $PSScriptRoot "sign.ps1") -Path $signPaths
+$install = (Get-Content -Raw (Join-Path $PSScriptRoot "../release-assets.json") | ConvertFrom-Json).windows_install
+# The per-user MSI is the download and update package; the per-machine one only updates older installs.
 $msi = Join-Path $outPath "Cinnabar-$version-x64.msi"
-wix build -arch x64 -d Version=$version -d Payload=$payload -d Icon=$icon -o $msi (Join-Path $PSScriptRoot "cinnabar.wxs")
-if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
-& (Join-Path $PSScriptRoot "sign.ps1") -Path $msi
+$machineMsi = Join-Path $outPath "Cinnabar-$version-x64-machine.msi"
+foreach ($package in @(@{ Scope = "perUser"; Out = $msi }, @{ Scope = "perMachine"; Out = $machineMsi })) {
+    wix build -arch x64 -d Version=$version -d Payload=$payload -d Icon=$icon -d "Scope=$($package.Scope)" `
+        -d "InstallParent=$($install.parent)" -d "InstallFolder=$($install.folder)" `
+        -d "UserUpgradeCode=$($install.upgrade_code)" -d "MachineUpgradeCode=$($install.machine_upgrade_code)" `
+        -o $package.Out (Join-Path $PSScriptRoot "cinnabar.wxs")
+    if ($LASTEXITCODE -ne 0) { throw "wix build failed for $($package.Scope)" }
+    & (Join-Path $PSScriptRoot "sign.ps1") -Path $package.Out
+}
 $setup = Join-Path $outPath "Cinnabar-$version-x64-setup.exe"
 wix build -arch x64 -ext WixToolset.BootstrapperApplications.wixext -d Version=$version -d Msi=$msi -d Icon=$icon -d Logo=$logo -o $setup (Join-Path $PSScriptRoot "setup.wxs")
 if ($LASTEXITCODE -ne 0) { throw "setup bundle build failed" }
@@ -73,4 +81,5 @@ if ($env:WINDOWS_CERT_PFX_BASE64) {
 }
 & (Join-Path $PSScriptRoot "sign.ps1") -Path $setup
 Write-Output $msi
+Write-Output $machineMsi
 Write-Output $setup

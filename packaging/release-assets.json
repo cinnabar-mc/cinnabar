@@ -37,5 +37,18 @@
     "windows": {
       "x86_64": "Cinnabar-x64.msi"
     }
+  },
+  "update_platforms": { "windows": "windows-user" },
+  "machine_update_assets": {
+    "windows": {
+      "x86_64": "Cinnabar-x64-machine.msi"
+    }
+  },
+  "windows_install": {
+    "parent": "Programs",
+    "folder": "Cinnabar",
+    "upgrade_code": "E383614E-D129-4E8E-A558-A5EEFC30643E",
+    "machine_upgrade_code": "2A430447-F280-4F32-AFE9-F8A652811A04",
+    "machine_bundle_upgrade_code": "3D75803D-B970-4281-A17B-7BCC8CF39F7C"
   }
 }

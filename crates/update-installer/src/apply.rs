@@ -104,12 +104,16 @@ pub fn after_exit(
             .prefix(".cinnabar-update-")
             .tempdir_in(parent)?;
         if os == "windows" {
+            let destination = platform::windows_destination(target)?;
             let artifact = copy_payload(stage_dir, &selected.artifact, work.path())?;
             touched = true;
-            platform::install_windows(&artifact, work.path(), target, &selected.artifact)?;
+            platform::install_windows(&artifact, work.path(), &destination, &selected.artifact)?;
             remember_installer(root, &artifact)?;
-            start(target)?;
+            start(&destination)?;
             started = true;
+            if destination != target {
+                platform::remove_migrated_machine_install();
+            }
         } else {
             let backup = target::backup(target)?;
             let candidate = match prepared {
