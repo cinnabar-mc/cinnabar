@@ -224,7 +224,7 @@ async fn taps_record_relay_replacements_and_detached_writes_once() {
             crate::session_transport::MAX_SESSION_BATCH_BYTES,
         )
         .unwrap()
-        .pop()
+        .next()
         .unwrap();
         TapEvent::Record(direction, packet.id as u32, packet.body().to_vec())
     };

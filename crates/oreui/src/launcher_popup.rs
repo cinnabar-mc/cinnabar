@@ -48,6 +48,8 @@ impl OreUiScreen {
             if matches!(
                 popup.confirm,
                 launcher::menu::MenuAction::ConfirmRemoveShaderPack(..)
+                    | launcher::menu::MenuAction::ConfirmLeaveRealm(..)
+                    | launcher::menu::MenuAction::ConfirmRemoveLicenseAccount
             ) {
                 Variant::Destructive
             } else {

@@ -1,5 +1,5 @@
 use assets::{
-    facts::{BlockFacts, BlockProperty, StateValue},
+    facts::{BlockFacts, BlockProperty, PropertyDomain, StateValue, SupportKind},
     registry::{BlockTraits, SurvivalRule},
 };
 
@@ -82,6 +82,36 @@ fn placement_counterparts_join_real_block_identities() {
     assert!(slabs > 0 && signs > 0);
     assert_eq!(facts.get(u32::MAX).placement, R::Unresolved);
     assert!(facts.get(u32::MAX).identity.is_none());
+}
+
+#[test]
+fn water_source_support_uses_each_runtime_states_depth() {
+    let records = palette();
+    let facts = BlockFacts::new(&records).unwrap();
+    let PropertyDomain::Int(depths) = BlockProperty::LiquidDepth.domain() else {
+        panic!("liquid depth must have an integer domain");
+    };
+    for name in ["minecraft:water", "minecraft:flowing_water"] {
+        for &depth in depths {
+            let record = records
+                .iter()
+                .find(|record| {
+                    record.name.as_ref() == name
+                        && record.property(BlockProperty::LiquidDepth)
+                            == Some(&StateValue::Int(depth))
+                })
+                .unwrap();
+            assert_eq!(
+                facts.get(record.sequential_id).support,
+                if depth == 0 {
+                    SupportKind::WaterSource
+                } else {
+                    SupportKind::Water
+                },
+                "{name} depth={depth}"
+            );
+        }
+    }
 }
 
 #[test]

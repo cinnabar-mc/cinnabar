@@ -10,6 +10,9 @@ use render_model::{ActorArtworkPages, ActorRigSubmission};
 use super::*;
 use crate::presentation::actors::entity_rig_presentation;
 
+#[path = "minecart_tests.rs"]
+mod minecarts;
+
 fn entity(identifier: &str) -> ActorKind {
     ActorKind::Entity {
         identifier: identifier.into(),

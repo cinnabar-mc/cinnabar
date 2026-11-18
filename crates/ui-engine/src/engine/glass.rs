@@ -172,6 +172,7 @@ fn backdrop_vertex(
     paint: UiBackdropPaint,
 ) -> UiMeshVertex {
     UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.0,
         clip_w: 1.0,

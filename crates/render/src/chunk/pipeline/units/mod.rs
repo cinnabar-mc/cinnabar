@@ -63,6 +63,10 @@ struct UnitStream {
     fallback: Vec<VisibleTerrainUnit>,
     pages: Vec<UnitPage>,
     padded_quads: u64,
+    /// Solid and cutout sections nearest first, and the eye block they were ordered for. A frame
+    /// that does not use the order clears `near_eye`, so source changes it missed rebuild it.
+    near: Vec<Entity>,
+    near_eye: Option<[i64; 3]>,
 }
 
 #[cfg(test)]
@@ -97,6 +101,21 @@ pub(in crate::chunk) struct TerrainUnitBatches {
 }
 
 impl TerrainUnitBatches {
+    /// Rewrites retained pages from CPU descriptors after a failed terrain publication.
+    pub(in crate::chunk) fn invalidate_publication(&mut self) {
+        for view in self.views.values_mut() {
+            view.stale = true;
+            for page in view
+                .streams
+                .iter_mut()
+                .chain(std::iter::once(&mut view.occluders))
+                .flat_map(|stream| &mut stream.pages)
+            {
+                page.invalidate();
+            }
+        }
+    }
+
     /// Rewrites selected flags from this frame's bits, or clears all retained flags on fallback.
     pub(in crate::chunk) fn encode_masks(
         &self,

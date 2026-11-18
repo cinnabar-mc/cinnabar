@@ -4,16 +4,18 @@
 
 `cinnabar:extension/presentation@0.1.0`
 
-Mod-supplied parameters of native world presentation; requires hud authority, and nonempty
-per-actor lists also players or entities. Each call replaces this mod's retained value once
-the callback succeeds; a callback may make 8 presentation calls, and one more traps it.
+Mod-supplied parameters of native world presentation; requires hud authority, and lists that
+name actors by runtime ID also players or entities. Each call replaces this mod's retained
+value once the callback succeeds; a callback may make 8 presentation calls, and one more
+traps it.
 Limits are the constants in `mod_api::presentation`.
 
-The client merges loaded mods in load order. The earliest mod that sets a nametag style, a
-hurt overlay or chat actions owns that policy. For each runtime ID and surface, the earliest
-mod whose grants admit the actor's kind owns the row: players need the players grant, other
-actors the entities grant, and rows a mod's grants do not admit never apply. Tooltip lines
-append in load order.
+The client merges loaded mods in load order. The earliest mod that sets a nametag style,
+nametag rules or chat actions owns that policy, and for each tint state, the earliest mod
+with a tint rule for that state owns every tint rule for it. For each runtime ID and surface,
+the earliest mod whose grants admit the actor's kind owns the annotation: players need the
+players grant, other actors the entities grant. Rules and annotations a mod's grants do not
+admit never apply. Tooltip lines append in load order.
 
 **Grants:** `hud`; actor rows additionally require `players` or `entities` for their kind.
 
@@ -30,11 +32,6 @@ Text colours replace the native ones when present; annotation spans keep their o
 
 ```wit
 record nametag-style {
-    hide: bool,
-    hide-players: bool,
-    hide-passengers: bool,
-    show-self: bool,
-    show-when-hud-hidden: bool,
     opacity: f32,
     scale: f32,
     shadow: bool,
@@ -48,11 +45,6 @@ record nametag-style {
 
 | Member | Type | Description |
 | --- | --- | --- |
-| `hide` | `bool` |  |
-| `hide-players` | `bool` |  |
-| `hide-passengers` | `bool` |  |
-| `show-self` | `bool` |  |
-| `show-when-hud-hidden` | `bool` |  |
 | `opacity` | `f32` |  |
 | `scale` | `f32` |  |
 | `shadow` | `bool` |  |
@@ -63,6 +55,80 @@ record nametag-style {
 | `background-color` | `option<rgba>` |  |
 
 Types: [`rgba`](render.md#type-rgba).
+
+<a id="type-actor-selector"></a>
+
+### `actor-selector`
+
+Which actors a rule covers, by facts the client knows about them: every actor, players
+(the local player included), other actors, the local player, actors riding another
+actor, or one actor by nonzero runtime ID. Only `actor` needs an actor grant, and it
+covers only the kinds the rule owner's grants admit.
+
+```wit
+variant actor-selector {
+    all,
+    players,
+    non-players,
+    local-player,
+    riding,
+    actor(u64),
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `all` |  |  |
+| `players` |  |  |
+| `non-players` |  |  |
+| `local-player` |  |  |
+| `riding` |  |  |
+| `actor` | `u64` |  |
+
+<a id="type-nametag-visibility"></a>
+
+### `nametag-visibility`
+
+What a nametag rule does: `native` draws the tag as the client does, with the local
+player's own tag only when the player's settings or an annotation show it; `shown` also
+draws the local player's own tag; `hidden` removes the tag.
+
+```wit
+enum nametag-visibility {
+    native,
+    shown,
+    hidden,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `native` |  |  |
+| `shown` |  |  |
+| `hidden` |  |  |
+
+<a id="type-nametag-rule"></a>
+
+### `nametag-rule`
+
+`hud-hidden` limits the rule to while the player has hidden the HUD (true) or shows it
+(false); none applies either way.
+
+```wit
+record nametag-rule {
+    actors: actor-selector,
+    hud-hidden: option<bool>,
+    visibility: nametag-visibility,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `actors` | `actor-selector` |  |
+| `hud-hidden` | `option<bool>` |  |
+| `visibility` | `nametag-visibility` |  |
+
+Types: [`actor-selector`](presentation.md#type-actor-selector), [`nametag-visibility`](presentation.md#type-nametag-visibility).
 
 <a id="type-text-span"></a>
 
@@ -140,25 +206,49 @@ record annotation {
 
 Types: [`annotation-position`](presentation.md#type-annotation-position), [`text-span`](presentation.md#type-text-span).
 
-<a id="type-actor-tint"></a>
+<a id="type-tint-state"></a>
 
-### `actor-tint`
+### `tint-state`
 
-An overlay tint drawn while the actor is not hurt.
+The actor state a tint applies in. `hurt` lasts as long as the native damage flash.
 
 ```wit
-record actor-tint {
-    runtime-id: u64,
-    color: rgba,
+enum tint-state {
+    hurt,
+    not-hurt,
 }
 ```
 
 | Member | Type | Description |
 | --- | --- | --- |
-| `runtime-id` | `u64` |  |
-| `color` | `rgba` |  |
+| `hurt` |  |  |
+| `not-hurt` |  |  |
 
-Types: [`rgba`](render.md#type-rgba).
+<a id="type-actor-tint"></a>
+
+### `actor-tint`
+
+Overlay colours for the bodies of the covered actors and their armour; none keeps that
+part native. While hurt, the body colour replaces the native damage overlay only where
+that overlay draws. At least one colour is set.
+
+```wit
+record actor-tint {
+    actors: actor-selector,
+    state: tint-state,
+    body: option<rgba>,
+    armor: option<rgba>,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `actors` | `actor-selector` |  |
+| `state` | `tint-state` |  |
+| `body` | `option<rgba>` |  |
+| `armor` | `option<rgba>` |  |
+
+Types: [`actor-selector`](presentation.md#type-actor-selector), [`rgba`](render.md#type-rgba), [`tint-state`](presentation.md#type-tint-state).
 
 <a id="type-tooltip-line"></a>
 
@@ -221,6 +311,22 @@ Retained; none restores native nametags.
 
 Types: [`nametag-style`](presentation.md#type-nametag-style).
 
+<a id="set-nametag-rules"></a>
+
+### `set-nametag-rules`
+
+```wit
+set-nametag-rules: func(rules: list<nametag-rule>) -> result<_, string>;
+```
+
+Retained; at most `MAX_NAMETAG_RULES`. Each tag starts at the client's own rule, `hidden`
+while the HUD is hidden and `native` otherwise; then every rule that covers the actor
+applies in list order, so the last one decides. Tags never draw while the HUD is hidden
+and a menu is open, the own tag never draws in first person, and no rule draws a tag the
+actor lacks or the player's name settings remove.
+
+Types: [`nametag-rule`](presentation.md#type-nametag-rule).
+
 <a id="set-annotations"></a>
 
 ### `set-annotations`
@@ -233,19 +339,6 @@ Retained; replaces every annotation from this mod, at most `MAX_ANNOTATIONS`.
 
 Types: [`annotation`](presentation.md#type-annotation).
 
-<a id="set-hurt-overlay"></a>
-
-### `set-hurt-overlay`
-
-```wit
-set-hurt-overlay: func(body: option<rgba>, armor: option<rgba>) -> result<_, string>;
-```
-
-Native damage overlay colours for actor bodies and their armour, while an actor is hurt;
-none keeps native. One policy: the earliest mod setting either colour owns both.
-
-Types: [`rgba`](render.md#type-rgba).
-
 <a id="set-actor-tints"></a>
 
 ### `set-actor-tints`
@@ -254,8 +347,8 @@ Types: [`rgba`](render.md#type-rgba).
 set-actor-tints: func(tints: list<actor-tint>) -> result<_, string>;
 ```
 
-Retained; replaces every tint from this mod, at most `MAX_ACTOR_TINTS` distinct nonzero
-runtime IDs.
+Retained; replaces every tint from this mod, at most `MAX_TINT_RULES`. For an actor in a
+state, the last tint in the list that covers it and names that state decides.
 
 Types: [`actor-tint`](presentation.md#type-actor-tint).
 

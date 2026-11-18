@@ -73,6 +73,7 @@ pub(in crate::ui_runtime::presentation) fn append(
         for corner in corners {
             let [x, y] = positions[corner];
             vertices.push(UiMeshVertex {
+                terrain_mips: false,
                 position: [
                     (PREVIEW_WIDTH as f32 * 0.5 + x * PREVIEW_PIXELS_PER_BLOCK)
                         / PREVIEW_WIDTH as f32,

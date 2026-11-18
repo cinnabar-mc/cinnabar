@@ -34,9 +34,33 @@ pub struct ControlAnims {
     pub reset_name: Option<String>,
     /// Sprite animations (clip, color, uv) only run on a control with a sprite.
     pub has_sprite: bool,
+    /// Placement consumes the entrance's authored property without replacing it.
+    pub layout_authoritative: bool,
 }
 
 impl ControlAnims {
+    /// Selects an automatic entrance using only the existing component clock.
+    pub(crate) fn entrance_property(&self) -> Option<&'static str> {
+        let Self {
+            key: _,
+            graph,
+            rest_alpha: _,
+            rest_offset: _,
+            rect: _,
+            anchor: _,
+            born: _,
+            clock: _,
+            disable_fast_forward,
+            reset_name,
+            has_sprite: _,
+            layout_authoritative,
+        } = self;
+        if !layout_authoritative || *disable_fast_forward || reset_name.is_some() {
+            return None;
+        }
+        graph.entrance_property()
+    }
+
     /// Whether `other` runs the same animations, whatever their pixel ends.
     pub(crate) fn same_program(&self, other: &ControlAnims) -> bool {
         let graph = (&self.graph, &other.graph);
@@ -104,6 +128,8 @@ pub struct NodeAnim {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Animated {
     pub dest: RectOut,
+    /// Animated whole-image bounds shared by the pieces of a sliced sprite.
+    pub slice: Option<RectOut>,
     pub clip: RectOut,
     pub opacity: f32,
     /// A replacement sprite colour, from a colour animation.
@@ -130,6 +156,18 @@ impl DrawNode {
     ) -> Animated {
         let mut out = Animated {
             dest: self.dest,
+            slice: match &self.draw {
+                Draw::Sprite {
+                    slice: Some(parent),
+                    ..
+                } => Some(RectOut {
+                    x: self.dest.x + parent.x,
+                    y: self.dest.y + parent.y,
+                    w: parent.w,
+                    h: parent.h,
+                }),
+                _ => None,
+            },
             clip: self.clip,
             opacity: self.alpha,
             color: None,
@@ -141,14 +179,14 @@ impl DrawNode {
             hidden: false,
             transform: None,
         };
+        if animator.hides(&self.key, clocks) {
+            out.hidden = true;
+            return out;
+        }
         let Some(anim) = &self.anim else {
             return out;
         };
         out.transform = anim.transform;
-        if animator.hides(&self.key) {
-            out.hidden = true;
-            return out;
-        }
         out.opacity = anim
             .alpha
             .iter()
@@ -197,6 +235,7 @@ impl DrawNode {
         for mover in anim.movers.iter().rev() {
             let written = animator.sample(mover, now, clocks);
             out.dest = moved(mover, &written, out.dest);
+            out.slice = out.slice.map(|parent| moved(mover, &written, parent));
         }
         for mover in anim.clip_movers.iter().rev() {
             let written = animator.sample(mover, now, clocks);

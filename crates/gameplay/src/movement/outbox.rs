@@ -606,6 +606,15 @@ impl MovementTicker {
         self.held_release.is_some()
     }
 
+    /// Whether a held release waits only on its facing tick's write: the tick already exists,
+    /// so the release goes out without further ticks. One whose facing tick is still to come
+    /// needs physics to produce it.
+    pub fn held_release_awaits_written_tick(&self) -> bool {
+        self.held_release
+            .as_ref()
+            .is_some_and(|held| held.tick <= self.completed_tick())
+    }
+
     /// Sends a held release once its facing tick was written; a full queue keeps the fence.
     pub fn send_held_release(
         &mut self,
@@ -756,18 +765,6 @@ impl MovementTicker {
         self.physics_is_authorized()
             && !self.terminal_drain
             && self.has_unresolved_position_authority_change()
-    }
-
-    /// Drops every unsent block interaction and revokes admitted ones.
-    fn invalidate_mining(&mut self) {
-        let next = self.mining_epoch_publisher.borrow().wrapping_add(1);
-        self.mining_epoch_publisher.send_replace(next);
-        self.outbox
-            .iter_mut()
-            .for_each(|queued| queued.mining = None);
-        self.pending_sends
-            .iter_mut()
-            .for_each(|pending| pending.sample.mining = None);
     }
 
     /// A correction keeps the player's pending action flags. A snap revokes in-flight

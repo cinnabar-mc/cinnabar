@@ -40,6 +40,9 @@ pub struct CosmeticEmitterPlacements(pub Vec<CosmeticEmitterPlacement>);
 pub(super) struct AttachmentFrame<'a> {
     pub collisions: Option<&'a dyn crate::observations::CollisionLookup>,
     pub hidden_local: Option<&'a render_model::ActorRigSubmission>,
+    /// The batch's local body is drawn only into shader-pack shadows, so it keeps just the
+    /// companions a hidden local body keeps.
+    pub shadow_only_local: bool,
     pub geometries: &'a [render_model::ActorRigGeometry],
     pub equipment: Option<&'a crate::presentation::equipment::EquipmentRuntime>,
     pub local_emote: Option<&'a actor_animation::CustomEmotePose>,
@@ -64,18 +67,19 @@ impl<'a> AttachmentFrame<'a> {
     }
 }
 
-/// Bedrock's emissive-alpha state for fullbright catalog items. Other material fields, culling
-/// and overlay suppression follow the body, so player cosmetics stay two-sided as before.
+/// Bedrock's emissive-alpha state for fullbright catalog items: opaque and depth-writing, with
+/// the body's culling and overlay suppression, so player cosmetics stay two-sided as before.
 fn emissive_material(body: ActorMaterial) -> ActorMaterial {
     ActorMaterial {
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
-            cull: body.state.is_some_and(|state| state.cull),
-            blend: false,
-            depth_write: true,
             emissive: true,
             disable_overlay: body.state.is_some_and(|state| state.disable_overlay),
             ..Default::default()
+        }),
+        render_state: Some(render_api::render_state::RenderState {
+            cull: body.raster().cull,
+            ..assets::entity::material::UNAUTHORED_RENDER_STATE
         }),
         ..body
     }
@@ -265,6 +269,7 @@ impl HatState {
             }
             let body = body.clone();
             let local = id == stream.local_player_runtime_id();
+            let hidden = hidden || (local && frame.shadow_only_local);
             let selected = self.local.iter().copied().filter(|_| local).chain(
                 items
                     .iter()

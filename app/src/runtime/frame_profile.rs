@@ -79,6 +79,7 @@ pub(crate) fn flush_trace_on_exit(
 ) {
     if exit.read().next().is_some() {
         profiler.flush_trace();
+        client_runtime::shutdown::log_shutdown_phase("trace_flush");
     }
 }
 
@@ -100,8 +101,10 @@ pub(crate) fn run(app: &mut App) -> AppExit {
     // Like TeardownWatchdog, install before runner cleanup adds blocking render teardown resources.
     app.insert_resource(TraceExportOnTeardown(profiler.clone()));
     let exit = app.run();
+    client_runtime::shutdown::log_shutdown_phase("app_run");
     profiler.flush_trace();
     profiler.wait_for_trace_export();
+    client_runtime::shutdown::log_shutdown_phase("trace_export");
     exit
 }
 

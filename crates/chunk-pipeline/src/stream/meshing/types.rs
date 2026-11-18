@@ -2,6 +2,7 @@ use super::super::*;
 use super::overlays::OverlayHosts;
 
 pub(in crate::stream) struct MeshSnapshot {
+    pub(in crate::stream) surface_rules: Arc<[::meshing::surface::SurfaceRule]>,
     pub(in crate::stream) rendering: ::meshing::MeshRenderSettings,
     pub(in crate::stream) center: Arc<SubChunk>,
     pub(in crate::stream) biomes: BiomeNeighbourhood,
@@ -116,6 +117,7 @@ impl MeshSnapshot {
                 cutout_leaves: self.java_meshing.is_some(),
                 water_filled: self.java_meshing.as_deref().unwrap_or_default(),
                 overlays: &overlays,
+                surface_rules: &self.surface_rules,
             },
             scratch,
         )
@@ -127,7 +129,10 @@ impl MeshSnapshot {
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
     ) -> MeshDependencyMask {
-        mesh_dependency_mask(&classifier, runtime_assets, network_id_mode, &self.center)
+        let mut mask =
+            mesh_dependency_mask(&classifier, runtime_assets, network_id_mode, &self.center);
+        mask.diagonal_ao |= !self.surface_rules.is_empty();
+        mask
     }
 }
 

@@ -1,6 +1,24 @@
 //! Per-rig runtime state and the evaluation budget shared by every pose pass.
 use super::*;
 
+/// Leaves ordinary pose work its allowance after large authored scripts finish.
+pub(super) fn molang_tick_budget(assets: &RuntimeEntityAssets, rig_binding: usize) -> usize {
+    let Some(rig) = assets.rig_bindings().get(rig_binding) else {
+        return MAX_MOLANG_OPS_PER_ACTOR_TICK;
+    };
+    let script_ops: usize = [rig.initialize, rig.pre_animation]
+        .into_iter()
+        .flatten()
+        .filter_map(|index| assets.molang_expressions().get(index as usize))
+        .map(|expression| usize::from(expression.op_count))
+        .sum();
+    if script_ops > MAX_MOLANG_OPS_PER_ACTOR_TICK {
+        script_ops + MAX_MOLANG_OPS_PER_ACTOR_TICK
+    } else {
+        MAX_MOLANG_OPS_PER_ACTOR_TICK
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct ActorRigState {
     pub(super) placement_frame: assets::placement::EntityPlacementFrame,
@@ -19,7 +37,7 @@ pub(super) struct ActorRigState {
     pub(super) render: Vec<RenderTextureLayer>,
     pub(super) visibility: RenderVisibility,
     /// Includes dormant controller layers, so admission need not sample ordinary rigs.
-    pub(super) may_use_always_depth_material: bool,
+    pub(super) may_use_occlusion_bypass_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
     pub(super) scale: Option<[f32; 4]>,
     /// Completed main-hand scale, absent when the owner did not author one.

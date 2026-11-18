@@ -65,12 +65,13 @@ pub use self::environment::WorldEnvironmentBootstrap;
 pub use self::events::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameRulesEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES,
-    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
-    MovementEffectKind, NETHER_DIMENSION_ID, OpenCommandBlockEvent, OpenSignEvent,
-    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    CLASSIC_OVERWORLD_RANGE, ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent,
+    DimensionRange, GameRulesEvent, LEGACY_OVERWORLD_RANGE, LevelChunkEvent, LevelChunkMode,
+    MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MODERN_OVERWORLD_RANGE, MapDataEvent,
+    MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
+    MovementEffectKind, NETHER_DIMENSION_ID, OVERWORLD_DIMENSION_ID, OpenCommandBlockEvent,
+    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
+    RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
     SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
     WeatherChannel, WeatherUpdateEvent, WorldEvent, WorldSpawnEvent, air_network_id,
     vanilla_dimension_range,
@@ -479,6 +480,7 @@ world_packets! {
         WorldEvent::Inventory(event)
     },
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
+    TrimData(packet) => WorldEvent::Inventory(crate::InventoryEvent::Trims(crate::inventory::trims::normalize(packet))),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => match block_side::normalize_open_command_block(&packet, current_dimension) {
         Some(event) => WorldEvent::OpenCommandBlock(event),

@@ -90,7 +90,7 @@ pub(super) fn opaque_runtime_assets() -> &'static Arc<RuntimeAssets> {
                         rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                     })
                     .collect::<Vec<_>>()
-                    .into_boxed_slice(),
+                    .into(),
             })]
             .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),

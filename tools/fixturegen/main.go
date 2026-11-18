@@ -117,6 +117,11 @@ func generate(out string) error {
 func fixtures() []fixture {
 	return append([]fixture{
 		{
+			name: "ItemStackRequestPartialMoves",
+			file: "item_stack_request_partial_moves.bin",
+			pk:   partialMovesFixture(),
+		},
+		{
 			name: "NetworkSettings",
 			file: "network_settings.bin",
 			pk: &packet.NetworkSettings{

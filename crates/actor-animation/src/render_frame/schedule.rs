@@ -47,8 +47,16 @@ impl<'a> ActorRenderFrame<'a> {
         }
         let mut next = 0;
         while next < samples.len() {
-            let capacity = self.remaining_ops / MAX_MOLANG_OPS_PER_ACTOR_FRAME;
-            let end = samples.len().min(next.saturating_add(capacity));
+            let mut end = next;
+            let mut reserved = 0;
+            while let Some(sample) = samples.get(end) {
+                let allowance = self.sample_budget(sample.id);
+                if allowance > self.remaining_ops - reserved {
+                    break;
+                }
+                reserved += allowance;
+                end += 1;
+            }
             let run = &mut samples[next..end];
             let costly = run
                 .iter()
@@ -78,6 +86,24 @@ impl<'a> ActorRenderFrame<'a> {
         for sample in samples {
             self.sampled_layers.insert(sample.id, sample.layers);
         }
+    }
+
+    /// Reserves frame replay work for the requested actor's authored scripts.
+    fn sample_budget(&self, id: u64) -> usize {
+        let state = self
+            .store
+            .runtime_to_lifetime
+            .get(&id)
+            .and_then(|lifetime| self.store.rigs.get(lifetime));
+        let allowance = state.and_then(|state| {
+            let assets = if state.pack {
+                self.store.pack.as_ref().map(|pack| &*pack.assets)
+            } else {
+                self.store.assets.as_deref()
+            }?;
+            Some(molang_tick_budget(assets, state.rig_binding))
+        });
+        FRAME_PASSES_PER_ACTOR * allowance.unwrap_or(MAX_MOLANG_OPS_PER_ACTOR_TICK)
     }
 
     /// Keeps rigs that only return completed tick layers on the caller's inline path.

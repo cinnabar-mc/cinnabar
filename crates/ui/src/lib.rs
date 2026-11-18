@@ -25,7 +25,7 @@ pub use chat::{
     ChatMessageKind, ChatPasteError, ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest,
     ChatStore, ChatViewNode, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_HISTORY,
     MAX_CHAT_INPUT_BYTES, MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
-    validate_chat_message,
+    MAX_TEXT_EDITOR_BYTES, validate_chat_message,
 };
 pub use geometry::{
     DesktopGuiScale, DesktopGuiScaleChoice, DpiScale, GeometryError, MIN_WINDOW_LOGICAL_SIZE,
@@ -66,7 +66,7 @@ pub use text::{
     MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_ITALIC_SHEAR_PX,
     TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache,
     TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan, TextSpans, TextStyle, TextWrap,
-    WordChop, parse_bedrock_text,
+    WordChop, formatting_code_boundary, parse_bedrock_text,
 };
 
 // Ties the action limits to the model types they size; tests include `action.rs` without the model.

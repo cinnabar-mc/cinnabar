@@ -1,6 +1,8 @@
 The window fixture runs the production immersive-mode policy in an Android activity,
 without downloading game assets or changing the installed client. It verifies initial
 navigation hiding, keyboard visibility, keyboard dismissal and focus recovery after a dialog.
+It also checks cutout insets on either landscape edge, keyboard overlap and cutout removal
+using synthetic window insets through the production geometry helper.
 It needs Android 11 or newer and a configured onscreen keyboard. Enable the virtual keyboard
 when testing an emulator that also has a hardware keyboard.
 

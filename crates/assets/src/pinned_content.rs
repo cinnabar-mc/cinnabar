@@ -62,7 +62,8 @@ pub(crate) fn physics_registry_source() -> &'static str {
 
 const VANILLA_SOURCE_JSON: &str = crate::VANILLA_SOURCE_MANIFEST;
 const BLOCK_REGISTRY_BYTES: &[u8] = include_bytes!("../data/block-registry-v2225.bin");
-const LIGHT_REGISTRY_BYTES: &[u8] = include_bytes!("../data/block-light-registry-v2225.bin");
+pub(crate) const LIGHT_REGISTRY_BYTES: &[u8] =
+    include_bytes!("../data/block-light-registry-v2225.bin");
 const BIOME_REGISTRY_BYTES: &[u8] = include_bytes!("../data/biome-registry-v2225.bin");
 
 /// The checked-in protocol-2225 block registry, shared with the collision

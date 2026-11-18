@@ -345,6 +345,29 @@ pub(crate) fn game_mode(ctx: &Callback) -> String {
     format!("game mode {mode}")
 }
 
+/// Tells the actor's pose, as `pose {yaw} {pitch}` and the names of the set flags, or
+/// `pose {error}`. Angles are rounded to whole degrees.
+pub(crate) fn pose(ctx: &Callback) -> String {
+    match ctx.pose() {
+        Ok(pose) => {
+            let flags = [
+                (pose.on_ground, "on_ground"),
+                (pose.sneaking, "sneaking"),
+                (pose.sprinting, "sprinting"),
+                (pose.swimming, "swimming"),
+                (pose.gliding, "gliding"),
+            ];
+            let mut told = format!("pose {:.0} {:.0}", pose.yaw, pose.pitch);
+            for (_, name) in flags.iter().filter(|(set, _)| *set) {
+                told.push(' ');
+                told.push_str(name);
+            }
+            told
+        }
+        Err(error) => format!("pose {}", error.name()),
+    }
+}
+
 /// A world error's name, or `ok` for any success.
 fn refusal<T>(result: Result<T, WorldError>) -> &'static str {
     result.map_or_else(|error| error.name(), |_| "ok")

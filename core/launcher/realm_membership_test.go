@@ -52,3 +52,42 @@ func TestRealmMembershipDiscardsAccountRetiredWhileRequestRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLeaveRealmNeedsAnAccountAndAValidRealm(t *testing.T) {
+	for _, signedIn := range []bool{false, true} {
+		var account *authcache.Account
+		if signedIn {
+			account = testAccount()
+			t.Cleanup(func() { _ = account.Close() })
+		}
+		f := newFixture(t, account)
+		var left []int
+		f.service.cfg.LeaveRealm = func(_ context.Context, _ *authcache.Account, realmID int) error {
+			left = append(left, realmID)
+			return nil
+		}
+		err := f.service.LeaveRealm(context.Background(), 7)
+		if signedIn && err != nil || !signedIn && !errors.Is(err, control.ErrSignedOut) {
+			t.Fatal(err)
+		}
+		if err := f.service.LeaveRealm(context.Background(), 0); err == nil {
+			t.Fatal("an invalid Realm id was accepted")
+		}
+		if signedIn && len(left) != 1 || !signedIn && len(left) != 0 {
+			t.Fatalf("left=%v", left)
+		}
+	}
+}
+
+func TestLeaveRealmReportsAccountRetiredWhileRequestRuns(t *testing.T) {
+	account := testAccount()
+	t.Cleanup(func() { _ = account.Close() })
+	f := newFixture(t, account)
+	f.service.cfg.LeaveRealm = func(context.Context, *authcache.Account, int) error {
+		f.service.signedOut.Store(true)
+		return nil
+	}
+	if err := f.service.LeaveRealm(context.Background(), 7); !errors.Is(err, control.ErrSignedOut) {
+		t.Fatal(err)
+	}
+}

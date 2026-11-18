@@ -211,6 +211,7 @@ impl super::super::RigSource for MaskedSource<'_> {
                 index: index as u32,
                 data,
                 vertex_count: 3,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 texture: super::super::LayerTexture {
                     texture: self.texture,
                     layer: 0,
@@ -314,7 +315,7 @@ fn profession_sampler_uses_masked_composition_and_keeps_draw_tint() {
     let instance = render_model::ActorGpuInstance {
         material: assets::EntityRenderMaterial::Default.word(Some(
             assets::EntityRenderMaterialState {
-                masked_multitexture: true,
+                texture_mask: true,
                 ..Default::default()
             },
         )),

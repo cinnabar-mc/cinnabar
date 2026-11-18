@@ -8,7 +8,7 @@ use bevy::{
         keyboard::KeyCode,
         touch::{TouchInput, TouchPhase},
     },
-    prelude::{IntoScheduleConfigs, Local, MessageReader, PreUpdate, Res},
+    prelude::{IntoScheduleConfigs, Local, PreUpdate, Res},
 };
 use bevy::{
     ecs::entity::Entity,
@@ -17,7 +17,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
     },
     math::Vec2,
-    prelude::{DetectChangesMut, Messages, Query, ResMut, Resource, With},
+    prelude::{DetectChangesMut, MessageReader, Messages, Query, ResMut, Resource, With},
     window::{CursorMoved, PrimaryWindow, Window, WindowEvent},
 };
 #[cfg(not(target_arch = "wasm32"))]
@@ -47,13 +47,22 @@ pub(crate) fn configure_hybrid_input(app: &mut App) {
             PreUpdate,
             (sync_connected_physical_devices, drain_platform_mouse_events).before(InputSystems),
         )
-        .add_systems(PreUpdate, arbitrate_gameplay_input_mode.after(InputSystems));
+        .add_systems(
+            PreUpdate,
+            (
+                detect_physical_mouse_activity,
+                arbitrate_gameplay_input_mode,
+            )
+                .chain()
+                .after(InputSystems),
+        );
 }
 
-/// Whether the platform delivered physical mouse motion, buttons or wheel steps this frame.
+/// Whether a physical mouse moved, pressed a button or turned its wheel this frame.
 ///
 /// Touch-emulated UI pointer presses also reach `ButtonInput<MouseButton>`, so mode arbitration
-/// reads this platform-origin signal instead.
+/// reads this signal, which [`detect_physical_mouse_activity`] derives from the window event
+/// stream that only real mouse input reaches.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
 pub struct PlatformMouseActivity(pub bool);
 
@@ -192,7 +201,6 @@ pub fn drain_platform_mouse_events(
     mut wheel_messages: ResMut<Messages<MouseWheel>>,
     mut cursor_messages: Option<ResMut<Messages<CursorMoved>>>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
-    mut activity: ResMut<PlatformMouseActivity>,
     mut button_modifiers: Option<ResMut<PlatformButtonModifiers>>,
 ) {
     if let Some(button_modifiers) = button_modifiers.as_mut() {
@@ -202,7 +210,6 @@ pub fn drain_platform_mouse_events(
     let window = primary
         .as_ref()
         .map_or(Entity::PLACEHOLDER, |(entity, _)| *entity);
-    let mut active = false;
 
     // 1. Drain relative mouse motion:
     let (dx, dy) = ingress::take_platform_mouse_motion();
@@ -210,7 +217,6 @@ pub fn drain_platform_mouse_events(
         motion_messages.write(MouseMotion {
             delta: Vec2::new(dx, dy),
         });
-        active = true;
     }
 
     // 2. Drain cursor positions, buttons and wheel steps in arrival order, into both the per-kind
@@ -218,7 +224,6 @@ pub fn drain_platform_mouse_events(
     for event in ingress::take_platform_mouse_events() {
         match event {
             ingress::PlatformMouseEvent::Cursor { x, y } => {
-                active = true;
                 let Some((_, window_state)) = primary.as_mut() else {
                     continue;
                 };
@@ -247,9 +252,6 @@ pub fn drain_platform_mouse_events(
                 else {
                     continue;
                 };
-                // Releases also arrive when capture or focus is lost, so only presses show
-                // activity.
-                active |= event.pressed;
                 let input_event = MouseButtonInput {
                     button,
                     state: if event.pressed {
@@ -282,11 +284,40 @@ pub fn drain_platform_mouse_events(
                 if let Some(window_events) = window_messages.as_mut() {
                     window_events.write(WindowEvent::MouseWheel(wheel));
                 }
-                active = true;
             }
         }
     }
-    activity.0 = active;
+}
+
+/// Records whether this frame carried physical mouse activity: raw motion, cursor movement, a
+/// button press or a wheel step.
+///
+/// Android mice arrive through winit, which finishes their events before the activity's own
+/// mouse forwarding can see them, or through the drained platform queue. Both write raw motion
+/// as `MouseMotion` and the rest to the window event stream. Touch-emulated UI presses write
+/// only `MouseButtonInput` messages, and releases also arrive when capture or focus is lost, so
+/// neither counts. winit also reports the unchanged cursor position with each uncaptured button
+/// change, so only a cursor that moved counts.
+pub fn detect_physical_mouse_activity(
+    mut window_events: MessageReader<WindowEvent>,
+    mut motion: MessageReader<MouseMotion>,
+    mut activity: ResMut<PlatformMouseActivity>,
+) {
+    let moved = motion
+        .read()
+        .fold(false, |moved, event| moved | (event.delta != Vec2::ZERO));
+    let window = window_events.read().fold(false, |active, event| {
+        active
+            | match event {
+                WindowEvent::CursorMoved(moved) => {
+                    moved.delta.is_none_or(|delta| delta != Vec2::ZERO)
+                }
+                WindowEvent::MouseWheel(_) => true,
+                WindowEvent::MouseButtonInput(input) => input.state == ButtonState::Pressed,
+                _ => false,
+            }
+    });
+    activity.0 = moved || window;
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

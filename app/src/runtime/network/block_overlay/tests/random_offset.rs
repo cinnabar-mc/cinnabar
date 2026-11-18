@@ -97,6 +97,9 @@ fn terrain_override_mips_average_unassociated_leaf_alpha_and_colours() {
         max_layers: assets::MAX_TEXTURE_LAYERS,
         slots: Default::default(),
         materials: Default::default(),
+        state_masks: Default::default(),
+        unresolved_masks: Default::default(),
+        pbr: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     };
@@ -265,6 +268,9 @@ fn overlay_images(
         max_layers: assets::MAX_TEXTURE_LAYERS,
         slots: Default::default(),
         materials: Default::default(),
+        state_masks: Default::default(),
+        unresolved_masks: Default::default(),
+        pbr: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     }
@@ -464,6 +470,9 @@ fn terrain_page_rejects_over_budget_sources_without_shrinking() {
         max_layers: assets::MAX_TEXTURE_LAYERS,
         slots: Default::default(),
         materials: Default::default(),
+        state_masks: Default::default(),
+        unresolved_masks: Default::default(),
+        pbr: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     };

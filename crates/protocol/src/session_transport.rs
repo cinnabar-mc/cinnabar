@@ -11,7 +11,7 @@ use crate::codec::SessionFailure;
 use crate::packet_relay::PacketRelay;
 use crate::packet_relay::{BatchWriter, RelayLink, put_entry};
 use crate::packet_tap::{PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap};
-use crate::raw_packet::{MAX_RAW_BATCH_PACKETS, RawPacket, decode_batch_body};
+use crate::raw_packet::{RawBatch, RawPacket, UnknownPacket, decode_batch_body};
 use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
@@ -23,6 +23,10 @@ use bytes::{Bytes, BytesMut};
 pub(crate) const MAX_SESSION_BATCH_BYTES: usize = 256 * 1024 * 1024;
 /// Bounds frames read while packs prepare or the world consumer is full; past it the core waits.
 pub(crate) const MAX_READ_AHEAD_BYTES: usize = 64 * 1024 * 1024;
+/// Groups retained startup packets without imposing a limit on incoming server batches.
+pub(crate) const STARTUP_BATCH_PACKETS: usize = 1_600;
+/// Bounds packet metadata expanded at once while the rest of a batch stays encoded.
+const RAW_PACKET_WINDOW: usize = 256;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.
@@ -54,7 +58,7 @@ pub(crate) enum Terminal {
 /// The handed-off startup packets come first; each later Batch frame is split in place, without
 /// copying. A terminal Transfer or Disconnect ends the stream. A send is retained from its first
 /// poll until flushed, strictly in order, so cancellation neither loses nor repeats it. An
-/// optional [`PacketTap`] sees each received packet once, as its batch is read and split (see
+/// optional [`PacketTap`] sees each received packet once, as its batch window is split (see
 /// [`crate::packet_tap`] for what that time measures), and each sent packet once.
 pub(crate) struct SessionTransport<R = FramedReader> {
     reader: R,
@@ -64,6 +68,7 @@ pub(crate) struct SessionTransport<R = FramedReader> {
     prefer_injected: bool, // alternate ready upstream frames and relay injections
     startup: VecDeque<Bytes>, // startup batch bodies, read before any core frame
     received: VecDeque<RawPacket>, // packets split from a batch but not yet read
+    pending_batch: Option<(u64, u32, RawBatch)>, // frame, next slot and validated unread entries
     ahead: VecDeque<Option<Result<Bytes, BridgeError>>>, // reader items `read_ahead` took
     joining: bool,         // retain the relay startup budget through spawn
     ahead_bytes: usize,    // frame bytes held in `ahead`
@@ -74,6 +79,7 @@ pub(crate) struct SessionTransport<R = FramedReader> {
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
     split_frames: u64,              // batch frames split so far; startup batches count as 0
+    unknown_packets: u64,           // well-formed entries skipped for an undefined packet ID
     delivered: crate::packet_tap::PacketOrigin, // frame and index of the packet `recv` returned last
 }
 
@@ -131,6 +137,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             prefer_injected: false,
             startup: startup_batches(startup).into(),
             received: VecDeque::new(),
+            pending_batch: None,
             ahead: VecDeque::new(),
             ahead_bytes: 0,
             joining: true,
@@ -141,6 +148,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             tap: None,
             current: None,
             split_frames: 0,
+            unknown_packets: 0,
             delivered: Default::default(),
         }
     }
@@ -215,8 +223,12 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         }
     }
 
-    /// Retains one more startup batch, relayed batch or core frame without consuming older input.
+    /// Expands the next batch window before reading any later startup, relayed or core frame.
     async fn receive_more(&mut self) -> Result<(), SessionError> {
+        if self.pending_batch.is_some() {
+            self.receive_window();
+            return Ok(());
+        }
         if let Some(batch) = self.startup.pop_front() {
             return self.receive_server_batch(batch, 0);
         }
@@ -316,9 +328,8 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
     /// Queues a relay-produced body, logging malformed relay output instead of ending the session.
     /// Synthetic injections have frame 0 because they have no upstream frame position.
     fn receive_relayed(&mut self, body: Bytes, frame: u64) {
-        match self.split_batch(body, frame) {
-            Ok(packets) => self.received.extend(packets),
-            Err(error) => tracing::warn!(%error, "dropping a relayed batch that does not decode"),
+        if let Err(error) = self.split_batch(body, frame) {
+            tracing::warn!(%error, "dropping a relayed batch that does not decode");
         }
     }
 
@@ -330,10 +341,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             .and_then(|relay| relay.inbound(&body, self.joining));
         match replaced {
             Some(replaced) => self.receive_relayed(replaced, frame),
-            None => {
-                let packets = self.split_batch(body, frame)?;
-                self.received.extend(packets);
-            }
+            None => self.split_batch(body, frame)?,
         }
         Ok(())
     }
@@ -432,21 +440,42 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         });
     }
 
-    /// Splits a batch body, tagging each packet with `frame` and its slot, and records each with
-    /// the tap, so every packet of one batch carries the time its batch was read; a batch that
-    /// cannot be split is reported whole.
-    fn split_batch(&self, body: Bytes, frame: u64) -> Result<Vec<RawPacket>, SessionError> {
+    /// Validates the whole batch before retaining its first window; malformed batches are
+    /// reported whole without delivering or recording any of their entries.
+    fn split_batch(&mut self, body: Bytes, frame: u64) -> Result<(), SessionError> {
         let len = body.len();
-        let mut packets = decode_batch_body(body, MAX_SESSION_BATCH_BYTES).inspect_err(|_| {
+        let packets = decode_batch_body(body, MAX_SESSION_BATCH_BYTES).inspect_err(|_| {
             if let Some(tap) = &self.tap {
                 tap.reject_batch(len);
             }
         })?;
-        for (index, packet) in packets.iter_mut().enumerate() {
-            packet.trace_position = (frame, index as u32);
-        }
-        if let Some(tap) = &self.tap {
-            for packet in &mut packets {
+        self.pending_batch = Some((frame, 0, packets));
+        self.receive_window();
+        Ok(())
+    }
+
+    /// Expands one bounded window, preserving batch slots and recording each packet once.
+    /// Entries with an ID this protocol does not define are recorded as skipped and dropped.
+    fn receive_window(&mut self) {
+        let Some((frame, slot, packets)) = &mut self.pending_batch else {
+            return;
+        };
+        for _ in 0..RAW_PACKET_WINDOW {
+            let Some(entry) = packets.next_entry() else {
+                break;
+            };
+            let index = *slot;
+            *slot += 1;
+            let mut packet = match entry {
+                Ok(packet) => packet,
+                Err(unknown) => {
+                    self.unknown_packets += 1;
+                    skip_unknown(self.tap.as_deref(), &unknown, self.unknown_packets);
+                    continue;
+                }
+            };
+            packet.trace_position = (*frame, index);
+            if let Some(tap) = &self.tap {
                 let record = tap.record(
                     PacketDirection::Clientbound,
                     packet.id as u32,
@@ -454,8 +483,16 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                 );
                 packet.record = Some(record);
             }
+            self.received.push_back(packet);
         }
-        Ok(packets)
+        if packets.remaining() == 0 {
+            self.pending_batch = None;
+        }
+    }
+
+    /// Number of well-formed server packets skipped because this protocol does not define their ID.
+    pub(crate) const fn unknown_packet_count(&self) -> u64 {
+        self.unknown_packets
     }
 
     /// Writes `packets` as one Batch frame after every send retained before it, resolving once
@@ -491,6 +528,29 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             }
         }
         Poll::Ready(Ok(()))
+    }
+}
+
+/// Records an entry whose packet ID this protocol does not define as skipped, warning on the
+/// session's first one; `count` includes it.
+fn skip_unknown(tap: Option<&dyn PacketTap>, unknown: &UnknownPacket, count: u64) {
+    if let Some(tap) = tap {
+        let body = PacketBody::whole(&unknown.body);
+        let record = tap.record(PacketDirection::Clientbound, unknown.id, body);
+        tap.reject(record, unknown.id, PacketOutcome::Skipped, body);
+    }
+    if count == 1 {
+        tracing::warn!(
+            packet_id = unknown.id,
+            body_len = unknown.body.len(),
+            "skipping a server packet with an ID this protocol does not define"
+        );
+    } else {
+        tracing::debug!(
+            packet_id = unknown.id,
+            count,
+            "skipping an unknown packet ID"
+        );
     }
 }
 
@@ -539,7 +599,7 @@ fn batch_frame_observed(
 }
 
 /// Groups the startup packets, which may span many upstream batches, into batch bodies that each
-/// stay within the per-batch packet and byte bounds; a packet larger than the byte bound keeps a
+/// stay within the local grouping size and byte bound; a packet larger than the byte bound keeps a
 /// body of its own, which is refused as it would be from the server.
 fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
     let mut batches = Vec::new();
@@ -549,7 +609,7 @@ fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
         let length = u32::try_from(packet.len()).expect("a frame bounds its packets");
         let entry = varuint32_len(length) + packet.len();
         if count != 0
-            && (count == MAX_RAW_BATCH_PACKETS || batch.len() + entry > MAX_SESSION_BATCH_BYTES)
+            && (count == STARTUP_BATCH_PACKETS || batch.len() + entry > MAX_SESSION_BATCH_BYTES)
         {
             batches.push(std::mem::take(&mut batch).freeze());
             count = 0;

@@ -1,6 +1,96 @@
 use super::*;
 
 #[test]
+fn clearing_chat_messages_preserves_server_order_input_and_pending_sends() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    let received = || {
+        UiEvent::Text(protocol::TextEvent {
+            category: protocol::TextCategory::MessageOnly,
+            kind: protocol::TextKind::Raw,
+            needs_translation: false,
+            source: None,
+            message: Arc::from("Received"),
+            parameters: Arc::from([]),
+            xuid: Arc::from(""),
+            platform_chat_id: Arc::from(""),
+            filtered_message: None,
+        })
+    };
+    runtime
+        .apply(&mut player, envelope(1, 1, received()))
+        .unwrap();
+    runtime.push_local_chat_line(Arc::from("Local"), 10);
+    runtime.queue_chat_message("Pending", 10).unwrap();
+    runtime.insert_chat_text("Draft").unwrap();
+    let pending = runtime.pending_chat_sends().clone();
+
+    runtime.clear_chat_messages();
+
+    assert!(runtime.chat().messages().is_empty());
+    assert_eq!(runtime.chat().retained_bytes(), 0);
+    assert_eq!(runtime.chat().last_sequence(), Some(1));
+    assert_eq!(runtime.chat_editor().as_str(), "Draft");
+    assert_eq!(runtime.pending_chat_sends(), &pending);
+    runtime.push_local_chat_line(Arc::from("Cleared"), 20);
+    assert_eq!(runtime.chat().last_sequence(), Some(1));
+    assert!(matches!(
+        runtime.apply(&mut player, envelope(1, 1, received())),
+        Err(UiRuntimeError::StaleFifoSequence { .. })
+    ));
+    runtime
+        .apply(&mut player, envelope(1, 2, received()))
+        .unwrap();
+    assert_eq!(runtime.chat().messages().len(), 2);
+    assert_eq!(runtime.chat().last_sequence(), Some(2));
+}
+
+/// Chat and the other text boxes report that they take typed characters; an idle HUD does not.
+#[test]
+fn text_entry_is_focused_in_chat_and_in_each_screen_text_box() {
+    let mut player_runtime = player_state::PlayerState::new(2);
+    let mut runtime = UiRuntime::new(2);
+    assert!(!runtime.text_entry_focused());
+
+    runtime.open_chat(&mut player_runtime);
+    assert!(runtime.text_entry_focused());
+
+    let mut runtime = UiRuntime::new(2);
+    runtime.screen_state_mut().search_focused = true;
+    assert!(runtime.text_entry_focused());
+
+    let mut runtime = UiRuntime::new(2);
+    runtime.screen_state_mut().anvil_focused = true;
+    assert!(runtime.text_entry_focused());
+}
+
+/// Closing the window takes the keyboard back from its name box, so a letter bound to Screenshot
+/// works again in gameplay.
+#[test]
+fn closing_the_inventory_releases_the_anvil_name_box() {
+    let mut player_runtime = player_state::PlayerState::new(2);
+    let mut runtime = UiRuntime::new(2);
+    runtime.screen_state_mut().anvil_focused = true;
+
+    runtime.close_inventory(&mut player_runtime);
+
+    assert!(!runtime.text_entry_focused());
+}
+
+/// A window the server closed leaves no name box focused once the screen is next observed.
+#[test]
+fn observing_a_closed_inventory_releases_the_anvil_name_box() {
+    let player_runtime = player_state::PlayerState::new(2);
+    let mut runtime = UiRuntime::new(2);
+    runtime.screen_state_mut().anvil_focused = true;
+    assert!(!runtime.inventory_open());
+
+    runtime.observe_inventory_window(&player_runtime);
+
+    assert!(!runtime.text_entry_focused());
+}
+
+#[test]
 fn tab_cycles_whitespace_suggestions_as_complete_replacements() {
     let mut player_runtime = player_state::PlayerState::new(2);
     let mut runtime = UiRuntime::new(2);

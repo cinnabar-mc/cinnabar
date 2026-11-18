@@ -69,6 +69,58 @@ pub(crate) fn covered_grass_variant_is_valid(
         && (material as usize) < material_count
 }
 
+/// The conditional terrain layer of an otherwise invisible block, held in its visual's variant.
+///
+/// Vanilla tessellates barriers and light blocks as camera-facing sprites and structure voids as
+/// boxes, each into its own terrain layer that is drawn only while that layer is shown.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TerrainMarker {
+    Barrier = 1,
+    Light = 2,
+    StructureVoid = 3,
+}
+
+impl TerrainMarker {
+    pub const ALL: [Self; 3] = [Self::Barrier, Self::Light, Self::StructureVoid];
+
+    /// The marker an invisible visual's `variant` names; other kinds and variant zero name none.
+    #[must_use]
+    pub const fn from_variant(kind: VisualKind, variant: u32) -> Option<Self> {
+        match (kind, variant) {
+            (VisualKind::Invisible, 1) => Some(Self::Barrier),
+            (VisualKind::Invisible, 2) => Some(Self::Light),
+            (VisualKind::Invisible, 3) => Some(Self::StructureVoid),
+            _ => None,
+        }
+    }
+
+    /// The visual variant that stores this marker.
+    #[must_use]
+    pub const fn variant(self) -> u32 {
+        self as u32
+    }
+
+    /// This marker's bit in a set of shown layers, as vanilla's render-block flags order them.
+    #[must_use]
+    pub const fn layer(self) -> u8 {
+        1 << (self as u32 - 1)
+    }
+
+    /// Whether the marker is a sprite facing the camera rather than a box.
+    #[must_use]
+    pub const fn is_camera_facing(self) -> bool {
+        !matches!(self, Self::StructureVoid)
+    }
+}
+
+/// An invisible visual names no marker or one marker class; its art may be missing.
+pub(crate) const fn terrain_marker_variant_is_valid(kind: VisualKind, variant: u32) -> bool {
+    !matches!(kind, VisualKind::Invisible)
+        || variant == 0
+        || TerrainMarker::from_variant(kind, variant).is_some()
+}
+
 /// Template selects its body or head quads from the primary block above it.
 pub const MODEL_TEMPLATE_FLAG_KELP: u32 = 1 << 0;
 /// Template belongs to a contiguous five-shape stair topology group.
@@ -159,6 +211,13 @@ pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_TWISTING_VINE
     )
 }
+
+/// Templates in one stair topology group: the straight shape and four corner shapes.
+pub const STAIR_TEMPLATE_COUNT: u32 = 5;
+/// Templates in one thin-pane group, one per connection mask.
+pub const PANE_TEMPLATE_COUNT: u32 = 16;
+/// Templates in one fence group: the post, then one arm set per connection mask.
+pub const FENCE_TEMPLATE_COUNT: u32 = 1 + 16;
 /// Number of positional sprite variants in each bubble-column surface group.
 pub const BUBBLE_COLUMN_POSITION_VARIANTS: u32 = 4;
 /// Submerged and exposed bubble-column templates, in that order.
@@ -272,6 +331,42 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
         || flags == MODEL_TEMPLATE_FLAG_SHEET_TILES
         || flags == MODEL_TEMPLATE_FLAG_SHELF | MODEL_TEMPLATE_FLAG_SHEET_TILES
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_SCAFFOLDING
+}
+
+/// Number of templates from `first` that terrain meshing and model consumers may select for a
+/// visual whose template is `first`: a topology group's complete span, or the compound chain
+/// otherwise. `None` when the selection has no fixed span, as for nether portals, or the flags
+/// are unknown, so copying the span never drops a template the mesher can reach.
+#[must_use]
+pub fn model_template_span(templates: &[ModelTemplate], first: u32) -> Option<u32> {
+    let flags = templates.get(first as usize)?.flags;
+    let group = match flags {
+        MODEL_TEMPLATE_FLAG_STAIR => STAIR_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_PANE => PANE_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER => FENCE_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_DOOR => crate::door::TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN => BUBBLE_COLUMN_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_FIRE => crate::fire::FIRE_TEMPLATE_COUNT,
+        0
+        | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+        | MODEL_TEMPLATE_FLAG_KELP
+        | MODEL_TEMPLATE_FLAG_WALL
+        | MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+        | MODEL_TEMPLATE_FLAG_SNOW_LAYER
+        | MODEL_TEMPLATE_FLAG_LILY_PAD
+        | MODEL_TEMPLATE_FLAG_BAMBOO
+        | MODEL_TEMPLATE_FLAG_TORCH
+        | MODEL_TEMPLATE_FLAG_SHORT_GRASS => {
+            return model_template_parts(templates, first).map(|parts| parts.len() as u32);
+        }
+        _ if flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0
+            && model_template_flags_are_valid(flags) =>
+        {
+            return model_template_parts(templates, first).map(|parts| parts.len() as u32);
+        }
+        _ => return None,
+    };
+    (templates.len() >= first as usize + group as usize).then_some(group)
 }
 
 /// Page field of a texture reference: three bits above the GPU metadata word,

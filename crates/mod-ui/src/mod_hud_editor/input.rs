@@ -547,19 +547,15 @@ impl HudEditor {
 #[cfg(test)]
 mod resize_tests {
     use super::*;
-    use ui::mod_hud::{Card, Cell, MAX_CARD_SCALE, MIN_CARD_SCALE};
+    use ui::mod_hud::{Card, MAX_CARD_SCALE, MIN_CARD_SCALE};
 
     /// Opens a real native editor around one uniformly scalable card.
     fn editor(viewport: [f64; 2]) -> HudEditor {
         let mut editor = HudEditor::new(&Hud {
             cards: vec![Card {
                 id: "resize".into(),
-                width: 100.,
                 position: Some([0.4, 0.35]),
-                cells: vec![Cell {
-                    rect: [0., 0., 100., 60.],
-                    ..Default::default()
-                }],
+                editor_size: Some([100., 60.]),
                 ..Default::default()
             }],
             ..Default::default()

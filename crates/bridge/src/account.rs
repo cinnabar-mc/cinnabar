@@ -585,6 +585,21 @@ mod tests {
     use crate::{AuthState, ConnectStage};
 
     #[test]
+    fn realm_leave_params_match_the_wire_contract() {
+        let encoded = serde_json::to_value(&Request {
+            jsonrpc: "2.0",
+            id: 1,
+            method: crate::contract::METHOD_REALM_LEAVE,
+            params: Some(RealmLeaveParams { realm_id: 7 }),
+        })
+        .expect("encode");
+        assert_eq!(
+            encoded,
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"realm_leave.v1","params":{"realm_id":7}})
+        );
+    }
+
+    #[test]
     fn connect_params_match_the_wire_contract() {
         let encoded = serde_json::to_value(&Request {
             jsonrpc: "2.0",
@@ -851,4 +866,21 @@ pub async fn realm_membership(
         Some(Params { code, accept }),
     )
     .await
+}
+
+/// The `realm_leave.v1` request: the service id of the joined Realm.
+#[derive(Serialize)]
+struct RealmLeaveParams {
+    realm_id: u32,
+}
+
+/// Removes the signed-in account from a Realm it joined; owners cannot leave their own Realm.
+pub async fn leave_realm(socket_dir: &Path, realm_id: u32) -> Result<(), BridgeError> {
+    call::<Empty, _>(
+        socket_dir,
+        crate::contract::METHOD_REALM_LEAVE,
+        Some(RealmLeaveParams { realm_id }),
+    )
+    .await?;
+    Ok(())
 }

@@ -8,11 +8,12 @@ require (
 )
 
 require (
+	github.com/andreburgaud/crypt2go v1.8.0 // indirect
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/df-mc/go-nethernet v1.0.27-0.20261102075145-0e1727705185 // indirect
+	github.com/df-mc/go-nethernet v1.0.27-0.20261104184408-4c06b550759d // indirect
 	github.com/df-mc/go-playfab/v2 v2.0.3 // indirect
 	github.com/df-mc/go-xsapi/v2 v2.0.4-0.20261012072832-90ce120e31cd // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
@@ -47,8 +48,10 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 )
 
-replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261106225903-4c5f96d9c02b
+replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261117123305-02078462a0d1
 
-replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261103140623-73175bc7e66c
+replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261108113906-d4f2a990a702
 
-replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f
+replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261111133013-1a61b926deac
+
+replace github.com/pion/sctp => github.com/cinnabar-mc/sctp v1.12.1-0.20261110160758-dbe1066d869f

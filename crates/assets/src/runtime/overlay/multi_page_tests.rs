@@ -159,3 +159,39 @@ fn multi_page_base_rejects_page_and_device_overflow_without_changing_base() {
     assert_eq!(base.texture_pages.len(), 2);
     assert_eq!(base.material(2).texture, TextureRef::new(1, 575).unwrap());
 }
+
+#[test]
+fn server_enhanced_maps_address_overlay_slots_after_every_base_page() {
+    use crate::texture::EnhancedTextureAssets as Maps;
+    let base = base();
+    let mut overlay = cube_overlay(texture(1, 30));
+    overlay.base_texture_pages = 2;
+    overlay.materials[0].texture = TextureRef::new(2, 0).unwrap();
+    let with_maps = |overlay: &BlockOverlay, slot: TextureRef| {
+        let pages = || [texture(1, 50), texture(1, 50)];
+        let maps = Maps::new(
+            pages(),
+            pages(),
+            pages(),
+            Maps::carrier_references([(slot.raw(), 0)].into()),
+        )
+        .unwrap();
+        BlockOverlay {
+            enhanced: Some(std::sync::Arc::new(maps)),
+            ..overlay.clone()
+        }
+    };
+    let first_shard = with_maps(&overlay, TextureRef::new(2, 0).unwrap());
+    assert!(base.with_block_overlay(1, &first_shard).is_ok());
+    for outside in [
+        TextureRef::new(1, 0).unwrap(),
+        TextureRef::new(2, 1).unwrap(),
+        TextureRef::new(3, 0).unwrap(),
+    ] {
+        assert!(
+            base.with_block_overlay(1, &with_maps(&overlay, outside))
+                .is_err(),
+            "{outside:?} is not an overlay slot"
+        );
+    }
+}

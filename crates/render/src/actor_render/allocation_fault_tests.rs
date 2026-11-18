@@ -50,8 +50,6 @@ pub(crate) fn fixture() -> App {
         .init_resource::<FrameCount>()
         .init_resource::<Frames>()
         .init_resource::<ExecutedSpans>()
-        .init_resource::<render_scene::WorldLighting>()
-        .init_resource::<render_scene::WorldFullbright>()
         .init_resource::<render_scene::NametagSceneResource>()
         .add_systems(Render, begin_frame.in_set(RenderSystems::PrepareViews))
         .add_systems(
@@ -64,6 +62,7 @@ pub(crate) fn fixture() -> App {
                 .in_set(RenderSystems::Render)
                 .before(submit_actor_presented_frame),
         );
+    crate::lighting::init_inputs(render.world_mut());
     app.insert_resource(Assets::<Shader>::default());
     app.insert_sub_app(RenderApp, render);
     app.add_plugins(ActorRenderPlugin);
@@ -137,7 +136,6 @@ pub(crate) fn publication(generation: u64, markers: &[u8], layers: u32) -> Actor
             height: 4,
             layers,
             rgba8: [marker, 64, 128, 255].repeat(16 * layers as usize).into(),
-            color_mask: false,
             multitexture: false,
         })
         .collect::<Vec<_>>()
@@ -168,6 +166,7 @@ fn execute_draws(world: &mut World) {
             false,
             false,
             assets::EntityRenderMaterial::Default as u32,
+            assets::entity::material::UNAUTHORED_RENDER_STATE,
         )
         .unwrap();
     world

@@ -145,7 +145,9 @@ impl Effects {
             }));
             transform_nodes(nodes, first, 1.0 - ease, dialog.rem * 0.4 * ease, size)?;
         }
-        self.primed = true;
+        // An empty frame has no screen to dim, so the first screen drawn after one (the
+        // launch menu) appears already dimmed instead of fading in over the bright background.
+        self.primed |= !nodes.is_empty();
         Ok(())
     }
 

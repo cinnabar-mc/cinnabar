@@ -2,7 +2,8 @@
 
 use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
-use render_scene::{ChunkTextureBindingIdentity, EnhancedTextureAssets};
+use assets::texture::EnhancedTextureAssets;
+use render_scene::ChunkTextureBindingIdentity;
 
 #[cfg(test)]
 use super::bind_groups::same_carrier;
@@ -164,7 +165,7 @@ impl AuthoredUpload {
         source: Arc<EnhancedTextureAssets>,
         device: &RenderDevice,
     ) -> Option<Self> {
-        if !source.fits_device_limits(&device.limits()) {
+        if !render_scene::enhanced_maps_fit_device_limits(&source, &device.limits()) {
             return None;
         }
         let arrays = source.pages();

@@ -26,26 +26,26 @@ fn cull_storage_retains_old_buffers_on_growth_failure_and_limit_overflow() {
         let hidden = HashSet::new();
         cull.table
             .update(first, 0, tint, CullRecord::default(), &hidden);
-        assert!(upload_records(&mut cull, &device, &queue));
+        assert!(upload_records(&mut cull, &device, &queue).is_ok());
         let previous = cull.storage.as_ref().unwrap().records.clone();
         let capacity = cull.storage.as_ref().unwrap().capacity;
         cull.table
             .update(overflow, capacity, tint, CullRecord::default(), &hidden);
         let failure = crate::gpu_allocation::inject(|label, _| label == "terrain cull storage");
-        assert!(!upload_records(&mut cull, &device, &queue));
+        assert!(upload_records(&mut cull, &device, &queue).is_err());
         assert_eq!(cull.storage.as_ref().unwrap().records, previous);
         drop(failure);
         if limited {
-            assert!(!upload_records(&mut cull, &device, &queue));
+            assert!(upload_records(&mut cull, &device, &queue).is_err());
             cull.table.remove(overflow);
             cull.table.trim();
         }
         for _ in 0..8 {
-            if upload_records(&mut cull, &device, &queue) {
+            if upload_records(&mut cull, &device, &queue).is_ok() {
                 break;
             }
         }
-        assert!(upload_records(&mut cull, &device, &queue));
+        assert!(upload_records(&mut cull, &device, &queue).is_ok());
         assert!(cull.storage.as_ref().unwrap().capacity >= cull.slot_count());
     }
 }

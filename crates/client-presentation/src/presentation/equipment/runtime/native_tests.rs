@@ -150,6 +150,7 @@ fn install(
 /// Supplies a held stack with admitted use timing and ordinary native grip facts.
 fn item(identifier: &str) -> WornItem {
     WornItem {
+        trim: None,
         variant: Default::default(),
         identifier: identifier.into(),
         metadata: 0,

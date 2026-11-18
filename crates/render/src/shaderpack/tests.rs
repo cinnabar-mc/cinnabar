@@ -5,11 +5,13 @@
     reason = "names missing GPU fixtures when tests skip"
 )]
 
+mod atomics;
 mod dot;
 #[cfg(target_os = "windows")]
 mod fxc;
 mod geometry_frames;
 mod partial;
+mod prepass;
 
 use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
@@ -210,6 +212,26 @@ fn render_pack_options(
         )
         .expect("fixture loads"),
     );
+    let terrain = EmptyTerrain(pack.terrain_layout);
+    render_loaded_pack(
+        gpu,
+        pack,
+        frames,
+        viewport,
+        second_view,
+        geometry_fixture.then_some(&terrain),
+    )
+}
+
+/// Renders a loaded pack with optional terrain through the complete frame recorder.
+fn render_loaded_pack(
+    gpu: &GpuContext,
+    pack: Arc<super::loader::PackGpu>,
+    frames: usize,
+    viewport: [u32; 4],
+    second_view: bool,
+    terrain: Option<&dyn super::frame_geometry::TerrainDraws>,
+) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
     let size = SIZE;
     let extent = wgpu::Extent3d {
         width: size[0],
@@ -295,7 +317,7 @@ fn render_pack_options(
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
             view: &depth.create_view(&Default::default()),
             depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(if second_view || geometry_fixture {
+                load: wgpu::LoadOp::Clear(if second_view || terrain.is_some() {
                     0.5
                 } else {
                     0.0
@@ -310,7 +332,6 @@ fn render_pack_options(
     });
     drop(clear);
     let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
-    let terrain = EmptyTerrain(pack.terrain_layout);
     let io = FrameIo {
         viewport,
         scene_colour: &scene.create_view(&Default::default()),
@@ -320,9 +341,9 @@ fn render_pack_options(
         fog_color: super::uniforms::sky_fog(&game, Quat::IDENTITY, Vec3::new(0.0, 64.0, 0.0)).fog,
         destination: &output.create_view(&Default::default()),
         destination_format: format,
-        geometry: geometry_fixture.then_some(super::frame_geometry::FrameGeometry {
+        geometry: terrain.map(|terrain| super::frame_geometry::FrameGeometry {
             device: &render_device,
-            terrain: &terrain,
+            terrain,
             atlas: None,
             effect_textures: None,
             actors: super::actors::ActorSources::default(),
@@ -725,58 +746,6 @@ fn images_sampled_and_written_in_one_dispatch_read_snapshots() {
         ],
     );
     assert_pixels(&bytes, |_| [255, 255, 255]);
-}
-
-/// Counts its 16 invocations into an `r32ui` custom image with an image atomic.
-const COUNT_ATOMICALLY: &str = "#version 430
-layout(local_size_x = 4, local_size_y = 4) in;
-const ivec3 workGroups = ivec3(1, 1, 1);
-layout(r32ui) uniform uimage2D counter;
-void main() {
-    imageAtomicAdd(counter, ivec2(0), 1u);
-}
-";
-
-/// Writes the counter's first texel, over 255, to red.
-const SHOW_COUNT: &str = "#version 430
-uniform usampler2D counterSampler;
-void main() {
-/* DRAWBUFFERS:0 */
-    uint count = texelFetch(counterSampler, ivec2(0), 0).r;
-    gl_FragData[0] = vec4(float(count) / 255.0, 0.0, 0.0, 1.0);
-}
-";
-
-#[test]
-fn image_atomics_count_into_a_custom_image() {
-    let Some(gpu) = gpu() else {
-        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
-        return;
-    };
-    if !gpu
-        .device
-        .features()
-        .contains(wgpu::Features::TEXTURE_ATOMIC)
-    {
-        eprintln!("missing fixture: a GPU with TEXTURE_ATOMIC for image atomics");
-        return;
-    }
-    let (_, bytes) = render_frames(
-        &gpu,
-        &[
-            (
-                "shaders.properties",
-                "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT true false 1 1\n",
-            ),
-            ("composite.csh", COUNT_ATOMICALLY),
-            ("composite.vsh", PASS_VERTEX),
-            ("composite.fsh", SHOW_COUNT),
-            ("final.vsh", PASS_VERTEX),
-            ("final.fsh", FINAL),
-        ],
-        2,
-    );
-    assert_pixels(&bytes, |_| [16, 0, 0]);
 }
 
 /// A pack's switched-off pass, as Noble's `deferred` is without a LOD mod: no output, and a

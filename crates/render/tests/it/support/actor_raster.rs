@@ -514,9 +514,8 @@ fn raster_batch_in_scene(
             fragment: state.actor_fragment.unwrap_or("actor_fragment"),
             vertices: vertices.clone(),
             bindings: &bindings,
-            blend: material.state.and_then(render::actor_material_blend_state),
-            write_depth: state.actor_fragment.is_none()
-                && material.state.is_none_or(|state| state.depth_write),
+            blend: render::actor_material_blend_state(&material.raster()),
+            write_depth: state.actor_fragment.is_none() && material.raster().depth.write,
         })
         .collect();
     state.instance_ranges = batch
@@ -567,12 +566,13 @@ fn raster_batch_in_scene(
             label: Some("actor fixture binding contract"),
             entries: &entries,
         });
+    let point_light_layout = gpu.point_light_layout();
     let state = gpu_snapshot::RasterState {
         layout: Some(
             gpu.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("actor fixture pipeline"),
-                    bind_group_layouts: &[Some(&layout)],
+                    bind_group_layouts: &[Some(&layout), Some(&point_light_layout)],
                     ..Default::default()
                 }),
         ),

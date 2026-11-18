@@ -40,7 +40,10 @@ fn layout(canvas: &Canvas, text: &mut Text, screen: &Screen, style: &Style<'_>) 
         let margin = theme::SPACE[4] * rem;
         let pad = theme::LOADING_PAD * rem;
         let panel_w = ((theme::LOADING_WIDTH
-            + if matches!(screen, Screen::Consent) {
+            + if matches!(
+                screen,
+                Screen::Consent | Screen::Refused { .. } | Screen::SignIn { .. }
+            ) {
                 theme::CANCEL_WIDTH
             } else {
                 0.0

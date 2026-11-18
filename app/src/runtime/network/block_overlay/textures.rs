@@ -331,9 +331,22 @@ impl<'a> TextureCatalog<'a> {
     ) -> Option<TextureStorageKey> {
         let (_, _, choice) = self.resolve_choice(route)?;
         let path = source.map_or(choice.path.as_str(), |source| source.texture_path.as_ref());
+        let path = normalize_texture_path(path).to_ascii_lowercase();
+        let grid = self.grid(route.key());
+        let texture_set = if super::pbr::DECODE_SERVER_SURFACES
+            && source.is_none()
+            && grid == 0
+            && let Some(set) = pack_runtime::pack_textures::PackTextureSet::find(self.view, &path)
+            && pack_compiler::pbr::texture_set_has_surface(&set.definition)
+        {
+            Some(path.clone())
+        } else {
+            None
+        };
         Some(TextureStorageKey {
-            path: TexturePath::Catalog(normalize_texture_path(path).to_ascii_lowercase()),
-            grid: self.grid(route.key()),
+            path: TexturePath::Catalog(path),
+            texture_set,
+            grid,
             tint: choice.tint,
             frames: source.map(|source| (source.frames.clone(), source.replicate)),
         })

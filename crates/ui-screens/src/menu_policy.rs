@@ -4,9 +4,7 @@ use json_ui::{Catalog, RawControl};
 
 /// Removes store navigation and the global Subscriptions settings controls before resolution.
 pub fn apply(catalog: &mut Catalog) {
-    for control in catalog.controls_mut() {
-        remove_controls(control);
-    }
+    catalog.update_controls(remove_controls);
 }
 
 /// Prunes disabled feature entries and their spacing without changing other controls' order.

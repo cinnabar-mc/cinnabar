@@ -8,6 +8,7 @@ use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
 
 use launcher::menu::settings_options::SettingId;
+use ui::mod_presentation::NametagVisibility;
 #[cfg(test)]
 mod camera_hand_tests;
 mod commit;
@@ -33,10 +34,9 @@ pub(crate) fn observe_mount_jump_input(
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
     runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
-}
-
-pub(crate) fn platform_safe_area_insets() -> SafeArea {
-    SafeArea::ZERO
+    if let Some(snapshot) = input.snapshot() {
+        runtime.set_input_mode(snapshot.input_mode);
+    }
 }
 
 /// Resources beyond Bevy's sixteen-parameter limit.
@@ -163,6 +163,7 @@ pub(crate) fn prepare_ui_runtime(
     runtime.advance_item_activation(now_millis);
     runtime.advance_form_handoff(now_millis);
     runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
+    runtime.set_control_settings(Arc::clone(&settings_snapshot.0));
     if let Some(mut glint_settings) = glint_settings {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -192,18 +193,7 @@ pub(crate) fn prepare_ui_runtime(
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let bottom =
-            client_shell::platform_text::bottom_obstruction_pixels() / window.scale_factor();
-        let safe = platform_safe_area_insets();
-        presentation.set_safe_area(
-            SafeArea::new(
-                safe.left(),
-                safe.top(),
-                safe.right(),
-                safe.bottom().max(bottom),
-            )
-            .unwrap_or(safe),
-        );
+        presentation.set_safe_area(client_shell::platform_text::safe_area_insets(dpi_scale));
     }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
@@ -508,27 +498,32 @@ pub(crate) fn prepare_ui_runtime(
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
     presentation.prepare_nametag_layout(&runtime);
-    let tag_style = mod_presentation.nametag_style.as_ref();
+    // Mod nametag rules decide each tag after native eligibility; with none, every tag is
+    // native, and none draws while the HUD is hidden.
+    let hud_hidden = !overlays.nametags;
+    let own_visibility = client_world.stream.as_ref().and_then(|stream| {
+        let authority = stream.authority();
+        let actor = authority.actor(authority.local_player_runtime_id())?;
+        Some(mod_presentation.nametag_visibility(
+            &client_presentation::actor_publication::mod_actor_facts(authority, actor),
+            hud_hidden,
+        ))
+    });
     // An annotation on the local player shows its own tag, as other annotated players' tags do.
     let annotated_self = client_world.stream.as_ref().is_some_and(|stream| {
         mod_presentation
             .nametag(stream.authority().local_player_runtime_id(), true)
             .is_some()
     });
-    let show_self_tag = (tag_style.is_some_and(|style| style.show_self)
+    let show_self_tag = (own_visibility == Some(NametagVisibility::Shown)
         || annotated_self
         || settings.value(SettingId::F5SelfVisuals) != 0)
-        && !tag_style.is_some_and(|style| style.hide_players)
         && !first_person;
-    let names_with_hidden_hud = tag_style.is_some_and(|style| style.show_when_hud_hidden);
     let nametags = client_world
         .stream
         .as_ref()
         .filter(|_| {
-            overlays.nametags
-                || (names_with_hidden_hud
-                    && settings.value(SettingId::HideHud) != 0
-                    && !menu_visible)
+            !hud_hidden || (!menu_visible && mod_presentation.shows_nametags_with_hidden_hud())
         })
         .zip(cameras.single().ok().map(|(_, transform, projection)| {
             (
@@ -545,6 +540,17 @@ pub(crate) fn prepare_ui_runtime(
             let clip_from_world = clip_from_view * transform.to_matrix().inverse();
             let rotation = transform.rotation();
             let mut admit = |tag: &mut nametags::NametagAnchor| {
+                let Some(facts) = authority.actor(tag.runtime_id()).map(|actor| {
+                    client_presentation::actor_publication::mod_actor_facts(authority, actor)
+                }) else {
+                    return false;
+                };
+                if mod_presentation.nametag_visibility(&facts, hud_hidden)
+                    == NametagVisibility::Hidden
+                {
+                    return false;
+                }
+                let player = facts.player;
                 tag.set_cinnabar_badge(
                     authority
                         .actor_player_roster_identity(tag.runtime_id())
@@ -552,17 +558,7 @@ pub(crate) fn prepare_ui_runtime(
                             runtime.session.player_roster.has_badge(xuid, uuid)
                         }),
                 );
-                tag.set_annotation(
-                    authority
-                        .actor(tag.runtime_id())
-                        .and_then(|actor| {
-                            mod_presentation.nametag(
-                                tag.runtime_id(),
-                                matches!(actor.kind, protocol::ActorKind::Player { .. }),
-                            )
-                        })
-                        .cloned(),
-                );
+                tag.set_annotation(mod_presentation.nametag(tag.runtime_id(), player).cloned());
 
                 presentation.nametag_intersects_view(tag, clip_from_world, rotation)
             };
@@ -573,29 +569,16 @@ pub(crate) fn prepare_ui_runtime(
                 nametag_view,
                 picked_actor.as_deref().and_then(|picked| picked.0),
                 actor_partial.0,
-                show_names && !tag_style.is_some_and(|style| style.hide_players),
+                show_names,
                 &mut admit,
             );
-            if tag_style.is_some_and(|style| style.hide_passengers) {
-                let authority = stream.authority();
-                tags.retain(|tag| {
-                    authority
-                        .actor(tag.runtime_id())
-                        .is_some_and(|actor| authority.ridden_unique_id(actor.unique_id).is_none())
-                });
-            }
             if show_self_tag && show_names {
                 let authority = stream.authority();
                 if let Some(visibility) = local_visibility.snapshot().filter(|visibility| {
                     visibility.visible()
                         && visibility.runtime_id() == authority.local_player_runtime_id()
                         && visibility.session_generation().get() == clock.session_generation()
-                }) && let Some(actor) = authority
-                    .actor(authority.local_player_runtime_id())
-                    .filter(|actor| {
-                        !tag_style.is_some_and(|style| style.hide_passengers)
-                            || authority.ridden_unique_id(actor.unique_id).is_none()
-                    })
+                }) && let Some(actor) = authority.actor(authority.local_player_runtime_id())
                     && let Some(name) = authority.actor_name_tag(actor.unique_id)
                     && let Some(mut tag) = nametags::extract_nametag_at_feet(
                         actor,

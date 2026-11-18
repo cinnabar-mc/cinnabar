@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -86,6 +87,81 @@ func TestRequiredChunkPackWithUnderstatedWireOfferReachesHandoff(t *testing.T) {
 	}
 	if selected[0].Size != uint64(pack.Size()) || archives[0].UUID() != pack.UUID() {
 		t.Fatal("handoff did not use the corrected archive size and identity")
+	}
+}
+
+// A pack with more chunks than the vanilla request window is downloaded the way the
+// vanilla client does it: never more than that window of chunk requests outstanding,
+// with the whole pack still requested and received.
+func TestUpstreamPackDownloadKeepsVanillaChunkRequestWindow(t *testing.T) {
+	pack := testAdmissionPack(t)
+	window := minecraft.DefaultResourcePackMaxInFlightChunks
+	chunks := pack.Size() // one byte per chunk
+	if chunks <= window {
+		t.Fatalf("fixture pack has %d bytes, want more than the %d-chunk window", chunks, window)
+	}
+	network := newStreamNetwork()
+	listener, err := (minecraft.ListenConfig{
+		AuthenticationDisabled: true,
+		ErrorLog:               slog.New(slog.DiscardHandler),
+		ResourcePackDelivery:   minecraft.ResourcePackDeliveryConfig{ChunkSize: 1},
+		PrepareResourcePackOffer: func(_ context.Context, conn *minecraft.Conn) error {
+			return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
+		},
+	}).ListenNetwork(network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			err = conn.(*minecraft.Conn).WritePacketImmediate(&packet.StartGame{EntityRuntimeID: 1, EntityUniqueID: 1})
+		}
+		serverDone <- err
+	}()
+	var (
+		mu                        sync.Mutex
+		requested, received, peak int
+	)
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
+	connections.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{network: network}, nil
+	}
+	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		dialer.PacketFunc = func(header packet.Header, _ []byte, _, _ net.Addr) {
+			mu.Lock()
+			defer mu.Unlock()
+			switch header.PacketID {
+			case packet.IDResourcePackChunkRequest:
+				requested++
+				peak = max(peak, requested-received)
+			case packet.IDResourcePackChunkData:
+				received++
+			}
+		}
+		return dialer.DialContextNetwork(ctx, target.network, "")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	prepared, err := connections.connect(ctx, dialerTestDownstream{
+		protocol: minecraft.DefaultProtocol, identity: login.IdentityData{DisplayName: "PackWindow"},
+	})
+	if err != nil {
+		t.Fatalf("download pack: %v", err)
+	}
+	defer prepared.close()
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requested != chunks || received != chunks {
+		t.Fatalf("requested %d and received %d chunks, want all %d", requested, received, chunks)
+	}
+	if peak != window {
+		t.Fatalf("peak outstanding chunk requests = %d, want the vanilla window %d", peak, window)
 	}
 }
 

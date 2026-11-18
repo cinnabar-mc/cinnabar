@@ -45,6 +45,8 @@ pub(super) struct TestStatus {
     pub sleep_rotation: Option<f32>,
     pub overlay_alpha: f32,
     pub network_position_offset: f32,
+    /// Collision box anchored at the actor's position.
+    pub bounding_box: Option<([f32; 3], [f32; 3])>,
     /// Creeper swell amounts at the previous and current tick.
     pub creeper_swell: [f32; 2],
     pub creeper_swelling_direction: f32,
@@ -69,6 +71,7 @@ impl Default for TestStatus {
             sleep_rotation: None,
             overlay_alpha: 0.0,
             network_position_offset: 0.0,
+            bounding_box: None,
             creeper_swell: [0.0; 2],
             creeper_swelling_direction: -1.0,
             dragon_flap_phase: None,
@@ -243,6 +246,10 @@ impl AnimatedActor for TestActor {
 
     fn network_position_offset(&self) -> f32 {
         self.status.network_position_offset
+    }
+
+    fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
+        self.status.bounding_box
     }
 
     fn render_scale(&self) -> f32 {

@@ -233,6 +233,36 @@ pub struct MeasureCache {
 }
 
 impl MeasureCache {
+    /// Counts dimensional memo entries retained by this cache for memory regressions.
+    #[cfg(test)]
+    pub(crate) fn retained_entries(&self) -> usize {
+        let Self {
+            children,
+            natural,
+            sizes,
+            lengths,
+            flags,
+            placed,
+            targets,
+            styles,
+            suppressed,
+            roles,
+            restarted: _,
+            root: _,
+            placements: _,
+        } = self;
+        children.len()
+            + natural.len()
+            + sizes.len()
+            + lengths.len()
+            + flags.len()
+            + placed.len()
+            + targets.len()
+            + styles.len()
+            + suppressed.len()
+            + roles.len()
+    }
+
     /// Replace changed controls in place and retain measurements of untouched subtrees.
     pub fn update_tree(&mut self, tree: &mut ResolvedControl, next: ResolvedControl) {
         let mut dirty = Dirty::default();
@@ -251,6 +281,11 @@ impl MeasureCache {
     /// that could not splice into the next records and reports none.
     pub fn placed(&self) -> usize {
         self.placements.placed_count()
+    }
+
+    /// Largest sibling set the latest layout inspected, including children culled before placement.
+    pub fn widest_placement_candidates(&self) -> usize {
+        self.placements.widest_candidate_count()
     }
 
     /// [`Self::update_tree`] from a binder patch against `tree`.
@@ -551,7 +586,7 @@ pub(super) fn natural(
     measured
 }
 
-/// [`super::layout_children`], memoized by the parent and its size: children sit at the
+/// [`super::place::layout_children`], memoized by the parent and its size: children sit at the
 /// same offsets from their parent wherever it is placed.
 pub(super) fn placed_children<'a>(
     parent: &'a ResolvedControl,
@@ -584,7 +619,7 @@ pub(super) fn placed_children<'a>(
         return placed;
     }
     let relative: Vec<(usize, Rect)> =
-        super::layout_children(parent, Rect::new(0.0, 0.0, rect.w, rect.h), env)
+        super::place::layout_children(parent, Rect::new(0.0, 0.0, rect.w, rect.h), env)
             .into_iter()
             .map(|(child, at)| (child_index(parent, child), at))
             .collect();

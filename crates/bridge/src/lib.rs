@@ -57,7 +57,7 @@ pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader,
 pub use account::{
     Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
     MessageImage, Profile, Realm, RealmMembership, ServerDisconnect, ServerPing, ServerTrustPrompt,
-    account_status, answer_server_trust, connect_target, home, list_featured_servers,
+    account_status, answer_server_trust, connect_target, home, leave_realm, list_featured_servers,
     list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
     poll_events, profile, realm_membership, report_message_event, sign_out,
 };

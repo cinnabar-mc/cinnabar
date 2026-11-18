@@ -19,7 +19,7 @@ fn world_with_frame_layer(
     position: [f32; 3],
     frame_layer: bool,
 ) -> client_world::WorldAuthority {
-    world_with_geometry_choice(scale, axis, position, frame_layer, None)
+    world_with_geometry_choice(scale, axis, position, frame_layer.then_some("Always"), None)
 }
 
 /// Adds an optional controller-selected mesh extending beyond the base visibility bounds.
@@ -27,7 +27,7 @@ fn world_with_geometry_choice(
     scale: &str,
     axis: bool,
     position: [f32; 3],
-    frame_layer: bool,
+    frame_depth: Option<&str>,
     geometry_choice: Option<&str>,
 ) -> client_world::WorldAuthority {
     let slot = if axis { "scaleX" } else { "scale" };
@@ -35,7 +35,7 @@ fn world_with_geometry_choice(
         r#"{{"format_version":"1.10.0","minecraft:client_entity":{{"description":{{"identifier":"minecraft:creeper","materials":{{"default":"entity"}},"textures":{{"default":"textures/entity/test"}},"geometry":{{"default":"geometry.test"}},"animations":{{"swell":"animation.test.swell"}},"scripts":{{"{slot}":"{scale}","animate":["swell"]}},"render_controllers":["controller.render.test"]}}}}}}"#
     );
     let mut entity: serde_json::Value = serde_json::from_str(&entity).unwrap();
-    if frame_layer {
+    if frame_depth.is_some() {
         let description = &mut entity["minecraft:client_entity"]["description"];
         description["materials"]["default"] = "test_depth_marker".into();
         description["render_controllers"] =
@@ -80,10 +80,16 @@ fn world_with_geometry_choice(
         ),
         ("textures/entity/test.png".into(), texture),
     ];
-    if frame_layer {
+    if let Some(depth) = frame_depth {
         resources.push((
             "materials/depth.material".into(),
-            br#"{"materials":{"version":"1.0.0","test_depth_marker:entity":{"depthFunc":"Always"}}}"#.to_vec(),
+            serde_json::to_vec(&serde_json::json!({
+                "materials": {
+                    "version": "1.0.0",
+                    "test_depth_marker:entity": {"depthFunc": depth}
+                }
+            }))
+            .unwrap(),
         ));
     }
     let compiled = pack_entity_compiler::compile_entity_pack(resources)
@@ -201,7 +207,8 @@ fn scale_independent_distance_gate_retains_edges_and_rejects_far_actors() {
 }
 
 #[test]
-fn always_depth_materials_bypass_terrain_occlusion_but_keep_view_culling() {
+fn through_terrain_depth_comparisons_keep_distance_and_frustum_culling() {
+    use render_api::render_state::CompareFunction;
     let camera = Vec3::new(0.0, 1.0, 0.0);
     let view = ActorCullView {
         camera_position: camera,
@@ -229,31 +236,35 @@ fn always_depth_materials_bypass_terrain_occlusion_but_keep_view_culling() {
         }));
         let mut layers = rig.render.to_vec();
         assert!(!layers.is_empty(), "the fixture selects a material layer");
-        layers[0].material_state = Some(assets::EntityRenderMaterialState {
-            depth_always: true,
-            ..Default::default()
-        });
-        let always = ActorRigSnapshot {
-            render: &layers,
-            ..rig
-        };
-        assert_eq!(
-            rig_may_be_visible(&always, actor, 0.5, view, None, |_, _| true),
-            visible,
-            "through-wall materials retain distance and frustum checks: {feet:?}, {maximum}"
-        );
+        for compare in [
+            None,
+            Some(CompareFunction::Always),
+            Some(CompareFunction::Greater),
+            Some(CompareFunction::GreaterEqual),
+            Some(CompareFunction::NotEqual),
+        ] {
+            layers[0].render_state = Some(render_api::render_state::RenderState {
+                depth: render_api::render_state::DepthState {
+                    compare,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            let through_terrain = ActorRigSnapshot {
+                render: &layers,
+                ..rig
+            };
+            assert_eq!(
+                rig_may_be_visible(&through_terrain, actor, 0.5, view, None, |_, _| true),
+                visible,
+                "depth {compare:?}: {feet:?}, distance {maximum}"
+            );
+        }
     }
 }
 
 #[test]
-fn frame_selected_always_depth_layers_survive_terrain_occlusion() {
-    let world = world_with_frame_layer("1", false, [0.0, 0.0, -5.0], true);
-    let actor = world.actor(1).unwrap();
-    let rig = world.actor_rig(1).unwrap();
-    assert!(
-        rig.render.is_empty(),
-        "the layer is inactive at the completed tick"
-    );
+fn frame_selected_depth_comparisons_control_terrain_occlusion() {
     let camera = Vec3::new(0.0, 1.0, 0.0);
     let view = Some(ActorCullView {
         camera_position: camera,
@@ -265,28 +276,40 @@ fn frame_selected_always_depth_layers_survive_terrain_occlusion() {
         max_distance: 100.0,
     });
     let through_wall = |layers: &[actor_animation::RenderTextureLayer]| {
-        layers
-            .iter()
-            .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+        layers.iter().any(|layer| {
+            layer
+                .render_state
+                .is_some_and(|raster| raster.may_pass_behind_terrain())
+        })
     };
-    let mut probe = world.actor_render_frame(0.5);
-    assert!(
-        through_wall(&probe.layers(1).unwrap()),
-        "the frame selects the depth layer"
-    );
-    let mut frame = world.actor_render_frame(0.5);
-    assert!(rig_may_be_visible(
-        &rig,
-        actor,
-        0.5,
-        view,
-        Some(&mut frame),
-        |_, _| true
-    ));
-    assert!(
-        through_wall(&frame.layers(1).unwrap()),
-        "the draw uses the admitted frame's layers"
-    );
+    for (depth, survives) in [
+        ("Always", true),
+        ("Greater", true),
+        ("GreaterEqual", true),
+        ("NotEqual", true),
+        ("LessEqual", false),
+    ] {
+        let world = world_with_geometry_choice("1", false, [0.0, 0.0, -5.0], Some(depth), None);
+        let actor = world.actor(1).unwrap();
+        let rig = world.actor_rig(1).unwrap();
+        assert!(
+            rig.render.is_empty(),
+            "the layer is inactive at the completed tick"
+        );
+        let mut probe = world.actor_render_frame(0.5);
+        assert_eq!(through_wall(&probe.layers(1).unwrap()), survives, "{depth}");
+        let mut frame = world.actor_render_frame(0.5);
+        assert_eq!(
+            rig_may_be_visible(&rig, actor, 0.5, view, Some(&mut frame), |_, _| true),
+            survives,
+            "{depth}"
+        );
+        assert_eq!(
+            through_wall(&frame.layers(1).unwrap()),
+            survives,
+            "the draw uses the admitted frame's layers: {depth}"
+        );
+    }
 }
 
 /// Exercises scale sampling, both culling stages and body construction on compiled scripts.
@@ -429,7 +452,7 @@ fn single_layer_replacements_survive_walls_covering_only_the_base_mesh() {
         "Geometry.wide",
         "query.frame_alpha > 0.25 ? Geometry.wide : Geometry.default",
     ] {
-        let world = world_with_geometry_choice("1", false, feet, false, Some(choice));
+        let world = world_with_geometry_choice("1", false, feet, None, Some(choice));
         let rig = world.actor_rig(1).unwrap();
         assert_eq!(rig.render.len(), 1);
         let (low, high) = rig.culling_bounds().at(feet, 1.0);
@@ -494,7 +517,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         "Geometry.wide",
         "query.frame_alpha > 0.25 ? Geometry.wide : Geometry.default",
     ] {
-        let world = world_with_geometry_choice("1", false, feet, false, Some(choice));
+        let world = world_with_geometry_choice("1", false, feet, None, Some(choice));
         let rig = world.actor_rig(1).unwrap();
         assert!(!actor_bounds_are_visible(
             feet,
@@ -543,6 +566,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         assert!(admit_frame_bounds(
             &mut presentation,
             &rig,
+            world.actor(1).unwrap(),
             view,
             Some(&mut frame)
         ));
@@ -577,7 +601,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         ));
     }
     let distant =
-        world_with_geometry_choice("1", false, [73.0, 0.0, -5.0], false, Some("Geometry.wide"));
+        world_with_geometry_choice("1", false, [73.0, 0.0, -5.0], None, Some("Geometry.wide"));
     let rig = distant.actor_rig(1).unwrap();
     let mut frame = distant.actor_render_frame(0.5);
     assert!(frame.may_replace_body_geometry(1));
@@ -622,8 +646,11 @@ fn camera_inside_remote_player_keeps_scale_and_layer_preparation() {
     );
     assert!(sampled.get());
     let mut layers = rig.render.to_vec();
-    layers[0].material_state = Some(assets::EntityRenderMaterialState {
-        depth_always: true,
+    layers[0].render_state = Some(render_api::render_state::RenderState {
+        depth: render_api::render_state::DepthState {
+            compare: Some(render_api::render_state::CompareFunction::Always),
+            ..Default::default()
+        },
         ..Default::default()
     });
     let layered = ActorRigSnapshot {
@@ -699,6 +726,84 @@ fn player_collision_bounds_do_not_hide_render_candidates() {
                 ));
             }
         }
+    }
+}
+
+#[test]
+fn collision_bounds_keep_their_size_through_render_admission_and_placement() {
+    let world = world("1", false, [0.0, 0.0, -5.0]);
+    let mut actor = world.actor(1).unwrap().clone();
+    for (key, value) in [
+        (ActorDataKey::Scale, 4.0),
+        (ActorDataKey::Width, 0.6),
+        (ActorDataKey::Height, 1.8),
+    ] {
+        actor
+            .metadata
+            .insert(key.wire_value(), ActorMetadataValue::Float(value));
+    }
+    let (artwork, locations) =
+        ActorArtworkPages::default().with_equipment_rasters(&[render_model::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([255; 4]),
+        }]);
+    let mut poses = PoseConversions::default();
+    for (scale, axis_scale, height) in [
+        (1.0, [1.0; 3], 8.0),
+        (0.5, [1.0; 3], 7.2),
+        (1.0, [3.0, 1.0, 1.0], 24.0),
+        (0.125, [1.0; 3], 7.2),
+    ] {
+        let rig = ActorRigSnapshot {
+            scale,
+            axis_scale,
+            ..world.actor_rig(1).unwrap()
+        };
+        let view = Some(ActorCullView {
+            camera_position: Vec3::new(0.0, height + 2.0, 0.0),
+            clip_from_world: Mat4::from_translation(Vec3::new(0.0, -(height + 2.0), 0.0))
+                * Mat4::from_scale(Vec3::new(0.01, 1.0, -0.01)),
+            max_distance: 100.0,
+        });
+        assert!(!rig_may_be_visible(
+            &rig,
+            &actor,
+            0.5,
+            view,
+            None,
+            |_, _| false
+        ));
+        let mut presentation =
+            entity_rig_presentation_cached(&rig, &actor, &artwork, 0.5, Some(&mut poses)).unwrap();
+        let submission = &presentation.submission;
+        let (_, high) = submission.culling_bounds.at(
+            submission.world_from_actor.map(|row| row[3]),
+            submission.culling_scale(),
+        );
+        assert!((high[1] - height).abs() < 1e-4);
+        assert!(!actor_rig_submission_is_visible(submission, view));
+        assert!(!admit_frame_bounds(
+            &mut presentation,
+            &rig,
+            &actor,
+            view,
+            None,
+        ));
+        let mut layers = rig.render.to_vec();
+        layers[0].geometry = Some(rig.geometry_source().unwrap().1.try_into().unwrap());
+        let selected = ActorRigSnapshot {
+            render: &layers,
+            ..rig
+        };
+        presentation.artwork = locations[0];
+        assert!(!admit_frame_bounds(
+            &mut presentation,
+            &selected,
+            &actor,
+            view,
+            None,
+        ));
     }
 }
 

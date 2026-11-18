@@ -36,6 +36,18 @@ impl BedModel {
     }
 }
 
+/// Height of a bed's top surface in blocks, the extent of its break-crack overlay.
+pub const BED_HEIGHT_BLOCKS: f32 = 9.0 / 16.0;
+
+/// The surface a bed block's break-crack covers: the cell up to the top of the mattress.
+#[must_use]
+pub fn bed_crack_shape() -> super::CrackShape {
+    super::CrackShape::cuboid([0.0; 3], [1.0, BED_HEIGHT_BLOCKS, 1.0])
+}
+
+/// The dye id of a bed that no block entity has coloured yet (red).
+pub const DEFAULT_BED_DYE: i64 = 14;
+
 /// The texture stem for a bed block entity's `color` (dye id, white first).
 #[must_use]
 pub const fn bed_color(dye_id: i64) -> Option<&'static str> {
@@ -116,6 +128,24 @@ mod tests {
         assert_eq!(bed_color(8), Some("silver"));
         assert_eq!(bed_color(15), Some("black"));
         assert_eq!(bed_color(16), None);
+        assert_eq!(bed_color(DEFAULT_BED_DYE), Some("red"));
+    }
+
+    #[test]
+    fn the_crack_covers_the_bed_up_to_its_mattress_with_outward_faces() {
+        let super::super::CrackShape::Quads(quads) = bed_crack_shape() else {
+            panic!("a bed crack follows its own faces");
+        };
+        assert_eq!(quads.len(), 6);
+        let center = Vec3::new(0.5, BED_HEIGHT_BLOCKS / 2.0, 0.5);
+        let mut top = 0.0_f32;
+        for quad in quads.iter() {
+            let corners = quad.corners.map(Vec3::from_array);
+            let normal = (corners[1] - corners[0]).cross(corners[2] - corners[0]);
+            assert!(normal.dot(corners[0] - center) > 0.0, "{quad:?}");
+            top = corners.iter().fold(top, |top, corner| top.max(corner.y));
+        }
+        assert!((top - BED_HEIGHT_BLOCKS).abs() < 1.0e-6);
     }
 
     #[test]

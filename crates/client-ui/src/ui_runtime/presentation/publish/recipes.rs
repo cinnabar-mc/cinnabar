@@ -174,6 +174,7 @@ pub(super) fn screen_previews<'a>(
             match kind {
                 protocol::WindowKind::Anvil => runtime.anvil_output(player),
                 protocol::WindowKind::Grindstone => runtime.grindstone_output(player),
+                protocol::WindowKind::Smithing => player.inventory.predicted_smithing_trim(),
                 _ => None,
             }
             .or_else(|| runtime.predicted_screen_output(player).map(output_stack))

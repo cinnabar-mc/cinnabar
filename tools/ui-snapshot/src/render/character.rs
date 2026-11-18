@@ -95,6 +95,7 @@ pub(super) fn paint(bounds: [f32; 4], page: u16, frame: &mut PaintFrame<'_>) -> 
             triangle.iter().map(move |vertex| {
                 let p = project(vertex.position);
                 UiMeshVertex {
+                    terrain_mips: false,
                     position: [
                         0.5 + (p[0] - center[0]) * fit / width,
                         0.5 - (p[1] - center[1]) * fit / height,

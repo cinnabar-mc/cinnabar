@@ -678,10 +678,55 @@ pub(crate) fn ui_overlay(
         };
         frame_complete &= complete;
         frame_encoded |= nonempty;
-        if encoded {
-            if segment.present {
-                layer.defer_present();
-            } else {
+        // Resolve the invert first: one with no depth attachment draws into the
+        // composite's own pass, which already targets the new main texture.
+        let invert = match inverted {
+            Some(inverted) => {
+                let batch = inverted.1;
+                let scoped = batch.isolated_depth_scope.is_some();
+                model_lifetime.enter(batch.isolated_depth_scope);
+                let depth = super::segments::invert_needs_depth(batch);
+                let id = if scoped {
+                    gpu.model_view_pipelines
+                        .get(&(view_entity, batch.depth_test != 0, batch.depth_write != 0))
+                        .map(|pair| pair.1)
+                } else {
+                    Some(*invert)
+                };
+                match id
+                    .filter(|_| !depth || model_depth.is_some())
+                    .and_then(|id| pipeline_cache.get_render_pipeline(id))
+                {
+                    Some(pipeline) => Some((inverted, depth, pipeline)),
+                    None => {
+                        // Still compiling: skip the crosshair rather than blend it wrong.
+                        frame_complete = false;
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+        if encoded && segment.present {
+            layer.defer_present();
+        }
+        let composited = encoded && !segment.present;
+        let shared = super::segments::invert_shares_composite(
+            composited,
+            invert.as_ref().map(|(_, depth, _)| *depth),
+        );
+        if composited && !shared {
+            super::composite::composite(
+                context,
+                world,
+                target,
+                raster,
+                composite_pipeline,
+                &composite_layout,
+            );
+        }
+        if let Some((inverted, depth, pipeline)) = invert {
+            let mut pass = if shared {
                 super::composite::composite(
                     context,
                     world,
@@ -689,55 +734,38 @@ pub(crate) fn ui_overlay(
                     raster,
                     composite_pipeline,
                     &composite_layout,
-                );
-            }
-        }
-        if let Some(inverted) = inverted {
-            let batch = inverted.1;
-            let scoped = batch.isolated_depth_scope.is_some();
-            model_lifetime.enter(batch.isolated_depth_scope);
-            let needs_depth = batch.depth_test != 0 || batch.depth_write != 0;
-            if scoped && needs_depth && model_depth.is_none() {
-                frame_complete = false;
-                continue;
-            }
-            let id = if scoped {
-                gpu.model_view_pipelines
-                    .get(&(view_entity, batch.depth_test != 0, batch.depth_write != 0))
-                    .map(|pair| pair.1)
+                )
             } else {
-                Some(*invert)
-            };
-            let Some(pipeline) = id.and_then(|id| pipeline_cache.get_render_pipeline(id)) else {
-                // Still compiling: skip the crosshair rather than blend it wrong.
-                frame_complete = false;
-                continue;
-            };
-            // HUD layers and invert batches share the current resolved scene texture.
-            let attachments = [Some(
-                bevy::render::render_resource::RenderPassColorAttachment {
-                    view: target.main_texture_view(),
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Load,
-                        store: StoreOp::Store,
+                // HUD layers and invert batches share the current resolved scene texture.
+                let attachments = [Some(
+                    bevy::render::render_resource::RenderPassColorAttachment {
+                        view: target.main_texture_view(),
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Load,
+                            store: StoreOp::Store,
+                        },
                     },
-                },
-            )];
-            let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-                label: Some("retained depth-free HUD invert"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: (scoped && needs_depth)
-                    .then(|| model_depth_attachment(model_depth.unwrap(), &model_lifetime)),
-                timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
-                    world,
-                    render_scene::RuntimeStage::GpuUiInvert,
-                ),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            if scoped && needs_depth {
+                )];
+                let pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                    label: Some("retained depth-free HUD invert"),
+                    color_attachments: &attachments,
+                    depth_stencil_attachment: depth
+                        .then(|| model_depth_attachment(model_depth.unwrap(), &model_lifetime)),
+                    timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
+                        world,
+                        render_scene::RuntimeStage::GpuUiInvert,
+                    ),
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                if let Some(profile) = profile {
+                    profile.record_pass(render_scene::RuntimeStage::GpuUiInvert);
+                }
+                pass
+            };
+            if depth {
                 model_lifetime.encoded();
             }
             pass.set_render_pipeline(pipeline);
@@ -752,9 +780,7 @@ pub(crate) fn ui_overlay(
                 std::slice::from_ref(inverted),
                 skip.as_ref(),
                 None,
-                world
-                    .get_resource::<super::profile::UiProfile>()
-                    .map(|profile| (profile, render_scene::RuntimeStage::GpuUiInvert)),
+                profile.map(|profile| (profile, render_scene::RuntimeStage::GpuUiInvert)),
             );
         }
     }

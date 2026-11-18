@@ -16,6 +16,7 @@ pub(super) const MAX_CACHED_WINDOWS: usize = (PREFETCH_RADIUS as usize * 2 + 1).
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct WindowKey {
     centre: [i64; 2],
+    span: u16,
     above: bool,
 }
 
@@ -24,6 +25,7 @@ impl WindowKey {
     fn new(viewport: CloudViewport, above: bool) -> Self {
         Self {
             centre: viewport.centre().map(|value| value as i64),
+            span: viewport.span(),
             above,
         }
     }
@@ -44,7 +46,7 @@ enum MeshJob {
 #[derive(Default)]
 pub(super) struct CloudMeshCache {
     identity: Option<[u8; 32]>,
-    centre: Option<[i64; 2]>,
+    prefetched: Option<WindowKey>,
     jobs: HashMap<WindowKey, MeshJob>,
 }
 
@@ -53,7 +55,7 @@ impl CloudMeshCache {
     pub fn set_identity(&mut self, identity: [u8; 32]) {
         if self.identity != Some(identity) {
             self.jobs.clear();
-            self.centre = None;
+            self.prefetched = None;
             self.identity = Some(identity);
         }
     }
@@ -100,20 +102,20 @@ impl CloudMeshCache {
         viewport: CloudViewport,
         diagnostics: bool,
     ) {
-        let centre = WindowKey::new(viewport, false).centre;
-        if self.centre == Some(centre) {
+        let window = WindowKey::new(viewport, false);
+        if self.prefetched == Some(window) {
             return;
         }
-        self.centre = Some(centre);
+        self.prefetched = Some(window);
+        let centre = window.centre;
         self.jobs.retain(|key, _| {
-            key.centre.iter().zip(centre).all(|(old, new)| {
-                old.abs_diff(new) <= CLOUD_CELL_BLOCKS as u64 * PREFETCH_RADIUS as u64
-            })
+            key.span == window.span
+                && key.centre.iter().zip(centre).all(|(old, new)| {
+                    old.abs_diff(new) <= CLOUD_CELL_BLOCKS as u64 * PREFETCH_RADIUS as u64
+                })
         });
         #[cfg(target_arch = "wasm32")]
         let _ = (runtime, diagnostics);
-        #[cfg(not(target_arch = "wasm32"))]
-        let config = CloudRenderConfig::legacy_fancy();
         #[cfg(not(target_arch = "wasm32"))]
         for z in -PREFETCH_RADIUS..=PREFETCH_RADIUS {
             for x in -PREFETCH_RADIUS..=PREFETCH_RADIUS {
@@ -122,13 +124,9 @@ impl CloudMeshCache {
                         centre[0] as f64 + f64::from(x) * f64::from(CLOUD_CELL_BLOCKS),
                         centre[1] as f64 + f64::from(z) * f64::from(CLOUD_CELL_BLOCKS),
                     ];
-                    if let Some(next) = CloudViewport::try_new(
-                        sample,
-                        config.mesh_size(),
-                        config.grid_size(),
-                        above,
-                        false,
-                    ) {
+                    if let Some(next) =
+                        CloudViewport::try_new(sample, viewport.span(), 1, above, false)
+                    {
                         self.start(runtime, next, above, diagnostics);
                     }
                 }
@@ -197,6 +195,7 @@ fn build(
             CloudRenderConfig::legacy_fancy(),
             identity,
             texture,
+            viewport,
             &records,
             CLOUD_WORLD_PERIOD as u32 * 1_000,
             (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,

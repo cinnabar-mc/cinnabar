@@ -69,7 +69,7 @@ fn fixture() -> RuntimeAssets {
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray {
             layers: colors.len() as u32,
-            mips,
+            mips: mips.into(),
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),

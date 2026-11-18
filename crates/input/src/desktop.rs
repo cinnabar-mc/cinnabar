@@ -260,6 +260,133 @@ impl KeyboardKey {
             .iter()
             .find_map(|(candidate, usage)| (*candidate == self).then_some(*usage))
     }
+
+    /// Whether pressing the key enters a character into a focused text box, so a binding on it
+    /// must not also act while the player types.
+    pub const fn types_text(self) -> bool {
+        match self {
+            Self::KeyA
+            | Self::KeyD
+            | Self::KeyB
+            | Self::KeyC
+            | Self::KeyE
+            | Self::KeyF
+            | Self::KeyG
+            | Self::KeyH
+            | Self::KeyI
+            | Self::KeyJ
+            | Self::KeyK
+            | Self::KeyL
+            | Self::KeyM
+            | Self::KeyN
+            | Self::KeyO
+            | Self::KeyP
+            | Self::KeyQ
+            | Self::KeyR
+            | Self::KeyT
+            | Self::KeyU
+            | Self::KeyV
+            | Self::KeyX
+            | Self::KeyY
+            | Self::KeyZ
+            | Self::KeyS
+            | Self::KeyW
+            | Self::Digit1
+            | Self::Digit2
+            | Self::Digit3
+            | Self::Digit4
+            | Self::Digit5
+            | Self::Digit6
+            | Self::Digit7
+            | Self::Digit8
+            | Self::Digit9
+            | Self::Digit0
+            | Self::Space
+            | Self::Minus
+            | Self::Equal
+            | Self::BracketLeft
+            | Self::BracketRight
+            | Self::Backslash
+            | Self::Semicolon
+            | Self::Quote
+            | Self::Backquote
+            | Self::Comma
+            | Self::Period
+            | Self::Slash
+            | Self::NumpadDivide
+            | Self::NumpadMultiply
+            | Self::NumpadSubtract
+            | Self::NumpadAdd
+            | Self::Numpad1
+            | Self::Numpad2
+            | Self::Numpad3
+            | Self::Numpad4
+            | Self::Numpad5
+            | Self::Numpad6
+            | Self::Numpad7
+            | Self::Numpad8
+            | Self::Numpad9
+            | Self::Numpad0
+            | Self::NumpadDecimal
+            | Self::IntlBackslash
+            | Self::NumpadEqual
+            | Self::NumpadComma
+            | Self::Unidentified => true,
+            Self::Backspace
+            | Self::Enter
+            | Self::Escape
+            | Self::Tab
+            | Self::Insert
+            | Self::Home
+            | Self::PageUp
+            | Self::Delete
+            | Self::End
+            | Self::PageDown
+            | Self::F1
+            | Self::F2
+            | Self::F3
+            | Self::F4
+            | Self::F5
+            | Self::F6
+            | Self::F7
+            | Self::F8
+            | Self::F9
+            | Self::F10
+            | Self::F11
+            | Self::F12
+            | Self::ArrowRight
+            | Self::ArrowLeft
+            | Self::ArrowDown
+            | Self::ArrowUp
+            | Self::CapsLock
+            | Self::PrintScreen
+            | Self::ScrollLock
+            | Self::Pause
+            | Self::NumLock
+            | Self::NumpadEnter
+            | Self::ContextMenu
+            | Self::F13
+            | Self::F14
+            | Self::F15
+            | Self::F16
+            | Self::F17
+            | Self::F18
+            | Self::F19
+            | Self::F20
+            | Self::F21
+            | Self::F22
+            | Self::F23
+            | Self::F24
+            | Self::ControlLeft
+            | Self::ShiftLeft
+            | Self::AltLeft
+            | Self::SuperLeft
+            | Self::ControlRight
+            | Self::ShiftRight
+            | Self::AltRight
+            | Self::SuperRight => false,
+        }
+    }
 }
 
 /// How a wheel delta is measured: whole lines or device pixels.
@@ -288,5 +415,49 @@ mod tests {
         usages.dedup();
         assert_eq!(usages.len(), keyed);
         assert_eq!(KeyboardKey::Unidentified.usage(), None);
+    }
+
+    /// Keys that enter a character count as typing; keys that enter none do not, so a binding on
+    /// them keeps working inside a text box.
+    #[test]
+    fn only_keys_that_enter_a_character_type_text() {
+        use KeyboardKey::*;
+        for key in [
+            KeyA,
+            KeyM,
+            KeyZ,
+            Digit0,
+            Digit5,
+            Space,
+            Minus,
+            Slash,
+            Comma,
+            Period,
+            Numpad0,
+            NumpadAdd,
+            NumpadDecimal,
+            // A key the platform could not name may still enter text.
+            Unidentified,
+        ] {
+            assert!(key.types_text(), "{key:?} should type text");
+        }
+        for key in [
+            F1,
+            F2,
+            F12,
+            ArrowLeft,
+            ArrowUp,
+            ControlLeft,
+            ShiftRight,
+            AltLeft,
+            PrintScreen,
+            CapsLock,
+            Enter,
+            Backspace,
+            Tab,
+            Escape,
+        ] {
+            assert!(!key.types_text(), "{key:?} should not type text");
+        }
     }
 }

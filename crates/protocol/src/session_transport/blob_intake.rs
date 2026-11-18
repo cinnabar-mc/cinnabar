@@ -44,6 +44,9 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         }
         loop {
             while let Some(packet) = self.received.get_mut(self.blob_scan.cursor) {
+                if self.blob_scan.bytes.saturating_add(self.ahead_bytes) >= max_bytes {
+                    return Ok(None);
+                }
                 if packet.id == PacketId::ClientCacheMissResponse {
                     let packet = self
                         .received

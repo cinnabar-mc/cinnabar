@@ -87,6 +87,7 @@ impl<'a> ContainerAuthority<'a> {
                 title: &book.title,
                 author: &book.author,
                 editing: book.editing,
+                caret: None,
             }),
         };
         Self {
@@ -98,7 +99,8 @@ impl<'a> ContainerAuthority<'a> {
 }
 
 impl ContainerAuthority<'_> {
-    /// Shows the focused search or anvil name box's caret, `shown` by its blink.
+    /// Shows the focused search box's, anvil name box's or book field's caret, `shown` by its
+    /// blink.
     fn show_caret(&mut self, shown: impl FnOnce(u64) -> bool) {
         let state = self.runtime.screen_state();
         let Some(caret) = state.field_caret() else {
@@ -110,7 +112,9 @@ impl ContainerAuthority<'_> {
             revision: caret.revision,
             shown: shown(caret.revision),
         };
-        if state.anvil_focused {
+        if let Some(book) = self.screen.book.as_mut() {
+            book.caret = Some(caret);
+        } else if state.anvil_focused {
             self.screen.anvil_caret = Some(caret);
         } else {
             self.screen.search_caret = Some(caret);

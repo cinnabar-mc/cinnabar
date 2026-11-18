@@ -19,6 +19,7 @@ pub(super) fn install(
             [u32; BlockFace::ALL.len()],
             bool,
             [u32; BlockFace::ALL.len()],
+            Option<u32>,
         ),
         u32,
     >::new();
@@ -40,8 +41,8 @@ pub(super) fn install(
             continue;
         }
         let seasonal = leaf_tint_flags(&record.name) != 0;
-        let metadata = blocks.leaf_world_face_flags(record)?;
-        let key = (visual.faces, seasonal, metadata);
+        let (metadata, exponent) = blocks.leaf_world_metadata(record)?;
+        let key = (visual.faces, seasonal, metadata, exponent);
         let base = if let Some(&base) = groups.get(&key) {
             base
         } else {
@@ -65,6 +66,7 @@ pub(super) fn install(
                 for (&id, &metadata) in visual.faces.iter().zip(&metadata) {
                     let mut material = materials[id as usize];
                     material.flags = world_flags(material.flags, flags | metadata, deep);
+                    material.ao_exponent = exponent.unwrap_or(material.ao_exponent);
                     if material.variation_count != 0 {
                         let start = material.variation_start as usize;
                         let end = start + material.variation_count as usize;
@@ -77,6 +79,7 @@ pub(super) fn install(
                         }
                         for variant in &mut variants {
                             variant.flags = world_flags(variant.flags, flags | metadata, deep);
+                            variant.ao_exponent = exponent.unwrap_or(variant.ao_exponent);
                         }
                         material.variation_start = materials.len() as u32;
                         copies.extend((start..end).enumerate().map(|(offset, original)| {

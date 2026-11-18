@@ -78,7 +78,9 @@ pub(super) struct SectionUnits {
     identity: SourceIdentity,
 }
 
-/// The ordinary pass keeps Bevy's bin insertion order and each bin's entity hash order.
+/// Each stream's sections, and the order the ordinary pass draws the streams in: solid, then
+/// cutout, model and depth-writing liquid, so the first draws need no discard to fill depth.
+/// Preparation orders the solid and cutout sections nearest first.
 #[derive(Default)]
 pub(in crate::chunk) struct UnitSources {
     pub(super) streams: [Vec<Arc<SectionUnits>>; 4],
@@ -109,13 +111,13 @@ impl UnitSources {
             .enumerate()
             {
                 if enabled {
-                    if bins[stream].is_empty() {
-                        result.order.push(stream);
-                    }
                     bins[stream].insert(terrain.main, terrain.entity);
                 }
             }
         }
+        result.order = (0..bins.len())
+            .filter(|&stream| !bins[stream].is_empty())
+            .collect();
         for (stream, bin) in bins.iter().enumerate() {
             for &entity in bin.values() {
                 let Ok(allocation) = allocations.get(entity) else {
@@ -145,6 +147,24 @@ impl UnitSources {
     }
 }
 
+/// Orders `sections` by the distance from `eye` to each section's centre, nearest first and
+/// ties by entity, so depth testing rejects hidden terrain before it is shaded.
+pub(super) fn near_first(sections: &[Arc<SectionUnits>], eye: [f64; 3]) -> Vec<Entity> {
+    let mut order = sections
+        .iter()
+        .map(|section| {
+            let origin = chunk_origin(section.key);
+            let distance = (0..3)
+                .map(|axis| f64::from(origin[axis]) + 8.0 - eye[axis])
+                .map(|delta| delta * delta)
+                .sum::<f64>();
+            (distance, section.entity)
+        })
+        .collect::<Vec<_>>();
+    order.sort_unstable_by(|left, right| left.0.total_cmp(&right.0).then(left.1.cmp(&right.1)));
+    order.into_iter().map(|(_, entity)| entity).collect()
+}
+
 /// Builds a stream's descriptors for the direct-command equivalence fixtures.
 #[cfg(test)]
 pub(super) fn allocation_units(allocation: &GpuChunkAllocation, stream: usize) -> Vec<TerrainUnit> {
@@ -155,7 +175,15 @@ pub(super) fn allocation_units(allocation: &GpuChunkAllocation, stream: usize) -
 impl SectionUnits {
     /// Builds isolated slot-allocation fixtures without requiring a render device.
     pub(super) fn fixture(entity: Entity, units: Vec<TerrainUnit>) -> Arc<Self> {
-        let key = SubChunkKey::new(0, 0, 0, 0);
+        Self::fixture_at(entity, SubChunkKey::new(0, 0, 0, 0), units)
+    }
+
+    /// Builds a fixture for the section at `key`.
+    pub(super) fn fixture_at(
+        entity: Entity,
+        key: SubChunkKey,
+        units: Vec<TerrainUnit>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             entity,
             key,

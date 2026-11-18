@@ -5,7 +5,7 @@
 
 use bevy::{
     input::{ButtonState, keyboard::KeyboardInput},
-    prelude::{Entity, Local, MessageReader, Query, Res, ResMut, With},
+    prelude::{DetectChangesMut, Entity, Local, MessageReader, Mut, Query, Res, ResMut, With},
     window::{MonitorSelection, PrimaryWindow, Window, WindowMode},
 };
 use launcher::menu::settings_options::BindingId;
@@ -94,8 +94,9 @@ pub fn apply_runtime_fullscreen_setting(
         }
     }
     if let Some(transition) = transition.as_deref_mut() {
-        transition.update(
+        update_transition(
             &mut window,
+            transition,
             feedback.as_deref(),
             native.and_then(|native| native.0),
         );
@@ -107,6 +108,21 @@ pub fn apply_runtime_fullscreen_setting(
     record_fullscreen(&mut settings, fullscreen);
     *observed_generation = settings.user_settings_update().0;
     menu.sync_fullscreen(fullscreen);
+}
+
+/// Advances a guarded mode change. This runs every frame and rarely writes, and a changed window
+/// costs a full sync with the native one, so only a new mode marks the window changed.
+fn update_transition(
+    window: &mut Mut<Window>,
+    transition: &mut FullscreenTransition,
+    feedback: Option<&StartupPresentation>,
+    native: Option<bool>,
+) {
+    let mode = window.mode;
+    transition.update(window.bypass_change_detection(), feedback, native);
+    if window.mode != mode {
+        window.set_changed();
+    }
 }
 
 /// Reports the primary window's requested native mode.
@@ -149,6 +165,58 @@ fn record_fullscreen(settings: &mut RuntimeSettings, fullscreen: bool) {
 #[cfg(all(test, not(target_os = "ios")))]
 mod tests {
     use super::*;
+    use bevy::prelude::{App, Changed, IntoScheduleConfigs, Resource, Update};
+
+    /// Counts updates whose primary window was marked changed, which triggers a native sync.
+    #[derive(Default, Resource)]
+    struct WindowChanges(u32);
+
+    fn advance_transition(
+        mut windows: Query<&mut Window, With<PrimaryWindow>>,
+        mut transition: ResMut<FullscreenTransition>,
+    ) {
+        update_transition(
+            &mut windows.single_mut().unwrap(),
+            &mut transition,
+            None,
+            None,
+        );
+    }
+
+    fn count_window_changes(
+        changed: Query<(), (Changed<Window>, With<PrimaryWindow>)>,
+        mut changes: ResMut<WindowChanges>,
+    ) {
+        changes.0 += u32::from(!changed.is_empty());
+    }
+
+    #[test]
+    fn only_a_new_mode_from_a_transition_marks_the_window_changed() {
+        let mut app = App::new();
+        app.init_resource::<WindowChanges>()
+            .init_resource::<FullscreenTransition>()
+            .add_systems(Update, (advance_transition, count_window_changes).chain());
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        app.update();
+        app.world_mut().resource_mut::<WindowChanges>().0 = 0;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(app.world().resource::<WindowChanges>().0, 0);
+
+        app.world_mut()
+            .resource_mut::<FullscreenTransition>()
+            .request(true);
+        app.update();
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().mode,
+            window_mode(true)
+        );
+        assert_eq!(app.world().resource::<WindowChanges>().0, 1);
+    }
 
     #[test]
     fn desktop_and_android_window_modes_follow_the_fullscreen_preference() {

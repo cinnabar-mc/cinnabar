@@ -84,7 +84,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 // A nil trust joins any NetherNet server. A nil relay, for signed-out joins, gathers local
 // NetherNet candidates only.
 func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *joinRelay) addressedServerNetwork {
-	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
+	dialer := nethernet.Dialer{API: netherNetAPI(), Log: logger, AllowIdentitylessServer: true}
 	if relay != nil {
 		dialer.Credentials = relay.Credentials
 	}
@@ -333,6 +333,15 @@ func resolveRawNetherNetTarget(_ context.Context, address string, account *authc
 	return newNetherNetTarget(value, account, logger), nil
 }
 
+// IsNetherNetTarget reports whether address is a valid explicit NetherNet target.
+func IsNetherNetTarget(address string) bool {
+	if !strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix) {
+		return false
+	}
+	_, _, err := parseNetherNetTarget(address)
+	return err == nil
+}
+
 // parseNetherNetTarget splits nethernet/jsonrpc/<id> or nethernet/http/<host:port> into its
 // lower-case signaling and value. Vanilla signals a NetherNet ID only over JSON-RPC, so no other
 // signaling is accepted for one, and none is inferred from the value.
@@ -351,7 +360,7 @@ func parseNetherNetTarget(address string) (string, string, error) {
 // fails, never trying RakNet, when none answers, as vanilla joins a NETHERNET experience
 // assignment. Signed-in joins gather through the account's relay config.
 func httpNetherNetNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *joinRelay) minecraft.NetherNetHTTP {
-	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
+	dialer := nethernet.Dialer{API: netherNetAPI(), Log: logger, AllowIdentitylessServer: true}
 	if relay != nil {
 		dialer.Credentials = relay.Credentials
 	}
@@ -426,7 +435,7 @@ func newScopedNetherNetNetwork(serviceSource service.TokenSource, logger *slog.L
 func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
 	return minecraft.NetherNet{
 		DialSignaling: network.signal,
-		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true},
+		Dialer:        nethernet.Dialer{API: netherNetAPI(), Log: network.logger, AllowIdentitylessServer: true},
 	}
 }
 

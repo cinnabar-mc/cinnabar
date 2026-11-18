@@ -234,8 +234,9 @@ impl EquipmentRuntime {
                     (index, MeshKey::SessionBlock(index), placement, location)
                 }
                 ItemArtwork::SessionSprite => {
+                    let (identifier, metadata) = runtime.session_icon_key(item);
                     let (index, placement, location) =
-                        runtime.session_sprite(&item.identifier, item.metadata)?;
+                        runtime.session_sprite(identifier, metadata)?;
                     (index, MeshKey::Session(index), placement, location)
                 }
                 ItemArtwork::StartupCube => {
@@ -273,9 +274,8 @@ impl EquipmentRuntime {
         &mut self,
         item: &WornItem,
     ) -> Option<(EntityRigId, ActorArtworkLocation, [f32; 2])> {
-        if let Some((index, placement, location)) =
-            self.session_sprite(&item.identifier, item.metadata)
-        {
+        let (identifier, metadata) = self.session_icon_key(item);
+        if let Some((index, placement, location)) = self.session_sprite(identifier, metadata) {
             let mesh = self.mesh_for(MeshKey::Session(index), index, placement)?;
             return Some((mesh, location, glint_span(placement.uv_rect(), false)));
         }
@@ -330,8 +330,9 @@ impl EquipmentRuntime {
 
     /// Texel size of the sprite `held_icon_mesh` draws for this item.
     pub(super) fn held_icon_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        let (identifier, metadata) = self.session_icon_key(item);
         let sprite = self
-            .session_sprite(&item.identifier, item.metadata)
+            .session_sprite(identifier, metadata)
             .and_then(|(index, _, _)| self.session_sprite_pixels(index))
             .or_else(|| {
                 self.held_icon_index(item)
@@ -456,7 +457,7 @@ impl EquipmentRuntime {
             .as_ref()
             .map(|selected| selected.texture.as_ref())
             .unwrap_or(&binding.texture.identifier);
-        let Some((_, _, location)) = self.draw_artwork(texture, &source) else {
+        let Some((artwork, texture_index, location)) = self.draw_artwork(texture, &source) else {
             return;
         };
         let geometry_identifier = selected
@@ -594,16 +595,10 @@ impl EquipmentRuntime {
             && binding.color_mask == assets::EquipmentColorMask::Dye;
         presentation.submission.material.color_mask = color_mask;
         if profile == render_api::CombatVisuals::Legacy112 {
-            presentation.submission.material.kind = if item.has_glint() {
-                assets::EntityRenderMaterial::Glint
-            } else {
-                assets::EntityRenderMaterial::Default
-            };
-            presentation.submission.material.state = Some(assets::EntityRenderMaterialState {
-                alpha_test: true,
-                cull: false,
-                ..Default::default()
-            });
+            presentation.submission.material = presentation
+                .submission
+                .material
+                .legacy_worn(item.has_glint());
         }
         if profile == render_api::CombatVisuals::Legacy112
             && from_pack
@@ -615,6 +610,17 @@ impl EquipmentRuntime {
             };
             super::style::LayerStyle::from_layer(&selected.layer)
                 .apply(&mut presentation.submission);
+        }
+        if item.trim.is_some() {
+            self.trims.remember_worn(
+                presentation.submission.input.identity,
+                trims::WornSource {
+                    catalog: Arc::clone(catalog),
+                    binding: index,
+                    artwork,
+                    texture: texture_index,
+                },
+            );
         }
         layers.push(presentation);
     }
@@ -675,6 +681,7 @@ impl EquipmentRuntime {
                     assets: &assets,
                     bones,
                     owner_names: animation.rig.bone_names,
+                    owner_layers: animation.rig.render,
                     geometry: (geometry_index, evaluated.geometry),
                     local,
                     paired: false,
@@ -682,6 +689,7 @@ impl EquipmentRuntime {
                     scale: evaluated.axis_scale.map(|axis| axis * evaluated.scale),
                     alpha: placement_cache::alpha(
                         body,
+                        animation.rig.render,
                         &evaluated,
                         geometry_index,
                         local.len(),
@@ -708,9 +716,12 @@ impl EquipmentRuntime {
                         return Some(hidden_bone());
                     }
                     let Some(parent) = actor_animation::attachment::parent_for_root(
-                        &body.input.previous_bones,
-                        &body.input.current_bones,
-                        &bones.names,
+                        actor_animation::attachment::OwnerSkeleton::body(
+                            &body.input.previous_bones,
+                            &body.input.current_bones,
+                            &bones.names,
+                        )
+                        .with_layers(animation.rig),
                         input,
                         root,
                         evaluated.axis_scale.map(|axis| axis * evaluated.scale),

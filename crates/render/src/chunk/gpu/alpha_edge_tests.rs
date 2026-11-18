@@ -96,6 +96,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     out.skin_layer = HAND_FIXTURE_LAYER;
     out.valid = 1u;
     out.shade = 1.0;
+    out.native_light = vec3(1.0);
     out.glint_instance = 0xffffffffu;
     return out;
 }"#
@@ -111,8 +112,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     out.clip_position = edge_position(uv);
     out.uv = uv;
     out.material_flags = MODEL_FIXTURE_CUTOUT;
-    out.visibility.x = 1u;
-    out.visibility.y = 1u;
+    out.visibility.x = MODEL_VISIBLE | MODEL_TWO_SIDED;
     out.native_light_levels = vec2(15.0);
     out.native_ao_face = 1.0;
     out.tint_gamma = vec3(1.0);
@@ -170,7 +170,10 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         ],
         wgpu::BufferUsages::UNIFORM,
     );
-    let hand_light = gpu.buffer(&[0.0; 24], wgpu::BufferUsages::UNIFORM);
+    let hand_light = gpu.buffer(
+        bytemuck::cast_slice(&[render_model::HandRigLight::default()]),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let instances = gpu.buffer(
         bytemuck::cast_slice(&[render_model::ActorGpuInstance::default()]),
         wgpu::BufferUsages::STORAGE,

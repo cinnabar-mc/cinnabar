@@ -16,6 +16,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         }),
     };
     let snapshot = MeshSnapshot {
+        surface_rules: Arc::from([]),
         rendering: ::meshing::MeshRenderSettings::default(),
         center: Arc::new(uniform_sub_chunk(1)),
         biomes: std::array::from_fn(|_| None),

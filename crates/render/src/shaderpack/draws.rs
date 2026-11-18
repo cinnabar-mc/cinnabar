@@ -463,6 +463,10 @@ pub(crate) struct GeometryDraw {
     pub layout: Option<TerrainLayout>,
     /// The alpha test applied to the draw, if any.
     pub alpha_test: Option<AlphaTest>,
+    /// Its depth-only prepass pipeline (see [`super::depth_prepass`]).
+    pub prepass: Option<wgpu::RenderPipeline>,
+    /// The sky's depth-tested variant (see [`super::depth_prepass`]).
+    pub behind_terrain: Option<wgpu::RenderPipeline>,
 }
 
 /// A geometry program's pipeline pieces, from which its draws' pipelines are built.
@@ -579,6 +583,8 @@ pub(crate) fn geometry_draws(
                 outputs: built.outputs,
                 layout: kind.category().is_some().then_some(terrain_layout),
                 alpha_test: built.alpha_test,
+                prepass: built.prepass,
+                behind_terrain: built.behind_terrain,
             }),
             (Err(error), _) => Err(format!("{} ({kind:?}): {error}", program.name)),
             (Ok(_), Some(error)) => Err(format!(

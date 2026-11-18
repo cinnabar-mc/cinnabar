@@ -1,6 +1,7 @@
 //! Touch scrolling as 1.26.60 runs it: a held finger pulls the offset on a spring, a release flings it
 //! with friction, and past either end a rubber band pulls it back. A touch-mode
-//! scrollbar box shows on touch and fades out a second after it settles.
+//! scrollbar box shows on touch and fades out a second after it settles; an
+//! auto-hidden one also shows while scrolled or under the pointer.
 
 use crate::state::{LayoutReport, ScrollMetrics, ScrollRetained, ViewState};
 use crate::widgets::scroll::OVERSCROLL;
@@ -110,10 +111,53 @@ impl ViewState {
         motion.distance <= TAP_SLOP
     }
 
-    /// Advance every touch motion and touch-mode box fade by `dt` seconds
-    /// against the last layout; `true` when an offset or fade changed.
+    /// Shows an auto-hidden view's box at full opacity, to fade again once idle; `true` when
+    /// that changed it. Other views are left alone.
+    pub fn reveal_scrollbar(&mut self, key: &str, metrics: &ScrollMetrics) -> bool {
+        if !metrics.auto_hide {
+            return false;
+        }
+        let retained = self.scroll_state.entry(key.to_owned()).or_default();
+        let changed = retained.bar_fade != Some(1.0);
+        retained.bar_fade = Some(1.0);
+        changed
+    }
+
+    /// Whether a box of the last layout is still fading out, so the caller keeps stepping.
+    pub fn scrollbar_fading(&self, report: &LayoutReport) -> bool {
+        self.scroll_state.iter().any(|(key, retained)| {
+            report.scrolls.get(key).is_some_and(|metrics| {
+                retained.bar_fade.is_some_and(|alpha| alpha > 0.0) && !self.engages(metrics)
+            })
+        })
+    }
+
+    /// Whether the pointer hovers or holds an auto-hidden view's box or track, which keeps
+    /// the box shown.
+    fn engages(&self, metrics: &ScrollMetrics) -> bool {
+        metrics.auto_hide
+            && [&metrics.thumb_key, &metrics.track_key]
+                .into_iter()
+                .flatten()
+                .any(|key| {
+                    self.hovered.as_deref() == Some(key) || self.pressed.as_deref() == Some(key)
+                })
+    }
+
+    /// Advance every touch motion and touch-mode or auto-hide box fade by `dt` seconds
+    /// against the last layout; `true` when an offset or fade changed. An auto-hidden box
+    /// the pointer engages stays fully shown.
     pub fn step_scrolls(&mut self, report: &LayoutReport, dt: f64) -> bool {
         let mut changed = false;
+        let engaged: Vec<&String> = report
+            .scrolls
+            .iter()
+            .filter(|(_, metrics)| self.engages(metrics))
+            .map(|(key, _)| key)
+            .collect();
+        for key in &engaged {
+            changed |= self.reveal_scrollbar(key, &report.scrolls[*key]);
+        }
         for (key, retained) in &mut self.scroll_state {
             let Some(metrics) = report.scrolls.get(key) else {
                 continue;
@@ -131,7 +175,9 @@ impl ViewState {
                     changed = true;
                 }
             }
-            changed |= fade(retained, dt);
+            if !engaged.contains(&key) {
+                changed |= fade(retained, dt);
+            }
         }
         changed
     }

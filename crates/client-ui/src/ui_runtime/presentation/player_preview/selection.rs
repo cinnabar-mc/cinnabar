@@ -173,7 +173,11 @@ impl UiPresentationRuntime {
         held: Option<(&str, u32)>,
         owner: PreviewEquipmentOwner<'_>,
     ) {
-        self.set_preview_gear(armor, standalone_hands(held), Some(owner));
+        self.set_preview_gear(
+            armor.map(|item| item.map(|(id, dye, enchanted)| (id, dye, enchanted, None))),
+            standalone_hands(held),
+            Some(owner),
+        );
     }
 }
 

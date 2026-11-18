@@ -1,0 +1,6 @@
+{"v":1,"event":"checking_cache"}
+{"v":1,"event":"device_code","verification_uri":"https://login.example.test/device","user_code":"ABCD-1234"}
+{"v":1,"event":"ownership","result":"verified","reason":"entitled","account":"6f1c2a9e-0000-4000-8000-000000000001"}
+{"v":1,"event":"ownership","result":"not_owned","reason":"no_minecraft_entitlement"}
+{"v":1,"event":"ownership","result":"sign_in_required","reason":"no_license_account"}
+{"v":1,"event":"ownership","result":"unverifiable","reason":"refresh:transport"}

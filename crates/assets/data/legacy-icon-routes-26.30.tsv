@@ -57,6 +57,14 @@ minecraft:brown_egg	0	brown_egg	0
 minecraft:brown_harness	0	harness_brown	0
 minecraft:brush	0	brush	0
 minecraft:bucket	0	bucket	0
+minecraft:bucket	1	bucket	1
+minecraft:bucket	2	bucket	4
+minecraft:bucket	3	bucket	5
+minecraft:bucket	4	bucket	6
+minecraft:bucket	5	bucket	7
+minecraft:bucket	8	bucket	2
+minecraft:bucket	10	bucket	3
+minecraft:bucket	11	bucket	8
 minecraft:bundle	0	bundle	0
 minecraft:burn_pottery_sherd	0	burn_pottery_sherd	0
 minecraft:cake	0	cake	0

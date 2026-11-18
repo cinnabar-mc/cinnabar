@@ -1,11 +1,13 @@
 //! Which state controls a stateful control shows, as vanilla's components
 //! write them: each named target is the first
 //! descendant with that name, and a shown target shows even if it is itself
-//! authored `visible: false`.
+//! authored `visible: false`. A mod surface's scrollbar box and track take the
+//! states of [`crate::scrollbar`] the same way.
 
 use std::collections::VecDeque;
 
 use super::{bound_bool, enabled, prop_str, toggle_checked};
+use crate::scrollbar;
 use crate::state::ViewState;
 use crate::tree::ResolvedControl;
 
@@ -60,12 +62,16 @@ pub(crate) fn state_index(state: &ViewState, key: &str) -> u8 {
         | (u8::from(state.is_focused(key)) << 2)
 }
 
-/// Whether this control has component-managed visual states.
+/// Whether this control has component-managed visual states: a scroll role only when it
+/// names one of [`scrollbar::STATE_PROPERTIES`].
 pub(crate) fn has_state_targets(control: &ResolvedControl) -> bool {
-    matches!(
-        control.control_type.as_deref(),
-        Some("button" | "edit_box" | "toggle" | "dropdown" | "slider" | "selection_wheel")
-    )
+    match control.control_type.as_deref() {
+        Some("button" | "edit_box" | "toggle" | "dropdown" | "slider" | "selection_wheel") => true,
+        Some(kind) if scrollbar::STATE_TYPES.contains(&kind) => scrollbar::STATE_PROPERTIES
+            .iter()
+            .any(|property| prop_str(control, property).is_some()),
+        _ => false,
+    }
 }
 
 /// Named visual targets and the interaction states under which each shows.
@@ -144,7 +150,8 @@ fn writes<'a>(
     if !matches!(
         control.control_type.as_deref(),
         Some("button" | "edit_box" | "toggle" | "dropdown" | "slider")
-    ) {
+    ) && !has_state_targets(control)
+    {
         return Vec::new();
     }
     let (hovered, pressed, focused) = (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0);
@@ -213,6 +220,11 @@ fn writes<'a>(
                 resolved.extend(resolve(box_control, &box_writes, cache));
             }
             return resolved;
+        }
+        // A scrollbar box or track: pressed while dragged or held, hovered under the pointer.
+        "scrollbar_box" | "scroll_track" => {
+            let shown = scrollbar::shown_state(control, hovered && !locked, pressed && !locked);
+            out.extend(scrollbar::STATE_PROPERTIES.map(|name| (name, name == shown)));
         }
         _ => return Vec::new(),
     }

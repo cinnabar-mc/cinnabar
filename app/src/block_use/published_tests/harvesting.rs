@@ -5,8 +5,8 @@ const EYE: [f32; 3] = [4.5, 2.620_01, 8.5];
 const CROP: [i32; 3] = [4, 1, 6];
 const PITCH: f32 = -0.65;
 
-/// Supplies the requested wheat growth on farmland, aimed inside its selection shape.
-fn wheat_fixture(growth: u64) -> (World, client_session::CapturedPackets) {
+/// Supplies wheat on farmland at each target, aimed inside the central crop's shape.
+fn wheat_fixture(growth: u64, crops: &[[i32; 3]]) -> (World, client_session::CapturedPackets) {
     let rotation = Quat::from_rotation_x(PITCH);
     let (mut world, captured) = frame_picks::bridge_fixture(EYE, rotation);
     let records = assets::read_registry_for_protocol(
@@ -38,8 +38,14 @@ fn wheat_fixture(growth: u64) -> (World, client_session::CapturedPackets) {
             .submit(
                 sequence,
                 protocol::WorldEvent::BlockUpdates(
-                    [(CROP, wheat), ([CROP[0], CROP[1] - 1, CROP[2]], farmland)]
-                        .into_iter()
+                    crops
+                        .iter()
+                        .flat_map(|&position| {
+                            [
+                                (position, wheat),
+                                ([position[0], position[1] - 1, position[2]], farmland),
+                            ]
+                        })
                         .map(|(position, network_id)| protocol::BlockUpdateEvent {
                             dimension: 0,
                             position,
@@ -56,6 +62,74 @@ fn wheat_fixture(growth: u64) -> (World, client_session::CapturedPackets) {
         });
     }
     (world, captured)
+}
+
+/// A sweep sends every distinct crop once, even when repeated picks surround other targets.
+#[test]
+fn failed_held_sweeps_preserve_distinct_buffered_crops() {
+    let crops = [CROP, [3, 1, 6], [5, 1, 6]];
+    for item in [
+        None,
+        Some("minecraft:stone_hoe"),
+        Some("minecraft:diamond_pickaxe"),
+    ] {
+        let (mut world, mut captured) = wheat_fixture(7, &crops);
+        if let Some(identifier) = item {
+            item_use_tests::hold_air_item(&mut world, identifier, 1, [].into());
+        } else {
+            set_hotbar_stack(&mut world, 0, None);
+        }
+        frame_picks::warm_physics(&mut world);
+        let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+        hold(&mut world, &mut router, vec![], vec![2]);
+        world.run_system_cached(produce_block_use).unwrap();
+        captured.drain();
+        hold(&mut world, &mut router, vec![], vec![2]);
+        world.resource_mut::<BlockUseRuntime>().clear_picks();
+        for crop in [crops[0], crops[1], crops[0], crops[2], crops[1]] {
+            let point = Vec3::new(
+                crop[0] as f32 + 0.5,
+                crop[1] as f32 + 0.5,
+                crop[2] as f32 + 0.5,
+            );
+            let rotation =
+                Quat::from_rotation_arc(Vec3::NEG_Z, (point - Vec3::from_array(EYE)).normalize());
+            frame_picks::retain(&mut world, EYE, rotation);
+            assert!(
+                matches!(
+                    world.resource::<BlockUseRuntime>().pick(world.resource::<MovementTicker>()).unwrap().hits.ordinary,
+                    Some(gameplay::block_use::PickResult::Block(hit)) if hit.position == crop
+                ),
+                "{item:?} must retain {crop:?}"
+            );
+        }
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(50));
+        world.run_system_cached(produce_block_use).unwrap();
+        let packets = captured.drain();
+        let uses = packets.iter().filter_map(item_use).collect::<Vec<_>>();
+        assert_eq!(
+            uses.iter()
+                .map(|use_on| use_on.position)
+                .collect::<Vec<_>>(),
+            crops,
+            "{item:?}"
+        );
+        assert!(uses.iter().all(|use_on| {
+            use_on.trigger == Some(ItemUseTrigger::SimulationTick) && !use_on.predicted_success
+        }));
+        assert_eq!(
+            packets.len(),
+            uses.len(),
+            "failed uses must only send transactions"
+        );
+        world.run_system_cached(produce_block_use).unwrap();
+        assert!(
+            captured.drain().is_empty(),
+            "the consumed sweep must not resend"
+        );
+    }
 }
 
 /// Failed local crop uses still send due attempts without predicting a server harvest.
@@ -81,7 +155,7 @@ fn unpredicted_item_specific_crop_uses_do_not_repeat() {
 
 /// Drives real physics and both use owners while checking the expected crop attempts.
 fn check_held_wheat_use(item: Option<&str>, growth: u64, repeats: bool) {
-    let (mut world, mut captured) = wheat_fixture(growth);
+    let (mut world, mut captured) = wheat_fixture(growth, &[CROP]);
     if let Some(identifier) = item {
         item_use_tests::hold_air_item(&mut world, identifier, 1, [].into());
     } else {
@@ -116,15 +190,9 @@ fn check_held_wheat_use(item: Option<&str>, growth: u64, repeats: bool) {
         world.run_system_cached(produce_block_use).unwrap();
         let packets = captured.drain();
         let uses = packets.iter().filter_map(item_use).collect::<Vec<_>>();
-        // The press leaves its ray buffered. The first tick can retry that ray and
-        // the newly presented one; later ticks receive one new ray each.
-        let expected = if frame == 0 {
-            1
-        } else if repeats {
-            1 + usize::from(frame == 1)
-        } else {
-            0
-        };
+        // The press leaves its ray buffered beside the newly presented one, but a held
+        // repeat that fails locally sends once per target and tick.
+        let expected = if frame == 0 || repeats { 1 } else { 0 };
         assert_eq!(uses.len(), expected, "{item:?}, frame {frame}");
         for use_on in &uses {
             assert_eq!(use_on.position, CROP);

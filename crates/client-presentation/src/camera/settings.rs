@@ -21,6 +21,8 @@ pub struct CameraSettingsAuthority {
     smaa_mode: ui::SmaaMode,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
+    mod_perspective: Option<PerspectiveMode>,
+    view_yaw_offset: f32,
     pub(super) freelook: bool,
     presented_view: Option<PresentedView>,
     death_rotation: Option<Quat>,
@@ -137,6 +139,8 @@ impl Default for CameraSettingsAuthority {
             smaa_mode: settings.video.smaa_mode,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
+            mod_perspective: None,
+            view_yaw_offset: 0.0,
             freelook: false,
             presented_view: None,
             death_rotation: None,
@@ -235,15 +239,19 @@ impl CameraSettingsAuthority {
     /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
+        let perspective = match self.mod_perspective {
+            Some(view) => view,
+            None => self.perspective,
+        };
         if self.presented_view.is_some()
             || self.rig.is_some()
             || self.freelook
             || (self.death_rotation.is_some()
-                && matches!(self.perspective, PerspectiveMode::FirstPerson))
+                && matches!(perspective, PerspectiveMode::FirstPerson))
         {
             PerspectiveMode::ThirdPersonBack
         } else {
-            self.perspective
+            perspective
         }
     }
 
@@ -388,6 +396,28 @@ impl CameraSettingsAuthority {
         self.game_sensitivity.value()
     }
 
+    /// Sets a frame-local presented heading offset without mutating player look.
+    pub fn set_view_yaw_offset(&mut self, degrees: Option<f32>) {
+        self.view_yaw_offset = degrees
+            .filter(|v| v.is_finite() && (-180.0..=180.0).contains(v))
+            .unwrap_or(0.0);
+    }
+
+    /// Whether a body-aligned first-person viewmodel belongs in the presented view.
+    pub fn view_aligned(&self) -> bool {
+        self.view_yaw_offset == 0.0
+    }
+
+    /// Turns only the presented orientation around world up, leaving the camera position intact.
+    pub fn offset_view_rotation(&self, rotation: Quat) -> Quat {
+        Quat::from_rotation_y(self.view_yaw_offset.to_radians()) * rotation
+    }
+
+    /// Selects a temporary ordinary view without changing the player's perspective cycle.
+    pub fn set_mod_perspective(&mut self, view: Option<PerspectiveMode>) {
+        self.mod_perspective = view;
+    }
+
     /// Advances the configured first-person and third-person camera cycle.
     pub fn cycle_perspective(&mut self) {
         self.perspective = next_perspective(self.perspective);
@@ -399,6 +429,8 @@ impl CameraSettingsAuthority {
         self.freelook = false;
         self.presented_view = None;
         self.death_rotation = None;
+        self.mod_perspective = None;
+        self.view_yaw_offset = 0.0;
         self.view_scale = [1.0, 1.0];
         self.view_tilt = None;
     }
@@ -450,5 +482,22 @@ mod tests {
         settings.video.show_other_player_cosmetics = true;
         camera.replace(2, &settings).unwrap();
         assert!(camera.feel().show_other_player_cosmetics);
+    }
+}
+
+#[cfg(test)]
+mod perspective_tests {
+    use super::*;
+
+    /// Clearing the override reveals even a perspective cycled while it was held.
+    #[test]
+    fn temporary_perspective_preserves_player_choice() {
+        let mut camera = CameraSettingsAuthority::default();
+        camera.set_mod_perspective(Some(PerspectiveMode::ThirdPersonFront));
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonFront);
+        camera.cycle_perspective();
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonFront);
+        camera.set_mod_perspective(None);
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonBack);
     }
 }

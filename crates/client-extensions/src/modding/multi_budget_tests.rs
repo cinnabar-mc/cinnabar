@@ -30,7 +30,7 @@ fn frame_result(
             chat_events: &[],
             gameplay_facts: Default::default(),
         },
-        |_| (Some(snapshot()), Vec::new(), None),
+        |_| (Some(snapshot()), None),
         |index, error| failures.push((index, error)),
     );
     (merged, failures)
@@ -346,14 +346,13 @@ fn indebted_set(directory: &Path) -> ModHosts {
             .collect(),
     );
     let samples = std::sync::atomic::AtomicU64::new(0);
-    runtime.budget =
-        mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, move || {
-            if samples.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
-                std::time::Duration::ZERO
-            } else {
-                std::time::Duration::from_millis(20)
-            }
-        });
+    runtime.use_scheduling_clock(move || {
+        if samples.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+            std::time::Duration::ZERO
+        } else {
+            std::time::Duration::from_millis(20)
+        }
+    });
     runtime.begin_frame();
     assert_eq!(frame(&mut runtime, None).commands, ["/ability A"]);
     runtime

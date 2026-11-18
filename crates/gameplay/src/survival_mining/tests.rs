@@ -18,6 +18,7 @@ mod creative_destroy;
 mod custom_mining;
 mod painting_attacks;
 mod refused_starts;
+mod tool_wear;
 
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
     DestroyTarget {
@@ -54,6 +55,7 @@ struct MiningAdmission {
     mining: SurvivalMiningRuntime,
     swings: crate::melee::SwingTracker,
     packets: Vec<protocol::Packet>,
+    inventory: inventory::PlayerInventoryLedger,
     predictions: Vec<[i32; 3]>,
 }
 
@@ -66,6 +68,7 @@ impl MiningAdmission {
             mining: Default::default(),
             swings: Default::default(),
             packets: Vec::new(),
+            inventory: Default::default(),
             predictions: Vec::new(),
         }
     }
@@ -129,7 +132,7 @@ impl MiningAdmission {
         attack: Option<(crate::melee::Crosshair, crate::melee::PressContext)>,
         full: bool,
     ) {
-        crate::melee::admit_attack_frame(
+        let admitted = crate::melee::admit_attack_frame(
             &mut self.melee,
             &mut self.mining,
             &mut self.swings,
@@ -156,10 +159,11 @@ impl MiningAdmission {
                     }
                 },
                 swing_duration: |_| actor_animation::ACTOR_SWING_TICKS,
-                request_id: |_, _| None,
+                request_id: |slot, damage| self.inventory.begin_mining_request(slot, damage),
                 predict_break: |position| self.predictions.push(position),
             },
         );
+        admitted.mining.settle_inventory(&mut self.inventory);
     }
 
     /// Publishes retained inputs and their preceding actions through the production guards.
@@ -380,7 +384,7 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
     let (interactions, _) = done.into_interactions([0.5, 64.0, 0.5]);
     assert!(matches!(
         interactions.block_interaction,
-        Some(protocol::BlockItemInteraction::Destroy(ref request))
+        Some(protocol::BlockItemInteraction::Destroy(ref request, None))
             if request.block_position == [4, 5, 6] && request.selected_slot == 2
                 && request.block_runtime_id == 7 && dirt.runtime_id == 9
     ));
@@ -463,6 +467,7 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         wear: Some(ToolWear {
             current_damage: 4,
             break_damage: 2,
+            maximum: None,
         }),
         ..target([0, 0, 0], block, Some("minecraft:iron_sword"))
     };
@@ -503,6 +508,7 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         wear: Some(ToolWear {
             current_damage: 4,
             break_damage: 0,
+            maximum: None,
         }),
         ..dirt.clone()
     };
@@ -838,6 +844,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
         wear: Some(ToolWear {
             current_damage: 3,
             break_damage: 1,
+            maximum: None,
         }),
         ..target(
             [0, 1, -3],
@@ -1025,7 +1032,7 @@ fn instant_plants_publish_the_carried_destroy_effect_once() {
                     );
                     assert!(matches!(
                         interactions.block_interaction,
-                        Some(protocol::BlockItemInteraction::Destroy(_))
+                        Some(protocol::BlockItemInteraction::Destroy(_, None))
                     ));
                 }
             }

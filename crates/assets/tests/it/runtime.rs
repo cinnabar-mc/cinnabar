@@ -63,7 +63,10 @@ fn texture_array(layers: u32) -> TextureArray {
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    TextureArray { layers, mips }
+    TextureArray {
+        layers,
+        mips: mips.into(),
+    }
 }
 
 fn compiled_assets() -> CompiledAssets {

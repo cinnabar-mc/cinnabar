@@ -1,8 +1,8 @@
 //! Optional static presentation data admitted separately from executable component bytes.
 
 use crate::{MAX_COMPONENT_BYTES, MAX_COMPONENT_SOURCE_BYTES};
-use anyhow::{Result, bail, ensure};
-use std::{borrow::Cow, collections::BTreeSet, sync::Arc};
+use anyhow::{Context, Result, bail, ensure};
+use std::{borrow::Cow, collections::BTreeSet, io::Read, sync::Arc};
 use ui::mod_panel::PanelBundle;
 use wasmparser::{Encoding, Parser, Payload};
 
@@ -92,7 +92,9 @@ impl<'a> ComponentAssets<'a> {
                         "presentation assets must be top-level component sections"
                     );
                     let data = section.data();
-                    if name == mod_api::PANEL_BUNDLE_SECTION {
+                    if name == mod_api::PANEL_BUNDLE_SECTION
+                        || name == mod_api::COMPRESSED_PANEL_BUNDLE_SECTION
+                    {
                         ensure!(
                             assets.panel_bundle.is_none(),
                             "duplicate embedded panel bundle"
@@ -101,7 +103,12 @@ impl<'a> ComponentAssets<'a> {
                             data.len() <= ui::mod_panel::MAX_PANEL_BUNDLE_BYTES,
                             "embedded panel bundle exceeds byte limit"
                         );
-                        let json = std::str::from_utf8(data)?;
+                        let json = if name == mod_api::PANEL_BUNDLE_SECTION {
+                            Cow::Borrowed(data)
+                        } else {
+                            Cow::Owned(decompress_panel_bundle(data)?)
+                        };
+                        let json = std::str::from_utf8(&json)?;
                         assets.panel_bundle = Some(Arc::new(
                             PanelBundle::parse(json).map_err(anyhow::Error::msg)?,
                         ));
@@ -159,6 +166,21 @@ impl<'a> ComponentAssets<'a> {
         );
         Ok(assets)
     }
+}
+
+/// Decompresses one Brotli panel bundle, rejecting malformed streams and output beyond the
+/// uncompressed bundle's byte limit before parsing it.
+fn decompress_panel_bundle(data: &[u8]) -> Result<Vec<u8>> {
+    let mut json = Vec::new();
+    brotli_decompressor::Decompressor::new(data, 4096)
+        .take(ui::mod_panel::MAX_PANEL_BUNDLE_BYTES as u64 + 1)
+        .read_to_end(&mut json)
+        .context("embedded panel bundle is not a valid Brotli stream")?;
+    ensure!(
+        json.len() <= ui::mod_panel::MAX_PANEL_BUNDLE_BYTES,
+        "embedded panel bundle exceeds byte limit"
+    );
+    Ok(json)
 }
 
 /// Copies original section framing verbatim, including non-minimal valid length encodings.

@@ -6,13 +6,75 @@ use mod_api::native_camera::ViewTilt;
 /// Ephemeral output published only after a successful frame callback.
 #[derive(Default)]
 pub(super) struct CameraPolicy {
+    pub pending_yaw_offset: Option<f32>,
+    pub committed_yaw_offset: Option<f32>,
+    pub pending_perspective: Option<mod_api::native_camera::Perspective>,
+    pub committed_perspective: Option<mod_api::native_camera::Perspective>,
     pub pending_view_scale: Option<[f32; 2]>,
     pub committed_view_scale: Option<[f32; 2]>,
     pub pending_view_tilt: Option<ViewTilt>,
     pub committed_view_tilt: Option<ViewTilt>,
 }
 
+impl State {
+    /// Derives camera ownership from current transient policy and the retained rig.
+    pub(super) fn camera_output(&self) -> bool {
+        self.world.rig.is_some()
+            || self.camera_delta.is_some()
+            || self.camera_policy.committed_yaw_offset.is_some()
+            || self.camera_policy.committed_perspective.is_some()
+            || self.camera_policy.committed_view_scale.is_some()
+            || self.camera_policy.committed_view_tilt.is_some()
+    }
+}
+
 impl cinnabar::extension::camera::Host for State {
+    /// Stages a relative presented heading without changing player look or movement.
+    fn set_view_yaw_offset(&mut self, degrees: f32) -> Result<Result<(), String>> {
+        self.camera_writes += 1;
+        if self.camera_writes > MAX_IMPORT_WRITES {
+            bail!("camera import budget exhausted");
+        }
+        if self.exclusive.camera {
+            return Ok(Err(self.exclusive.refuse()));
+        }
+        if !self.grants.camera {
+            return Ok(Err("camera capability denied".into()));
+        }
+        if !degrees.is_finite() || !(-180.0..=180.0).contains(&degrees) {
+            return Ok(Err(
+                "view yaw offset must be finite and within -180..180 degrees".into(),
+            ));
+        }
+        self.camera_policy.pending_yaw_offset = (degrees != 0.0).then_some(degrees);
+        Ok(Ok(()))
+    }
+
+    /// Stages an ordinary perspective for this successful gameplay callback only.
+    fn set_perspective(
+        &mut self,
+        view: Option<cinnabar::extension::camera::Perspective>,
+    ) -> Result<Result<(), String>> {
+        self.camera_writes += 1;
+        if self.camera_writes > MAX_IMPORT_WRITES {
+            bail!("camera import budget exhausted");
+        }
+        if self.exclusive.camera {
+            return Ok(Err(self.exclusive.refuse()));
+        }
+        if !self.grants.camera {
+            return Ok(Err("camera capability denied".into()));
+        }
+        use cinnabar::extension::camera::Perspective as Guest;
+        use mod_api::native_camera::Perspective as Native;
+        self.camera_policy.pending_perspective = view.map(|view| match view {
+            Guest::FirstPerson => Native::FirstPerson,
+            Guest::ThirdPersonBack => Native::ThirdPersonBack,
+            Guest::ThirdPersonFront => Native::ThirdPersonFront,
+        });
+        Ok(Ok(()))
+    }
+
     /// Stages a current-frame tilt, kept even while a menu owns input; none restores the view.
     fn set_view_tilt(
         &mut self,

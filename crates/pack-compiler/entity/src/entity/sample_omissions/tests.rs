@@ -161,9 +161,17 @@ fn omitted_harness_bindings_follow_registry_tags_and_present_resources() {
             layer.material_state,
             Some(assets::EntityRenderMaterialState {
                 alpha_test: true,
-                cull: false,
                 ..Default::default()
             })
+        );
+        assert!(
+            layer
+                .material_definition
+                .and_then(|index| compiled.assets.render.materials.get(index as usize))
+                .is_some_and(|definition| {
+                    definition
+                        .has_state(assets::entity::material::EntityMaterialState::DisableCulling)
+                })
         );
     }
     for binding in &compiled.equipment_bindings {

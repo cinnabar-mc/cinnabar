@@ -155,6 +155,7 @@ pub(super) fn layers(
                 },
                 camera_space: true,
                 alpha_mode: render_model::HandItemAlphaMode::Blend,
+                emitted_light: 0,
                 java_camera: Some(camera),
                 java_normal_axis: Vec3::Z,
             },

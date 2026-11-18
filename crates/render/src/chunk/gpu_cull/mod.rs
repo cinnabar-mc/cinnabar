@@ -23,9 +23,12 @@ mod order;
 #[cfg(test)]
 mod pixel_tests;
 mod prepare;
+pub(in crate::chunk) mod publication;
 mod queue;
 mod raster;
 pub(in crate::chunk) use queue::GpuCullQueue;
+#[cfg(test)]
+mod recovery_tests;
 mod slots;
 pub(in crate::chunk) mod storage;
 #[cfg(test)]

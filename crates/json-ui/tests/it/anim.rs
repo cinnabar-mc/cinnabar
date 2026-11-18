@@ -91,6 +91,54 @@ fn close(value: f32, expected: f32) -> bool {
     (value - expected).abs() < 0.02
 }
 
+#[test]
+fn sliced_image_keeps_one_parent_grid_through_move_size_and_clip_animations() {
+    let nodes = draws(
+        r#"
+        "move":{"anim_type":"offset","from":[0,0],"to":[20.25,10.25],"duration":1},
+        "grow":{"anim_type":"size","from":[38.25,18.25],"to":[50.75,26.75],"duration":1},
+        "crop":{"anim_type":"clip","from":0,"to":0.5,"duration":1},
+        "image":{"type":"image","texture":"textures/ui/test","size":[38.25,18.25],
+            "nineslice_size":4,"anims":["@audit.move","@audit.grow","@audit.crop"]}
+    "#,
+        "image",
+    );
+    assert_eq!(nodes.len(), 9);
+    for now in [0.0, 0.5, 1.0] {
+        let parents: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                play(&mut Animator::new(), node, 0.0, now)
+                    .slice
+                    .expect("sliced image bounds")
+            })
+            .collect();
+        assert!(
+            parents.iter().all(|parent| *parent == parents[0]),
+            "slices disagreed at {now}: {parents:?}"
+        );
+        if now > 0.0 {
+            assert!(parents[0].w > 38.25 && parents[0].h > 18.25);
+        }
+    }
+    // Cached layouts translate draw origins without rewriting relative slice geometry.
+    let mut translated = nodes.clone();
+    for node in &mut translated {
+        node.dest.x += 7.25;
+        node.dest.y -= 3.5;
+        node.anim = None;
+    }
+    let parents: Vec<_> = translated
+        .iter()
+        .map(|node| {
+            node.animate(&mut Animator::new(), 0.0, None, None)
+                .slice
+                .unwrap()
+        })
+        .collect();
+    assert!(parents.iter().all(|parent| *parent == parents[0]));
+}
+
 // N1: an animation writes alpha over a static zero; a starting-alpha scale multiplies it.
 #[test]
 fn alpha_animation_writes_the_property() {
@@ -204,6 +252,11 @@ fn wait_destroys_the_named_ancestor() {
         ]
     );
     assert!(animator.is_destroyed(&node(&nodes, "title").key));
+    assert!(
+        node(&nodes, "title")
+            .animate(&mut animator, 1.2, None, None)
+            .hidden
+    );
 }
 
 // N8/N30/N32: a flip-book in `anims` steps texture-width/count frames and turns
@@ -613,6 +666,69 @@ fn replays_keep_waiting_animation_clocks_current() {
     assert_ne!(animator.events_fired(), fired);
     let drawn = image.animate(&mut animator, 10.5, None, None);
     assert!(close(drawn.opacity, 0.5), "{}", drawn.opacity);
+}
+
+// Re-sending a factory request recreates a root even without an intervening empty frame.
+#[test]
+fn a_new_caller_clock_recreates_a_destroyed_factory_control() {
+    let nodes = draws(
+        r#""fade": { "anim_type": "alpha", "from": 1, "to": 0, "duration": 1,
+            "destroy_at_end": "dialog" },
+        "dialog": { "type": "panel", "size": [50,50], "anim_clock": "repeat",
+            "anim_born": 0, "controls": [
+            { "message": { "type": "image", "texture": "textures/ui/test", "size": [10,10],
+                "alpha": "@audit.fade" } } ] }"#,
+        "dialog",
+    );
+    let message = node(&nodes, "message");
+    let mut animator = Animator::new();
+    let mut clocks = std::collections::BTreeMap::from([("repeat".to_owned(), 0.0)]);
+    for born in [0.0, 2.0, 4.0] {
+        clocks.insert("repeat".into(), born);
+        let fresh = message.animate(&mut animator, born + 0.1, Some(&clocks), None);
+        assert!(
+            !fresh.hidden && fresh.opacity > 0.8,
+            "a replacement must restart its fade"
+        );
+        message.animate(&mut animator, born + 1.1, Some(&clocks), None);
+        assert!(
+            message
+                .animate(&mut animator, born + 1.2, Some(&clocks), None)
+                .hidden
+        );
+        animator.end_frame();
+    }
+}
+
+// A missing named clock uses the control's birth time, then the animator origin.
+#[test]
+fn destroyed_controls_keep_fallback_clocks_when_the_named_clock_is_absent() {
+    for (birth_property, origin) in [(r#""anim_born": 0,"#, 10.0), ("", 0.0)] {
+        let nodes = draws(
+            &format!(
+                r#""fade": {{ "anim_type": "alpha", "from": 1, "to": 0, "duration": 1,
+                    "destroy_at_end": "dialog" }},
+                "dialog": {{ "type": "panel", "size": [50,50], "anim_clock": "repeat",
+                    {birth_property} "controls": [
+                    {{ "message": {{ "type": "image", "texture": "textures/ui/test", "size": [10,10],
+                        "alpha": "@audit.fade" }} }} ] }}"#
+            ),
+            "dialog",
+        );
+        let message = node(&nodes, "message");
+        let mut animator = Animator::starting_at(origin);
+        let mut clocks = std::collections::BTreeMap::new();
+        assert!(!message.animate(&mut animator, 0.1, None, None).hidden);
+        message.animate(&mut animator, 1.1, None, None);
+        animator.end_frame();
+        for clocks in [None, Some(&clocks)] {
+            assert!(message.animate(&mut animator, 1.2, clocks, None).hidden);
+            animator.end_frame();
+        }
+        clocks.insert("repeat".into(), 2.0);
+        let replacement = message.animate(&mut animator, 2.1, Some(&clocks), None);
+        assert!(!replacement.hidden && replacement.opacity > 0.8);
+    }
 }
 
 // Replays keep a destroyed control removed; a frame with neither brings it back.

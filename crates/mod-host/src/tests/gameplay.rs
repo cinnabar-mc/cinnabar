@@ -95,14 +95,6 @@ fn snapshot() -> GameplaySnapshot {
         pitch: 0.2,
         attack_held: true,
         frame_seconds: 0.016,
-        players: vec![GameplayPlayer {
-            runtime_id: 99,
-            position: GameplayVector3 {
-                x: 4.0,
-                y: 5.0,
-                z: 6.0,
-            },
-        }],
     }
 }
 
@@ -139,9 +131,7 @@ fn current_frame_crosses_real_component_boundary_and_rotation_is_consumed_once()
         i32.const 156 f32.load f32.const 1 f32.ne if unreachable end \
         i32.const 168 f32.load f32.const 0.4 f32.ne if unreachable end \
         i32.const 172 f32.load f32.const 0.2 f32.ne if unreachable end \
-        i32.const 176 f32.load f32.const 0.016 f32.ne if unreachable end \
-        i32.const 184 i32.load i32.const 1 i32.ne if unreachable end \
-        i32.const 180 i32.load i64.load i64.const 99 i64.ne if unreachable end {}",
+        i32.const 176 f32.load f32.const 0.016 f32.ne if unreachable end {}",
         read(false, true),
         rotate(0.1, -0.1, false)
     );
@@ -183,22 +173,12 @@ fn capabilities_are_independent_and_denied_by_default() {
 }
 
 #[test]
-fn remote_session_preserves_independently_consented_player_poses_and_camera() {
+fn remote_session_preserves_independently_consented_pose_reads_and_camera() {
     use mod_api::drawing::{DrawingPermissions, DrawingSession};
 
     for players in [false, true] {
         for camera in [false, true] {
-            let frame = format!(
-                "{} {} {}",
-                read(!players, true),
-                if players {
-                    "i32.const 184 i32.load i32.const 1 i32.ne if unreachable end \
-                     i32.const 180 i32.load i64.load i64.const 99 i64.ne if unreachable end"
-                } else {
-                    ""
-                },
-                rotate(0.1, 0.0, !camera),
-            );
+            let frame = format!("{} {}", read(!players, true), rotate(0.1, 0.0, !camera));
             let (_directory, mut host) = load(
                 "",
                 &frame,
@@ -263,12 +243,11 @@ fn next_frame_revokes_unconsumed_delta_and_snapshot() {
 #[test]
 fn malformed_snapshots_fail_before_callback_and_revoke_previous_delta() {
     let (_dir, mut host) = load("", &rotate(0.1, 0.0, false), grants());
-    for invalid in [0, 1, 2] {
+    for invalid in [0, 1] {
         host.frame_with_gameplay(false, Some(snapshot())).unwrap();
         let mut frame = snapshot();
         match invalid {
             0 => frame.eye.x = f32::NAN,
-            1 => frame.players = vec![frame.players[0]; mod_api::MAX_GAMEPLAY_PLAYERS + 1],
             _ => frame.frame_seconds = f32::INFINITY,
         }
         assert!(host.frame_with_gameplay(false, Some(frame)).is_err());
@@ -347,7 +326,6 @@ fn jump_pulses_commit_once_and_are_revoked_after_guest_trap() {
     host.frame_with_movement(
         false,
         Some(snapshot()),
-        Vec::new(),
         None,
         Some(movement),
         crate::empty_controls(),
@@ -358,7 +336,6 @@ fn jump_pulses_commit_once_and_are_revoked_after_guest_trap() {
     host.frame_with_movement(
         false,
         Some(snapshot()),
-        Vec::new(),
         None,
         Some(movement),
         crate::empty_controls(),
@@ -373,7 +350,6 @@ fn jump_pulses_commit_once_and_are_revoked_after_guest_trap() {
             .frame_with_movement(
                 false,
                 Some(snapshot()),
-                Vec::new(),
                 None,
                 Some(movement),
                 crate::empty_controls()
@@ -427,7 +403,6 @@ fn explicit_jump_cancellation_commits_once_without_gameplay_and_wins_over_pulse(
     both.frame_with_movement(
         false,
         Some(snapshot()),
-        Vec::new(),
         None,
         Some(mod_host_movement()),
         crate::empty_controls(),
@@ -632,31 +607,6 @@ fn control_modes_release_on_an_unfocused_recovery_frame() {
     );
 }
 
-/// Components compiled against the original gameplay interface still instantiate unchanged.
-#[test]
-fn legacy_gameplay_component_keeps_its_original_import_type() {
-    let directory = tempfile::tempdir().unwrap();
-    let package = include_str!("../../../mod-api/wit/extension.wit")
-        .lines()
-        .next()
-        .unwrap()
-        .trim_start_matches("package ")
-        .trim_end_matches(';');
-    let (name, version) = package.split_once('@').unwrap();
-    let source = include_str!("gameplay_0_1.wat")
-        .replace("$GAMEPLAY", &format!("{name}/gameplay@{version}"))
-        .replace("$INIT", "")
-        .replace("$FRAME", "i32.const 128 call $read i32.const 176 i32.load8_u i32.const 1 i32.ne if unreachable end");
-    let mut host = ModHost::load_snapshot_with_grants(
-        &directory.path().join("legacy-gameplay.wat"),
-        source.as_bytes(),
-        grants(),
-    )
-    .unwrap();
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert!(host.is_active());
-}
-
 /// Both canonical record layouts run, including legacy physical holds, without changing gates.
 #[test]
 fn movement_records_keep_built_guests_and_current_imports_running() {
@@ -700,7 +650,6 @@ fn movement_records_keep_built_guests_and_current_imports_running() {
                 dimension: 0,
                 ..snapshot()
             }),
-            Vec::new(),
             None,
             Some(movement),
             controls,

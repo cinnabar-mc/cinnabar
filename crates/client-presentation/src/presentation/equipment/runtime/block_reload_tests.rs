@@ -5,6 +5,33 @@ use crate::prepared_actor_artwork::{PreparedActorArtwork, session_resources};
 
 /// Encodes an original cuboid carrier with independently variable height, color and alpha mode.
 pub(crate) fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAssets> {
+    terrain_with_template_flags(height, color, flags, 0)
+}
+
+/// Encodes the same fixture with an admitted model class for held-pose selection.
+fn terrain_with_template_flags(
+    height: i16,
+    color: [u8; 4],
+    flags: u32,
+    template_flags: u32,
+) -> Arc<RuntimeAssets> {
+    terrain_with_properties(
+        height,
+        color,
+        flags,
+        template_flags,
+        [assets::LightProperties::OPAQUE_DARK; 8],
+    )
+}
+
+/// Encodes the fixture with independent model flags and per-visual light properties.
+fn terrain_with_properties(
+    height: i16,
+    color: [u8; 4],
+    flags: u32,
+    template_flags: u32,
+    light_properties: [assets::LightProperties; 8],
+) -> Arc<RuntimeAssets> {
     let quads = assets::BlockFace::ALL.map(|face| {
         let (corners, uvs) = assets::gui_item::cube_face(face);
         let mut quad = assets::ModelQuad {
@@ -47,9 +74,14 @@ pub(crate) fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAss
         variant: 0,
         destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     };
+    let template_count = if template_flags == assets::MODEL_TEMPLATE_FLAG_STAIR {
+        5
+    } else {
+        1
+    };
     let compiled = assets::CompiledAssets {
         visuals: vec![visual; 8].into(),
-        light_properties: vec![assets::LightProperties::OPAQUE_DARK; 8].into(),
+        light_properties: light_properties.into(),
         hashed: Box::new([]),
         materials: vec![
             assets::Material::unvaried(),
@@ -60,13 +92,14 @@ pub(crate) fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAss
             },
         ]
         .into(),
-        model_templates: vec![assets::ModelTemplate {
-            quad_start: 0,
-            quad_count: quads.len() as u32,
-            flags: 0,
-        }]
-        .into(),
-        model_quads: quads.into(),
+        model_templates: (0..template_count)
+            .map(|index| assets::ModelTemplate {
+                quad_start: index * quads.len() as u32,
+                quad_count: quads.len() as u32,
+                flags: template_flags,
+            })
+            .collect(),
+        model_quads: (0..template_count).flat_map(|_| quads).collect(),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![assets::TexturePage::new(assets::TextureArray {
@@ -454,7 +487,7 @@ fn held_terrain_reload_replaces_warmed_mesh_pixels_alpha_and_restores_startup() 
     assert_eq!(geometry.vertices, original.vertices);
     assert_eq!(drawn_pixel(&pages, &restored.presentation, &geometry), blue);
     assert_eq!(restored.alpha_mode, render_model::HandItemAlphaMode::Opaque);
-    for _ in 0..MAX_ITEM_MESHES + 1 {
+    for _ in 0..8 {
         for source in [resources.block_items.as_ref(), None] {
             runtime.set_block_items(source);
             runtime
@@ -463,4 +496,182 @@ fn held_terrain_reload_replaces_warmed_mesh_pixels_alpha_and_restores_startup() 
             runtime.take_pending_geometries();
         }
     }
+}
+
+#[test]
+fn first_person_stair_pose_follows_the_active_terrain_template() {
+    for profile in [
+        render_api::CombatVisuals::Legacy112,
+        render_api::CombatVisuals::Modern,
+    ] {
+        let startup = terrain(128, [30, 40, 50, 255], 0);
+        let (mut runtime, pages, body, item) = fixture(startup);
+        let replacement = terrain_with_template_flags(
+            128,
+            [30, 40, 50, 255],
+            0,
+            assets::MODEL_TEMPLATE_FLAG_STAIR,
+        );
+        let blocks = runtime
+            .block_item_preparer()
+            .unwrap()
+            .prepare(&replacement)
+            .unwrap();
+        let prepared = PreparedActorArtwork::new_with_block_items(&pages, None, None, Some(blocks));
+        let resources = session_resources(&pages, None, Some(&prepared));
+        for (selected, expected_z) in [
+            (None, -std::f32::consts::FRAC_1_SQRT_2),
+            (
+                resources.block_items.as_ref(),
+                std::f32::consts::FRAC_1_SQRT_2,
+            ),
+            (None, -std::f32::consts::FRAC_1_SQRT_2),
+        ] {
+            runtime.set_block_items(selected);
+            let first = runtime
+                .first_person_item_for_profile(
+                    &body,
+                    &item,
+                    ItemAnimationState::default().into(),
+                    profile,
+                )
+                .unwrap();
+            let pose = first.presentation.submission.input.current_bones[0];
+            let axis = bevy::math::Quat::from_array(pose.rotation) * bevy::math::Vec3::X;
+            assert!(
+                axis.abs_diff_eq(
+                    bevy::math::Vec3::new(std::f32::consts::FRAC_1_SQRT_2, 0.0, expected_z),
+                    1.0e-6,
+                ),
+                "profile={profile:?}, expected Z={expected_z}, got {axis:?}"
+            );
+            assert!(
+                bevy::math::Vec3::from_array(pose.translation_scale[..3].try_into().unwrap())
+                    .abs_diff_eq(bevy::math::Vec3::new(0.56, -0.52, -0.72), 1.0e-6)
+            );
+            assert!((pose.translation_scale[3] - 0.4).abs() < 1.0e-6);
+        }
+    }
+}
+
+#[test]
+fn retained_first_person_stair_turn_follows_the_prepared_visual() {
+    let world =
+        terrain_with_template_flags(128, [30, 40, 50, 255], 0, assets::MODEL_TEMPLATE_FLAG_STAIR);
+    let (runtime, _, _, mut item) = fixture(world);
+    let HeldKind::Block(visual) = item.kind else {
+        unreachable!()
+    };
+    for (state, fallback) in [
+        (Some(visual), None),
+        (Some(u32::MAX), Some(visual)),
+        (None, Some(visual)),
+    ] {
+        item.kind = HeldKind::RetainedBlock {
+            state,
+            item: fallback,
+        };
+        assert_eq!(runtime.held_block_visual(item.kind), Some(visual));
+        assert!(runtime.first_person_block_quarter_turn(&item));
+    }
+    item.kind = HeldKind::RetainedBlock {
+        state: Some(u32::MAX),
+        item: None,
+    };
+    assert!(!runtime.first_person_block_quarter_turn(&item));
+}
+
+#[test]
+fn retained_first_person_emission_follows_the_prepared_visual_for_both_hands() {
+    let light = assets::LightProperties::new(13, 15).unwrap();
+    let mut properties = [assets::LightProperties::OPAQUE_DARK; 8];
+    properties[7] = light;
+    let world = terrain_with_properties(128, [30, 40, 50, 255], 0, 0, properties);
+    let (mut runtime, _, body, mut item) =
+        fixture_with_icons(world, Some(([1; 32], [30, 40, 50, 255])));
+    for (state, fallback, expected) in [
+        (Some(7), Some(6), light.emission()),
+        (Some(6), Some(7), 0),
+        (Some(u32::MAX), Some(7), light.emission()),
+        (None, Some(7), light.emission()),
+    ] {
+        item.kind = HeldKind::RetainedBlock {
+            state,
+            item: fallback,
+        };
+        let main = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        let off = runtime.first_person_offhand(&body, &item).unwrap();
+        assert_eq!(main.emitted_light, expected, "{:?}", item.kind);
+        assert_eq!(off.emitted_light, expected, "{:?}", item.kind);
+        assert_eq!(runtime.first_person_emitted_light(&item, false), 0);
+    }
+    item.kind = HeldKind::RetainedBlock {
+        state: Some(u32::MAX),
+        item: None,
+    };
+    assert_eq!(runtime.first_person_emitted_light(&item, true), 0);
+}
+
+#[test]
+fn every_pinned_stair_family_selects_its_first_person_turn() {
+    let records = assets::registry::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let (runtime, _, mut item) = block_fixture();
+    let mut names = std::collections::BTreeSet::new();
+    let mut stairs = 0;
+    for record in records {
+        if !names.insert(record.name.clone()) {
+            continue;
+        }
+        item.identifier = record.name.clone().into();
+        item.kind = HeldKind::Block(record.sequential_id);
+        let expected = record.model_family == assets::ModelFamily::Stair
+            || assets::facts::pack::face_slots(&item.identifier)
+                == Some(assets::facts::pack::FaceSlots::Pumpkin);
+        assert_eq!(
+            runtime.first_person_block_quarter_turn(&item),
+            expected,
+            "{}",
+            record.name
+        );
+        if record.model_family == assets::ModelFamily::Stair {
+            stairs += 1;
+            item.identifier = Arc::from("custom:ordinary");
+            assert!(!runtime.first_person_block_quarter_turn(&item));
+        }
+    }
+    assert!(stairs > 0);
+}
+
+#[test]
+fn cutout_model_keeps_authored_backface_culling_after_atlas_placement() {
+    let (mut runtime, _, item) = block_fixture();
+    let HeldKind::Block(visual) = item.kind else {
+        unreachable!()
+    };
+    let mut vertices =
+        render_model::textured_cube_vertices(render_model::equipment::blocks::face_rects([
+            0.0, 0.0, 1.0, 1.0,
+        ]));
+    for vertex in &mut vertices {
+        vertex.back_uv = render_model::ONE_SIDED_BACK_UV;
+    }
+    let blocks = Arc::make_mut(&mut runtime.blocks.source);
+    blocks.models.insert(visual, vertices);
+    blocks
+        .alpha
+        .insert(visual, render_model::HandItemAlphaMode::Cutout);
+    runtime.held_mesh(&item, true).unwrap();
+    let geometry = runtime.take_pending_geometries().pop().unwrap();
+    assert!(
+        geometry
+            .vertices
+            .iter()
+            .all(|vertex| vertex.back_uv == render_model::ONE_SIDED_BACK_UV)
+    );
 }

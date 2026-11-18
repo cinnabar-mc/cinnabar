@@ -5,7 +5,7 @@ use super::texture_upload::build_chunk_texture_assets;
 #[cfg(feature = "enhanced")]
 use super::{authored_upload, authored_upload::AuthoredUpload};
 #[cfg(feature = "enhanced")]
-use render_scene::EnhancedTextureAssets;
+use assets::texture::EnhancedTextureAssets;
 #[cfg(all(test, feature = "enhanced"))]
 mod carrier_tests;
 
@@ -57,6 +57,12 @@ pub(in crate::chunk) struct MaterialGpu {
     pub(in crate::chunk) variation_start: u32,
     pub(in crate::chunk) variation_count: u32,
     pub(in crate::chunk) variation_weight: u32,
+    /// GPU texture references of Cinnabar masks; [`assets::NO_MASK`] names none.
+    pub(in crate::chunk) glow_mask: u32,
+    pub(in crate::chunk) emissive_mask: u32,
+    pub(in crate::chunk) mask_strength: u32,
+    /// f32 bits of the material's AO exponent.
+    pub(in crate::chunk) ao_exponent: u32,
 }
 
 const _: () = assert!(std::mem::size_of::<MaterialGpu>() == assets::MATERIAL_BYTES);

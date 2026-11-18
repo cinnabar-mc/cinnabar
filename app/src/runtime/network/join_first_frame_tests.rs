@@ -169,7 +169,11 @@ fn join_first_frame_keeps_current_artwork_after_reversed_biome_completion_and_se
             .is_none()
     );
     assert!(app.world().resource::<LocalPhysicsController>().is_active());
-    let forward = app.world().resource::<LocalViewPose>().camera_rotation() * Vec3::NEG_Z;
+    let forward = app
+        .world()
+        .resource::<LocalViewPose>()
+        .player_camera_rotation()
+        * Vec3::NEG_Z;
     assert!(
         forward.abs_diff_eq(Vec3::new(-3.0_f32.sqrt() / 2.0, -0.5, 0.0), 1e-5),
         "the initial server heading must be applied before the first player input: {forward:?}"

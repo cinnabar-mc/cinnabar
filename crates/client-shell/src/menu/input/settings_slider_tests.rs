@@ -8,6 +8,7 @@ use bevy::{
 };
 use ui::DpiScale;
 
+use super::mode::MenuInputMode;
 use super::*;
 use client_ui::ui_runtime::UiRuntime;
 use launcher::menu::settings_options::SettingId;

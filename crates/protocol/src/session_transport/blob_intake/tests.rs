@@ -73,12 +73,39 @@ async fn blob_intake_preserves_raw_fifo_across_multiple_bodies() {
 /// A raw-memory frontier returns ownership to the caller without dropping the inspected prefix.
 #[tokio::test]
 async fn blob_intake_respects_raw_byte_capacity() {
-    let mut transport = transport(&[ordinary(1)]);
+    let mut transport = transport(&[ordinary(1), body_response()]);
     assert!(transport.recv_blob_body(1, false).await.unwrap().is_none());
     let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
         panic!("retained ordinary packet")
     };
     assert_eq!(raw.id, PacketId::SetTime);
+    assert!(matches!(
+        transport.recv().await.unwrap(),
+        Inbound::Packet(raw) if raw.id == PacketId::ClientCacheMissResponse
+    ));
+}
+
+/// Body look-ahead crosses windows without reordering the ordinary packets it retains.
+#[tokio::test]
+async fn blob_intake_preserves_fifo_across_batch_windows() {
+    let count = super::super::RAW_PACKET_WINDOW * 2 + 1;
+    let mut packets: Vec<_> = (0..count).map(|time| ordinary(time as i32)).collect();
+    packets.push(body_response());
+    packets.push(ordinary(count as i32));
+    let mut transport = transport(&packets);
+    assert!(matches!(
+        transport.recv_blob_body(usize::MAX, false).await.unwrap(),
+        Some(Inbound::Packet(raw)) if raw.id == PacketId::ClientCacheMissResponse
+    ));
+    for time in 0..=count {
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("retained ordinary packet");
+        };
+        assert!(matches!(
+            *raw.decode().unwrap().data,
+            packets::Packet::SetTime(packet) if packet.time.0 == time as i32
+        ));
+    }
 }
 
 /// A body's bytes after a world or backend boundary must never resolve the previous cache epoch.

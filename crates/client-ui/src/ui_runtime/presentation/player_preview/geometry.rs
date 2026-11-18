@@ -226,6 +226,7 @@ fn append(
                 atlas_edge(top, bottom, vertex.uv[1])?,
             ];
             vertices.push(UiMeshVertex {
+                terrain_mips: false,
                 position: [
                     projected.screen[0] / PREVIEW_WIDTH as f32,
                     projected.screen[1] / PREVIEW_HEIGHT as f32,

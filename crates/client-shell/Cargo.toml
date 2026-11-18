@@ -51,6 +51,13 @@ ui = { path = "../ui" }
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 
+# Keyboards, mice and controllers that winit and gilrs do not report on iOS.
+[target.'cfg(target_os = "ios")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
+objc2-game-controller = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "GCController", "GCDevice", "GCControllerElement", "GCControllerAxisInput", "GCControllerButtonInput", "GCControllerDirectionPad", "GCDeviceCursor", "GCExtendedGamepad", "GCKeyboard", "GCKeyboardInput", "GCKeyCodes", "GCMouse", "GCMouseInput", "GCPhysicalInputProfile"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"

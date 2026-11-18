@@ -141,10 +141,10 @@ impl ImageDirectory {
             return Some(path);
         }
         let stored = match download(inner.client.as_ref()?, &inner.surface, url, true).await {
-            Some(body) => image_extension(&body).and_then(|extension| {
+            Ok(body) => image_extension(&body).and_then(|extension| {
                 self.store(&stem, inner.surface.extension.unwrap_or(extension), &body)
             }),
-            None => None,
+            Err(_) => None,
         };
         if stored.is_none() {
             lock(&inner.folder.failed).record(url);

@@ -57,10 +57,10 @@ fn native_leaf_colour_is_world_material_gated_and_enhanced_keeps_its_existing_pa
     let chunk = include_str!("../../src/chunk.wesl");
     let ordinary = shader_source::preprocess(chunk, &[]);
     let enhanced = shader_source::preprocess(chunk, &["ENHANCED"]);
-    assert!(ordinary.contains("let native_colour = native_cube_colour("));
+    assert!(ordinary.contains("let native_colour = native_masked_cube_colour("));
     assert!(ordinary.contains("out.native_light_levels = terrain_light_levels(light_sample);"));
     assert!(ordinary.contains("if (tint_kind != 0u)"));
-    assert!(!enhanced.contains("let native_colour = native_cube_colour("));
+    assert!(!enhanced.contains("let native_colour = native_masked_cube_colour("));
     assert!(!enhanced.contains("out.native_light_levels ="));
     assert!(enhanced.contains("let shaded = shade_surface("));
     assert!(ordinary.contains("textureSampleGrad(native_leaf_textures_page_0"));

@@ -105,6 +105,7 @@ pub(in crate::presentation::equipment) fn owner_rig<'a>(
 fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
             shield_pattern: None,

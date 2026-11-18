@@ -2,14 +2,15 @@
 
 use std::collections::HashMap;
 
-use json_ui::{DataSource, Scalar, ViewState};
+use json_ui::{DataSource, LayoutReport, Scalar, ViewState};
 use serde_json::json;
 use ui::mod_panel::{Control, Panel};
 
 use super::transitions::SurfaceTransitions;
 
 const FEEDBACK_SECONDS: f64 = 0.10;
-const SCROLL_SECONDS: f64 = 0.14;
+/// Wheel easing for a scroll view that declares no `cinnabar_scroll_seconds`.
+pub(super) const SCROLL_SECONDS: f64 = 0.14;
 
 #[derive(Clone, Copy)]
 struct Tween {
@@ -70,6 +71,11 @@ pub(super) struct PanelMotion {
     toggles: HashMap<usize, Tween>,
     hover: HashMap<usize, Tween>,
     scrolls: HashMap<String, Tween>,
+    /// When scrollbar fades were last stepped, and whether one was then in progress.
+    faded: Option<(f64, bool)>,
+    /// Without animation, the fade left on each auto-hidden box shown at full opacity: the box
+    /// hides at once when it runs out instead of fading.
+    held_bars: HashMap<String, f32>,
     /// Authored surface bindings easing toward their latest values.
     pub(super) transitions: SurfaceTransitions,
 }
@@ -102,13 +108,69 @@ impl PanelMotion {
         }
     }
 
-    /// Retargets wheel motion from the last rendered offset, accumulating pending notches.
-    pub(super) fn scroll(&mut self, key: &str, current: f64, delta: f64, max: f64) {
+    /// Retargets wheel motion from the last rendered offset, accumulating pending notches, to
+    /// arrive `seconds` from now.
+    pub(super) fn scroll(&mut self, key: &str, current: f64, delta: f64, max: f64, seconds: f64) {
         let tween = self
             .scrolls
             .entry(key.to_owned())
             .or_insert_with(|| Tween::still(current));
-        tween.retarget((tween.to + delta).clamp(0.0, max), self.now, SCROLL_SECONDS);
+        tween.retarget((tween.to + delta).clamp(0.0, max), self.now, seconds);
+    }
+
+    /// Fades auto-hidden scrollbar boxes by the caller clock and reports whether one changed.
+    /// A fade starts counting from the first step after it began, so idle time without frames
+    /// never skips it. Without `animate`, a box stays fully shown for the fade's duration and
+    /// then hides at once.
+    pub(super) fn fade_scrollbars(
+        &mut self,
+        view: &mut ViewState,
+        report: &LayoutReport,
+        now: f64,
+        animate: bool,
+    ) -> bool {
+        if !now.is_finite() {
+            return false;
+        }
+        let dt = match self.faded {
+            Some((at, true)) => (now - at).max(0.0),
+            _ => 0.0,
+        };
+        // A box still shown in full resumes the fade it was holding; a reveal clears that.
+        for (key, left) in self.held_bars.drain() {
+            if let Some(retained) = view.scroll_state.get_mut(&key)
+                && retained.bar_fade == Some(1.0)
+            {
+                retained.bar_fade = Some(left);
+            }
+        }
+        let changed = view.step_scrolls(report, dt);
+        if !animate {
+            for (key, retained) in &mut view.scroll_state {
+                if let Some(left) = retained.bar_fade.filter(|left| *left > 0.0 && *left < 1.0)
+                    && report
+                        .scrolls
+                        .get(key)
+                        .is_some_and(|metrics| metrics.auto_hide)
+                {
+                    self.held_bars.insert(key.clone(), left);
+                    retained.bar_fade = Some(1.0);
+                }
+            }
+        }
+        self.faded = Some((now, view.scrollbar_fading(report)));
+        changed
+    }
+
+    /// Shows an auto-hidden box in full again, dropping any fade it was holding.
+    pub(super) fn reveal_scrollbar(
+        &mut self,
+        view: &mut ViewState,
+        key: &str,
+        metrics: &json_ui::ScrollMetrics,
+    ) {
+        self.held_bars.remove(key);
+        view.reveal_scrollbar(key, metrics);
     }
 
     /// Pointer drags and pixel scrolling override any outstanding wheel target immediately.
@@ -219,16 +281,16 @@ mod tests {
         let mut motion = PanelMotion::default();
         let mut view = ViewState::default();
         let panel = crate::test_support::sample_panel();
-        motion.scroll("list", 0.0, 30.0, 100.0);
-        motion.scroll("list", 0.0, 30.0, 100.0);
+        motion.scroll("list", 0.0, 30.0, 100.0, SCROLL_SECONDS);
+        motion.scroll("list", 0.0, 30.0, 100.0, SCROLL_SECONDS);
         motion.advance(&panel, &mut view, None, 0.03, true);
         let middle = view.scroll["list"];
         assert!(middle > 0.0 && middle < 60.0);
-        motion.scroll("list", middle, -10.0, 100.0);
+        motion.scroll("list", middle, -10.0, 100.0, SCROLL_SECONDS);
         motion.advance(&panel, &mut view, None, 0.5, true);
         assert_eq!(view.scroll["list"], 50.0);
         assert!(!motion.active());
-        motion.scroll("list", 50.0, 30.0, 100.0);
+        motion.scroll("list", 50.0, 30.0, 100.0, SCROLL_SECONDS);
         motion.cancel_scroll("list");
         assert!(!motion.active());
     }
@@ -284,7 +346,7 @@ mod tests {
         assert!(motion.advance(&panel, &mut view, None, 1.05, false));
         assert_eq!(motion.toggles[&0].sample(motion.now), 0.0);
         assert_eq!(motion.hover[&0].sample(motion.now), 0.0);
-        motion.scroll("list", 0.0, 30.0, 100.0);
+        motion.scroll("list", 0.0, 30.0, 100.0, SCROLL_SECONDS);
         assert!(motion.advance(&panel, &mut view, None, 1.05, false));
         assert_eq!(view.scroll["list"], 30.0);
         assert!(!motion.active());

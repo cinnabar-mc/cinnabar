@@ -44,6 +44,9 @@ pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
     /// Height the server adds above the feet position this actor reports.
     fn network_position_offset(&self) -> f32;
     fn render_scale(&self) -> f32;
+    /// Collision `(min, max)` box anchored at [`Self::position`], with server scale applied;
+    /// `None` when the actor has no usable collision dimensions.
+    fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])>;
     /// Creeper swell in `0..=1` at `partial_tick` between the last two ticks.
     fn creeper_swell_amount(&self, partial_tick: f32) -> f32;
     fn creeper_swell_changes(&self) -> bool;

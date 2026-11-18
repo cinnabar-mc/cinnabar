@@ -1,13 +1,13 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P, ItemTraits},
+    facts::{BlockFact, BlockProperty as P, ItemTraits, PlacementRule as R, SupportKind},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use protocol::{BlockUseRequest, ItemUseTrigger, SwingSource, VerifiedNetworkItemStack};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 // Held repeats are checked on simulation ticks against a monotonic deadline.
 const SLOW_REPEAT_MILLIS: u64 = 300;
@@ -111,11 +111,18 @@ pub(crate) fn overlaps(
 
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
-/// Empty vanilla buckets may pick liquid sources without making liquids selectable for mining.
+/// Items that use liquid sources pick them without making liquids selectable for mining.
 pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
     !item.is_empty()
         && item.metadata() == 0
-        && identifier == Some(assets::facts::EMPTY_BUCKET_IDENTIFIER)
+        && identifier.is_some_and(|identifier| {
+            [
+                assets::facts::EMPTY_BUCKET_IDENTIFIER,
+                assets::facts::FROG_SPAWN_IDENTIFIER,
+                assets::facts::GLASS_BOTTLE_IDENTIFIER,
+            ]
+            .contains(&identifier)
+        })
 }
 
 /// World facts one local use depends on.
@@ -153,6 +160,15 @@ impl UseSurroundings {
     /// The cell a placement fills: the clicked block when it is replaceable,
     /// otherwise the neighbor across the clicked face.
     pub fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
+        // Frogspawn needs the air cell above a water source.
+        if self.held.placement == R::FrogSpawn && self.clicked.traits.intersects(T::WATER | T::LAVA)
+        {
+            if face == 1 && self.clicked.support == SupportKind::WaterSource {
+                let cell = placement_cell(clicked, face);
+                return (cell, self.neighbor.traits.contains(T::AIR));
+            }
+            return (clicked, false);
+        }
         if self.clicked.traits.contains(T::REPLACEABLE) {
             (clicked, true)
         } else {
@@ -193,6 +209,9 @@ pub(crate) fn placed_collision_boxes(
 pub enum LocalUse {
     Interact,
     Place,
+    /// The held item's own use on the block succeeded without placing anything, as
+    /// vanilla's brush does; it starts a held use and does not swing.
+    UseItem,
     Nothing,
 }
 
@@ -256,11 +275,30 @@ impl LocalUse {
         }
     }
 
+    /// A held brush's use succeeds on any block that neither the block's own use nor a
+    /// placement took, as vanilla's `BrushItem::_useOn` does for every non-air block; a
+    /// clicked cell that is now air fails. Like other item use on a block, it needs the
+    /// build ability.
+    pub fn or_brush(
+        self,
+        brush: bool,
+        clicked_air: bool,
+        item: &VerifiedNetworkItemStack,
+        caps: &GameModeCapabilities,
+    ) -> Self {
+        if self == Self::Nothing && brush && !clicked_air && caps.can_build && item.count() > 0 {
+            Self::UseItem
+        } else {
+            self
+        }
+    }
+
     const fn swing(self) -> Option<SwingSource> {
         match self {
             Self::Interact => Some(SwingSource::Interact),
             Self::Place => Some(SwingSource::Build),
-            Self::Nothing => None,
+            // Vanilla swings only for a use result carrying its swing bit; the brush's has none.
+            Self::UseItem | Self::Nothing => None,
         }
     }
 }
@@ -284,6 +322,8 @@ pub struct BlockUseRuntime {
     pub intention: BuildIntention,
     selected_item: Option<(u8, i32, i32)>,
     rejected_tick: Option<u64>,
+    /// Failed held targets already sent in one tick, retained across transport retries.
+    failed_repeats: Option<(u64, HashSet<PlacementTarget>)>,
 }
 
 /// One held-use repeat's timing inputs.
@@ -510,8 +550,8 @@ impl BlockUseRuntime {
 }
 
 /// Allows failed crop attempts with empty hands, hoes and pickaxes. Other non-block
-/// uses need a predicted interaction or seed planting until their successful-use timing
-/// is modeled. Buckets refuse repeats.
+/// uses need a predicted interaction, seed planting or item use on the block, such as a
+/// brush's, until their successful-use timing is modeled. Buckets refuse repeats.
 pub fn repeats_while_held(
     item: &VerifiedNetworkItemStack,
     bucket: bool,

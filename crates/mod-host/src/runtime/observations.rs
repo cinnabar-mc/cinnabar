@@ -71,4 +71,33 @@ impl Instance {
         self.store.data_mut().player_state.observations = observations;
         Ok(())
     }
+
+    /// Records the last laid-out HUD root and vanilla element states for later reads.
+    pub(crate) fn observe_hud(
+        &mut self,
+        viewport: Option<ui::mod_hud::HudViewport>,
+        elements: ui::mod_hud::ElementStates,
+    ) {
+        let hud = &mut self.store.data_mut().hud;
+        hud.viewport = viewport.filter(|viewport| viewport.valid());
+        hud.elements = elements.map(ui::mod_hud::ElementState::sanitized);
+    }
+
+    /// Records this mod's open panel's last press on a declared control, for `panel.read-press`.
+    pub(crate) fn observe_panel_press(&mut self, press: Option<ui::mod_hud::PanelPress>) {
+        self.store.data_mut().controls.press = press.filter(|press| {
+            press
+                .rect
+                .iter()
+                .chain(&press.to_local)
+                .all(|value| value.is_finite())
+                && press.rect[2] >= 0.
+                && press.rect[3] >= 0.
+        });
+    }
+
+    /// Records where the host last laid out this mod's open panel, for `panel.read-layout`.
+    pub(crate) fn observe_panel_layout(&mut self, layout: Option<ui::mod_hud::PanelLayout>) {
+        self.store.data_mut().controls.layout = layout.filter(|layout| layout.valid());
+    }
 }

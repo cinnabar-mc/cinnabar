@@ -183,6 +183,10 @@ pub struct DeviceFrame {
     pub keyboard_mouse: Option<KeyboardMouseFrame>,
     pub controllers: Vec<ControllerFrame>,
     pub touches: Vec<TouchContact>,
+    /// Touch controls a finger newly pressed since the previous frame, each at most once. A
+    /// press counts even when the control never read as released between frames, as when the
+    /// previous finger's lift still routes or it lifted and landed again within a frame.
+    pub touch_presses: Vec<u16>,
     pub disconnected_controllers: Vec<u32>,
     pub window_focus_lost: bool,
 }
@@ -216,6 +220,11 @@ pub enum FrameError {
     },
     DuplicateDeviceId(u32),
     DuplicateTouchContact(u64),
+    TooManyTouchPresses {
+        actual: usize,
+        maximum: usize,
+    },
+    DuplicateTouchPress(u16),
     DuplicateKeyboardUsage(u16),
     DuplicateMouseButton(u8),
     DuplicateControllerButton {
@@ -356,6 +365,22 @@ impl DeviceFrame {
             {
                 return Err(FrameError::UnknownTouchControl(hit_id));
             }
+        }
+        if self.touch_presses.len() > MAX_TOUCH_CONTROLS {
+            return Err(FrameError::TooManyTouchPresses {
+                actual: self.touch_presses.len(),
+                maximum: MAX_TOUCH_CONTROLS,
+            });
+        }
+        if let Some(hit_id) = self
+            .touch_presses
+            .iter()
+            .find(|hit_id| !touch_layout.contains(**hit_id))
+        {
+            return Err(FrameError::UnknownTouchControl(*hit_id));
+        }
+        if let Some(hit_id) = first_duplicate(&self.touch_presses) {
+            return Err(FrameError::DuplicateTouchPress(hit_id));
         }
         if self.disconnected_controllers.len() > MAX_DISCONNECTED_CONTROLLERS {
             return Err(FrameError::TooManyDisconnectedControllers {

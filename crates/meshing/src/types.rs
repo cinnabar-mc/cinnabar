@@ -253,6 +253,34 @@ impl PackedModelDrawRef {
         }
     }
 
+    /// Restricts this face to one tile of a three-by-three block-face partition.
+    #[must_use]
+    pub fn with_surface_tile(self, tile: u8, border: u8) -> Self {
+        assert!(u32::from(tile) < crate::surface::TILE_COUNT && (1..=127).contains(&border));
+        Self {
+            quad_index: (self.quad_index & crate::surface::QUAD_INDEX_MASK)
+                | (u32::from(tile) << crate::surface::TILE_SHIFT)
+                | (u32::from(border) << crate::surface::BORDER_SHIFT),
+            ..self
+        }
+    }
+
+    /// Template index without the optional face partition payload.
+    #[must_use]
+    pub const fn quad_index(self) -> u32 {
+        self.quad_index & crate::surface::QUAD_INDEX_MASK
+    }
+
+    /// Validates the optional partition payload without reading GPU data.
+    #[must_use]
+    pub const fn valid_surface_tile(self) -> bool {
+        self.quad_index <= crate::surface::QUAD_INDEX_MASK
+            || (self.quad_index <= crate::surface::DRAW_WORD_MASK
+                && (self.quad_index >> crate::surface::BORDER_SHIFT) != 0
+                && ((self.quad_index >> crate::surface::TILE_SHIFT) & crate::surface::TILE_MASK)
+                    < crate::surface::TILE_COUNT)
+    }
+
     #[must_use]
     pub const fn words(self) -> [u32; 2] {
         [self.model_ref_index, self.quad_index]
@@ -697,6 +725,7 @@ pub struct ChunkMesh {
     pub(crate) model_draw_refs: Box<ModelDrawRefs>,
     pub(crate) liquid_quads: Arc<[PackedLiquidQuad]>,
     pub(crate) liquid_lighting: Arc<[PackedQuadLighting]>,
+    pub(crate) terrain_markers: Arc<[crate::PackedTerrainMarker]>,
     pub(crate) connectivity: FaceConnectivity,
 }
 
@@ -807,6 +836,7 @@ impl ChunkMesh {
             }),
             liquid_quads: liquid_quads.into(),
             liquid_lighting: liquid_lighting.into(),
+            terrain_markers: Arc::from([]),
             connectivity,
         })
     }
@@ -868,11 +898,18 @@ impl ChunkMesh {
         &self.liquid_lighting
     }
 
+    /// Barrier, light-block and structure-void cells, drawn apart from the terrain geometry.
+    #[must_use]
+    pub const fn terrain_markers(&self) -> &Arc<[crate::PackedTerrainMarker]> {
+        &self.terrain_markers
+    }
+
     #[must_use]
     pub fn quad_count(&self) -> usize {
         self.cube_streams.cube_quads.len()
     }
 
+    /// Whether the mesh has no terrain geometry; its [`Self::terrain_markers`] may remain.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.cube_streams.cube_quads.is_empty()

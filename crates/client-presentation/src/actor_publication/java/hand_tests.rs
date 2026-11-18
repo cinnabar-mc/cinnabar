@@ -310,6 +310,7 @@ fn source_with_equipment_and_map(
     );
     let input = ActorEquipmentInput {
         main: identifier.map(|identifier| WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: map_data.map(|(id, _)| id),
             shield_pattern: None,
@@ -717,6 +718,7 @@ fn retained_native_bow_stays_idle_when_the_newly_selected_food_is_used() {
     stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(6);
     let bow = WornItem {
+        trim: None,
         identifier: BOW.into(),
         metadata: 0,
         damage: None,
@@ -745,6 +747,7 @@ fn retained_native_bow_stays_idle_when_the_newly_selected_food_is_used() {
     stream.advance_actor_interpolation_frame(1);
     let selected = ActorEquipmentInput {
         main: Some(WornItem {
+            trim: None,
             identifier: "minecraft:golden_apple".into(),
             ..bow.clone()
         }),

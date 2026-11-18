@@ -332,6 +332,7 @@ pub(super) fn sample<'a>(
                         let visible_bounds = crate::presentation::actors::admit_frame_bounds(
                             &mut presentation,
                             &admission_rig,
+                            actor,
                             cull_view,
                             render_frame.as_mut(),
                         );

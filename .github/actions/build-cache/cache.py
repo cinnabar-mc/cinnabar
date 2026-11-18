@@ -492,13 +492,16 @@ def unpack(paths, stream):
 TRUSTED_EVENTS = {"push", "schedule", "workflow_dispatch"}
 # These workflows populate the same CI compiler configuration on the default branch.
 CI_WORKFLOWS = {".github/workflows/ci.yml", ".github/workflows/ci-cache.yml"}
+# These build with the same configuration and restore the CI caches, but never save one.
+CI_READERS = {".github/workflows/offload.yml"}
 
 
 def trusted_run(run, env):
-    """Whether this workflow saved the run's artifacts on this repository's default branch."""
+    """Whether the run saved its artifacts on the default branch from this workflow or, for CI caches, a CI workflow."""
     workflow = env["GITHUB_WORKFLOW_REF"].split("@")[0].split("/", 2)[2]
     repository = int(env["GITHUB_REPOSITORY_ID"])
-    workflows = CI_WORKFLOWS if env.get("CACHE_BUCKET", "").endswith("-ci-") and workflow in CI_WORKFLOWS else {workflow}
+    shares_ci = env.get("CACHE_BUCKET", "").endswith("-ci-") and workflow in CI_WORKFLOWS | CI_READERS
+    workflows = CI_WORKFLOWS if shares_ci else {workflow}
     return (run["event"] in TRUSTED_EVENTS and run["head_branch"] == env["CACHE_BRANCH"]
             and run["path"] in workflows
             and (run.get("repository") or {}).get("id") == repository

@@ -26,6 +26,7 @@ impl UiRuntime {
         } else {
             self.session.screen.inventory = None;
             self.session.screen.search_focused = false;
+            self.session.screen.anvil_focused = false;
         }
         if self.session.screen.furnace.is_none()
             && let Some(kind) = player

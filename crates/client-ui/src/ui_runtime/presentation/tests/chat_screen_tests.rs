@@ -279,7 +279,8 @@ fn open_chat_draws_the_java_line_with_history_and_the_hud() {
     assert!(edit.dest.y > 200.0 && edit.dest.h <= newest.dest.h * 2.0);
     assert!(newest.dest.y + newest.dest.h < edit.dest.y);
     assert!(presentation.hud_draw_nodes().iter().any(|node| {
-        matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == "hotbar_renderer")
+        matches!(&node.draw, Draw::Custom { renderer, .. }
+            if renderer == json_ui::vanilla::Renderer::HotbarSlotsRenderer.as_str())
     }));
     // The HUD's own chat lines hide while the screen shows the history.
     assert!(

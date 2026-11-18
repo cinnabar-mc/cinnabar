@@ -1,11 +1,11 @@
-//! Depth-tested and alpha-tested block thumbnails from shared GUI geometry.
+//! Alpha-tested block thumbnails with the shared GUI geometry and overlap order.
 //! Includes slabs, stairs, walls, glass and server custom blocks.
 
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, GuiShading, block_gui_quads,
-    cube_face, material_tile,
+    BlockModelOrder, GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, GuiShading,
+    block_gui_quads, cube_face, material_tile,
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
@@ -23,6 +23,7 @@ struct Face<'a> {
     size: [usize; 2],
     blend: bool,
     face_dimming: bool,
+    force_covered_alpha: bool,
 }
 
 /// A source-textured quad with independently controlled face dimming.
@@ -84,6 +85,7 @@ pub(super) struct Model<'a> {
     light: f32,
     face_lighting: bool,
     shading: GuiShading,
+    order: BlockModelOrder,
 }
 
 impl<'a> Model<'a> {
@@ -105,6 +107,7 @@ impl<'a> Model<'a> {
                 ],
                 blend: false,
                 face_dimming: quad.face_dimming,
+                force_covered_alpha: false,
             })
             .collect();
         Self {
@@ -113,6 +116,7 @@ impl<'a> Model<'a> {
             light,
             face_lighting: true,
             shading: GuiShading::Inventory,
+            order: BlockModelOrder::Depth,
         }
     }
 
@@ -122,7 +126,21 @@ impl<'a> Model<'a> {
         self
     }
 
-    pub(super) fn read(world: &'a RuntimeAssets, visual: BlockVisualId) -> Result<Self, Reject> {
+    /// Applies item-family coverage after sampling without modifying source artwork.
+    pub(super) fn with_render_kind(mut self, kind: assets::facts::BlockRenderKind) -> Self {
+        let covered = assets::gui_item::forces_covered_gui_alpha(kind);
+        for face in &mut self.faces {
+            face.force_covered_alpha = covered;
+        }
+        self
+    }
+
+    /// Reads a compiled state with its item identity for GUI-specific shapes.
+    pub(super) fn read(
+        world: &'a RuntimeAssets,
+        visual: BlockVisualId,
+        render_kind: assets::facts::BlockRenderKind,
+    ) -> Result<Self, Reject> {
         if visual.0 as usize >= world.visual_count() {
             return Err(Reject::Geometry);
         }
@@ -138,7 +156,13 @@ impl<'a> Model<'a> {
             tint: None,
         };
         let faces = BlockFace::ALL.map(|face| block.face(face).material_id());
-        Self::build(parts, block.kind(), faces, block.model_template())
+        Self::build(
+            parts,
+            block.kind(),
+            faces,
+            block.model_template(),
+            render_kind,
+        )
     }
 
     /// State `visual` of a session block overlay.
@@ -157,7 +181,7 @@ impl<'a> Model<'a> {
             tint,
         };
         let template = (block.model_template != NO_MODEL_TEMPLATE).then_some(block.model_template);
-        Self::build(parts, block.kind, block.faces, template)
+        Self::build(parts, block.kind, block.faces, template, Default::default())
     }
 
     /// Draws carried cube faces from overlay pixels without cloning the texture page.
@@ -173,7 +197,7 @@ impl<'a> Model<'a> {
             textures: Textures::Overlay(overlay, base),
             tint: None,
         };
-        Self::build(parts, VisualKind::Cube, faces, None)
+        Self::build(parts, VisualKind::Cube, faces, None, Default::default())
     }
 
     fn build(
@@ -181,6 +205,7 @@ impl<'a> Model<'a> {
         kind: VisualKind,
         materials: [u32; 6],
         template: Option<u32>,
+        render_kind: assets::facts::BlockRenderKind,
     ) -> Result<Self, Reject> {
         let mut tiles = std::collections::BTreeMap::new();
         if kind == VisualKind::Cube {
@@ -192,45 +217,57 @@ impl<'a> Model<'a> {
                 }
             }
         }
-        let faces = block_gui_quads(kind, materials, template, parts.templates, parts.quads)
-            .map_err(reject)?
-            .into_iter()
-            .filter(|quad| quad.visible_in_gui())
-            .map(|quad| {
-                let tile = match tiles.entry(quad.material) {
-                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(tile(parts, quad.material)?)
-                    }
-                };
-                Ok(Face {
-                    corners: quad.corners,
-                    uvs: quad.uvs.map(|uv| {
-                        uv.map(|component| {
-                            let turned = if tile.rotated {
-                                1.0 - component
-                            } else {
-                                component
-                            };
-                            turned * tile.uv_scale
-                        })
-                    }),
-                    tile: tile.pixels.clone(),
-                    size: [tile.side; 2],
-                    blend: tile.blend,
-                    face_dimming: parts.materials[quad.material as usize].flags
-                        & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
-                        == 0,
-                })
+        let faces = block_gui_quads(
+            render_kind,
+            kind,
+            materials,
+            template,
+            parts.templates,
+            parts.quads,
+        )
+        .map_err(reject)?
+        .into_iter()
+        .filter(|quad| quad.visible_in_gui())
+        .map(|quad| {
+            let tile = match tiles.entry(quad.material) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(tile(parts, quad.material)?)
+                }
+            };
+            Ok(Face {
+                corners: quad.corners,
+                uvs: quad.uvs.map(|uv| {
+                    uv.map(|component| {
+                        let turned = if tile.rotated {
+                            1.0 - component
+                        } else {
+                            component
+                        };
+                        turned * tile.uv_scale
+                    })
+                }),
+                tile: tile.pixels.clone(),
+                size: [tile.side; 2],
+                blend: tile.blend,
+                face_dimming: parts.materials[quad.material as usize].flags
+                    & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
+                    == 0,
+                force_covered_alpha: false,
             })
-            .collect::<Result<Vec<_>, Reject>>()?;
+        })
+        .collect::<Result<Vec<_>, Reject>>()?;
         Ok(Self {
             faces,
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
             shading: GuiShading::of(kind, template, parts.templates),
-        })
+            order: BlockModelOrder::for_template(
+                template.and_then(|id| parts.templates.get(id as usize)),
+            ),
+        }
+        .with_render_kind(render_kind))
     }
 
     /// A GUI cube's outward surfaces from six tiles and alpha modes in `BlockFace` order.
@@ -252,6 +289,7 @@ impl<'a> Model<'a> {
                     size: [usize::from(assets::BLOCK_ITEM_FACE_SIDE); 2],
                     blend: blending[face as usize],
                     face_dimming: true,
+                    force_covered_alpha: false,
                 }
             })
             .collect();
@@ -261,6 +299,7 @@ impl<'a> Model<'a> {
             light: 1.0,
             face_lighting: true,
             shading: GuiShading::Inventory,
+            order: BlockModelOrder::Depth,
         }
     }
 
@@ -268,7 +307,7 @@ impl<'a> Model<'a> {
         let mut pixels = vec![0u8; SIDE * SIDE * 4];
         let mut depth = vec![f32::INFINITY; SIDE * SIDE];
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
-        for face in &self.faces {
+        for (index, face) in self.faces.iter().enumerate() {
             let brightness = if self.face_lighting && face.face_dimming {
                 self.shading.brightness(face.corners)
             } else {
@@ -277,7 +316,13 @@ impl<'a> Model<'a> {
             let points = face.corners.map(|point| {
                 let [x, y, z] = (self.projection)(point);
                 let scale = SIDE as f32 / GUI_ITEM_SIDE;
-                [scale * x, scale * y, z]
+                // Ordered faces use successive depths so cutouts and blending retain paint order.
+                let depth = if self.order == BlockModelOrder::Paint {
+                    -(index as f32)
+                } else {
+                    z
+                };
+                [scale * x, scale * y, depth]
             });
             for indices in [[0, 1, 2], [0, 2, 3]] {
                 triangle(
@@ -300,6 +345,9 @@ impl<'a> Model<'a> {
     }
 }
 
+#[cfg(test)]
+mod ordering_tests;
+
 /// Reads a material tile and preserves a session overlay's source texture scale.
 fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     if id == assets::DIAGNOSTIC_MATERIAL {
@@ -320,8 +368,10 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     if tint.is_some() {
         sampled.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
     }
-    let rotated =
-        material.flags & assets::MATERIAL_FLAG_UV_MASK == assets::MATERIAL_FLAG_UV_ROTATE_180;
+    let rotated = matches!(
+        material.flags & assets::MATERIAL_FLAG_UV_MASK,
+        assets::MATERIAL_FLAG_UV_ROTATE_180 | assets::MATERIAL_FLAG_UV_INVERT
+    );
     if rotated {
         sampled.flags &= !assets::MATERIAL_FLAG_UV_MASK;
     }
@@ -420,14 +470,29 @@ fn triangle(
             let tx = ((u.rem_euclid(1.) * width as f32) as usize).min(width - 1);
             let ty = ((v.rem_euclid(1.) * height as f32) as usize).min(height - 1);
             let texel = &face.tile.as_slice()[(ty * width + tx) * 4..][..4];
-            if texel[3] < GUI_BLOCK_ALPHA_THRESHOLD && !(face.blend && texel[3] > 0) {
+            let coverage = f32::from(texel[3]) / f32::from(u8::MAX);
+            let rejected = if face.force_covered_alpha {
+                coverage < assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD
+            } else {
+                texel[3] < GUI_BLOCK_ALPHA_THRESHOLD && !(face.blend && texel[3] > 0)
+            };
+            if rejected {
                 continue;
             }
+            let brightness = if face.force_covered_alpha {
+                1.0 + (brightness - 1.0) * coverage
+            } else {
+                brightness
+            };
             let color = [
                 (f32::from(texel[0]) * brightness).round().clamp(0., 255.) as u8,
                 (f32::from(texel[1]) * brightness).round().clamp(0., 255.) as u8,
                 (f32::from(texel[2]) * brightness).round().clamp(0., 255.) as u8,
-                if face.blend { texel[3] } else { 255 },
+                if face.blend && !face.force_covered_alpha {
+                    texel[3]
+                } else {
+                    255
+                },
             ];
             if color[3] < 255 {
                 fragments[target].push((z, color));
@@ -460,8 +525,65 @@ fn composite_fragments(pixels: &mut [u8], depth: &[f32], fragments: &mut [Vec<(f
 }
 
 #[cfg(test)]
+#[path = "model/paint_order_tests.rs"]
+mod paint_order_tests;
+
+#[cfg(test)]
 mod review_tests {
     use super::*;
+    #[test]
+    fn copper_grate_filtered_texels_keep_covered_opacity_and_weighted_shading() {
+        let overlay = BlockOverlay {
+            textures: vec![assets::TextureArray {
+                layers: 1,
+                mips: vec![assets::TextureMip {
+                    size: 1,
+                    rgba8: vec![200, 100, 80, 64].into(),
+                }]
+                .into(),
+            }],
+            ..Default::default()
+        };
+        let materials = [
+            Material::unvaried(),
+            Material {
+                texture: assets::TextureRef::new(1, 0).unwrap(),
+                flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                ..Material::unvaried()
+            },
+        ];
+        for kind in [
+            assets::facts::BlockRenderKind::CopperGrate,
+            Default::default(),
+        ] {
+            let icon = Model::build(
+                Parts {
+                    materials: &materials,
+                    templates: &[],
+                    quads: &[],
+                    textures: Textures::Overlay(&overlay, None),
+                    tint: None,
+                },
+                VisualKind::Cube,
+                [1; 6],
+                None,
+                kind,
+            )
+            .unwrap()
+            .raster();
+            let pixels = icon.rgba8.as_chunks::<4>().0;
+            if kind == assets::facts::BlockRenderKind::CopperGrate {
+                assert!(
+                    pixels.contains(&[175, 87, 70, 255]),
+                    "covered side texels retain alpha-weighted lighting"
+                );
+                assert!(pixels.iter().all(|pixel| pixel[3] == 0 || pixel[3] == 255));
+            } else {
+                assert!(pixels.iter().all(|pixel| pixel[3] == 0));
+            }
+        }
+    }
+
     #[test]
     fn cube_thumbnail_hides_rear_texels_through_front_holes() {
         for blend in [false, true] {
@@ -500,6 +622,7 @@ mod review_tests {
                 size: [1; 2],
                 blend: false,
                 face_dimming: true,
+                force_covered_alpha: false,
             };
             let front = Face {
                 corners: [[0.0; 3]; 4],
@@ -508,6 +631,7 @@ mod review_tests {
                 size: [1; 2],
                 blend: true,
                 face_dimming: true,
+                force_covered_alpha: false,
             };
             let mut layers = [(&rear, 2.0), (&front, 1.0)];
             if reverse {
@@ -582,6 +706,7 @@ mod review_tests {
                 VisualKind::Model,
                 [1; 6],
                 Some(0),
+                Default::default(),
             )
             .unwrap()
             .raster();
@@ -595,7 +720,7 @@ mod review_tests {
         }
     }
 
-    /// Full cubes declared through the versioned geometry turn their bottom face's UVs.
+    /// Both half-turn encodings preserve thumbnail admission and turn the sampled UVs.
     #[test]
     fn a_rotated_cube_face_keeps_the_cube_drawable_with_turned_uvs() {
         let plain = assets::TextureRef::new(1, 0).unwrap();
@@ -604,7 +729,7 @@ mod review_tests {
             flags,
             ..Material::unvaried()
         };
-        let overlay = BlockOverlay {
+        let mut overlay = BlockOverlay {
             visuals: vec![assets::BlockVisual {
                 faces: [1, 1, 2, 1, 1, 1],
                 kind: VisualKind::Cube,
@@ -629,31 +754,38 @@ mod review_tests {
             }],
             ..Default::default()
         };
-        assert!(
-            Model::overlay(&overlay, 0, None, None).is_ok(),
-            "a hidden rotated face must not cost the cube its icon"
-        );
-        let parts = Parts {
-            materials: &overlay.materials,
-            templates: &overlay.model_templates,
-            quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay, None),
-            tint: None,
-        };
-        let uvs = |faces| {
-            Model::build(parts, VisualKind::Cube, faces, None)
-                .ok()
-                .unwrap()
-                .faces
-                .iter()
-                .map(|face| face.uvs)
-                .collect::<Vec<_>>()
-        };
-        let (upright, turned) = (uvs([1; 6]), uvs([2; 6]));
-        assert!(!upright.is_empty());
-        for (upright, turned) in upright.iter().zip(&turned) {
-            for (upright, turned) in upright.iter().zip(turned) {
-                assert_eq!(*turned, upright.map(|component| 1.0 - component));
+        for flags in [
+            assets::MATERIAL_FLAG_UV_ROTATE_180,
+            assets::MATERIAL_FLAG_UV_INVERT,
+            assets::MATERIAL_FLAG_UV_INVERT | assets::MATERIAL_FLAG_ISOTROPIC,
+        ] {
+            overlay.materials[2].flags = flags;
+            assert!(
+                Model::overlay(&overlay, 0, None, None).is_ok(),
+                "a hidden rotated face must not cost the cube its icon"
+            );
+            let parts = Parts {
+                materials: &overlay.materials,
+                templates: &overlay.model_templates,
+                quads: &overlay.model_quads,
+                textures: Textures::Overlay(&overlay, None),
+                tint: None,
+            };
+            let uvs = |faces| {
+                Model::build(parts, VisualKind::Cube, faces, None, Default::default())
+                    .ok()
+                    .unwrap()
+                    .faces
+                    .iter()
+                    .map(|face| face.uvs)
+                    .collect::<Vec<_>>()
+            };
+            let (upright, turned) = (uvs([1; 6]), uvs([2; 6]));
+            assert!(!upright.is_empty());
+            for (upright, turned) in upright.iter().zip(&turned) {
+                for (upright, turned) in upright.iter().zip(turned) {
+                    assert_eq!(*turned, upright.map(|component| 1.0 - component));
+                }
             }
         }
     }
@@ -709,6 +841,7 @@ mod review_tests {
             VisualKind::Model,
             [1; 6],
             Some(0),
+            Default::default(),
         )
         .unwrap();
         assert_eq!(model.faces.len(), quads.len());

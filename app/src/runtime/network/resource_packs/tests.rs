@@ -254,6 +254,63 @@ fn ui_index_loads_custom_paths_and_extensions() {
     assert!(catalog.lookup("custom", "inventory").is_some());
 }
 
+/// Indexed definition documents totalling `sizes` MiB of padding, named so they
+/// load in order, with each namespace's `card` control.
+fn padded_definitions(sizes: &[usize]) -> Vec<(String, String)> {
+    sizes
+        .iter()
+        .enumerate()
+        .map(|(i, mib)| {
+            (
+                format!("ui/doc_{i:02}.json"),
+                format!(
+                    r##"{{"namespace":"doc{i}","card":{{"type":"panel","property_bag":{{"#padding":"{}"}}}}}}"##,
+                    "x".repeat(mib * 1024 * 1024)
+                ),
+            )
+        })
+        .collect()
+}
+
+/// The namespaces of `docs` whose `card` reaches the catalog.
+fn loaded_namespaces(docs: &[(String, String)]) -> Vec<usize> {
+    let index = format!(
+        r#"{{"ui_defs":{}}}"#,
+        serde_json::to_string(&docs.iter().map(|(path, _)| path).collect::<Vec<_>>()).unwrap()
+    );
+    let mut files = vec![("ui/_ui_defs.json", index.as_bytes())];
+    files.extend(
+        docs.iter()
+            .map(|(path, text)| (path.as_str(), text.as_bytes())),
+    );
+    let pack = super::collect_server_ui(&files_pack(&files)).unwrap();
+    let mut catalog = json_ui::Catalog::default();
+    catalog.apply_pack(
+        pack.ui_layers[0]
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+    );
+    (0..docs.len())
+        .filter(|i| catalog.lookup(&format!("doc{i}"), "card").is_some())
+        .collect()
+}
+
+/// Generated HUD packs ship more than 16 MiB of definitions, and all of it loads.
+#[test]
+fn ui_definitions_past_sixteen_mib_all_load() {
+    let docs = padded_definitions(&[9, 9, 0]);
+    assert_eq!(loaded_namespaces(&docs), [0, 1, 2]);
+}
+
+/// The stack's definitions stay bounded: a document past the allowance is skipped,
+/// and a later one that still fits loads.
+#[test]
+fn ui_definitions_stop_at_the_stack_allowance() {
+    let mib = super::ui::MAX_SERVER_UI_BYTES / (1024 * 1024);
+    let docs = padded_definitions(&[mib / 2, mib / 2, 0]);
+    assert_eq!(loaded_namespaces(&docs), [0, 2]);
+}
+
 #[test]
 fn ui_index_in_higher_pack_selects_lower_at_prefixed_document() {
     let path = "@behub/components/label.json";
@@ -486,7 +543,7 @@ fn texture_sets_supply_color_layers() {
         ("textures/blocks/a_color.png", &png),
         (
             "textures/blocks/b.texture_set.json",
-            br#"{"minecraft:texture_set":{"color":[10,20,30]}}"#,
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[10,20,30,255]}}"#,
         ),
     ]);
     let image = pack_runtime::pack_textures::decode_pack_texture(&view, "textures/blocks/a")
@@ -561,6 +618,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
             &blocks,
             false,
             super::overlay_texture_layer_limit(),
+            true,
             || {
                 compiles += 1;
                 None
@@ -574,6 +632,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
         &blocks,
         true,
         super::overlay_texture_layer_limit(),
+        true,
         || {
             compiles += 1;
             None
@@ -586,6 +645,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
         &blocks,
         true,
         super::overlay_texture_layer_limit() + 1,
+        true,
         || {
             compiles += 1;
             None
@@ -632,6 +692,7 @@ fn reapplied_stack_reuses_blocks_identical_to_a_fresh_compile() {
             &blocks,
             false,
             limit,
+            true,
             || {
                 compiles += 1;
                 super::compile_block_overlay(&view, &blocks, false, Some(&keys), limit, None)
@@ -852,7 +913,7 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
     let base = assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap();
     let view = files_pack(&[(
         "textures/entity/chest/normal.texture_set.json",
-        br#"{"minecraft:texture_set":{"color":[200,100,50]}}"#,
+        br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[200,100,50,255]}}"#,
     )]);
     let view = resource_pack::LayeredPackView::tracked(view.shared_stack());
     let changed = super::super::block_entity_art::prepare_over(
@@ -865,7 +926,7 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
     let inputs = view.dependencies().unwrap().snapshot();
     assert!(inputs.iter().any(|input| matches!(input,
         resource_pack::PackDependency::File { path, .. }
-            if path == "textures/entity/chest/normal.png"
+            if path == "textures/entity/chest/normal.texture_set.json"
     )));
     let empty = files_pack(&[]);
     let restored = super::super::block_entity_art::prepare_over(
@@ -910,6 +971,7 @@ fn the_overlay_cache_does_not_keep_compiled_blocks_alive() {
         &blocks,
         false,
         limit,
+        true,
         || {
             super::compile_block_overlay(&view, &blocks, false, Some(&keys), limit, None)
                 .map(Arc::new)

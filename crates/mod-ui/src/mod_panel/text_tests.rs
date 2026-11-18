@@ -586,10 +586,8 @@ fn native_field_blink_reuses_shaping_and_catalog() {
         "changed values receive fresh glyph layouts"
     );
     // Pointer placement uses the same retained stops as the painted glyphs.
-    let state = match ui.mod_panel.as_mut().unwrap().edit.as_mut().unwrap() {
-        super::edit::Editor::Field { state, .. } => state,
-        _ => unreachable!(),
-    };
+    let super::edit::Editor::Field { state, .. } =
+        ui.mod_panel.as_mut().unwrap().edit.as_mut().unwrap();
     let left = state.left;
     let stop = state.layout.as_ref().unwrap().first_line_caret_x_64(2) as f32 / 64.;
     state.place_cursor(left + stop, false);

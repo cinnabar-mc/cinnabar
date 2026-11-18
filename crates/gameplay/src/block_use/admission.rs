@@ -1,14 +1,40 @@
 //! Block-owner permission for retrying an already published unsent simulation tick.
-use super::{BlockUseRuntime, LocalUse};
+use super::{BlockUseRuntime, LocalUse, PlacementTarget};
 use crate::melee::SwingTracker;
 
 impl BlockUseRuntime {
-    /// Only this owner's Full-rejected swing may retry a published tick; nonswinging uses stay ready.
-    pub fn may_attempt(&self, tick: u64, outcome: LocalUse, swings: &SwingTracker) -> bool {
-        outcome == LocalUse::Nothing
-            || !swings.tick_is_published(tick)
+    /// Only this owner's Full-rejected swing may retry a published tick. Failed held uses
+    /// suppress the same block and face for that tick while preserving other targets.
+    pub fn may_attempt(
+        &self,
+        tick: u64,
+        outcome: LocalUse,
+        target: PlacementTarget,
+        swings: &SwingTracker,
+    ) -> bool {
+        if outcome == LocalUse::Nothing {
+            return self
+                .failed_repeats
+                .as_ref()
+                .is_none_or(|(failed_tick, targets)| {
+                    *failed_tick != tick || !targets.contains(&target)
+                });
+        }
+        !swings.tick_is_published(tick)
             || (self.rejected_tick == Some(tick)
                 && self.position_authority == swings.authority_identity())
+    }
+
+    /// Remembers a failed held target only after its transaction was admitted.
+    pub fn record_failed_repeat(&mut self, tick: u64, target: PlacementTarget) {
+        let (failed_tick, targets) = self
+            .failed_repeats
+            .get_or_insert_with(|| (tick, Default::default()));
+        if *failed_tick != tick {
+            *failed_tick = tick;
+            targets.clear();
+        }
+        targets.insert(target);
     }
 
     /// Retains permission only for a block swing actually refused by a full transport queue.
@@ -24,6 +50,11 @@ mod tests {
     use crate::movement::LocalMovementEffectTimeline;
     use protocol::ItemUseTrigger;
     use std::time::Duration;
+
+    const TARGET: PlacementTarget = PlacementTarget {
+        position: [4, 1, 6],
+        face: 1,
+    };
 
     /// Produces a published unsent tick and an eligible fresh block-use press.
     fn fixture() -> (BlockUseRuntime, SwingTracker) {
@@ -49,22 +80,67 @@ mod tests {
     #[test]
     fn fresh_swinging_block_use_waits_but_nothing_and_new_ticks_stay_ready() {
         let (runtime, swings) = fixture();
-        assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
-        assert!(!runtime.may_attempt(101, LocalUse::Interact, &swings));
-        assert!(runtime.may_attempt(101, LocalUse::Nothing, &swings));
-        assert!(runtime.may_attempt(102, LocalUse::Place, &swings));
+        assert!(!runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
+        assert!(!runtime.may_attempt(101, LocalUse::Interact, TARGET, &swings));
+        assert!(runtime.may_attempt(101, LocalUse::Nothing, TARGET, &swings));
+        assert!(runtime.may_attempt(102, LocalUse::Place, TARGET, &swings));
+    }
+
+    /// Repeated targets stay suppressed across intervening targets and reset on a new tick.
+    #[test]
+    fn failed_held_repeats_deduplicate_each_target_in_the_tick() {
+        let (mut runtime, swings) = fixture();
+        let clock = RepeatClock {
+            now: Duration::from_millis(1_000),
+            sneaking: false,
+            speed: 4.0,
+            survival: true,
+        };
+        assert!(runtime.may_attempt(101, LocalUse::Nothing, TARGET, &swings));
+        assert!(runtime.admit(
+            ItemUseTrigger::SimulationTick,
+            Duration::from_millis(1_000),
+            101,
+            LocalUse::Nothing,
+            false,
+            clock,
+            true
+        ));
+        runtime.record_failed_repeat(101, TARGET);
+        assert!(!runtime.may_attempt(101, LocalUse::Nothing, TARGET, &swings));
+        for target in [
+            PlacementTarget {
+                position: [5, 1, 6],
+                ..TARGET
+            },
+            PlacementTarget { face: 2, ..TARGET },
+        ] {
+            assert!(runtime.may_attempt(101, LocalUse::Nothing, target, &swings));
+            runtime.record_failed_repeat(101, target);
+            assert!(!runtime.may_attempt(101, LocalUse::Nothing, target, &swings));
+            assert!(!runtime.may_attempt(101, LocalUse::Nothing, TARGET, &swings));
+        }
+        assert!(runtime.may_attempt(102, LocalUse::Nothing, TARGET, &swings));
+        assert!(runtime.may_attempt(102, LocalUse::Place, TARGET, &swings));
+        runtime.record_failed_repeat(102, TARGET);
+        assert!(runtime.may_attempt(
+            102,
+            LocalUse::Nothing,
+            PlacementTarget { face: 2, ..TARGET },
+            &swings
+        ));
     }
 
     #[test]
     fn only_own_full_rejection_qualifies_the_exact_tick_retry() {
         let (mut runtime, swings) = fixture();
         runtime.refuse_transport(101, LocalUse::Place, false);
-        assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
+        assert!(!runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
         runtime.refuse_transport(101, LocalUse::Nothing, true);
-        assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
+        assert!(!runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
         runtime.refuse_transport(101, LocalUse::Place, true);
-        assert!(runtime.may_attempt(101, LocalUse::Place, &swings));
-        assert!(!runtime.may_attempt(100, LocalUse::Place, &swings));
+        assert!(runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
+        assert!(!runtime.may_attempt(100, LocalUse::Place, TARGET, &swings));
         let clock = RepeatClock {
             now: Duration::from_millis(1_000),
             sneaking: false,
@@ -80,7 +156,7 @@ mod tests {
             clock,
             false
         ));
-        assert!(runtime.may_attempt(101, LocalUse::Place, &swings));
+        assert!(runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
         assert!(runtime.admit(
             ItemUseTrigger::PlayerInput,
             Duration::from_millis(1_000),
@@ -90,7 +166,7 @@ mod tests {
             clock,
             true
         ));
-        assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
+        assert!(!runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
     }
 
     #[test]
@@ -118,7 +194,7 @@ mod tests {
                     runtime.stop_packets(42, false);
                 }
             }
-            assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
+            assert!(!runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
         }
     }
 
@@ -127,7 +203,7 @@ mod tests {
         let (mut runtime, swings) = fixture();
         runtime.refuse_transport(101, LocalUse::Place, true);
         assert!(runtime.observe_use(false, false, false, true));
-        assert!(runtime.may_attempt(101, LocalUse::Place, &swings));
+        assert!(runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
         let clock = RepeatClock {
             now: Duration::from_millis(1_000),
             sneaking: false,
@@ -151,7 +227,7 @@ mod tests {
         runtime.refuse_transport(101, LocalUse::Place, true);
         selection.slot = 1;
         assert!(runtime.selection_changed(&selection));
-        assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
+        assert!(!runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
     }
 
     #[test]
@@ -167,7 +243,7 @@ mod tests {
             &LocalMovementEffectTimeline::default(),
         );
         swings.published_progress(101);
-        assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
+        assert!(!runtime.may_attempt(101, LocalUse::Place, TARGET, &swings));
     }
 
     #[test]
@@ -177,6 +253,6 @@ mod tests {
         foreign.try_swing(102, actor_animation::ACTOR_SWING_TICKS);
         swings.defer_unadmitted_attempt(&foreign);
         swings.published_progress(102);
-        assert!(!runtime.may_attempt(102, LocalUse::Place, &swings));
+        assert!(!runtime.may_attempt(102, LocalUse::Place, TARGET, &swings));
     }
 }

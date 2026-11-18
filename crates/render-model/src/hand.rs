@@ -41,7 +41,7 @@ impl HandItemAlphaMode {
 
 /// World light levels and optional Java directional lights in the hand's camera frame.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HandRigLight {
     pub block_level: u32,
     pub sky_level: u32,
@@ -51,9 +51,36 @@ pub struct HandRigLight {
     pub java_lights: [[f32; 4]; 2],
     /// Native Z normals in each rig's frame: body, main hand, offhand.
     pub java_normal_axes: [[f32; 4]; 3],
+    /// Camera-to-world orientation for posed Bedrock hand normals, stored as rows.
+    pub world_from_hand: [[f32; 4]; 3],
+    /// Minimum block light for body, main hand, and offhand; the last lane is padding.
+    pub emitted_light: [u32; 4],
+}
+
+impl Default for HandRigLight {
+    fn default() -> Self {
+        let identity = Mat4::IDENTITY.to_cols_array_2d();
+        Self {
+            block_level: 0,
+            sky_level: 0,
+            daylight: 0.0,
+            pad: 0,
+            java_lights: [[0.0; 4]; 2],
+            java_normal_axes: [[0.0; 4]; 3],
+            world_from_hand: [identity[0], identity[1], identity[2]],
+            emitted_light: [0; 4],
+        }
+    }
 }
 
 impl HandRigLight {
+    /// Sets the camera orientation used to light posed Bedrock hand normals in world space.
+    pub fn with_bedrock_lighting(mut self, world_from_hand: Mat4) -> Self {
+        let rows = world_from_hand.transpose().to_cols_array_2d();
+        self.world_from_hand = [rows[0], rows[1], rows[2]];
+        self
+    }
+
     /// Sets Java's two fixed lights after view bob and look rotation, before hand sway.
     pub fn with_java_lighting(mut self, camera_from_light: Mat4) -> Self {
         self.java_lights =
@@ -68,7 +95,7 @@ impl HandRigLight {
     }
 }
 
-const _: () = assert!(size_of::<HandRigLight>() == 96);
+const _: () = assert!(size_of::<HandRigLight>() == 160);
 
 /// The equipment atlas page an item instance samples (layer chosen by the instance's
 /// `texture_layer` with its top bit set).

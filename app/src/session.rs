@@ -31,11 +31,13 @@ use {
 
 use std::{path::PathBuf, time::Instant};
 
+mod address;
 #[cfg(all(test, unix))]
 mod cache_tests;
 mod client_id;
 mod startup;
 
+use address::login_server_address;
 use client_session::MAX_TRANSFER_CHAIN_HOPS;
 
 type BlobCache = client_runtime::blob_cache::ClientBlobCacheOwner;
@@ -310,7 +312,7 @@ impl SessionResources<'_> {
             self.block_entity_scene.as_mut(),
             crate::runtime::network::block_entity_art::base(),
         ) {
-            scene.0.reload_prepared_assets(startup);
+            scene.0.install_prepared_assets(startup);
         }
     }
 
@@ -522,7 +524,7 @@ fn poll_join(
         }
     };
     let attempt = controller.join.take().expect("pending join");
-    let server_address = attempt.address.clone();
+    let server_address = login_server_address(&attempt.address, attempt.local_world);
     use client_session::connection::JoinPoll;
     match attempt.poll(
         controller.generation,

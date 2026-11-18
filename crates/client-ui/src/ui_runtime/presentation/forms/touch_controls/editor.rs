@@ -2,7 +2,7 @@
 use super::*;
 pub(super) mod factory;
 use launcher::menu::{MenuView, settings_options::touch_layout::TouchLayout};
-use ui::mod_hud::{Card, Cell, Hud};
+use ui::mod_hud::{Card, Hud};
 
 /// Global binding carrying a placeable control's uniform paint scale; unset keeps `1`.
 pub(super) fn scale_binding(name: &str) -> String {
@@ -169,14 +169,9 @@ impl UiPresentationRuntime {
                         reset_scale: Some(1.),
                         background_opacity: 0.,
                         background_radius: 0.,
-                        // Fixed host previews retain their measured bounds independently from
-                        // the bounded content-cell schema used by extension-authored cards.
+                        // Fixed host previews keep their measured bounds.
                         editor_size: Some([hit.rect.w as f32, hit.rect.h as f32]),
                         width: 1.,
-                        cells: vec![Cell {
-                            rect: [0., 0., 1., 1.],
-                            ..Cell::default()
-                        }],
                         ..Card::default()
                     })
                 })

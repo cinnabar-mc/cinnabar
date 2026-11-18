@@ -47,7 +47,6 @@ fn decode(frame: Bytes) -> Vec<Packet> {
     let body = crate::session_wire::batch_frame_body(&frame).expect("batch frame");
     crate::raw_packet::decode_batch_body(body, crate::session_transport::MAX_SESSION_BATCH_BYTES)
         .unwrap()
-        .into_iter()
         .map(|raw| raw.decode().unwrap())
         .collect()
 }
@@ -68,7 +67,7 @@ fn queue_packet(session: &mut TestSession, packet: Packet) {
         crate::session_transport::MAX_SESSION_BATCH_BYTES,
     )
     .unwrap();
-    session.transport.prepend(raw);
+    session.transport.prepend(raw.collect());
 }
 
 #[tokio::test]

@@ -75,13 +75,22 @@ func realmMembership(ctx context.Context, client membershipClient, input string,
 	return entry, nil
 }
 
+// LeaveRealm removes the account from a Realm it joined; the owner of a Realm cannot leave it.
+func LeaveRealm(ctx context.Context, account *authcache.Account, realmID int) error {
+	client, err := RealmsClient(ctx, account)
+	if err != nil {
+		return err
+	}
+	return client.LeaveRealm(ctx, realmID)
+}
+
 // realmCard maps service fields to the launcher catalog without fetching a join address.
 func realmCard(realm realms.Realm) Realm {
 	entry := Realm{
 		Name: displayName(realm.Name, "", "Realm"), State: realm.State,
 		Target: fmt.Sprintf("%s%d", bridgecontract.RealmTargetPrefix, realm.ID), Owner: strings.TrimSpace(realm.Owner),
 		MOTD: strings.TrimSpace(realm.MOTD), WorldType: realm.WorldType,
-		MaxPlayers: realm.MaxPlayers, DaysLeft: realm.DaysLeft, Expired: realm.Expired, Member: realm.Member,
+		MaxPlayers: realm.MaxPlayers, DaysLeft: realm.DaysLeft, Expired: realm.Expired,
 	}
 	for _, player := range realm.Players {
 		if player.Online {

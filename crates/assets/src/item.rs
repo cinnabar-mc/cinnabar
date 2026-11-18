@@ -10,6 +10,7 @@ pub mod glint;
 pub mod grip;
 pub mod names;
 pub mod retail;
+pub mod trim;
 use armour::ItemArmour;
 pub mod durability;
 use durability::ItemDurability;

@@ -9,7 +9,6 @@ publish = false
 reads = [
     "assets/bedrock-target.json",
     "crates/assets/data/*",
-    "crates/render/src/model.wesl",
 ]
 
 [dependencies]

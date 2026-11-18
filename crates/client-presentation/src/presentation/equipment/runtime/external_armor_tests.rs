@@ -38,6 +38,46 @@ fn definition(id: &str, item: Option<&str>, geometry: &str) -> Vec<u8> {
 }
 
 #[test]
+fn aliased_pack_armor_registers_the_geometry_its_rig_uses() {
+    let alias = "geometry.humanoid.armor.helmet";
+    let canonical = canonical_armor_geometry_identifier(alias);
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([210, 30, 50, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let (pack, catalog) = compile(vec![
+        ("textures/armor.png".into(), png.into_inner()),
+        ("attachables/helmet.json".into(), definition("fixture:helmet", None, alias)),
+        ("render_controllers/fixture.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#.to_vec()),
+        ("models/entity/armor.json".into(), serde_json::to_vec(&serde_json::json!({
+            "format_version":"1.12.0","minecraft:geometry":[{
+                "description":{"identifier":canonical,"texture_width":16,"texture_height":16},
+                "bones":[{"name":"head","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]
+            }]
+        })).unwrap()),
+    ]);
+    assert_eq!(
+        catalog
+            .binding("fixture:helmet")
+            .unwrap()
+            .geometry
+            .resolution,
+        EntityDependencyResolution::External
+    );
+    let registered = EquipmentRuntime::pack_geometries(&pack, &catalog);
+    let (mut runtime, _, _) = block_fixture();
+    let (_, locations) = ActorArtworkPages::default()
+        .with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((pack, Some(catalog), locations)));
+    let rig = runtime.pack_armor_geometry_for(alias).unwrap().rig;
+    let geometry = registered
+        .iter()
+        .find(|geometry| geometry.id == rig)
+        .unwrap();
+    assert!(!geometry.vertices.is_empty());
+}
+
+#[test]
 fn custom_content_wearables_resolve_external_models_for_their_owner() {
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(16, 16, image::Rgba([210, 30, 50, 255]))
@@ -86,6 +126,7 @@ fn custom_content_wearables_resolve_external_models_for_their_owner() {
         let input = ActorEquipmentInput {
             armor: [
                 Some(WornItem {
+                    trim: None,
                     identifier: "fixture:custom".into(),
                     kind: HeldKind::Other,
                     ..fixture_item()
@@ -220,6 +261,7 @@ fn custom_content_external_armor_uses_stack_enchantment_and_unmatched_authored_p
         let input = ActorEquipmentInput {
             armor: [
                 Some(WornItem {
+                    trim: None,
                     identifier: "fixture:custom".into(),
                     enchanted,
                     ..fixture_item()
@@ -266,6 +308,7 @@ fn custom_content_external_armor_keeps_startup_draw_when_family_rejects_owner() 
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 identifier: "fixture:custom".into(),
                 ..fixture_item()
             }),
@@ -311,6 +354,7 @@ fn custom_content_external_armor_keeps_ordinary_pack_model_when_family_rejects_o
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 identifier: "fixture:custom".into(),
                 ..fixture_item()
             }),
@@ -354,6 +398,7 @@ fn custom_content_external_armor_uses_controller_geometry_and_registers_its_mesh
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 identifier: "fixture:custom".into(),
                 ..fixture_item()
             }),

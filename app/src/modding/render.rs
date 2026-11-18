@@ -42,15 +42,22 @@ pub(super) fn publish(
 }
 
 /// Applies a host-owned overlay setter with change detection bypassed, marking the scene
-/// changed only when the setter replaced the block-highlight vertex buffer. The setter replaces
-/// it exactly when its input changes, and the renderer reads it only through that buffer, so
-/// steady frames extract nothing.
-fn update_overlay(scene: &mut ResMut<ModRenderScene>, update: impl FnOnce(&mut ModRenderScene)) {
-    let overlay =
-        |scene: &ModRenderScene| std::sync::Arc::as_ptr(&scene.block_vertices).cast::<()>();
-    let before = overlay(scene);
+/// changed only when the setter replaced an overlay vertex buffer. The scene's overlay setters
+/// replace their buffer exactly when their inputs change, and the renderer reads overlays only
+/// through those buffers, so steady frames extract nothing.
+pub(crate) fn update_overlay(
+    scene: &mut ResMut<ModRenderScene>,
+    update: impl FnOnce(&mut ModRenderScene),
+) {
+    let overlays = |scene: &ModRenderScene| {
+        (
+            std::sync::Arc::as_ptr(&scene.debug_vertices).cast::<()>(),
+            std::sync::Arc::as_ptr(&scene.block_vertices).cast::<()>(),
+        )
+    };
+    let before = overlays(scene);
     update(scene.bypass_change_detection());
-    if overlay(scene) != before {
+    if overlays(scene) != before {
         scene.set_changed();
     }
 }
@@ -80,6 +87,32 @@ pub(super) fn grant_depth_sampling(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn debug_overlays_mark_the_scene_only_when_changed() {
+        let mut world = World::new();
+        world.init_resource::<ModRenderScene>();
+        let vertices: std::sync::Arc<[mod_render::geometry::ModVertex]> =
+            vec![mod_render::geometry::ModVertex::default(); 6].into();
+        for changed in [true, false] {
+            world.clear_trackers();
+            let vertices = std::sync::Arc::clone(&vertices);
+            world
+                .run_system_once(move |mut scene: ResMut<ModRenderScene>| {
+                    update_overlay(&mut scene, |scene| {
+                        scene.set_debug_vertices(std::sync::Arc::clone(&vertices));
+                    });
+                })
+                .unwrap();
+            assert_eq!(
+                world
+                    .get_resource_ref::<ModRenderScene>()
+                    .unwrap()
+                    .is_changed(),
+                changed,
+            );
+        }
+    }
 
     /// Unchanged packet overlays must not extract a steady component scene again.
     #[test]

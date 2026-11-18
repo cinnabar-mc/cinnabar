@@ -10,9 +10,10 @@ use bevy::prelude::{
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
-    ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
-    block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
-    critical_hit_request, dragon_egg_teleport_requests, eating_item_request, face_toward,
+    Fluid, ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, ParticleWorld, SpawnRequest,
+    block_break_request, block_crack_request, burst_requests, classify_level_event,
+    crack_cadence_due, critical_hit_request, dragon_egg_teleport_requests, eating_item_request,
+    face_toward, fish_tease_cell, fish_tease_request, fish_trail_requests, fishing_bite_requests,
     item_icon_request, named_request, native_request, parse_molang_variables, terrain_request,
     tiles::item_tile, totem_activation_request,
 };
@@ -39,6 +40,12 @@ use {
     client_presentation::camera::FlyCamera,
 };
 
+mod brush_dust;
+pub(crate) use brush_dust::LocalBrushDust;
+
+#[cfg(test)]
+#[path = "drive/baby_age_tests.rs"]
+mod baby_age_tests;
 #[cfg(test)]
 #[path = "drive/bite_tests.rs"]
 mod bite_tests;
@@ -57,6 +64,10 @@ mod break_tests;
 #[cfg(test)]
 #[path = "drive/crack_tests.rs"]
 mod crack_tests;
+
+#[cfg(test)]
+#[path = "drive/fishing_tests.rs"]
+mod fishing_tests;
 
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
@@ -93,6 +104,8 @@ const BLOCK_BREAK_EFFECT: &str = assets::facts::ParticleEffect::BlockDestruct.id
 const RAIN_SPLASH_EFFECT: &str = assets::facts::ParticleEffect::RainSplashParticle.identifier();
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
+/// Height fraction of an actor's box where body-centred effects originate.
+const BODY_HEIGHT_FRACTION: f32 = 0.5;
 /// Item pieces per icon-crack event.
 const ITEM_ICON_PIECES: f32 = ITEM_ICON_PARTICLES as f32;
 
@@ -112,7 +125,7 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
     let room = MAX_QUEUED_INBOX.saturating_sub(inbox.status_audio.len());
     inbox
         .status_audio
-        .extend(notices.iter().take(room).copied());
+        .extend(notices.iter().take(room).cloned());
     inbox.notices.extend(notices);
     let events_excess = inbox.events.len().saturating_sub(MAX_QUEUED_INBOX);
     inbox.events.drain(..events_excess);
@@ -121,16 +134,18 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
 }
 
 pub(crate) fn configure_particles(app: &mut App) {
-    app.init_resource::<ParticleInbox>().add_systems(
-        Update,
-        drive_particles
-            .run_if(resource_exists::<PhysicsCollisionRegistries>)
-            .after(client_presentation::camera::FlyCameraUpdateSet)
-            .after(client_state::ClientFrameSet::ActorPreparation)
-            // Cosmetic emitters follow the attachments this frame's actor finalization placed.
-            .after(client_state::ClientFrameSet::ActorFinalization)
-            .after(crate::environment::update_seasonal_foliage),
-    );
+    app.init_resource::<ParticleInbox>()
+        .add_message::<LocalBrushDust>()
+        .add_systems(
+            Update,
+            drive_particles
+                .run_if(resource_exists::<PhysicsCollisionRegistries>)
+                .after(client_presentation::camera::FlyCameraUpdateSet)
+                .after(client_state::ClientFrameSet::ActorPreparation)
+                // Cosmetic emitters follow the attachments this frame's actor finalization placed.
+                .after(client_state::ClientFrameSet::ActorFinalization)
+                .after(crate::environment::update_seasonal_foliage),
+        );
 }
 
 fn floor_cell(position: [f32; 3]) -> [i32; 3] {
@@ -316,6 +331,16 @@ fn route_level_event(
         }) => {
             system.spawn(&native_request(effect, position, spell_color));
         }
+        Some(LevelParticle::Note { color }) => {
+            let mut request =
+                native_request(assets::facts::ParticleEffect::NoteParticle, position, None);
+            request.variables = vec![
+                ("note_color.r".into(), color[0]),
+                ("note_color.g".into(), color[1]),
+                ("note_color.b".into(), color[2]),
+            ];
+            system.spawn(&request);
+        }
         Some(LevelParticle::BlockBreak { runtime_id }) => {
             route_block_break(
                 system,
@@ -416,6 +441,17 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 seed,
             );
         }
+        // Provisional: pmmp's protocol definition describes event 60 as green particles like
+        // bone meal on crops, so this reuses that effect; the native origin and count are unmeasured.
+        ActorStatusKind::BabyAge => {
+            let mut body = notice.position;
+            body[1] += height * BODY_HEIGHT_FRACTION;
+            system.spawn(&native_request(
+                assets::facts::ParticleEffect::CropGrowthEmitter,
+                body,
+                None,
+            ));
+        }
         ActorStatusKind::TotemActivate => {
             if notice.runtime_id == routing.stream.authority().local_player_runtime_id()
                 && let Some(actor) = routing.stream.authority().actor(notice.runtime_id)
@@ -433,21 +469,70 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 .authority()
                 .item_use_profile(notice.data >> 16)
                 .consumption;
-            // Local admitted food uses scatter from their predicted eating cues.
-            if client_audio::audio::predicted::predicts_bites(consumption)
-                && notice.runtime_id != routing.stream.local_player_runtime_id()
-                && let Some(identifier) = routing
-                    .stream
-                    .authority()
-                    .item_identifier(notice.data >> 16)
+            if feed_scatters_crumbs(
+                consumption,
+                notice.runtime_id == routing.stream.local_player_runtime_id(),
+            ) && let Some(identifier) = routing
+                .stream
+                .authority()
+                .item_identifier(notice.data >> 16)
                 && let Some(icons) = routing.icons
                 && let Some(tile) = item_tile(icons, &identifier, (notice.data & 0xffff) as u32)
             {
                 system.spawn(&eating_item_request(notice.eating_position, tile));
             }
         }
+        ActorStatusKind::FishHookPosition
+        | ActorStatusKind::FishHookBite
+        | ActorStatusKind::FishHookTease => route_fishing(system, routing, notice),
         _ => {}
     }
+}
+
+/// Draws a fishing hook's effects for one of its events; other actors draw nothing for them.
+fn route_fishing(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &ActorStatusNotice) {
+    let Some(hook) = &notice.fishing else {
+        return;
+    };
+    match notice.kind {
+        ActorStatusKind::FishHookBite => {
+            for request in fishing_bite_requests(notice.position, hook.bottom, hook.width) {
+                system.spawn(&request);
+            }
+        }
+        ActorStatusKind::FishHookPosition => {
+            // The synced angle and offset change every event, so each event rolls afresh.
+            let seed = notice.runtime_id
+                ^ u64::from(hook.fish_angle.to_bits())
+                ^ (u64::from(hook.fish_offset[0].to_bits()) << 32);
+            for request in fish_trail_requests(
+                notice.position,
+                hook.bottom,
+                hook.fish_offset,
+                hook.fish_angle,
+                seed,
+            ) {
+                system.spawn(&request);
+            }
+        }
+        ActorStatusKind::FishHookTease => {
+            if let Some(cell) = fish_tease_cell(notice.position, hook.bottom, hook.fish_offset)
+                && routing.world.fluid(cell) == Fluid::Water
+            {
+                system.spawn(&fish_tease_request(cell));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether a `Feed` notice scatters crumbs of its item. Every fed item scatters, including animal
+/// food players cannot eat, except drinks and the local player's own food, whose bites already
+/// scatter from its predicted eating cues.
+fn feed_scatters_crumbs(consumption: assets::item_use::ItemConsumption, local: bool) -> bool {
+    let drink = actor_animation::consumables::consume_animation(consumption)
+        == Some(actor_animation::consumables::ConsumeAnimation::Drink);
+    !drink && !(local && client_audio::audio::predicted::predicts_bites(consumption))
 }
 
 /// How far ahead of and below the first-person camera the local player's crumbs scatter, so
@@ -529,10 +614,11 @@ fn follow_bound_emitters(system: &mut ParticleSystem, stream: &WorldStream) {
     });
 }
 
-/// Audio cues and camera authority that place local break and eating particles.
+/// Local cues and camera authority that place local break, brush and eating particles.
 type ParticleCues<'w, 's> = (
     MessageReader<'w, 's, client_audio::audio::LocalBlockCue>,
     MessageReader<'w, 's, client_audio::audio::predicted::LocalEatingCue>,
+    MessageReader<'w, 's, LocalBrushDust>,
     Option<Res<'w, client_presentation::camera::CameraSettingsAuthority>>,
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
 );
@@ -566,7 +652,10 @@ fn drive_particles(
     mining: Option<Res<SurvivalMiningRuntime>>,
     mut session: Local<(u64, i32)>,
     mut crack_timer: Local<f32>,
-    (mut block_cues, mut eating_cues, camera_settings, server_camera): ParticleCues<'_, '_>,
+    (mut block_cues, mut eating_cues, mut brush_strokes, camera_settings, server_camera): ParticleCues<
+        '_,
+        '_,
+    >,
     mut break_echoes: Local<client_audio::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
     (
@@ -594,6 +683,7 @@ fn drive_particles(
         inbox.actor_commands.clear();
         block_cues.clear();
         eating_cues.clear();
+        brush_strokes.clear();
         ambient.reset();
         cosmetics.reset();
         return;
@@ -655,6 +745,9 @@ fn drive_particles(
             position,
             time.elapsed_secs_f64(),
         );
+    }
+    for stroke in brush_strokes.read() {
+        brush_dust::spawn_brush_dust(&mut system, &routing, stroke);
     }
     for committed in inbox.events.drain(..) {
         match &committed.event {

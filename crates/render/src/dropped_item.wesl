@@ -1,6 +1,6 @@
 import bevy_render::view::View;
 import render::glint::glint_layer_uvs;
-import render::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear};
+import render::lighting::{point_lit_actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array};
 
@@ -100,7 +100,7 @@ fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     color.a = cutout.coverage;
     // Native item materials compose gamma RGB with the actor /16 lightmap
     // lookup. Transfer the completed product once for Bevy's sRGB target.
-    let light = actor_light_colour(input.levels.x | (input.levels.y << 4u));
+    let light = point_lit_actor_light_colour(input.levels.x | (input.levels.y << 4u), input.world_position);
     var lit = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.shade * light;
     if (input.glint_scale.x > 0.0) {
         lit += item_foil(input.uv, input.glint_scale, light);

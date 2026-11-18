@@ -25,14 +25,9 @@ pub(super) fn blocks() -> protocol::CustomBlocks {
         protocol::CustomBlocks::from_definitions([("join:floor", [10, 0, 0].as_slice())]);
     Arc::make_mut(&mut Arc::make_mut(&mut blocks.blocks)[0].visual)
         .base
-        .materials = Some(Box::new([protocol::CustomMaterialInstance {
-        name: "*".into(),
-        texture: "join_floor".into(),
-        render_method: None,
-        tint_method: None,
-        ambient_occlusion: None,
-        face_dimming: None,
-    }]));
+        .materials = Some(Box::new([
+        protocol::CustomMaterialInstance::with_authored_defaults("*", "join_floor"),
+    ]));
     blocks
 }
 
@@ -94,6 +89,7 @@ pub(super) fn bootstrap(
         server_authoritative_block_breaking: true,
         rewind_history_size: 20,
         base_game_version: protocol::BaseGameVersion::Any,
+        overworld_range: protocol::MODERN_OVERWORLD_RANGE,
         hardcore: false,
         hud_rules: Default::default(),
         death_rules: Default::default(),

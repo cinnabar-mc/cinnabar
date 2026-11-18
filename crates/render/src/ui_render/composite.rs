@@ -13,6 +13,7 @@ use bevy::{
     math::UVec2,
     render::{
         camera::ExtractedCamera,
+        render_phase::TrackedRenderPass,
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutId, Extent3d, LoadOp,
             Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp, Texture,
@@ -648,14 +649,17 @@ pub(crate) struct CompositePipelines {
 }
 
 /// Composite `layer` over the view's scene into its next main texture.
-pub(crate) fn composite(
-    context: &mut RenderContext,
+///
+/// Returns the still-open pass so a following draw into the new main texture, such as
+/// the HUD invert, can share it instead of beginning another pass.
+pub(crate) fn composite<'c>(
+    context: &'c mut RenderContext,
     world: &World,
     target: UiTarget<'_>,
     layer: &UiLayerTexture,
-    pipeline: &RenderPipeline,
+    pipeline: &'c RenderPipeline,
     layout: &BindGroupLayout,
-) {
+) -> TrackedRenderPass<'c> {
     let write = target.post_process_write();
     let destination = RenderPassColorAttachment {
         view: write.destination,
@@ -678,7 +682,7 @@ pub(crate) fn composite(
         None,
         pipeline,
         layout,
-    );
+    )
 }
 
 /// UI and scene views, together with the view that owns the live scene pair.
@@ -688,26 +692,27 @@ struct CompositeSources<'a> {
     target: UiTarget<'a>,
 }
 
+/// Clips a viewport to a destination `extent`, or `None` when nothing of it is visible.
+fn composite_scissor(
+    (position, size): (UVec2, UVec2),
+    extent: [u32; 2],
+) -> Option<render_model::UiScissor> {
+    crate::render_bounds::scissor(
+        render_model::UiScissor::new(position.x, position.y, size.x, size.y),
+        extent,
+    )
+}
+
 /// Blends a raster over its current scene and releases bindings for retired scene targets.
-fn encode_composite(
-    context: &mut RenderContext,
+fn encode_composite<'c>(
+    context: &'c mut RenderContext,
     world: &World,
     sources: CompositeSources<'_>,
-    destination: RenderPassColorAttachment,
-    scissor: Option<(UVec2, UVec2)>,
-    pipeline: &RenderPipeline,
+    destination: RenderPassColorAttachment<'_>,
+    scissor: Option<render_model::UiScissor>,
+    pipeline: &'c RenderPipeline,
     layout: &BindGroupLayout,
-) {
-    let scissor = match scissor {
-        Some((position, size)) => match crate::render_bounds::scissor(
-            render_model::UiScissor::new(position.x, position.y, size.x, size.y),
-            crate::render_bounds::extent(destination.view),
-        ) {
-            Some(rect) => Some(rect),
-            None => return,
-        },
-        None => None,
-    };
+) -> TrackedRenderPass<'c> {
     let CompositeSources {
         layer,
         scene,
@@ -746,8 +751,10 @@ fn encode_composite(
         pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
     }
     pass.set_render_pipeline(pipeline);
-    pass.set_bind_group(0, &bind_group, &[]);
+    // The pass outlives this cached binding's local handle; wgpu keeps it alive.
+    pass.wgpu_pass().set_bind_group(0, &*bind_group, &[]);
     pass.draw(0..3, 0..1);
+    pass
 }
 
 /// Attachments and native composition state needed by the final per-view presentation pass.
@@ -798,22 +805,30 @@ pub(crate) fn ui_present(
                 ClearColorConfig::None => None,
             };
             if let Some(attachment) = target.out_texture_color_attachment(clear) {
-                let scissor = camera
-                    .and_then(|camera| camera.viewport.as_ref())
-                    .map(|viewport| (viewport.physical_position, viewport.physical_size));
-                encode_composite(
-                    &mut context,
-                    world,
-                    CompositeSources {
-                        layer,
-                        scene: target.main_texture_view(),
-                        target,
-                    },
-                    attachment,
-                    scissor,
-                    pipeline,
-                    &layout,
-                );
+                // A viewport entirely outside the output draws nothing.
+                let scissor = match camera.and_then(|camera| camera.viewport.as_ref()) {
+                    Some(viewport) => composite_scissor(
+                        (viewport.physical_position, viewport.physical_size),
+                        crate::render_bounds::extent(attachment.view),
+                    )
+                    .map(Some),
+                    None => Some(None),
+                };
+                if let Some(scissor) = scissor {
+                    encode_composite(
+                        &mut context,
+                        world,
+                        CompositeSources {
+                            layer,
+                            scene: target.main_texture_view(),
+                            target,
+                        },
+                        attachment,
+                        scissor,
+                        pipeline,
+                        &layout,
+                    );
+                }
                 layer.presented.store(true, Ordering::Relaxed);
                 if let Some(native) = native {
                     native.mark_presented();

@@ -175,34 +175,19 @@ impl Lighting {
 }
 
 impl WorldStream {
-    pub(in crate::stream) fn block_light_semantics_changed(
+    /// Whether `mutation`, prepared from `previous`, changes block-light inputs; see
+    /// [`client_world::ingestion::mutation_changes_light`].
+    pub(in crate::stream) fn block_mutation_changes_light(
         &self,
         previous: Option<&SubChunk>,
-        replacement: Option<&SubChunk>,
+        mutation: &PreparedSubChunkMutation,
     ) -> bool {
-        Self::light_semantics_changed(
-            self.classifier,
+        client_world::ingestion::mutation_changes_light(
+            self.classifier.air_network_id(),
             self.authority.runtime_assets(),
             self.authority.network_id_mode(),
             previous,
-            replacement,
-        )
-    }
-
-    /// Compares the exact block-light inputs against an immutable registry snapshot.
-    pub(in crate::stream) fn light_semantics_changed(
-        classifier: BlockClassifier,
-        assets: &RuntimeAssets,
-        mode: NetworkIdMode,
-        previous: Option<&SubChunk>,
-        replacement: Option<&SubChunk>,
-    ) -> bool {
-        client_world::ingestion::light_semantics_changed(
-            classifier.air_network_id(),
-            assets,
-            mode,
-            previous,
-            replacement,
+            mutation,
         )
     }
 

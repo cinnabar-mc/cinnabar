@@ -436,6 +436,7 @@ impl super::RigSource for GlintSource<'_> {
         visit(super::RigInstance {
             index: 0,
             data: &self.data,
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             vertex_count: 3,
             texture: super::LayerTexture {
                 texture: self.texture,

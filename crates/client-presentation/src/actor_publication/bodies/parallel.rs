@@ -45,6 +45,7 @@ pub(super) fn publish(
         if !crate::presentation::actors::admit_frame_bounds(
             &mut presentation,
             &admission_rig,
+            actor,
             cull_view,
             Some(frame),
         ) {

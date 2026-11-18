@@ -48,6 +48,11 @@ pub struct FormEngineState {
     pub dispatcher: json_ui::Dispatcher,
     /// App-clock seconds at the last input frame, for caret blinks.
     pub clock: f64,
+    /// The pointer's virtual position in the last input frame.
+    pub pointer_at: Option<[f64; 2]>,
+    /// Where the pointer rested when the keyboard last moved focus. Until the pointer moves,
+    /// presses or scrolls, hover follows keyboard focus rather than the resting pointer.
+    pub keyboard_hover: Option<Option<[f64; 2]>>,
 }
 
 impl FormEngineState {

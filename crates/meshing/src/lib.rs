@@ -15,6 +15,8 @@ mod contributors;
 mod cube_layout;
 pub mod lighting;
 pub mod liquid;
+mod markers;
+pub use markers::PackedTerrainMarker;
 mod overlays;
 pub use overlays::{
     CellOverlay, MODEL_TURN_X_MASK, MODEL_TURN_X_SHIFT, MODEL_TURN_Y_MASK, overlay_model_turn,
@@ -26,6 +28,7 @@ mod render_settings;
 mod scratch;
 pub use render_settings::MeshRenderSettings;
 pub use scratch::MeshScratch;
+pub mod surface;
 mod types;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;

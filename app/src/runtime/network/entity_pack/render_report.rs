@@ -43,7 +43,12 @@ fn render_local_pack_entities() {
         bindings: compiled_bindings,
     } = compile_local_pack(Path::new(&pack));
     if let Some(carriers) = std::env::var_os("CINNABAR_RENDER_CARRIERS") {
-        measure_pages(Path::new(&carriers), &compiled_textures, &compiled_bindings);
+        measure_pages(
+            Path::new(&carriers),
+            &compiled_textures,
+            &compiled_bindings,
+            &assets::actor_page_sharing(entities.render_data()),
+        );
     }
     std::fs::create_dir_all(&out).unwrap();
     for (index, entry) in actors.split(',').enumerate() {
@@ -81,8 +86,11 @@ pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
     )
     .unwrap()
     .unwrap();
-    let artwork =
-        ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
+    let artwork = ActorArtworkPages::default().with_pack_artwork(
+        &compiled.textures,
+        &compiled.bindings,
+        &assets::actor_page_sharing(&compiled.entities.render),
+    );
     let candidates = compiled
         .bindings
         .iter()
@@ -363,6 +371,7 @@ fn measure_pages(
     dir: &Path,
     textures: &[assets::ActorTexture],
     bindings: &[assets::ActorArtworkBinding],
+    sharing: &assets::ActorPageSharing,
 ) {
     let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
     let entity_bytes = read("vanilla-v1.mcbeent");
@@ -397,5 +406,8 @@ fn measure_pages(
         base,
     );
     summary("startup (actor+equipment+icons+blocks)", &base);
-    summary("with pack", &base.with_pack_artwork(textures, bindings));
+    summary(
+        "with pack",
+        &base.with_pack_artwork(textures, bindings, sharing),
+    );
 }

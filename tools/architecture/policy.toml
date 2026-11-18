@@ -152,7 +152,7 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["env-compat", "block-transform", "protocol-ids"]
+allowed_dependencies = ["env-compat", "block-transform", "protocol-ids", "render-api"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu", "diagnostics", "pack-runtime", "render", "render-model"]
 forbidden_transitive_dependencies = ["protocol", "tokio", "bevy", "bevy_*", "wgpu"]
 test_support_features = ["test-support"]
@@ -210,7 +210,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
-allowed_dependencies = ["pack-json", "assets"]
+allowed_dependencies = ["pack-json", "assets", "protocol-ids"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -248,7 +248,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-
 [[crates]]
 name = "inventory"
 path = "crates/inventory"
-allowed_dependencies = ["simulation-clock", "assets", "protocol", "protocol-ids", "test-alloc"]
+allowed_dependencies = ["simulation-clock", "assets", "protocol", "protocol-ids", "render-api", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world", "world"]
 
@@ -419,7 +419,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "particles"
 path = "crates/particles"
-allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids"]
+allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
@@ -961,6 +961,11 @@ kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
+literal = "CINNABAR_SHUTDOWN_PHASE"
+kind = "log_only"
+producer = "crates/diagnostics/src/markers.rs"
+
+[[markers]]
 literal = "CINNABAR_SHUTDOWN_WATCHDOG_ARMED"
 kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
@@ -1382,6 +1387,7 @@ exports = [
     "render_api::primitive_shapes::PrimitiveText",
 ]
 
+# Player local worlds use BDS. Dragonfly runs only in checkout developer tools.
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
@@ -1787,7 +1793,7 @@ literal = "_sword"
 reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
 
 [[identifier_literal_exceptions]]
-path = "app/src/runtime/network/block_overlay.rs"
+path = "app/src/runtime/network/block_overlay/materials.rs"
 literal = "water"
 reason = "Material tint_method schema value; this selects a tint channel, not a block identity."
 
@@ -2122,11 +2128,6 @@ literal = "scaffolding"
 reason = "Behavior conformance scenario vocabulary selects checked physics fixtures, not runtime block identities."
 
 [[identifier_literal_exceptions]]
-path = "crates/ui-engine/src/engine/vector_icons.rs"
-literal = "sword"
-reason = "Product vector-icon schema token selecting original Cinnabar artwork."
-
-[[identifier_literal_exceptions]]
 path = "crates/ui-screens/src/container_data.rs"
 literal = "_button"
 reason = "JSON-UI crafter widget-name grammar encodes a numeric slot before the button suffix."
@@ -2336,6 +2337,11 @@ path = "crates/protocol/src/item/components.rs"
 literal = "minecraft:digger"
 reason = "Item component key in a server registry entry; it shares its text with the native item tag but names the component, not tag membership."
 
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/item/armor_trim.rs"
+literal = "minecraft:trimmable_armors"
+reason = "Authored component tag that opts a server item into armor trims, parsed at the assets-free protocol boundary and checked against the pinned tag fixture."
+
 [[crates]]
 name = "cosmetics"
 path = "crates/cosmetics"
@@ -2366,6 +2372,11 @@ forbidden_dependencies = ["bevy", "wgpu"]
 path = "tools/mod-docs/src/types.rs"
 literal = "string"
 reason = "WIT primitive type vocabulary in the API documentation renderer."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/texture_set.rs"
+literal = "color"
+reason = "Layer key of the Bedrock texture_set.json schema, not a block or item identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/experience-runtime/src/protocol/visuals.rs"

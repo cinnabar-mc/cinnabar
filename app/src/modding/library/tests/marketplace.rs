@@ -105,7 +105,8 @@ fn signed_update_grants_compare_command_values_and_migrate_only_retained_choices
     );
     for enabled in [true, false] {
         let root = tempfile::tempdir().unwrap();
-        let config = root.path();
+        let config_root = root.path().canonicalize().unwrap();
+        let config = config_root.as_path();
         let old = config.join("old.wasm");
         let next = config.join("next.wasm");
         let before = config.join("before.wasm");

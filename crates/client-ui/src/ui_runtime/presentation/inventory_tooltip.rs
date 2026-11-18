@@ -1,4 +1,4 @@
-//! Item tooltip text: name, potion effects, enchantments and lore.
+//! Item tooltip text: name, potion effects, enchantments, firework details and lore.
 
 use assets::facts::PotionForm;
 use protocol::NetworkItemStack;
@@ -6,10 +6,14 @@ use protocol::NetworkItemStack;
 use super::UiRuntime;
 use super::hud_layout::TooltipLine;
 
+mod fireworks;
+
 const NAME_COLOR: [u8; 4] = [255, 255, 255, 255];
 const ENCHANT_COLOR: [u8; 4] = [170, 170, 170, 255];
 const LORE_COLOR: [u8; 4] = [170, 0, 170, 255];
-const BENEFICIAL_EFFECT_COLOR: [u8; 4] = [85, 85, 255, 255];
+/// The fallback colour of the `§9` (blue) format code.
+const BLUE_TEXT_COLOR: [u8; 4] = [85, 85, 255, 255];
+const BENEFICIAL_EFFECT_COLOR: [u8; 4] = BLUE_TEXT_COLOR;
 const HARMFUL_EFFECT_COLOR: [u8; 4] = [255, 85, 85, 255];
 
 /// The potion form of a vanilla potion item identifier.
@@ -212,6 +216,9 @@ fn tooltip_lines_with_name_style(
             text: enchantment_name(runtime, *id, *level),
             color: ENCHANT_COLOR,
         });
+    }
+    if let Some(identifier) = identifier {
+        lines.extend(fireworks::lines(runtime, identifier, &stack.extra_data));
     }
     lines.extend(display.lore.iter().map(|line| TooltipLine {
         text: line.to_string(),

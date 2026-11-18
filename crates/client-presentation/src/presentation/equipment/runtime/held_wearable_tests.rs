@@ -83,3 +83,62 @@ fn custom_wearable_model_draws_only_in_its_effective_armor_slot() {
         "the model must not draw in another armor slot"
     );
 }
+
+#[test]
+fn an_attachable_without_a_worn_slot_draws_in_the_armor_slot_it_occupies() {
+    // Servers dress players in cosmetics by placing an ordinary item with an attachable in an
+    // armor slot. Native draws that attachable there with its own mesh and animation.
+    let worn_translation = |position: &str| {
+        let mut files = held_pack();
+        let (_, animation) = files
+            .iter_mut()
+            .find(|(path, _)| path.as_ref() == "animations/held.json")
+            .unwrap();
+        *animation = String::from_utf8(animation.clone())
+            .unwrap()
+            .replace("c.is_first_person ? 50 : 2", position)
+            .into_bytes();
+        let (mut runtime, _) = pack_runtime(files);
+        let body = player_body(&mut runtime);
+        runtime.take_pending_geometries();
+        let owner = owner();
+        let names = ["rightItem".into()];
+        let rig = owner_rig(&owner, &names);
+        let animation = EquipmentAnimation {
+            owner: &owner,
+            rig: &rig,
+            frame_alpha: 1.0,
+            delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
+        };
+        let mut input = held("test:held");
+        let item = input.main.take();
+        let mut translations = Vec::new();
+        for slot in 0..input.armor.len() {
+            input.armor = Default::default();
+            input.armor[slot] = item.clone();
+            let layers = runtime.layers_for(&body, &input, Some(animation));
+            assert_eq!(
+                layers.len(),
+                1,
+                "the attachable must draw in armor slot {slot}"
+            );
+            let submission = layers[0].submission.clone();
+            translations.push(submission.input.current_bones[0].translation_scale);
+            let pending = runtime.take_pending_geometries();
+            assert!(
+                slot > 0
+                    || pending
+                        .iter()
+                        .any(|geometry| geometry.id == submission.input.rig
+                            && !geometry.vertices.is_empty()),
+                "the texture-mesh model must be built for the worn layer"
+            );
+        }
+        translations
+    };
+    let near = worn_translation("2");
+    let far = worn_translation("12");
+    for (slot, (near, far)) in near.iter().zip(&far).enumerate() {
+        assert_ne!(near, far, "slot {slot} must keep the authored animation");
+    }
+}

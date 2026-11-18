@@ -846,7 +846,7 @@ fn freelook_release_preserves_hand_sway_winding() {
                 .set_freelook(false);
             let view = *app.world().resource::<LocalViewPose>();
             assert_eq!(view.rotation(), actor_rotation);
-            assert_eq!(view.camera_rotation(), actor_rotation);
+            assert_eq!(view.player_camera_rotation(), actor_rotation);
             for alpha in [0.0, 0.5, 1.0] {
                 app.world_mut().resource_mut::<TestPhysics>().alpha = alpha;
                 app.world_mut().run_system_cached(sample).unwrap();

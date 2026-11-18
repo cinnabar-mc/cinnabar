@@ -18,7 +18,10 @@ use {crate::runtime::world::ClientWorld, client_state::RuntimeSettings};
 
 /// Physical controls already consumed before gameplay reads this frame's ordered events.
 #[derive(Resource, Default)]
-pub(crate) struct ReservedControls(pub Vec<String>);
+pub(crate) struct ReservedControls {
+    pub keys: Vec<String>,
+    pub scroll: bool,
+}
 
 #[derive(Resource, Default)]
 pub struct SemanticInputRuntime {
@@ -318,6 +321,12 @@ impl SemanticTouchTargets {
     /// Whether a finger pressed this control this frame, including a tap that already lifted.
     pub(crate) fn pressed(&self, hit_id: u16) -> bool {
         self.2.contains(&hit_id)
+    }
+
+    /// Every control a finger pressed this frame, in press order; a control pressed twice
+    /// appears twice.
+    pub(crate) fn pressed_controls(&self) -> &[u16] {
+        &self.2
     }
 
     pub fn clear(&mut self, contact_id: u64) {

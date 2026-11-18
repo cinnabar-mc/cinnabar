@@ -127,9 +127,19 @@ pub(super) fn compile_bindings(
     }
     let mut chosen = chosen.into_values().collect::<Vec<_>>();
     literals::compile(payloads, symbols, sources, &mut chosen);
+    // Dye lookups share parent-chain links across every binding of this compile.
+    let mut dye_links = super::materials::ChainMemo::default();
     let bindings = chosen
         .into_iter()
-        .map(|parsed| binding(parsed, &geometry_symbols, &texture_symbols, &materials))
+        .map(|parsed| {
+            binding(
+                parsed,
+                &geometry_symbols,
+                &texture_symbols,
+                &materials,
+                &mut dye_links,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(CompiledBindings {
         bindings: bindings.into_boxed_slice(),
@@ -225,6 +235,7 @@ fn binding(
     geometry_symbols: &BTreeMap<&str, ()>,
     texture_symbols: &BTreeMap<&str, ()>,
     materials: &super::materials::MaterialStates,
+    dye_links: &mut super::materials::ChainMemo,
 ) -> Result<EquipmentBinding, AttachableError> {
     let category = category_with_script_slot(
         &parsed.item_identifier,
@@ -236,7 +247,7 @@ fn binding(
         geometry: reference(parsed.geometry, geometry_symbols),
         texture: reference(parsed.texture, texture_symbols),
         resources: parsed.resources,
-        color_mask: materials.color_mask(&parsed.material),
+        color_mask: materials.color_mask(&parsed.material, dye_links),
         material: parsed.material,
         render_controller: parsed.render_controller,
         first_person: parsed.first_person,
@@ -362,10 +373,14 @@ fn contains_thirdperson_hand_branch(value: &Value) -> bool {
 /// Custom resource packs identify player armor by the vanilla player armor geometry family.
 fn player_armor_slot(geometry: &str) -> Option<ArmorSlot> {
     Some(match geometry {
-        "geometry.player.armor.helmet" => ArmorSlot::Helmet,
-        "geometry.player.armor.chestplate" => ArmorSlot::Chestplate,
-        "geometry.player.armor.leggings" => ArmorSlot::Leggings,
-        "geometry.player.armor.boots" => ArmorSlot::Boots,
+        "geometry.player.armor.helmet" | "geometry.humanoid.armor.helmet" => ArmorSlot::Helmet,
+        "geometry.player.armor.chestplate" | "geometry.humanoid.armor.chestplate" => {
+            ArmorSlot::Chestplate
+        }
+        "geometry.player.armor.leggings" | "geometry.humanoid.armor.leggings" => {
+            ArmorSlot::Leggings
+        }
+        "geometry.player.armor.boots" | "geometry.humanoid.armor.boots" => ArmorSlot::Boots,
         _ => return None,
     })
 }

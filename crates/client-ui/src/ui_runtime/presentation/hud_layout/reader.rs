@@ -79,8 +79,8 @@ impl HudLayout<'_> {
         ];
         if book.signing {
             self.ui_text("Enter Book Title:", [text_at[0], text_at[1]], INK, false)?;
-            let title = format!("{}_", book.title);
-            self.ui_text(&title, [text_at[0], text_at[1] + 24.0], INK, false)?;
+            let caret = runtime.screen_state().field_caret();
+            self.field_text(&book.title, caret, [text_at[0], text_at[1] + 24.0], INK)?;
             self.ui_text(
                 "Note: You cannot edit a book after signing it.",
                 [text_at[0], text_at[1] + 60.0],
@@ -90,10 +90,19 @@ impl HudLayout<'_> {
         } else {
             let counter = format!("Page {} of {}", book.page + 1, book.pages.len());
             self.ui_text(&counter, [origin[0] + 100.0, origin[1] + 8.0], INK, false)?;
-            let mut page = book.pages[book.page].clone();
-            if book.editable {
-                page.push('_');
-            }
+            let page = &book.pages[book.page];
+            // The page typing reaches shows its caret; this fallback draws no selection.
+            let page = match runtime.screen_state().field_caret() {
+                Some(caret) if caret.selection.is_none() => {
+                    let caret = launcher::menu::MenuCaret {
+                        byte: caret.byte,
+                        shown: true,
+                        ..Default::default()
+                    };
+                    ui_screens::menu_caret::insert_caret(&caret, page)
+                }
+                _ => std::borrow::Cow::Borrowed(page.as_str()),
+            };
             self.wrapped_text(&page, text_at, PAGE_TEXT_WIDTH, INK)?;
         }
         let hover = match runtime.screen_state().hover {

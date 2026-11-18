@@ -113,6 +113,7 @@ fn dress(ui: &mut UiPresentationRuntime, patterns: Option<&[Arc<render_api::Shie
     let runtime = crate::ui_runtime::UiRuntime::new(1);
     ui.dress_player_preview(&player, &runtime, None, Default::default(), |stack| {
         Some(client_world::CanonicalItemStack {
+            trim: None,
             shield_pattern: patterns.map(|patterns| Arc::clone(&patterns[stack.metadata as usize])),
             grip: assets::item::grip::ItemGrip::Session {
                 upright: true,

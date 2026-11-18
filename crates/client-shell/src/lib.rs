@@ -7,6 +7,8 @@ pub mod fullscreen;
 pub mod local_worlds;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod menu;
+#[cfg(not(target_arch = "wasm32"))]
+mod mobile_input;
 pub mod physical_input;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod platform_text;

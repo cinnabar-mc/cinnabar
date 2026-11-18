@@ -129,7 +129,10 @@ fn assert_snow_grass_materials(mesh: &ChunkMesh, coordinate: [u8; 3], snowy: boo
             );
         }
     }
-    assert_eq!(fixture.assets.materials()[snowy_material as usize].flags, 0);
+    assert_eq!(
+        fixture.assets.materials()[snowy_material as usize].flags,
+        assets::MATERIAL_FLAG_OVERLAY_MASK
+    );
 }
 
 #[test]

@@ -29,6 +29,12 @@ The simulator's pre-sprint input is adapted using its shared multiplier once.
 Retained corrections replay the same attribute recalculation through subsequent
 sprint transitions; authoritative flag rewrites preserve current.
 
+Replay publication applies pending speed edits before overlaying newer live sprint
+metadata. A local actor replacement clears speed immediately and records the reset
+on its first tick; later rewinds retain it even when the actor has no movement attribute.
+A prediction reset starts from the accepted attribute, which already includes
+pending effects, and records those effects only once.
+
 The Zeno witness had current `0.1` when walking, `0.13` when sprinting, and empty
 modifier lists for both. Before this correction it moved at 4.3173 and 7.2959
 blocks/second respectively, applying the sprint factor twice. The regression

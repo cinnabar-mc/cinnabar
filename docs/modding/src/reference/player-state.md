@@ -284,12 +284,13 @@ Types: [`bounds`](player-state.md#type-bounds).
 
 ### `observed-actor`
 
-An actor observation with its independently replicated health maximum.
+An actor observation with its independently replicated health maximum and unique ID.
 
 ```wit
 record observed-actor {
     actor: actor,
     max-health: option<f32>,
+    unique-id: s64,
 }
 ```
 
@@ -297,6 +298,7 @@ record observed-actor {
 | --- | --- | --- |
 | `actor` | `actor` |  |
 | `max-health` | `option<f32>` | Replicated health attribute maximum; absent when the server has supplied none. |
+| `unique-id` | `s64` | The server's actor unique ID, as packets that address actors by unique ID use it. |
 
 Types: [`actor`](player-state.md#type-actor).
 
@@ -547,28 +549,6 @@ record selected-slot {
 | `dimension` | `s32` |  |
 | `slot` | `u8` |  |
 
-<a id="type-equipment-matches"></a>
-
-### `equipment-matches`
-
-Compact exact-identifier equipment query, without copying unrelated item strings.
-
-```wit
-record equipment-matches {
-    revisions: revisions,
-    inventory: list<u8>,
-    offhand: option<bool>,
-}
-```
-
-| Member | Type | Description |
-| --- | --- | --- |
-| `revisions` | `revisions` |  |
-| `inventory` | `list<u8>` | Known matching player cells in ascending order, hotbar first. |
-| `offhand` | `option<bool>` | None for an unknown offhand cell or unresolved item identifier; false for empty<br>or a known different item, true for a matching item. |
-
-Types: [`revisions`](player-state.md#type-revisions).
-
 ## Functions
 
 <a id="read-motion"></a>
@@ -613,7 +593,9 @@ Actual upstream round-trip milliseconds; absent before measurement or when unsup
 read-actors: func() -> result<list<actor>, string>;
 ```
 
-At most 16 nearby actors within 128 blocks; player rows require players, other rows entities.
+The nearest `MAX_READ_ACTORS` actors within `OBSERVED_ACTOR_RANGE_BLOCKS` (128) of the
+local feet, nearest first among the kinds the caller may read: player rows require
+players, other rows entities.
 
 Types: [`actor`](player-state.md#type-actor).
 
@@ -625,8 +607,10 @@ Types: [`actor`](player-state.md#type-actor).
 read-actors-limited: func(limit: u32) -> result<list<observed-actor>, string>;
 ```
 
-Reads a smaller prefix of the same authorized observations to bound guest copying work.
-limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
+The nearest `limit` of the same authorized observations, 1 through `MAX_OBSERVED_ACTORS`
+(64), so copying work follows the limit. The client observes the nearest
+`MAX_OBSERVED_ACTORS` actors of each kind, so a mod granted one kind receives all of its
+nearest 64. Filtering and session authority are as `read-actors`.
 
 Types: [`observed-actor`](player-state.md#type-observed-actor).
 
@@ -788,19 +772,6 @@ Copies no inventory cells. Its call allowance, MAX_SELECTED_SLOT_READS, renews f
 callback and is separate from read-snapshot's, so it cannot exhaust the snapshot reads.
 
 Types: [`selected-slot`](player-state.md#type-selected-slot).
-
-<a id="read-equipment-matches"></a>
-
-### `read-equipment-matches`
-
-```wit
-read-equipment-matches: func(identifier: string) -> result<option<equipment-matches>, string>;
-```
-
-Requires player-state authority and shares its read budget. None outside a session.
-Identifier must contain 1..MAX_ITEM_IDENTIFIER_BYTES bytes.
-
-Types: [`equipment-matches`](player-state.md#type-equipment-matches).
 
 <a id="read-equipment"></a>
 

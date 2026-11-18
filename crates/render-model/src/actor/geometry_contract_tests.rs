@@ -36,6 +36,32 @@ fn named_parent_registers_its_children_before_the_next_root() {
     assert_eq!(parts, [vec![1; 36], vec![0; 36], vec![2; 36]].concat());
 }
 
+#[test]
+fn texture_mesh_models_keep_cube_bind_poses() {
+    let catalog = catalog_from_source(
+        r#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.bound_cube","texture_width":8,"texture_height":8},
+        "bones":[{"name":"body","pivot":[0,4,0],"bind_pose_rotation":[90,0,0],
+            "cubes":[{"origin":[-1,0,-2],"size":[2,8,4],"uv":[0,0]}]}]}]}"#,
+    );
+    let index = find_geometry_index(&catalog, "geometry.bound_cube").unwrap() as usize;
+    let texture = assets::EquipmentTexture {
+        identifier: "test:bound_cube".into(),
+        width: 8,
+        height: 8,
+        rgba8: vec![255; 8 * 8 * 4].into(),
+    };
+    let positions = |vertices: &[super::super::ActorRigVertex]| {
+        vertices
+            .iter()
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>()
+    };
+    let attachable = crate::attachable_geometry(&catalog, index, EntityRigId(0), &texture).unwrap();
+    let entity = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
+    assert_eq!(positions(&attachable.vertices), positions(&entity.vertices));
+}
+
 /// Compiles only original geometry into a normally admitted catalog, without local game assets.
 fn catalog() -> RuntimeEntityAssets {
     catalog_from_source(SOURCE)

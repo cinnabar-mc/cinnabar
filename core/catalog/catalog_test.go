@@ -69,12 +69,44 @@ func TestRealmsListingDoesNotJoin(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})})
-	list, err := listRealms(context.Background(), client)
+	list, err := listRealms(context.Background(), client, "")
 	if err != nil || len(list) != 1 || list[0].Target != "realm_id/7" {
 		t.Fatalf("realms = %+v, err = %v", list, err)
 	}
 	if len(joins) != 0 {
 		t.Fatalf("listing sent %v", joins)
+	}
+}
+
+// realmsStub returns a fixed Realms list.
+type realmsStub []realms.Realm
+
+func (s realmsStub) Realms(context.Context) ([]realms.Realm, error) { return s, nil }
+
+// Realms owned by another XUID are joined ones that offer Leave; an unknown account XUID or owner
+// keeps a Realm owned so the player is never offered to leave their own Realm.
+func TestRealmsMarkOnlyOtherOwnersAsJoined(t *testing.T) {
+	service := realmsStub{
+		{ID: 1, Name: "Mine", OwnerUUID: "100"},
+		{ID: 2, Name: "Theirs", OwnerUUID: " 200 "},
+		{ID: 3, Name: "Unknown owner"},
+	}
+	for _, tc := range []struct {
+		xuid string
+		want []bool
+	}{
+		{"100", []bool{false, true, false}},
+		{"", []bool{false, false, false}},
+	} {
+		list, err := listRealms(context.Background(), service, tc.xuid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, realm := range list {
+			if realm.Member != tc.want[i] {
+				t.Fatalf("xuid %q: %s member = %v, want %v", tc.xuid, realm.Name, realm.Member, tc.want[i])
+			}
+		}
 	}
 }
 
@@ -98,7 +130,7 @@ func TestRealmsClientIsSharedOnTheDiscoveredEndpoint(t *testing.T) {
 	if second, _ := cache.get(discovery, fixedRealmsXSTS{}, server.Client()); second != first {
 		t.Fatal("a second call built another Realms client")
 	}
-	if _, err := listRealms(context.Background(), first); err != nil || len(paths) != 1 || paths[0] != strings.TrimPrefix(server.URL, "https://")+"/worlds" {
+	if _, err := listRealms(context.Background(), first, ""); err != nil || len(paths) != 1 || paths[0] != strings.TrimPrefix(server.URL, "https://")+"/worlds" {
 		t.Fatalf("paths = %v err = %v", paths, err)
 	}
 }

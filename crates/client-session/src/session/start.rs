@@ -163,6 +163,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 server_authoritative_block_breaking: settings.server_authoritative_block_breaking,
                 rewind_history_size: settings.rewind_history_size,
                 base_game_version: protocol::BaseGameVersion::parse(&settings.base_game_version),
+                overworld_range: settings.overworld_range,
                 hardcore: settings.hardcore,
                 hud_rules: settings.hud_rules,
                 death_rules: settings.death_rules,

@@ -26,6 +26,10 @@ fn actor_material_states_keep_authored_one_sided_border_hidden_from_behind() {
             alpha_test: true,
             ..Default::default()
         }),
+        render_state: Some(::render_api::render_state::RenderState {
+            cull: ::render_api::render_state::CullMode::Back,
+            ..assets::entity::material::UNAUTHORED_RENDER_STATE
+        }),
         ..Default::default()
     };
     let clear = center(&raster(
@@ -40,7 +44,7 @@ fn actor_material_states_keep_authored_one_sided_border_hidden_from_behind() {
     let back = raster_material(&gpu, &plane, material, true, [[255; 4]; 2]);
     assert!(center(&front)[0] > 200);
     assert_eq!(center(&back), clear);
-    material.state.as_mut().unwrap().cull = false;
+    material.render_state.as_mut().unwrap().cull = ::render_api::render_state::CullMode::None;
     let nocull_back = raster_material(&gpu, &plane, material, true, [[255; 4]; 2]);
     assert_ne!(center(&nocull_back), clear);
 }
@@ -56,9 +60,9 @@ fn actor_material_states_alpha_test_discards_below_threshold_and_blends_retained
     let mut material = render_model::ActorMaterial {
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
-            cull: false,
             ..Default::default()
         }),
+        render_state: Some(assets::entity::material::UNAUTHORED_RENDER_STATE),
         ..Default::default()
     };
     let clear = center(&raster(
@@ -73,7 +77,8 @@ fn actor_material_states_alpha_test_discards_below_threshold_and_blends_retained
     assert_eq!(center(&below), clear);
     let retained = raster_material(&gpu, &plane, material, false, [[255, 255, 255, 128]; 2]);
     assert!(center(&retained)[0] > 200);
-    material.state.as_mut().unwrap().blend = true;
+    material.render_state.as_mut().unwrap().blend =
+        Some(::render_api::render_state::BlendState::ALPHA);
     let blended = raster_material(&gpu, &plane, material, false, [[255, 255, 255, 128]; 2]);
     let alpha = f32::from(center(&retained)[3]) / f32::from(u8::MAX);
     for (channel, background) in clear.iter().take(3).enumerate() {

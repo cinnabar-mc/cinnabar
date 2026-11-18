@@ -60,8 +60,12 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
+    /// Whether a waiting dismount holds this frame's ticks.
+    locomotion: Res<'w, client_interaction::movement::LocomotionState>,
     /// The level's sneaking dimensions size the player box that blocks placement.
     physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
+    /// Dust from the local brush's strokes on blocks.
+    brush_dust: bevy::prelude::MessageWriter<'w, crate::particles::LocalBrushDust>,
 }
 
 /// Drains physical interactions before physics, then evaluates the buffered held picks.
@@ -69,6 +73,9 @@ pub(crate) fn produce_block_use(
     world: &mut bevy::prelude::World,
     mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
 ) {
+    // Block use is the frame's first reader of whether a tick runs; item use and movement
+    // follow, so all three see one decision.
+    crate::movement::decide_frame_ticks(world);
     if !world.contains_resource::<PhysicsCollisionRegistries>() {
         return;
     }

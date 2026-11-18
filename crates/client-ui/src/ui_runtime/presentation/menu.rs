@@ -645,8 +645,11 @@ fn append_dialog(
         )?,
         PANEL,
     );
-    let shader_removal = matches!(dialog, MenuDialog::RemoveShaderPack(..))
-        .then(|| launcher::menu::dialogs::dialog(view, dialog, &|_| None));
+    let shader_removal = matches!(
+        dialog,
+        MenuDialog::RemoveShaderPack(..) | MenuDialog::RemoveLicenseAccount
+    )
+    .then(|| launcher::menu::dialogs::dialog(view, dialog, &|_| None));
     let storage_popup = matches!(dialog, MenuDialog::StorageDelete | MenuDialog::StorageError)
         .then(|| launcher::menu::dialogs::dialog(view, dialog, &|_| None));
     let (title, description, confirm) = match dialog {
@@ -691,12 +694,20 @@ fn append_dialog(
             "Your saved servers and account cache will remain available.",
             MenuAction::ConfirmExit,
         ),
-        MenuDialog::RemoveShaderPack(..) => {
+        MenuDialog::RemoveShaderPack(..) | MenuDialog::RemoveLicenseAccount => {
             let popup = shader_removal
                 .as_ref()
                 .expect("shader removal wording was prepared");
             (popup.title.as_str(), popup.body.as_str(), popup.confirm)
         }
+        MenuDialog::LeaveRealm(id) => (
+            "Leave Realm?",
+            launcher::menu::joined_realm(&view.realms, id)
+                .map_or("You will lose access to this Realm.", |realm| {
+                    realm.name.as_str()
+                }),
+            MenuAction::ConfirmLeaveRealm(id),
+        ),
         MenuDialog::RemoveSaved(index) => (
             "Remove saved server?",
             view.servers

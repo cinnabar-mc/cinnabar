@@ -21,6 +21,9 @@ pub enum AccountEvent {
 /// A request ticket, acceptance flag, and result from the Realm membership worker.
 pub type RealmMembershipResponse = (u64, bool, Result<(String, MenuRealmCard), ()>);
 
+/// A request ticket and whether the account left the Realm.
+pub type RealmLeaveResponse = (u64, Result<(), ()>);
+
 /// What the play and sign-in screens need from the core.
 pub trait AccountControl {
     /// `account_status.v1`: the current sign-in state, when known.
@@ -89,6 +92,14 @@ pub trait AccountControl {
     fn cancel_realm_membership(&mut self) {}
     /// Delivers one request generation's result.
     fn realm_membership(&mut self) -> Option<RealmMembershipResponse> {
+        None
+    }
+    /// Queues leaving a joined Realm on the account worker; `false` when it cannot be sent.
+    fn request_realm_leave(&mut self, _ticket: u64, _realm_id: u32) -> bool {
+        false
+    }
+    /// Delivers one leave request's outcome.
+    fn realm_leave(&mut self) -> Option<RealmLeaveResponse> {
         None
     }
 }

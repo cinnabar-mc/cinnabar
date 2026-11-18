@@ -359,6 +359,35 @@ impl WorldAuthority {
         self.actors
             .rider_seat_on(self.local_player_unique_id, vehicle_feet, vehicle_yaw)
     }
+    /// Takes the local player off its vehicle as getting off does on the client: until the
+    /// server's links for it change, the player rides nothing for movement, its seat pose,
+    /// view lock, animation, actor picking and collision. The committed link stays until the
+    /// server's unlink, which still commits as a mount change; any other link from the server
+    /// for the player, including the same link sent again, seats it again.
+    pub fn leave_local_mount(&mut self) {
+        self.actors.leave_local_vehicle(self.local_player_unique_id);
+    }
+    /// Whether the local player got off its mount on the client and waits for the server's
+    /// unlink; any server link for it ends this, seating it again unless it unlinks.
+    pub fn local_player_left_mount(&self) -> bool {
+        self.actors.left_local_vehicle(self.local_player_unique_id)
+    }
+    /// Collision bounds of the vehicle the local player got off on the client while movement
+    /// still passes through it.
+    pub fn local_passed_through_vehicle_bounds(&self) -> Option<crate::ActorCollisionBounds> {
+        self.actors
+            .passed_through_bounds(self.local_player_unique_id)
+    }
+    /// Makes movement collide with the vehicle the local player got off again, once the
+    /// player no longer overlaps it.
+    pub fn release_local_passed_through_vehicle(&mut self) {
+        self.actors
+            .release_passed_through(self.local_player_unique_id);
+    }
+    /// The mount the local player rides as the client shows it.
+    pub fn local_mount_unique_id(&self) -> Option<i64> {
+        self.actors.ridden_unique_id(self.local_player_unique_id)
+    }
     /// How the local player's seat holds its view, with the vehicle's yaw `alpha` of the way
     /// through the current tick; `None` when the seat does not lock rotation.
     pub fn local_seat_view_lock(&self, alpha: f32) -> Option<crate::SeatViewLock> {
@@ -636,7 +665,8 @@ impl WorldAuthority {
             .filter(|actor| actor.runtime_id != self.local_player_runtime_id)
     }
 
-    /// Shares solid bounds for prediction, excluding the local actor and its current mount.
+    /// Shares solid bounds for prediction, excluding the local actor, its current mount and
+    /// its own riders.
     pub fn movement_actor_colliders(&self) -> std::sync::Arc<[crate::ActorCollisionBounds]> {
         self.actors
             .movement_collider_snapshot(self.local_player_runtime_id, self.local_player_unique_id)
@@ -648,6 +678,16 @@ impl WorldAuthority {
         self.actors
             .actors()
             .filter(move |actor| actor.runtime_id != local)
+    }
+    /// Actors the local player's rays may pick: every remote actor except its direct
+    /// passengers. Its own mount is excluded by id.
+    pub fn pick_candidates(&self) -> impl Iterator<Item = &ActorSnapshot> {
+        self.remote_actors()
+            .filter(|actor| !self.rides_local_player(actor.unique_id))
+    }
+    /// Whether the actor is a direct passenger of the local player.
+    pub fn rides_local_player(&self, unique_id: i64) -> bool {
+        self.actors.rides(unique_id, self.local_player_unique_id)
     }
     /// Interaction boxes at the completed simulation pose, before any pending actor ticks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {

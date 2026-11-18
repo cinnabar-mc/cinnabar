@@ -13,6 +13,7 @@
         android:allowBackup="false"
         android:extractNativeLibs="true"
         android:theme="@style/StartupTheme">
+        <profileable android:shell="@PROFILEABLE@" />
         <activity
             android:name=".BootstrapActivity"
             android:exported="true"

@@ -227,13 +227,12 @@ fn bundled_routes_keep_sparse_capture_updates() {
 #[test]
 fn indexed_control_values_are_typed_bounded_and_unambiguous() {
     let mut original = panel();
-    original.controls.push(Control::Choice {
-        id: "choice".into(),
-        label: "Choice".into(),
-        index: 0,
-        options: vec!["A".into(), "B".into()],
+    original.controls.push(Control::Toggle {
+        id: "enabled".into(),
+        label: "Enabled".into(),
+        value: false,
     });
-    let changed = PanelPatch::parse(r#"{"control_values":[[0,4],[1,1]]}"#)
+    let changed = PanelPatch::parse(r#"{"control_values":[[0,4],[1,true]]}"#)
         .unwrap()
         .apply(&original, &Default::default())
         .unwrap();
@@ -243,15 +242,14 @@ fn indexed_control_values_are_typed_bounded_and_unambiguous() {
     ));
     assert!(matches!(
         changed.controls[1],
-        Control::Choice { index: 1, .. }
+        Control::Toggle { value: true, .. }
     ));
     for json in [
         r#"{"control_values":[[0,true]]}"#,
         r#"{"control_values":[[0,8]]}"#,
         r#"{"control_values":[[2,1]]}"#,
-        r#"{"control_values":[[1,-1]]}"#,
-        r#"{"control_values":[[1,0.5]]}"#,
-        r#"{"control_values":[[1,2]]}"#,
+        r#"{"control_values":[[1,1]]}"#,
+        r#"{"control_values":[[1,"true"]]}"#,
         r#"{"control_values":[[0,4],[0,5]]}"#,
         r#"{"controls":[{"id":"distance","value":4}],"control_values":[[0,5]]}"#,
     ] {
@@ -285,14 +283,8 @@ fn sparse_panel_updates_validate_every_change_before_replacement() {
             key: "KeyA".into(),
             capturing: false,
         },
-        Control::Choice {
-            id: "choice".into(),
-            label: "Choice".into(),
-            index: 0,
-            options: vec!["A".into(), "B".into()],
-        },
     ]);
-    let patch = PanelPatch::parse(r#"{"controls":[{"id":"enabled","value":true},{"id":"key","key":"KeyC","capturing":true},{"id":"choice","index":1}],"capture_key":true}"#).unwrap();
+    let patch = PanelPatch::parse(r#"{"controls":[{"id":"enabled","value":true},{"id":"key","key":"KeyC","capturing":true}],"capture_key":true}"#).unwrap();
     let changed = patch.apply(&original, &Default::default()).unwrap();
     assert_eq!(changed.controls[0], original.controls[0]);
     assert!(matches!(
@@ -302,17 +294,12 @@ fn sparse_panel_updates_validate_every_change_before_replacement() {
     assert!(
         matches!(&changed.controls[2], Control::Keybind { key, capturing: true, .. } if key == "KeyC")
     );
-    assert!(matches!(
-        changed.controls[3],
-        Control::Choice { index: 1, .. }
-    ));
     assert!(changed.capture_key);
     for invalid in [
         r#"{"controls":[{"id":"enabled","value":true},{"id":"missing","value":1}]}"#,
         r#"{"controls":[{"id":"enabled","value":1}]}"#,
         r#"{"controls":[{"id":"distance","value":8}]}"#,
         r#"{"controls":[{"id":"distance","key":"KeyB"}]}"#,
-        r#"{"controls":[{"id":"choice","index":9}]}"#,
         r#"{"controls":[{"id":"enabled","value":true},{"id":"enabled","value":false}]}"#,
         r#"{"surface":"missing"}"#,
     ] {
@@ -424,25 +411,23 @@ fn ambiguous_identifiers_and_unbounded_text_are_rejected() {
     assert!(panel.validate().is_ok());
 }
 
+/// Option lists are drawn by mods, so panels and patches carrying the former host choice
+/// control or its selected-index field are rejected rather than ignored.
 #[test]
-fn choices_require_a_valid_selection_and_bounded_options() {
-    let mut panel = panel();
-    panel.controls = vec![Control::Choice {
-        id: "mode".into(),
-        label: "Mode".into(),
-        index: 0,
-        options: vec!["Continuous".into(), "While clicking".into()],
-    }];
-    assert!(panel.validate().is_ok());
-    if let Control::Choice { index, .. } = &mut panel.controls[0] {
-        *index = 2;
-    }
-    assert!(panel.validate().is_err());
-    if let Control::Choice { index, options, .. } = &mut panel.controls[0] {
-        *index = 0;
-        options.clear();
-    }
-    assert!(panel.validate().is_err());
+fn host_choice_controls_and_index_patches_are_rejected() {
+    let bundle = |control: serde_json::Value| {
+        let mut panel = serde_json::to_value(panel()).unwrap();
+        panel["controls"] = serde_json::json!([control]);
+        PanelBundle::parse(&serde_json::json!({"panel":panel,"surfaces":{}}).to_string())
+    };
+    assert!(
+        bundle(serde_json::json!({"kind":"toggle","id":"mode","label":"Mode","value":false}))
+            .is_ok()
+    );
+    let choice = serde_json::json!({"kind":"choice","id":"mode","label":"Mode","index":0,
+        "options":["Continuous","While clicking"]});
+    assert!(bundle(choice).is_err());
+    assert!(PanelPatch::parse(r#"{"controls":[{"id":"mode","index":1}]}"#).is_err());
 }
 
 #[test]

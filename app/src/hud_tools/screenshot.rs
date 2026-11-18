@@ -161,17 +161,21 @@ fn capture_from_env(
 
 fn capture_on_key(
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    ui: Res<UiRuntimeResource>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     channel: Res<ScreenshotChannel>,
     mut frames: ResMut<FrameCapture>,
 ) {
+    // A key bound to the screenshot still types its character into chat and other text boxes.
+    let typing = ui.text_entry_focused();
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || !client_shell::menu::settings_options::control_bindings::binding_pressed(
+        || !client_shell::menu::settings_options::control_bindings::binding_pressed_unless_typing(
             menu.as_deref(),
             BindingId::Screenshot,
             &keys,
             &mouse,
+            typing,
         )
     {
         return;

@@ -35,6 +35,11 @@ pub trait GameplayWorld {
     fn local_vehicle_revision(&self) -> client_world::VehicleRevision {
         client_world::VehicleRevision::default()
     }
+    /// Whether the local player got off its mount on the client while the server's link for
+    /// it still stands; it then rides nothing until the server's links for it change.
+    fn local_player_left_mount(&self) -> bool {
+        false
+    }
     /// Whether the current vehicle selects the local player as its controller.
     fn local_vehicle_controlled(&self) -> bool {
         false

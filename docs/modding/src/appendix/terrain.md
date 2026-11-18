@@ -2,7 +2,7 @@
 
 [Personal mods](personal-mods.md) with the default-denied `terrain` grant can call
 `terrain.read-region` and `terrain.find-blocks` and read local pose from
-`gameplay.read-frame` and `gameplay.read-camera`. Other players
+`gameplay.read-frame` and `gameplay.read-camera`. Actor reads
 need their own grants. Screens suspend reads. Limits are `MAX_TERRAIN_*` in
 [`mod-api`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/lib.rs).
 

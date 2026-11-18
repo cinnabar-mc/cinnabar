@@ -52,7 +52,7 @@ impl LayerCompose {
         multitexture: bool,
         instance: &ActorGpuInstance,
     ) -> Self {
-        if instance.material & assets::EntityRenderMaterialState::MASKED_MULTITEXTURE != 0
+        if instance.material & assets::EntityRenderMaterialState::TEXTURE_MASK != 0
             && instance.multitexture_layers[0] != u32::MAX
         {
             Self::MaskedMultitexture {

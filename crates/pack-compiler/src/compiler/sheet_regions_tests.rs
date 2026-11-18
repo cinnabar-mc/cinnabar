@@ -137,7 +137,7 @@ fn an_empty_span_on_the_far_edge_keeps_the_whole_sheet() {
     let chain = assets::build_texture_mip_chain(base.into_boxed_slice(), TILE_SIZE).unwrap();
     let mut pages = vec![TexturePage::new(TextureArray {
         layers: 1,
-        mips: chain,
+        mips: chain.into(),
     })];
     let visuals = [BlockVisual {
         kind: VisualKind::Model,
@@ -186,7 +186,7 @@ fn a_full_carrier_keeps_models_on_the_whole_sheet() {
     let mut materials = vec![Material::unvaried(); 2];
     let mut pages = vec![TexturePage::new(TextureArray {
         layers: MAX_CARRIER_TEXTURE_LAYERS as u32,
-        mips: Box::default(),
+        mips: Default::default(),
     })];
     let visuals = [BlockVisual {
         kind: VisualKind::Model,

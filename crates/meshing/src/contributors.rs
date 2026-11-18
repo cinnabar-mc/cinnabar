@@ -1,6 +1,6 @@
 use assets::{
     BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TerrainMarker, VisualKind,
     seasonal_foliage::SeasonalFoliageBlock, seasonal_foliage::seasonal_foliage_cell_shelters,
 };
 use world::{PalettedStorage, SubChunk};
@@ -484,6 +484,18 @@ impl<'a> PaletteFacts<'a> {
         (2..storages.len())
             .any(|layer| entry_at(layer).is_none_or(|entry| !entry.flags.contains(BlockFlags::AIR)))
             || seasonal_foliage_cell_shelters(main, extra)
+    }
+
+    /// Whether any palette entry is a barrier, light-block or structure-void marker.
+    pub(crate) fn has_terrain_markers(&self) -> bool {
+        let is_marker = |entry: ResolvedPaletteEntry| {
+            TerrainMarker::from_variant(entry.kind, entry.variant).is_some()
+        };
+        match &self.source {
+            PaletteSource::Air => false,
+            PaletteSource::Uniform(contributors) => is_marker(contributors.geometry_entry()),
+            PaletteSource::Mixed(_) => self.scratch.entries.iter().copied().any(is_marker),
+        }
     }
 
     pub(crate) fn has_model_geometry(&self) -> bool {

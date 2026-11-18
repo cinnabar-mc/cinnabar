@@ -5,6 +5,7 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEven
 use std::{fs, path::PathBuf, sync::Arc};
 
 mod animation_conflicts;
+mod cosmetic_controllers;
 
 /// Each case: an expression and the value vanilla Molang gives it.
 const CASES: [(&str, f32); 24] = [

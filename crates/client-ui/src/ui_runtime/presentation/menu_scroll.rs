@@ -18,6 +18,11 @@ impl super::UiPresentationRuntime {
         self.menu_scrolls.wheel(point, notches, pixels)
     }
 
+    /// The menu view under `point`: the offset it is heading to and its largest offset.
+    pub fn menu_scroll_extent(&self, point: UiPoint) -> Option<(f32, f32)> {
+        self.menu_scrolls.extent_at(point)
+    }
+
     /// A menu press on a scrollbar, which then takes no button action.
     pub fn press_menu_scrollbar(&mut self, point: UiPoint) -> bool {
         self.menu_scrolls.press(point)

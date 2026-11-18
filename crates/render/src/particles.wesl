@@ -64,10 +64,11 @@ fn particle_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let texel = tint_to_gamma(textureSample(atlas, atlas_sampler, uv));
     var colour = texel * in.color;
     if (in.alpha_test > 0.5) {
+        // Cutout: the texture decides coverage, the tint's alpha is ignored.
         if (texel.a < 0.5) {
             discard;
         }
-        colour.a = in.color.a;
+        colour.a = 1.0;
     }
     if (colour.a < 0.01) {
         discard;

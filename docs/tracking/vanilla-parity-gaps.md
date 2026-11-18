@@ -206,9 +206,7 @@ animated rig remotes use. All three below flow from that.
   SpawnParticleEffect triggers, critical hits. Provisional *(measure)*: break/crack piece
   counts and radii, particle size as half-extent, `particles_alpha` treated as blended
   with a low alpha cutoff, collision-drag model, light mapping, spawn/draw distance caps,
-  Molang variable wire layout. Missing:
-  local-player eating crumbs (needs the animation lane's item-use state; remote and server
-  Feed notices work), fireworks, particle sound playback (queued via
+  Molang variable wire layout. Missing: fireworks, particle sound playback (queued via
   `ParticleSystem::take_sounds`), actor-bound emitters follow position only, not rotation
   (HIGH until measured).
 - Daylight: eased celestial angle, day plateau and night transfer landed uncompiled; the shader night floors
@@ -340,7 +338,7 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 | --- | --- | --- |
 | 0 / 92 flags | yes | every `is_*` query, on-fire camera overlay, invisible body (NoDraw; armor and held items stay, as vanilla never hides held items for invisibility), show/always-show name, sneak tag dimming, sleeping, riding layouts (saddled, baby, tamed, sheared) |
 | 1 structural_integrity, 2 variant, 43 mark_variant, 104 skin_id, 101 trade_tier, 48 invulnerable_ticks, 55 fuse_time, 21 swell_dir | yes | integer queries; render-controller texture, geometry and part-visibility arrays re-evaluated per tick for vanilla and server-pack entities alike |
-| 3 color, 82 color2 | yes | engine-side change colour, not a Molang query: sheep wool takes its byte dye or the `jeb_` rainbow and tamed wolves their collar dye; other engine dye tints (tropical fish, llama carpet) are missing |
+| 3 color, 82 color2 | partly | engine-side change colour, not a Molang query: sheep wool takes its byte dye or the `jeb_` rainbow, a wolf its collar dye only while tamed, and every other actor its `color` dye-palette entry; only colour-mask materials and `COLOR_SECOND_TEXTURE` multitextures, on their third texture, dye by it. Missing: `color2` with `MULTI_COLOR_TINT` (tropical fish), since the client has no second tint colour |
 | 64 peek_id, 65 attach_face | yes | shulkers: the Int peek target (hundredths) steps the lid-open fraction 0.05 per tick and publishes `variable.shulker.peekamount` through the native sine table; the Byte attach face publishes `variable.shulker.facingdirection` (down while riding). Body yaw stays zero. Attach position (66/67) snapping and peek-dependent bounds are missing |
 | 4 name, 81 always_show_nametag, 84 score_tag, 143 nameplate_render_distance_max | yes | nametag text (players included), forced visibility, score line within 10 blocks, tag range (default 64) |
 | 38 scale | yes | multiplies the authored model scale for body, equipment, texture layers and culling; `query.model_scale`; default nametag height. Hitbox and published nametag height come from 53/54, which the server scales. The first-person hand keeps the authored scale |

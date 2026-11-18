@@ -10,7 +10,10 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
-const methodRealmMembership = bridgecontract.MethodRealmMembership
+const (
+	methodRealmMembership = bridgecontract.MethodRealmMembership
+	methodRealmLeave      = bridgecontract.MethodRealmLeave
+)
 
 var errMembershipUnavailable = errors.New("control: Realm membership unavailable")
 
@@ -19,6 +22,33 @@ type RealmMembershipServices interface {
 	// RealmInviteCode extracts the opaque code from an invitation link or code.
 	RealmInviteCode(input string) (string, error)
 	RealmMembership(ctx context.Context, code string, accept bool) (Realm, error)
+}
+
+// RealmLeaveServices removes the signed-in account from a Realm it joined.
+type RealmLeaveServices interface {
+	LeaveRealm(ctx context.Context, realmID int) error
+}
+
+// serveRealmLeave validates the Realm id before any service request. Leaving is not cancelled
+// when the caller disconnects, because the service may already have applied it.
+func serveRealmLeave(ctx context.Context, raw json.RawMessage, services Services) (any, error) {
+	var params struct {
+		RealmID *int `json:"realm_id"`
+	}
+	if !decodeParams(raw, &params) || params.RealmID == nil {
+		return nil, errInvalidParams
+	}
+	leave, ok := services.(RealmLeaveServices)
+	if !ok {
+		return nil, errMembershipUnavailable
+	}
+	if *params.RealmID <= 0 {
+		return nil, ErrInvalidTarget
+	}
+	if err := leave.LeaveRealm(ctx, *params.RealmID); err != nil {
+		return nil, err
+	}
+	return emptyResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion}, nil
 }
 
 // serveRealmMembership cancels the request when its one-shot control connection closes.

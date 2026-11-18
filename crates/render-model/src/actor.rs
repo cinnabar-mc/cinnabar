@@ -7,6 +7,7 @@ pub mod flame;
 mod geometry;
 mod ids;
 mod locator;
+mod material_masks;
 mod rig;
 pub use locator::{ActorEmitterTransform, sampled_bone_offset, sampled_locator_transform};
 mod poly_mesh;
@@ -27,11 +28,12 @@ pub use biped::{
 };
 pub use geometry::{ONE_SIDED_BACK_UV, append_entity_cube_vertices};
 pub use ids::{
-    DIAGNOSTIC_RIG_ID, MAX_SKIN_RIGS, equipment_rig_id, is_equipment_rig_id,
-    is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id, is_skin_rig_id,
-    item_mesh_rig_id, layer_geometries, layer_geometry_rig_id, pack_equipment_rig_id, pack_rig_id,
-    skin_rig_id,
+    DIAGNOSTIC_RIG_ID, ITEM_MESH_RIG_ID_CAPACITY, MAX_SKIN_RIGS, cosmetic_rig_id, equipment_rig_id,
+    is_equipment_rig_id, is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id,
+    is_skin_rig_id, item_mesh_rig_id, layer_geometries, layer_geometry_rig_id,
+    pack_equipment_rig_id, pack_rig_id, skin_rig_id,
 };
+pub use material_masks::ActorMaterialMasks;
 pub use rig::{
     ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, EntityRigId,
     MAX_ACTOR_CATALOG_VERTEX_BYTES, MAX_ACTOR_CATALOG_VERTICES, MAX_ACTOR_RIG_VERTICES,
@@ -45,7 +47,7 @@ pub use skin::{
     prepare_actor_skin_cached,
 };
 pub use surface::ActorRigSurface;
-pub use texel_fit::fit_rgba_within;
+pub use texel_fit::{fit_rgba_within, fitted_channel, fitted_dimensions};
 pub use texture_mesh::{attachable_geometry, attachable_raster_frame};
 
 mod slot_recency;
@@ -55,6 +57,7 @@ mod artwork;
 mod cull;
 pub mod frame;
 mod glint;
+mod material_variants;
 pub mod skin_slots;
 pub use artwork::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,

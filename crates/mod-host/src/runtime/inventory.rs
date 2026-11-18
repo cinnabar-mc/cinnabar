@@ -194,7 +194,6 @@ mod tests {
             pitch: 0.,
             attack_held: false,
             frame_seconds: 0.01,
-            players: Vec::new(),
         });
         state.controls.frame.focused = true;
         state.controls.frame.gameplay = true;

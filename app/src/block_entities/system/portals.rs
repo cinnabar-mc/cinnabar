@@ -1,5 +1,6 @@
-//! Portal surfaces and resting piston heads follow the primary block palette, including chunks
-//! without NBT.
+//! Portal surfaces, resting piston heads and default-coloured bed heads follow the primary block
+//! palette, including chunks without NBT. `bed::settle` then removes or recolours bed heads
+//! against their block entities.
 
 use bevy::prelude::Vec3;
 use render_model::{BlockEntityKind, BlockEntitySubmission};
@@ -65,12 +66,13 @@ fn sub_chunk_cells(
     cells
 }
 
-/// Submits the `cells` within the scan radius of `eye`, stopping at the submission limit.
+/// Submits nearby cells with world lighting for beds and piston heads, up to the submission limit.
 pub(super) fn submit(
     submissions: &mut Vec<BlockEntitySubmission>,
     cells: &[PortalCell],
     eye: Vec3,
-    mut light: impl FnMut(&[i32; 3], &BlockEntityKind) -> render_model::BlockEntityLight,
+    daylight: f32,
+    mut sample: impl FnMut([f32; 3]) -> (u8, u8),
 ) {
     for (block, kind) in cells {
         if submissions.len() >= super::MAX_SUBMISSIONS {
@@ -78,9 +80,18 @@ pub(super) fn submit(
         }
         let center = Vec3::from_array(block.map(|value| value as f32 + 0.5));
         if center.distance_squared(eye) <= super::SCAN_RADIUS_BLOCKS * super::SCAN_RADIUS_BLOCKS {
+            let light = match kind {
+                BlockEntityKind::Bed(model) => super::bed::light(*model, *block, &mut sample),
+                _ => {
+                    super::piston_arms::light_sample(kind, *block).map_or(1.0.into(), |position| {
+                        let (block, sky) = sample(position);
+                        super::model_light(kind, block, sky, daylight)
+                    })
+                }
+            };
             submissions.push(BlockEntitySubmission {
                 block: *block,
-                light: light(block, kind),
+                light,
                 kind: kind.clone(),
             });
         }

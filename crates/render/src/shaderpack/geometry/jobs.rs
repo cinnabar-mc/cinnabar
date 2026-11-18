@@ -152,7 +152,8 @@ fn model_flags(
     model_refs: &[PackedModelRef],
     draw: PackedModelDrawRef,
 ) -> Option<u32> {
-    let [model_ref, quad_index] = draw.words();
+    let [model_ref, _] = draw.words();
+    let quad_index = draw.quad_index();
     let template_id = model_refs.get(model_ref as usize)?.words()[1];
     let template = tables.model_templates.get(template_id as usize)?;
     (quad_index < template.quad_count).then_some(())?;

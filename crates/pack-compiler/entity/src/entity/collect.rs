@@ -62,9 +62,25 @@ pub(super) fn collect_optional_file(
     }
 }
 
+/// Collects the item atlas and the block rasters it names, the pack manifest and Cinnabar's
+/// material bindings.
+pub(super) fn collect_root_documents(
+    root: &Path,
+    output: &mut Vec<(Box<str>, PathBuf)>,
+) -> Result<(), AssetError> {
+    collect_optional_file(root, "textures/item_texture.json", output)?;
+    collect_atlas_block_rasters(root, output)?;
+    collect_optional_file(root, "manifest.json", output)?;
+    collect_optional_file(
+        root,
+        super::materials::extension::MATERIAL_BINDINGS_PATH,
+        output,
+    )
+}
+
 /// Collects the block-texture rasters the item atlas names, so an item drawn from block art keeps
 /// its sprite. Only plain `textures/blocks/` paths are admitted.
-pub(super) fn collect_atlas_block_rasters(
+fn collect_atlas_block_rasters(
     root: &Path,
     output: &mut Vec<(Box<str>, PathBuf)>,
 ) -> Result<(), AssetError> {

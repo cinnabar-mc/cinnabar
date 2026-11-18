@@ -236,11 +236,12 @@ pub(super) fn compile(
             if block_wins(&key) {
                 continue;
             }
-            // Exact atlas keys stay authoritative; a legacy icon replaces a block route.
+            // Explicit aux routes replace automatic atlas-array indices. Exact default atlas
+            // keys stay authoritative; a legacy icon also replaces a block route.
             let exact_sprite = definitions.get(&key).is_some_and(|(_, route)| {
                 !matches!(route, ItemVisualDefinitionRoute::BlockItem { .. })
             });
-            if exact_sprite {
+            if exact_sprite && legacy.metadata == 0 {
                 continue;
             }
             let Some(definition) = texture_data.get(legacy.atlas_key) else {

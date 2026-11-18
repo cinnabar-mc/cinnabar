@@ -135,6 +135,20 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineInput<'_
     }
 }
 
+/// Virtual units the pointer must travel before it takes hover back from keyboard focus.
+const POINTER_MOVE_SLOP: f64 = 0.5;
+
+/// Whether the pointer left where it `rested`, including appearing or leaving the window.
+fn pointer_moved(rested: Option<[f64; 2]>, point: Option<[f64; 2]>) -> bool {
+    match (rested, point) {
+        (Some(a), Some(b)) => {
+            (a[0] - b[0]).abs() > POINTER_MOVE_SLOP || (a[1] - b[1]).abs() > POINTER_MOVE_SLOP
+        }
+        (None, None) => false,
+        _ => true,
+    }
+}
+
 /// Routes one frame of raw input through the screen's dispatcher: pointer and scroll, then each
 /// press and release, then keys, as vanilla's input buttons reach a screen's components.
 pub fn dispatch(
@@ -148,8 +162,20 @@ pub fn dispatch(
     let delta = (input.now - engine.clock).max(0.0);
     engine.clock = input.now;
     engine.dispatcher.tick(&frame.hits, &mut engine.view, delta);
+    let pointer_acted = input.pointer.pressed
+        || input.pointer.released
+        || input.pointer.held
+        || !input.pointer_edges.is_empty()
+        || !input.wheel.is_empty();
+    if let Some(rested) = engine.keyboard_hover
+        && (pointer_acted || pointer_moved(rested, point))
+    {
+        engine.keyboard_hover = None;
+    }
+    engine.pointer_at = point;
     let pointer = PointerInput {
-        point,
+        // A pointer resting where it was when the keyboard took focus hovers nothing.
+        point: point.filter(|_| engine.keyboard_hover.is_none()),
         held: input.pointer.held,
         mode: if input.touch {
             InputMode::Touch
@@ -164,6 +190,17 @@ pub fn dispatch(
             .pointer(&frame.hits, &mut engine.view, pointer)
             .events,
     );
+    // Focus follows the pointer onto a focusable control, so leaving the controls keeps the last
+    // one the pointer was over, and keys continue from it.
+    if engine.keyboard_hover.is_none()
+        && let Some(key) = engine.view.hovered.clone()
+        && frame
+            .hits
+            .iter()
+            .any(|region| region.key == key && region.takes_focus())
+    {
+        json_ui::set_focus(&mut engine.view, &frame.hits, Some(key));
+    }
     // Keyboard focus shows as hover while the pointer rests on nothing.
     if engine.view.hovered.is_none() {
         engine.view.hovered = engine.view.focused.clone();

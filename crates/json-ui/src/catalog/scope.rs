@@ -65,7 +65,7 @@ impl Catalog {
         let mut copies = Vec::new();
         for namespace in &namespaces {
             for control in self.defs[namespace].values() {
-                let mut copy = control.clone();
+                let mut copy = RawControl::clone(control);
                 relocate(&mut copy, &names);
                 scope.apply(&mut copy);
                 copies.push(copy);

@@ -243,7 +243,7 @@ pub fn advance_presentation_state(
     } else {
         ViewEffect::NONE
     };
-    let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
+    let (yaw, _, _) = view.player_camera_rotation().to_euler(EulerRot::YXZ);
     hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
         Quat::from_mat4(&hurt.view_matrix(yaw)),
         settings.hurt_shake_intensity(),
@@ -405,7 +405,7 @@ pub fn apply_camera_presentation(
         base,
         subject: Transform {
             translation: view.eye_translation(),
-            rotation: view.camera_rotation(),
+            rotation: view.player_camera_rotation(),
             ..Transform::IDENTITY
         },
         base_fov: settings.horizontal_fov_degrees(),

@@ -1,4 +1,6 @@
+use sha2::Digest;
 use std::sync::Arc;
+mod trims;
 
 use super::*;
 use protocol::{InventoryEvent, ItemRegistryEvent, NetworkItemStack, decode_recipe_update};

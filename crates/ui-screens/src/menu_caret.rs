@@ -19,10 +19,27 @@ pub fn insert_caret<'a>(caret: &MenuCaret, text: &'a str) -> Cow<'a, str> {
     if !caret.shown || caret.selection.is_some() {
         return Cow::Borrowed(text);
     }
-    let at = caret_byte(text, caret.byte);
+    // Inside a formatting code the caret glyph would pair with its `§` and vanish.
+    let at = ui::formatting_code_boundary(text, caret_byte(text, caret.byte));
     let mut shown = String::with_capacity(text.len() + json_ui::CARET_GLYPH.len_utf8());
     shown.push_str(&text[..at]);
     shown.push(json_ui::CARET_GLYPH);
     shown.push_str(&text[at..]);
     Cow::Owned(shown)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_caret_glyph_keeps_formatting_codes_intact() {
+        let caret = MenuCaret {
+            byte: '§'.len_utf8(),
+            shown: true,
+            ..Default::default()
+        };
+        let shown = insert_caret(&caret, "§aGreen");
+        assert_eq!(shown, format!("{}§aGreen", json_ui::CARET_GLYPH));
+    }
 }

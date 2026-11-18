@@ -18,6 +18,7 @@ also send `Session-Id` and, for messaging, `Accept-Language`.
 | Treatments | MCToken session result `treatments[]` | PlayFab | `home.v1` `treatments` |
 | Realms worlds | `GET bedrock.frontendlegacy.realms.minecraft-services.net/worlds` | XSTS(`https://pocket.realms.minecraft.net/`) | `realms_list.v1` |
 | Realms invites | `GET .../invites/count/pending` (bare integer) | XSTS(realms) | `home.v1` `realm_invites` |
+| Leave a joined Realm | `DELETE .../invites/<realm id>` (no body) | XSTS(realms) | `realm_leave.v1` |
 | Friend worlds | `sessiondirectory.xboxlive.com` activity handles | XSTS(`http://xboxlive.com`) | `friends_list.v1` |
 | Profile | `peoplehub.xboxlive.com` (gamertag, gamerpic, gamerscore, presence), social friends/followers | XSTS(xboxlive) | `profile.v1` |
 | Persona head | `GET {persona}/api/v1.0/profile/xuid/<xuid>/image/head` (image bytes) | MCToken | `home.v1` `persona_head` |

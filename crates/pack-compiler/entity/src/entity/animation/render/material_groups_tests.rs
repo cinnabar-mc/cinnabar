@@ -3,6 +3,14 @@ use serde_json::json;
 
 /// Compiles material groups and authored visibility for a two-bone controller fixture.
 fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
+    compile_with_materials(controller, &MaterialStates::default())
+}
+
+/// Compiles the fixture with authored and extension material definitions.
+fn compile_with_materials(
+    controller: Value,
+    materials: &MaterialStates,
+) -> (assets::EntityRenderData, MolangCompiler) {
     let description =
         json!({"materials": {"solid": "entity_alphatest", "blend": "entity_alphablend"}});
     let geometry: EntityGeometry = serde_json::from_value(json!({
@@ -12,9 +20,14 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
     .unwrap();
     let controller = controller.as_object().unwrap();
     let groups = resolve(
+        ("test:entity", "controller.render.test"),
         description.as_object().unwrap(),
         controller,
-        &MaterialStates::default(),
+        materials,
+        (
+            &mut MaterialTable::default(),
+            &mut super::super::materials::provenance::MaterialProvenance::default(),
+        ),
         &[geometry],
         [0],
         &mut None,
@@ -35,6 +48,7 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
                 visibility.push(EntityRenderVisibility {
                     pattern: pattern.to_ascii_lowercase().into(),
                     condition,
+                    hide_only: false,
                 });
             }
         }
@@ -57,6 +71,7 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
             candidates: &mut Vec::new(),
             visibility: &mut visibility,
             geometries: &mut Vec::new(),
+            skipped_draws: &mut 0,
         },
         &mut molang,
     )
@@ -75,37 +90,62 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
 /// Reads expected raster words from the compiler material resolver.
 fn material_word(name: &str) -> u32 {
     let rules = assets::facts::pack::rules();
-    rules
-        .raster(name)
-        .word(MaterialStates::default().resolve(name))
+    rules.raster(name).word(
+        MaterialStates::default()
+            .resolve(name, &mut MaterialTable::default())
+            .map(|(state, _)| state),
+    )
 }
 
 /// Resolves the raster words that actually draw one named bone for a fixture query value.
 fn drawn(fixture: &(assets::EntityRenderData, MolangCompiler), bone: &str, value: f32) -> Vec<u32> {
-    use assets::EntityRenderMaterialSelection as Node;
-    let (data, molang) = fixture;
-    let read = |index| {
+    let (_, molang) = fixture;
+    drawn_with(&fixture.0, bone, &mut |index| {
         molang
             .evaluate_query(index, "query.is_invisible", value)
             .unwrap()
-    };
+    })
+}
+
+/// Resolves a bone with an evaluator that may change its result between reads.
+fn drawn_with(
+    data: &assets::EntityRenderData,
+    bone: &str,
+    read: &mut dyn FnMut(u32) -> f32,
+) -> Vec<u32> {
+    use assets::EntityRenderMaterialSelection as Node;
+    let read = RefCell::new(read);
+    let read = |index| (read.borrow_mut())(index);
     data.layers
         .iter()
         .filter(|layer| layer.condition.is_none_or(|index| read(index) != 0.0))
         .filter(|layer| {
-            data.visibility[layer.first_visibility as usize
+            // Later rules override earlier ones; a hide-only rule can only hide.
+            let mut hidden = false;
+            for rule in &data.visibility[layer.first_visibility as usize
                 ..layer.first_visibility as usize + usize::from(layer.visibility_count)]
-                .iter()
-                .rfind(|rule| entity_render_pattern_matches(&rule.pattern, bone))
-                .is_none_or(|rule| read(rule.condition) != 0.0)
+            {
+                if entity_render_pattern_matches(&rule.pattern, bone) {
+                    let visible = read(rule.condition) != 0.0;
+                    hidden = if rule.hide_only {
+                        hidden || !visible
+                    } else {
+                        !visible
+                    };
+                }
+            }
+            !hidden
         })
-        .map(|layer| {
+        .filter_map(|layer| {
             let Some(mut selected) = layer.material_selection else {
-                return layer.material.word(layer.material_state);
+                return Some(layer.material.word(layer.material_state));
             };
             loop {
                 selected = match &data.material_selections[selected as usize] {
-                    Node::Raster { material, state } => return material.word(*state),
+                    Node::Empty => return None,
+                    Node::Raster {
+                        material, state, ..
+                    } => return Some(material.word(*state)),
                     Node::Branch { condition, yes, no } => {
                         if read(*condition) != 0.0 {
                             *yes
@@ -140,6 +180,35 @@ fn material_arrays_select_one_raster_with_wrapped_and_clamped_indices() {
     ] {
         assert_eq!(drawn(&fixture, "root", index), [expected]);
         assert_eq!(drawn(&fixture, "eye", index), [expected]);
+    }
+}
+
+#[test]
+fn unresolved_array_members_hide_only_their_assigned_bones() {
+    let fixture = compile(json!({
+        "arrays": {"materials": {"Array.states": ["Material.solid", "Material.blend", "Material.missing"]}},
+        "materials": [{"*": "Material.solid"}, {"eye": "Array.states[query.is_invisible]"}]
+    }));
+    for (index, expected) in [(0.0, "entity_alphatest"), (1.0, "entity_alphablend")] {
+        assert_eq!(drawn(&fixture, "eye", index), [material_word(expected)]);
+    }
+    assert!(drawn(&fixture, "eye", 2.0).is_empty());
+    assert_eq!(
+        drawn(&fixture, "root", 2.0),
+        [material_word("entity_alphatest")]
+    );
+}
+
+#[test]
+fn a_whole_model_condition_that_does_not_compile_reads_zero() {
+    let fixture = compile(json!({
+        "materials": [{"*": "query.not_a_query ? Material.blend : Material.solid"}]
+    }));
+    for value in [0.0, 1.0] {
+        assert_eq!(
+            drawn(&fixture, "root", value),
+            [material_word("entity_alphatest")]
+        );
     }
 }
 
@@ -213,9 +282,14 @@ fn static_single_material_needs_no_literal_bone_mask() {
     }))
     .unwrap();
     let groups = resolve(
+        ("minecraft:test", "controller.render.test"),
         description.as_object().unwrap(),
         controller.as_object_mut().unwrap(),
         &MaterialStates::default(),
+        (
+            &mut MaterialTable::default(),
+            &mut super::super::materials::provenance::MaterialProvenance::default(),
+        ),
         &[geometry],
         [0],
         &mut None,
@@ -223,4 +297,135 @@ fn static_single_material_needs_no_literal_bone_mask() {
     .unwrap();
     assert_eq!(groups.len(), 1);
     assert!(groups[0].hidden.is_empty());
+}
+
+#[test]
+fn per_bone_selectors_read_each_decision_once() {
+    for expression in [
+        "query.is_invisible ? Material.blend : Material.solid",
+        "Array.states[query.is_invisible]",
+        "query.is_invisible ? (query.is_invisible ? Material.blend : Material.solid) : Material.solid",
+    ] {
+        let fixture = compile(json!({
+            "arrays": {"materials": {"Array.states": ["Material.solid", "Material.blend"]}},
+            "materials": [{"*": "Material.solid"}, {"eye": expression}]
+        }));
+        for first in [0.0, 1.0] {
+            let mut reads = 0;
+            let drawn = drawn_with(&fixture.0, "eye", &mut |index| {
+                let molang = &fixture.1;
+                let zero = molang
+                    .evaluate_query(index, "query.is_invisible", 0.0)
+                    .unwrap();
+                let one = molang
+                    .evaluate_query(index, "query.is_invisible", 1.0)
+                    .unwrap();
+                let value = if zero == one {
+                    first
+                } else {
+                    let value = if reads % 2 == 0 { first } else { 1.0 - first };
+                    reads += 1;
+                    value
+                };
+                molang
+                    .evaluate_query(index, "query.is_invisible", value)
+                    .unwrap()
+            });
+            assert_eq!(drawn.len(), 1, "{expression}, first={first}");
+            let expected = if expression.starts_with("Array") && first == 1.0
+                || !expression.starts_with("Array")
+                    && !expression.contains("(query")
+                    && first == 1.0
+            {
+                "entity_alphablend"
+            } else {
+                "entity_alphatest"
+            };
+            assert_eq!(drawn, [material_word(expected)]);
+            let expected_reads = if expression.contains("(query") && first == 1.0 {
+                2
+            } else {
+                1
+            };
+            assert_eq!(reads, expected_reads, "{expression}");
+        }
+    }
+}
+
+#[test]
+fn random_per_bone_selectors_compile_one_random_call() {
+    let fixture = compile(json!({
+        "materials": [{"*": "Material.solid"},
+            {"eye": "math.random(0, 1) > 0.5 ? Material.blend : Material.solid"}]
+    }));
+    let program = fixture.1.finish().unwrap();
+    assert_eq!(
+        program
+            .ops
+            .iter()
+            .filter(|op| matches!(op, assets::MolangOp::Call(_)))
+            .count(),
+        1
+    );
+}
+
+/// Loads one fixed emissive binding through the same material inputs as a pack.
+fn bound_materials(bone: &str) -> MaterialStates {
+    use crate::entity::{SourceDocuments, SourcePayloads};
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"test:fixed": {
+            "base": "entity_alphatest", "material": {"+defines": ["USE_EMISSIVE"]}
+        }},
+        "bindings": [{"entity": "test:entity", "bone": bone, "material": "test:fixed"}]
+    });
+    let bytes = serde_json::to_vec(&document).unwrap();
+    let source = assets::EntityAssetSource {
+        path: crate::MATERIAL_BINDINGS_PATH.into(),
+        source_bytes: bytes.len() as u32,
+        source_sha256: [0; 32],
+    };
+    let payloads = SourcePayloads::from([(source.path.clone(), bytes.into_boxed_slice())]);
+    MaterialStates::load(
+        std::path::Path::new("."),
+        &SourceDocuments::new(&payloads),
+        &[source],
+    )
+    .unwrap()
+}
+
+#[test]
+fn bone_bindings_preserve_dynamic_materials_on_unbound_bones() {
+    for expression in [
+        "query.is_invisible ? Material.blend : Material.solid",
+        "Array.states[query.is_invisible]",
+    ] {
+        for bone in ["eye", "missing", "*"] {
+            let materials = bound_materials(bone);
+            let (state, _, _) = materials
+                .resolve_extension("test:fixed", true, &mut MaterialTable::default())
+                .unwrap();
+            let fixed = EntityRenderMaterial::Default.word(Some(state));
+            let fixture = compile_with_materials(
+                json!({
+                    "arrays": {"materials": {"Array.states": ["Material.solid", "Material.blend"]}},
+                    "materials": [{"*": expression}]
+                }),
+                &materials,
+            );
+            for (value, expected) in [(0.0, "entity_alphatest"), (1.0, "entity_alphablend")] {
+                for name in ["root", "eye"] {
+                    assert_eq!(
+                        drawn(&fixture, name, value),
+                        [if bone == name || bone == "*" {
+                            fixed
+                        } else {
+                            material_word(expected)
+                        }],
+                        "{expression}, binding {bone}, drawn bone {name}, query {value}"
+                    );
+                }
+            }
+        }
+    }
 }

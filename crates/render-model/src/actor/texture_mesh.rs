@@ -33,13 +33,12 @@ pub fn attachable_geometry(
             continue;
         }
         for cube in &bone.cubes {
-            super::geometry::append_entity_cube_vertices(
+            super::geometry::append_entity_bone_cube_vertices(
                 &mut vertices,
                 cube,
                 index as u32,
                 texture_size,
-                false,
-                0.0,
+                bone,
             )?;
         }
         super::poly_mesh::append_quads(&mut vertices, bone, index as u32, texture_size)?;

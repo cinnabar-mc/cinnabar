@@ -119,9 +119,11 @@ fn hud_surfaces_stay_under_panels_that_show_the_gameplay_hud() {
     );
 }
 
+/// Crosshair bounds use the safe HUD root even when a mod hides the cursor.
 #[test]
-fn hidden_crosshair_lays_out_but_draws_nothing_and_stays_reported() {
+fn crosshair_bounds_follow_the_safe_hud_root_even_when_hidden() {
     use ui_engine::text_metrics::TextMetrics;
+    use ui_screens::hud_renderers::{CROSSHAIR_SIDE, CURSOR_RENDERER};
     let mut p = UiPresentationRuntime::with_hud(
         ui_engine::test_support::fixture_font(),
         crate::test_support::fixture_hud(),
@@ -144,7 +146,8 @@ fn hidden_crosshair_lays_out_but_draws_nothing_and_stays_reported() {
                 "ui/crosshair_test.json".into(),
                 serde_json::to_vec(&serde_json::json!({"namespace":namespace,
                     (name):{"type":"screen","controls":[{"cursor":{"type":"custom",
-                        "renderer":"cursor_renderer","size":[16,16]}}]}}))
+                        "renderer":CURSOR_RENDERER,"size":[CROSSHAIR_SIDE,CROSSHAIR_SIDE],
+                        "anchor_from":"center","anchor_to":"center"}}]}}))
                 .unwrap(),
             ),
         ]],
@@ -152,37 +155,59 @@ fn hidden_crosshair_lays_out_but_draws_nothing_and_stays_reported() {
     });
     let runtime = UiRuntime::new(1);
     let player = player_state::PlayerState::new(1);
-    let paint = |p: &mut UiPresentationRuntime| {
-        let mut nodes = Vec::new();
-        p.append_engine_hud(
-            &player,
-            &runtime,
-            &mut nodes,
-            &mut 0,
-            TextMetrics::for_viewport([1280, 720], DpiScale::new(1.).unwrap(), None),
-            [1280., 720.],
-            0,
-            true,
-        )
-        .unwrap();
-        nodes.len()
-    };
-    assert!(paint(&mut p) > 0, "the crosshair fixture renders");
-    let shown = p.hud_elements().1[VanillaElement::Crosshair.index()];
-    assert!(shown.visible);
-    let bounds = shown.bounds.expect("the cursor is laid out");
-    assert_eq!([bounds[2], bounds[3]], [16., 16.]);
-    p.mod_ui_mut()
-        .set_hidden_hud_elements(HiddenElements::from_elements([VanillaElement::Crosshair]));
-    assert_eq!(paint(&mut p), 0, "a hidden crosshair draws nothing");
-    assert_eq!(
-        p.hud_elements().1[VanillaElement::Crosshair.index()],
-        shown,
-        "vanilla would still draw it, at the same place"
-    );
-    p.mod_ui_mut()
-        .set_hidden_hud_elements(HiddenElements::default());
-    assert!(paint(&mut p) > 0);
+    for (physical, dpi, preference) in [
+        ([1280, 720], 1., None),
+        ([1280, 720], 1.5, Some(2)),
+        ([1920, 1080], 2., Some(3)),
+    ] {
+        let metrics = TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), preference);
+        for insets in [
+            [0., 0., 0., 0.],
+            [96., 0., 0., 0.],
+            [0., 48., 0., 0.],
+            [12., 48., 36., 20.],
+            [0., 0., 96., 20.],
+            [0., 0., 0., 0.],
+        ] {
+            let [left, top, right, bottom] = insets;
+            p.set_safe_area(ui::SafeArea::new(left, top, right, bottom).unwrap());
+            // Repeated hiding also checks retained paints without accumulating an offset.
+            for hidden in [false, true, true, false] {
+                p.mod_ui_mut().set_hidden_hud_elements(if hidden {
+                    HiddenElements::from_elements([VanillaElement::Crosshair])
+                } else {
+                    HiddenElements::default()
+                });
+                let mut nodes = Vec::new();
+                p.append_engine_hud(
+                    &player,
+                    &runtime,
+                    &mut nodes,
+                    &mut 0,
+                    metrics,
+                    physical.map(|axis| axis as f32 / dpi),
+                    0,
+                    true,
+                )
+                .unwrap();
+                assert_eq!(nodes.is_empty(), hidden, "only hidden cursors omit draws");
+                let state = p.hud_elements().1[VanillaElement::Crosshair.index()];
+                assert!(state.visible, "visibility ignores mod hiding");
+                let bounds = state.bounds.expect("even a hidden cursor is laid out");
+                assert_eq!([bounds[2], bounds[3]], [CROSSHAIR_SIDE; 2]);
+                let center = [
+                    (bounds[0] + bounds[2] * 0.5) * metrics.gui_scale + left * dpi,
+                    (bounds[1] + bounds[3] * 0.5) * metrics.gui_scale + top * dpi,
+                ];
+                for axis in 0..2 {
+                    assert!(
+                        (center[axis] - physical[axis] as f32 * 0.5).abs() < 0.001,
+                        "HUD-root bounds must place the cursor at the world center: {physical:?}, DPI {dpi}, insets {insets:?}, hidden {hidden}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// A panel that retains gameplay HUD must still clear the skipped crosshair observation.

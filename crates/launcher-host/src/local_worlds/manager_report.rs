@@ -1,6 +1,6 @@
 //! What the menu and the core learn about the open world.
 
-use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
+use bridge::{LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
 use launcher::local_worlds::world::{World, WorldStatus};
 
 use super::Manager;
@@ -15,11 +15,8 @@ impl Manager {
                 state: life.state,
                 world_id: life.world.as_ref().map(|world| world.id.clone()),
                 backend: life.world.as_ref().map(|world| world.backend),
-                paused: life.paused,
-                pause_supported: life
-                    .instance
-                    .as_ref()
-                    .is_none_or(|instance| instance.can_pause()),
+                paused: false,
+                pause_supported: false,
                 error: life.failure.clone(),
                 setup: None,
                 backend_unavailable_reason: None,
@@ -63,26 +60,20 @@ impl Manager {
     }
 }
 
-/// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
+/// Where the core dials the running BDS world: NetherNet, through its
 /// LAN advertisement when the server publishes one.
 pub(super) fn target_for(world: &World, instance: &dyn Instance) -> LocalTarget {
     let address = instance.address().to_owned();
-    match (world.backend, instance.lan_address()) {
-        (Backend::Bds, Some(lan)) if !lan.is_empty() => LocalTarget {
+    match instance.lan_address() {
+        Some(lan) if !lan.is_empty() => LocalTarget {
             address,
             transport: Transport::NetherNetLan,
             lan_address: Some(lan.to_owned()),
             level_name: Some(world.id.clone()),
         },
-        (Backend::Bds, _) => LocalTarget {
+        _ => LocalTarget {
             address,
             transport: Transport::NetherNet,
-            lan_address: None,
-            level_name: None,
-        },
-        (Backend::Dragonfly, _) => LocalTarget {
-            address,
-            transport: Transport::RakNet,
             lan_address: None,
             level_name: None,
         },

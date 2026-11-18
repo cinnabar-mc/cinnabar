@@ -356,7 +356,13 @@ impl AttachablesRuntime {
         let static_input = static_draw::Inputs::new(owner, owner_rig, input);
         if !self.previewing
             && entry.static_draw.as_ref().is_some_and(|cached| {
-                cached.input == static_input && cached.owner_names == owner_rig.bone_names
+                cached.input == static_input
+                    && cached.owner_names == owner_rig.bone_names
+                    && cached
+                        .owner_layers
+                        .iter()
+                        .copied()
+                        .eq(static_draw::owner_layer_models(owner_rig))
             })
         {
             entry.rig.completed_tick = owner_rig.completed_tick;
@@ -378,9 +384,10 @@ impl AttachablesRuntime {
         state
             .history
             .push_back(selection::owner_frame(owner, owner_rig, input));
-        let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
+        let allowance = molang_tick_budget(&self.assets, binding);
+        let mut world_left = allowance;
         let mut budget = EvalBudget {
-            actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
+            actor_left: allowance,
             world_left: &mut world_left,
             work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
             transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
@@ -409,7 +416,11 @@ impl AttachablesRuntime {
             );
             None
         };
-        render::bind_attachable_roots(state, owner_rig.bone_names);
+        render::bind_attachable_roots(
+            state,
+            crate::attachment::OwnerSkeleton::body(&[], &[], owner_rig.bone_names)
+                .with_layers(owner_rig),
+        );
         let evaluated = match evaluate_state(
             &self.assets,
             &self.layout,
@@ -458,6 +469,7 @@ impl AttachablesRuntime {
                 entry.static_draw = Some(static_draw::StaticDraw {
                     input: static_input,
                     owner_names: owner_rig.bone_names.to_vec(),
+                    owner_layers: static_draw::owner_layer_models(owner_rig).collect(),
                 });
             }
         }
@@ -468,16 +480,17 @@ impl AttachablesRuntime {
 /// Vanilla attachable setup distinguishes expression bindings from owner-name
 /// matches. Only the latter clear the authored default TRS; animation restores the
 /// former's bone defaults afterward.
-pub(super) fn bind_roots(bones: &mut [RuntimeBone], names: &[Box<str>], owner_names: &[Box<str>]) {
+pub(super) fn bind_roots(
+    bones: &mut [RuntimeBone],
+    names: &[Box<str>],
+    owner: crate::attachment::OwnerSkeleton<'_>,
+) {
     for (bone, name) in bones.iter_mut().zip(names) {
         bone.attachable_root = if bone.parent.is_some() {
             AttachableRootFrame::Actor
         } else if bone.has_binding_expression {
             AttachableRootFrame::BindingExpression
-        } else if owner_names
-            .iter()
-            .any(|owner| owner.eq_ignore_ascii_case(name))
-        {
+        } else if owner.has(name) {
             AttachableRootFrame::MatchingOwnerName
         } else {
             AttachableRootFrame::Actor

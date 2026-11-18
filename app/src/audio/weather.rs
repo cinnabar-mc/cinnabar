@@ -55,7 +55,7 @@ fn rain_listener(
 ) -> [f32; 3] {
     client_audio::audio::listener::camera_listener(
         view.eye_translation(),
-        view.camera_rotation(),
+        view.player_camera_rotation(),
         camera,
         server_camera.and_then(|camera| camera.active_listener()),
     )

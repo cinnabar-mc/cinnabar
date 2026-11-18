@@ -195,18 +195,6 @@ fn snapshot() -> GameplaySnapshot {
         pitch: 0.0,
         attack_held: false,
         frame_seconds: 0.016,
-        players: Vec::new(),
-    }
-}
-
-fn mob(x: f32) -> GameplayMob {
-    GameplayMob {
-        runtime_id: 7,
-        unique_id: -7,
-        type_id: "cinnabar:hollow_warden".into(),
-        position: vector(x, 64.0, 0.0),
-        health: Some(200.0),
-        max_health: Some(400.0),
     }
 }
 
@@ -221,7 +209,6 @@ fn rig(x: f32, z: f32) -> GameplayCameraRig {
 fn granted() -> ModGrants {
     ModGrants {
         camera: true,
-        entities: true,
         commands: vec!["ability".into()],
         ..Default::default()
     }
@@ -230,14 +217,12 @@ fn granted() -> ModGrants {
 fn state(grants: ModGrants) -> State {
     let mut state = State::new(grants, String::new(), Default::default());
     state.snapshot = Some(snapshot());
-    state.world.mobs = vec![mob(3.0)];
     state
 }
 
 #[test]
 fn new_capabilities_are_denied_by_default() {
     let mut state = state(ModGrants::default());
-    assert!(state.read_mobs().unwrap().is_err());
     assert!(state.set_camera_rig(Some(rig(0.8, 3.0))).unwrap().is_err());
     assert!(state.set_camera_rig(None).unwrap().is_err());
     assert!(
@@ -249,14 +234,6 @@ fn new_capabilities_are_denied_by_default() {
     state.world.commit();
     assert_eq!(state.world.rig, None);
     assert!(state.world.commands.is_empty());
-}
-
-#[test]
-fn granted_reads_return_only_the_current_frame_mobs() {
-    let mut state = state(granted());
-    assert_eq!(state.read_mobs().unwrap().unwrap(), vec![mob(3.0)]);
-    state.world.begin_frame();
-    assert!(state.read_mobs().unwrap().unwrap().is_empty());
 }
 
 #[test]
@@ -375,21 +352,6 @@ fn cues_need_short_names_and_finite_values() {
     );
     state.world.begin_frame();
     assert!(state.world.cues.is_empty());
-}
-
-#[test]
-fn host_mob_input_is_bounded_by_count_range_and_frame() {
-    let frame = snapshot();
-    assert!(validate_mobs(Some(&frame), &[mob(3.0)]).is_ok());
-    assert!(validate_mobs(None, &[mob(3.0)]).is_err());
-    assert!(validate_mobs(Some(&frame), &[mob(MAX_MOB_RANGE_BLOCKS + 1.0)]).is_err());
-    assert!(validate_mobs(Some(&frame), &vec![mob(1.0); MAX_GAMEPLAY_MOBS + 1]).is_err());
-    let mut unnamed = mob(1.0);
-    unnamed.type_id.clear();
-    assert!(validate_mobs(Some(&frame), &[unnamed]).is_err());
-    let mut bad_health = mob(1.0);
-    bad_health.health = Some(f32::INFINITY);
-    assert!(validate_mobs(Some(&frame), &[bad_health]).is_err());
 }
 
 #[test]

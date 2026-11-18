@@ -1,0 +1,20 @@
+{
+  "*": "fixture",
+  "fixture": {
+    "texture": "fixture",
+    "render_method": "opaque",
+    "ambient_occlusion": 1.0,
+    "face_dimming": true,
+    "isotropic": true,
+    "tint_method": "grass",
+    "alpha_masked_tint": true
+  },
+  "render_double_sided": {"texture": "fixture", "render_method": "double_sided"},
+  "render_blend": {"texture": "fixture", "render_method": "blend"},
+  "render_blend_to_opaque": {"texture": "fixture", "render_method": "blend_to_opaque"},
+  "render_opaque": {"texture": "fixture", "render_method": "opaque"},
+  "render_alpha_test_to_opaque": {"texture": "fixture", "render_method": "alpha_test_to_opaque"},
+  "render_alpha_test": {"texture": "fixture", "render_method": "alpha_test"},
+  "render_alpha_test_single_sided": {"texture": "fixture", "render_method": "alpha_test_single_sided"},
+  "render_alpha_test_single_sided_to_opaque": {"texture": "fixture", "render_method": "alpha_test_single_sided_to_opaque"}
+}

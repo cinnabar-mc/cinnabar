@@ -38,22 +38,11 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
 };
 
-use bridge::Backend;
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use launcher::install_layout::InstallLayout;
 use serde::Deserialize;
 
 const BEDROCK_TARGET_JSON: &str = include_str!("../../../../assets/bedrock-target.json");
-
-/// Resolves the local server beside the core, using the APK's executable helper on Android.
-fn local_server_path(core: &Path, platform: provision::Platform) -> PathBuf {
-    let name = match platform.os {
-        "android" => translated::android_runtime().local_server_library.clone(),
-        "windows" => "bedrock-local-server.exe".to_owned(),
-        _ => "bedrock-local-server".to_owned(),
-    };
-    core.with_file_name(name)
-}
 
 /// The dedicated-server build local worlds run, from the target manifest.
 #[derive(Debug, Deserialize)]
@@ -91,7 +80,6 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
     } else {
         (docker::detect_runtime(platform, docker::DOCKER, &[]), false)
     };
-    store.set_default_backend(manager::default_backend(&runtime));
     let provisioner = Arc::new(provision::Provisioner::new(
         layout.bds_dir(),
         pin.server_version.clone(),
@@ -109,24 +97,10 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
             .unwrap_or_else(|| docker::detect_runtime(platform, docker::DOCKER, &[]))
     }));
     let mut parts = manager::Parts::new(store);
-    let local_server = local_server_path(&layout.core_executable, platform);
-    if local_server.is_file() {
-        parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(local_server)));
-    } else {
-        // Docker detection may still settle on Dragonfly; its worlds are then refused, not saved unopenable.
-        parts.unavailable.push((
-            Backend::Dragonfly,
-            format!(
-                "local world server binary not found at {}; build it with `make local-server`",
-                local_server.display()
-            ),
-        ));
-    }
     let mut bds = bds::BdsRunner::new(Arc::clone(&provisioner), pin.bds_container_image.clone());
     bds.translation = translation;
-    parts.runners.bds = Some(Arc::new(bds));
+    parts.runner = Some(Arc::new(bds));
     parts.setup = Some(Arc::clone(&provisioner));
-    parts.auto_backend = true;
     let manager = Manager::from_parts(parts);
     tracing::info!(
         "local worlds in {} ({}: {})",
@@ -153,8 +127,16 @@ fn android_runtime_dir(user_data_root: &Path) -> PathBuf {
 /// A manager over the worlds in `root` with no server runners, for code that drives one in tests.
 #[cfg(any(test, feature = "test-support"))]
 pub fn open_store(root: std::path::PathBuf) -> Result<Manager, WorldError> {
-    let store = Arc::new(store::Store::open(root)?);
-    Ok(Manager::from_parts(manager::Parts::new(store)))
+    let store = Arc::new(store::Store::open(root.clone())?);
+    let mut parts = manager::Parts::new(store);
+    let setup = Arc::new(provision::Provisioner::new(
+        root.join(".bds-test"),
+        String::new(),
+    ));
+    setup.set_runtime(provision::RuntimeInfo::native());
+    setup.accept_eula()?;
+    parts.setup = Some(setup);
+    Ok(Manager::from_parts(parts))
 }
 
 /// Ends a start or another wait once its [`CancelHandle`] is dropped.
@@ -213,31 +195,6 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn android_launches_the_packaged_server_from_the_native_library_directory() {
-        let manifest: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../packaging/android/runtime.json"))
-                .expect("runtime manifest");
-        let libraries = Path::new("/data/app/fixture/lib/arm64");
-        let core = libraries.join(manifest["core_library"].as_str().expect("core helper"));
-        let server = local_server_path(
-            &core,
-            provision::Platform {
-                os: "android",
-                arch: "arm64",
-            },
-        );
-        assert_eq!(
-            server,
-            libraries.join(
-                manifest["local_server_library"]
-                    .as_str()
-                    .expect("server helper")
-            )
-        );
-        assert_eq!(server.extension().and_then(|ext| ext.to_str()), Some("so"));
-    }
 
     /// A tag alone drifts with upstream releases and can break joins; the image must name a digest.
     #[test]

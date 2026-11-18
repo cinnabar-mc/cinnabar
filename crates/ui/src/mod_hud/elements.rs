@@ -7,15 +7,18 @@ pub enum VanillaElement {
     StatusEffects,
     Sidebar,
     Hunger,
+    /// The position line the `showcoordinates` rule or a held filled map shows.
+    Position,
 }
 
 impl VanillaElement {
     /// Every element, in enum order.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Crosshair,
         Self::StatusEffects,
         Self::Sidebar,
         Self::Hunger,
+        Self::Position,
     ];
 
     /// This element's position in [`Self::ALL`].
@@ -24,14 +27,11 @@ impl VanillaElement {
     }
 }
 
-/// A set of vanilla elements, such as those mods hide, and whether the position line is
-/// hidden. The position line has no observable state, so it is not a [`VanillaElement`].
+/// A set of vanilla elements, such as those mods hide.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HiddenElements(u8);
 
-/// The bit after every [`VanillaElement`] that hides the position line.
-const POSITION: u8 = 1 << VanillaElement::ALL.len();
-const _: () = assert!(VanillaElement::ALL.len() < u8::BITS as usize);
+const _: () = assert!(VanillaElement::ALL.len() <= u8::BITS as usize);
 
 impl HiddenElements {
     /// Collects `elements`, ignoring repeats.
@@ -41,21 +41,6 @@ impl HiddenElements {
             set.0 |= 1 << element.index();
         }
         set
-    }
-
-    /// These elements with the position line hidden or shown.
-    #[must_use]
-    pub fn with_position(self, hidden: bool) -> Self {
-        Self(if hidden {
-            self.0 | POSITION
-        } else {
-            self.0 & !POSITION
-        })
-    }
-
-    /// Whether the position line (`showcoordinates` or a held map) is hidden.
-    pub fn hides_position(self) -> bool {
-        self.0 & POSITION != 0
     }
 
     pub fn contains(self, element: VanillaElement) -> bool {
@@ -71,7 +56,7 @@ impl HiddenElements {
         self.0 == 0
     }
 
-    /// The hidden elements in enum order, without the position line.
+    /// The hidden elements in enum order.
     pub fn iter(self) -> impl Iterator<Item = VanillaElement> {
         VanillaElement::ALL
             .into_iter()
@@ -133,6 +118,23 @@ pub struct PanelLayout {
     pub scale: f32,
     /// The panel root's top left in HUD GUI units from the HUD root's top left.
     pub offset: [f32; 2],
+}
+
+/// The panel control the pointer last pressed and where it was laid out at that press, so a mod
+/// can follow a press, drag and release relative to its own control: a panel point `p` maps
+/// through `to_local` to `l`, which lies at `(l - [x, y]) / [width, height]` of the box.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelPress {
+    /// The pressed control's declared identifier.
+    pub id: String,
+    /// The pressed control's laid-out box in its own layout coordinates: `[x, y, width, height]`.
+    pub rect: [f32; 4],
+    /// The affine map `[a, b, c, d, e, f]` from drawn panel units to the box's layout
+    /// coordinates, undoing the control's paint transform: `x' = a x + c y + e` and
+    /// `y' = b x + d y + f`. The identity for an untransformed control.
+    pub to_local: [f32; 6],
+    /// Whether the press is still held; false from its release until the next press.
+    pub held: bool,
 }
 
 impl PanelLayout {
@@ -198,16 +200,15 @@ mod tests {
         assert!(HiddenElements::default().is_empty());
     }
 
-    /// The position line combines with elements without appearing among them.
+    /// Every element, the last included, round-trips through the set.
     #[test]
-    fn hidden_position_line_is_separate_from_elements() {
-        let position = HiddenElements::default().with_position(true);
-        assert!(position.hides_position() && !position.is_empty());
-        assert_eq!(position.iter().count(), 0);
-        let sidebar = HiddenElements::from_elements([VanillaElement::Sidebar]);
-        let both = sidebar.union(position);
-        assert!(both.hides_position() && both.contains(VanillaElement::Sidebar));
-        assert_eq!(both.with_position(false), sidebar);
+    fn hidden_elements_hold_every_element() {
+        let all = HiddenElements::from_elements(VanillaElement::ALL);
+        assert_eq!(all.iter().collect::<Vec<_>>(), VanillaElement::ALL);
+        assert!(all.contains(VanillaElement::Position));
+        for (index, element) in VanillaElement::ALL.into_iter().enumerate() {
+            assert_eq!(element.index(), index);
+        }
     }
 
     #[test]

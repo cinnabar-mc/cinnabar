@@ -17,6 +17,9 @@ use server_experience::{
     screen,
 };
 
+#[path = "../src/server/tests/guests.rs"]
+mod guests;
+
 /// Lets this process launch developer helpers. Every test sets the same value before any helper
 /// starts, and nothing else here reads the environment concurrently.
 fn developer() {
@@ -25,38 +28,9 @@ fn developer() {
     SET.call_once(|| unsafe { std::env::set_var(DEVELOPER_ENV, "1") });
 }
 
-/// The terminal test client part, built for wasm32 into a target directory of its own inside
-/// this test's, and turned into a component.
+/// The terminal test client part, built for wasm32 into the library tests' guest target.
 fn terminal_component() -> Vec<u8> {
-    let exe = std::env::current_exe().unwrap();
-    let target = exe
-        .ancestors()
-        .nth(3)
-        .unwrap()
-        .join(worktree_dir("mod-host-guests"));
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = std::process::Command::new(cargo)
-        .current_dir(&root)
-        .args(["build", "--locked", "--target", "wasm32-unknown-unknown"])
-        .args(["-p", "experience-terminal-client", "--target-dir"])
-        .arg(&target)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "building the terminal client part failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let module =
-        std::fs::read(target.join("wasm32-unknown-unknown/debug/experience_terminal_client.wasm"))
-            .unwrap();
-    wit_component::ComponentEncoder::default()
-        .module(&module)
-        .unwrap()
-        .validate(true)
-        .encode()
-        .unwrap()
+    guests::component("experience-terminal-client")
 }
 
 /// Grants only the terminal fixture's modal output by default.
@@ -80,23 +54,32 @@ fn capabilities() -> Capabilities {
 /// Starts the test component with the supplied signed capability declarations.
 fn spawn(component: Vec<u8>, capabilities: Capabilities) -> Helper {
     developer();
-    let owner = Principal {
-        session: "session".into(),
-        bundle: "terminal".into(),
-        generation: 1,
-    };
     Helper::spawn_developer(
         Path::new(env!("CARGO_BIN_EXE_mod-host")),
         component,
-        owner,
+        owner(),
         capabilities,
-        mod_host::presentation::Context {
-            connection: 1,
-            epoch: 1,
-            ..Default::default()
-        },
+        context(),
     )
     .unwrap()
+}
+
+/// The terminal bundle's owner.
+fn owner() -> Principal {
+    Principal {
+        session: "session".into(),
+        bundle: "terminal".into(),
+        generation: 1,
+    }
+}
+
+/// The drawing context a helper starts under: connection 1, epoch 1.
+fn context() -> mod_host::presentation::Context {
+    mod_host::presentation::Context {
+        connection: 1,
+        epoch: 1,
+        ..Default::default()
+    }
 }
 
 /// The helper's next reply, waiting at most 30 seconds (the helper compiles the component).
@@ -104,7 +87,9 @@ fn reply(helper: &mut Helper) -> Reply {
     let since = Instant::now();
     loop {
         if let Some(result) = helper.poll() {
-            return result.unwrap();
+            return result.unwrap_or_else(|error| {
+                panic!("{error:#}; helper stderr: {:?}", helper.drain_log())
+            });
         }
         assert!(since.elapsed() < Duration::from_secs(30), "no reply");
         test_time::idle();
@@ -208,6 +193,48 @@ fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
     assert_eq!(count(call(&mut helper, "terminal.count")), 1);
 }
 
+/// The restricted helper compiles and runs the component inside its lockdown, without the
+/// developer switch: callbacks commit, and a failed callback's fresh instance starts there too.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restricted_helper_compiles_and_runs_its_component_contained() {
+    if let Some(missing) = mod_host::helper::restricted::missing_feature() {
+        eprintln!("skipping: missing {missing}");
+        return;
+    }
+    let mut helper = Helper::spawn_restricted(
+        Path::new(env!("CARGO_BIN_EXE_mod-host")),
+        &terminal_component(),
+        owner(),
+        capabilities(),
+        context(),
+    )
+    .unwrap();
+    assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
+    assert_eq!(count(call(&mut helper, "terminal.count")), 1);
+    assert_eq!(
+        failure(call(&mut helper, "terminal.panic")).kind,
+        FailureKind::Panic
+    );
+    assert_eq!(count(call(&mut helper, "terminal.count")), 1);
+}
+
+/// Restricted launch is Linux-only; elsewhere it refuses rather than running unrestricted.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn restricted_helpers_are_refused_off_linux() {
+    let error = Helper::spawn_restricted(
+        Path::new(env!("CARGO_BIN_EXE_mod-host")),
+        &[],
+        owner(),
+        capabilities(),
+        context(),
+    )
+    .err()
+    .unwrap();
+    assert!(error.to_string().contains("unavailable"), "{error}");
+}
+
 /// A component that imports what the host does not provide fails to start, and the start's
 /// reply says why instead of the helper vanishing.
 #[test]
@@ -228,17 +255,6 @@ fn a_failed_start_answers_with_its_reason() {
         "{}",
         failure.reason
     );
-}
-
-/// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
-/// dep-info paths are relative to the workspace, so two worktrees building into one target would
-/// silently reuse each other's guests; keying the guests' target directory by worktree keeps
-/// each worktree's guests its own.
-fn worktree_dir(name: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
-    format!("{name}-{:016x}", hasher.finish())
 }
 
 /// A messaging guest's fresh initialization reaches the client in the failed call's own reply.

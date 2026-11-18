@@ -18,7 +18,6 @@ pub(super) const MAX_VOICES: usize = 48;
 const MAX_QUEUED: usize = 256;
 /// Starts waiting on a decode, across frames.
 const MAX_PENDING: usize = 64;
-const MAX_SAME_SOUND: usize = 6;
 /// Radius within which a world sound at unit volume may start; louder requests scale it.
 const START_RADIUS: f32 = 16.0;
 /// Seconds a managed loop takes to fade in or out; needs native measurement.
@@ -699,14 +698,6 @@ impl AudioEngine {
         let pcm = match lookup {
             PcmLookup::Ready(pcm) => pcm,
             PcmLookup::Pending | PcmLookup::Busy => {
-                // Unmanaged starts beyond the same-sound cap would be refused once ready.
-                let waiting = (self.pending.iter())
-                    .filter(|start| start.managed.is_none() && start.path == path)
-                    .count();
-                if managed.is_none() && waiting >= MAX_SAME_SOUND {
-                    self.stats.voice_limit += 1;
-                    return None;
-                }
                 if self.pending.len() >= MAX_PENDING {
                     self.stats.queue_overflow += 1;
                     return None;
@@ -727,15 +718,6 @@ impl AudioEngine {
                 return None;
             }
         };
-        let same = self
-            .voices
-            .iter()
-            .filter(|voice| *voice.name == *identifier)
-            .count();
-        if same >= MAX_SAME_SOUND && managed.is_none() {
-            self.stats.voice_limit += 1;
-            return None;
-        }
         let new_priority = priority(category);
         let new_gain = settings.effective(category) * volume * distance_gain;
         if self.voices.len() >= MAX_VOICES {

@@ -298,7 +298,17 @@ async fn serve(remote: Weak<Remote>, mut receiver: Receiver<String>, client: req
             if remote.still_wanted(&url) {
                 let client = client.clone();
                 fetches.spawn(async move {
-                    let bytes = download(&client, &FORM_IMAGES, &url, false).await;
+                    let bytes = download(&client, &FORM_IMAGES, &url, false)
+                        .await
+                        .inspect_err(|failure| {
+                            tracing::warn!(
+                                target: "server_form",
+                                url = %url,
+                                error = %failure,
+                                "form button image download failed"
+                            );
+                        })
+                        .ok();
                     (url, bytes)
                 });
             }
@@ -406,6 +416,25 @@ pub mod tests {
             RemoteState::Ready(b"image bytes".as_slice().into())
         );
         assert_eq!(images.state("file:///etc/passwd"), RemoteState::Failed);
+    }
+
+    #[test]
+    fn failed_form_images_are_not_downloaded_again_on_each_poll() {
+        let images = RemoteImages::default();
+        let (sender, mut requests) = tokio::sync::mpsc::channel(MAX_QUEUED);
+        *images.0.worker.lock().unwrap() = Some(sender);
+        let url = "http://example.test/missing.png";
+        assert_eq!(images.state(url), RemoteState::Loading);
+        assert_eq!(requests.try_recv().unwrap(), url);
+        images.0.finish(url.to_owned(), None);
+        for _ in 0..3 {
+            assert_eq!(images.state(url), RemoteState::Failed);
+            assert_eq!(images.load(url), RemoteState::Failed);
+        }
+        assert!(
+            requests.try_recv().is_err(),
+            "a cached failure must not refetch"
+        );
     }
 
     #[test]

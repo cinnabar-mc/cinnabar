@@ -258,6 +258,7 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		t.Fatalf("decode manifest: %v", err)
 	}
 	wantNames := []string{
+		"ItemStackRequestPartialMoves",
 		"NetworkSettings",
 		"StartGame",
 		"LevelChunk",
@@ -310,8 +311,9 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"ItemStackRequestManualCraft",
 		"ItemStackResponseManualCraft",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 86, 87, 123, 5, 5, 5, 52, 52, 52, 52, 147, 148}
+	wantIDs := []uint32{147, 143, 11, 58, 19, 144, 144, 144, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 86, 87, 123, 5, 5, 5, 52, 52, 52, 52, 147, 148}
 	wantHeaders := [][]byte{
+		{0x93, 0x49},
 		{0x8f, 0x49},
 		{0x8b, 0x48},
 		{0xba, 0x48},

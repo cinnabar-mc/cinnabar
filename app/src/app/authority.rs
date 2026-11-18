@@ -119,6 +119,13 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     )
     .add_systems(
         Update,
+        crate::ui_runtime::outbound::reconcile_mining_inventory
+            .after(reconcile_world_stream_before_physics)
+            .before(drain_committed_ui_before_authority)
+            .before(ClientFrameSet::UiAuthority),
+    )
+    .add_systems(
+        Update,
         advance_dimension_transfer
             .run_if(
                 bevy::prelude::resource_exists::<

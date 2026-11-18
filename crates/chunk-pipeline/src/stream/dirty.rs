@@ -64,6 +64,10 @@ impl WorldStream {
         prepared: &[PreparedSubChunkMutation],
         relight: &BTreeSet<SubChunkKey>,
     ) -> BTreeSet<SubChunkKey> {
+        // Surface clauses observe raw state membership beyond the base visual equivalence.
+        if !self.surface_rules.is_empty() {
+            return BTreeSet::new();
+        }
         if !prepared
             .windows(2)
             .all(|pair| pair[0].key() < pair[1].key())

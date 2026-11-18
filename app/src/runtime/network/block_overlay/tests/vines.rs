@@ -218,9 +218,9 @@ fn custom_model_fixture_retains_lamp_vine_and_plant_geometry() {
                 continue;
             }
             let mut instances = materials(name).unwrap();
-            instances[0].render_method = Some("alpha_test".into());
-            instances[0].ambient_occlusion = Some(0.0);
-            instances[0].face_dimming = Some(false);
+            instances[0].render_method = protocol_ids::BlockRenderMethod::AlphaTest;
+            instances[0].ambient_occlusion = 0.0;
+            instances[0].packed_bools &= !1;
             let blocks = CustomBlocks {
                 blocks: vec![block(
                     name,

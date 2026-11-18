@@ -23,6 +23,8 @@ pub(in super::super) enum TexturePath {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in super::super) struct TextureStorageKey {
     pub(in super::super) path: TexturePath,
+    /// Keeps authored surfaces separate even when their colour images are shared.
+    pub(in super::super) texture_set: Option<String>,
     pub(in super::super) grid: u8,
     pub(in super::super) tint: Option<[u8; 3]>,
     pub(in super::super) frames: Option<(Box<[u32]>, u32)>,

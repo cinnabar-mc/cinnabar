@@ -39,6 +39,67 @@ mod tests {
         assert_eq!(label.properties["text"], "Lower file");
         assert!(layered.pack.diagnostics().is_empty());
     }
+
+    /// Returns the built-in toast so that layering also builds the screen catalog.
+    fn keep_builtin_toast(_: &mut Catalog, builtin: &Catalog) -> Vec<RawControl> {
+        builtin
+            .lookup("screen", "toast")
+            .cloned()
+            .into_iter()
+            .collect()
+    }
+
+    /// The carrier, built-in, pack and screen catalogs stay resident together, so layering a
+    /// small server pack copies only the definitions it changes.
+    #[test]
+    fn layering_shares_definitions_the_server_pack_leaves_unchanged() {
+        let controls = (0..400)
+            .map(|index| {
+                format!(
+                    r#""panel_{index}":{{"size":[{index},10],"text":"panel {index}","controls":[{{"icon":{{"layer":{index}}}}}]}}"#
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut carrier = Catalog::default();
+        let document = format!(r#"{{"namespace":"screen","toast":{{}},{controls}}}"#);
+        let ((), parsed) =
+            test_alloc::measure(|| carrier.overlay_text("ui/screen.json", &document));
+        let mut policy = CatalogPolicy::default();
+        policy.after_layers(keep_builtin_toast);
+        let layers = vec![vec![
+            (
+                json_ui::UI_DEFS_PATH.to_owned(),
+                br#"{"ui_defs":["ui/screen.json"]}"#.to_vec(),
+            ),
+            (
+                "ui/screen.json".to_owned(),
+                br#"{"namespace":"screen","panel_3":{"text":"server"}}"#.to_vec(),
+            ),
+        ]];
+        let (layered, allocated) = test_alloc::measure(|| policy.layer(&carrier, &layers));
+        assert!(
+            allocated.bytes < parsed.bytes / 2,
+            "layering allocated {} bytes over a carrier that parsed in {}",
+            allocated.bytes,
+            parsed.bytes
+        );
+        assert_eq!(
+            layered.pack.lookup("screen", "panel_3").unwrap().props["text"],
+            "server"
+        );
+        assert_eq!(
+            carrier.lookup("screen", "panel_3").unwrap().props["text"],
+            "panel 3"
+        );
+        assert!(
+            layered
+                .builtin_screens
+                .unwrap()
+                .lookup("screen", "panel_399")
+                .is_some()
+        );
+    }
 }
 
 #[derive(Default)]
@@ -140,9 +201,7 @@ impl CatalogPolicy {
         // available to the message subtrees selected by the screen families.
         let builtin_screens = (!screen_controls.is_empty()).then(|| {
             let mut screens = catalog.clone();
-            for control in builtin.controls() {
-                screens.insert(control.clone());
-            }
+            screens.insert_definitions_from(&builtin);
             for control in screen_controls {
                 screens.insert(control);
             }

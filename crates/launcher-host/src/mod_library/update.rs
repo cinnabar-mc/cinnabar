@@ -62,6 +62,33 @@ pub struct Installed {
     pub message: String,
 }
 
+impl Installed {
+    /// Names the permissions this replacement newly requests that its retained grants leave off,
+    /// so the completion message asks the player to review them. `previous` is the replaced
+    /// revision's card. Grants stay unchanged; approval remains an explicit card action.
+    pub fn review_new_requests<B: Backend>(
+        &mut self,
+        previous: &launcher::mods::InstalledMod,
+        registration: &Path,
+    ) {
+        let current = B::registered(registration)
+            .into_iter()
+            .find(|entry| same_path(entry.component(), &self.path));
+        let mut next = launcher::mods::InstalledMod {
+            permissions: Vec::new(),
+            ..previous.clone()
+        };
+        B::describe(&mut next, &B::declarations(&self.path), current.as_ref());
+        let added = next.new_requests(previous);
+        if !added.is_empty() {
+            self.message.push_str(&format!(
+                " It requests new permissions: {}. Review them on its card.",
+                added.join(", ")
+            ));
+        }
+    }
+}
+
 /// Completion is held until the runtime acknowledges the freshly requested instance.
 pub struct PendingReload {
     pub id: u64,

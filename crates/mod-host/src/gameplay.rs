@@ -1,19 +1,16 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{
     CameraDelta, GameplayCameraPose, GameplayCameraRig, GameplayControlModes, GameplayFacts,
-    GameplayMob, GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot,
-    GameplayVector3, ModCue,
+    GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, GameplayVector3, ModCue,
 };
 use anyhow::{Result, bail, ensure};
 use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_COMMAND_BYTES, MAX_COMMANDS_PER_FRAME, MAX_COMMANDS_PER_SECOND,
-    MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_GAMEPLAY_MOBS,
-    MAX_GAMEPLAY_PLAYERS, MAX_INCOMING_CUES, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
-    MAX_RIG_BACK_BLOCKS, MAX_RIG_FOV_DELTA_DEGREES, MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS,
-    MAX_RIG_VERTICAL_BLOCKS,
+    MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_INCOMING_CUES, MAX_RIG_BACK_BLOCKS,
+    MAX_RIG_FOV_DELTA_DEGREES, MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS, MAX_RIG_VERTICAL_BLOCKS,
 };
 
-/// Mob input, the retained rig, and per-frame command and cue output.
+/// Retained movement output and rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
     /// Complete movement input from the last frame callback that completed in its frame.
@@ -28,7 +25,6 @@ pub(super) struct WorldState {
     /// The next commit cannot renew movement output: its callback started in an earlier frame
     /// or is `init`.
     hold: bool,
-    pub mobs: Vec<GameplayMob>,
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
     pub cues: Vec<ModCue>,
@@ -53,7 +49,6 @@ impl WorldState {
             control_modes: None,
             pending_control_modes: None,
             hold: false,
-            mobs: self.mobs.clone(),
             rig: None,
             commands: Vec::new(),
             cues: Vec::new(),
@@ -91,7 +86,6 @@ impl WorldState {
         self.pending_control_modes = None;
         self.hold = false;
         self.polls = 0;
-        self.mobs.clear();
         self.commands.clear();
         self.cues.clear();
         self.pending_rig = None;
@@ -151,38 +145,6 @@ impl WorldState {
 
 fn finite(point: &GameplayVector3) -> bool {
     point.x.is_finite() && point.y.is_finite() && point.z.is_finite()
-}
-
-/// Mobs need a current snapshot and must lie within the published range of its eye.
-pub(super) fn validate_mobs(
-    snapshot: Option<&GameplaySnapshot>,
-    mobs: &[GameplayMob],
-) -> Result<()> {
-    if mobs.is_empty() {
-        return Ok(());
-    }
-    let Some(frame) = snapshot else {
-        bail!("mobs require a current gameplay frame");
-    };
-    ensure!(mobs.len() <= MAX_GAMEPLAY_MOBS, "too many gameplay mobs");
-    let range = MAX_MOB_RANGE_BLOCKS * MAX_MOB_RANGE_BLOCKS;
-    ensure!(
-        mobs.iter().all(|mob| {
-            let (dx, dy, dz) = (
-                mob.position.x - frame.eye.x,
-                mob.position.y - frame.eye.y,
-                mob.position.z - frame.eye.z,
-            );
-            finite(&mob.position)
-                && dx * dx + dy * dy + dz * dz <= range
-                && !mob.type_id.is_empty()
-                && mob.type_id.len() <= MAX_MOB_TYPE_BYTES
-                && mob.health.is_none_or(f32::is_finite)
-                && mob.max_health.is_none_or(f32::is_finite)
-        }),
-        "invalid gameplay mob"
-    );
-    Ok(())
 }
 
 fn rig_valid(rig: &GameplayCameraRig) -> bool {
@@ -254,19 +216,12 @@ pub(super) fn incoming(cues: Vec<ModCue>) -> Vec<ModCue> {
 /// Rejects malformed host frames before granting a guest any access to them.
 pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<()> {
     let Some(frame) = snapshot else { return Ok(()) };
-    let finite =
-        |point: &GameplayVector3| point.x.is_finite() && point.y.is_finite() && point.z.is_finite();
-    ensure!(
-        frame.players.len() <= MAX_GAMEPLAY_PLAYERS,
-        "too many gameplay players"
-    );
     ensure!(
         finite(&frame.eye)
             && frame.yaw.is_finite()
             && frame.pitch.is_finite()
             && frame.frame_seconds.is_finite()
-            && (0.0..=1.0).contains(&frame.frame_seconds)
-            && frame.players.iter().all(|player| finite(&player.position)),
+            && (0.0..=1.0).contains(&frame.frame_seconds),
         "invalid gameplay pose or frame duration"
     );
     Ok(())
@@ -556,21 +511,18 @@ impl cinnabar::extension::gameplay::Host for State {
             .filter(|_| self.snapshot.is_some())))
     }
 
+    /// The current input-owned eye pose and frame duration, under players or terrain authority.
     fn read_frame(
         &mut self,
     ) -> Result<Result<Option<cinnabar::extension::gameplay::Snapshot>, String>> {
-        Ok(read_frame(self)?.map(|value| value.map(Into::into)))
-    }
-
-    fn read_mobs(&mut self) -> Result<Result<Vec<GameplayMob>, String>> {
         self.gameplay_reads += 1;
         if self.gameplay_reads > MAX_IMPORT_WRITES {
             bail!("gameplay read budget exhausted");
         }
-        if !self.grants.entities {
-            return Ok(Err("entities capability denied".into()));
+        if !(self.grants.players || self.grants.terrain) {
+            return Ok(Err("local pose capability denied".into()));
         }
-        Ok(Ok(self.world.mobs.clone()))
+        Ok(Ok(self.snapshot.clone().map(Into::into)))
     }
 
     fn set_camera_rig(&mut self, rig: Option<GameplayCameraRig>) -> Result<Result<(), String>> {
@@ -651,24 +603,6 @@ impl cinnabar::extension::gameplay::Host for State {
         self.pending_camera = Some(next);
         Ok(Ok(()))
     }
-}
-
-/// Reads the bounded, grant-filtered host snapshot before selecting a guest record shape.
-pub(super) fn read_frame(state: &mut State) -> Result<Result<Option<GameplaySnapshot>, String>> {
-    state.gameplay_reads += 1;
-    if state.gameplay_reads > MAX_IMPORT_WRITES {
-        bail!("gameplay read budget exhausted");
-    }
-    if !(state.grants.players || state.grants.terrain) {
-        return Ok(Err("local pose capability denied".into()));
-    }
-    let mut snapshot = state.snapshot.clone();
-    if !state.grants.players
-        && let Some(frame) = snapshot.as_mut()
-    {
-        frame.players.clear();
-    }
-    Ok(Ok(snapshot))
 }
 
 /// Reads walking facts with the same authority and allowance for every guest generation.

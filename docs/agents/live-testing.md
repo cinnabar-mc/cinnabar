@@ -294,7 +294,10 @@ finish on worker tasks.
 
 `CINNABAR_GPU_UI=1` replaces the aggregate UI timestamp category with
 `gpu_ui_raster`, `gpu_ui_model`, `gpu_ui_composite`, `gpu_ui_invert` and
-`gpu_ui_backdrop` (the shared scene blur for mod-surface glass) on owned passes. It also reports submitted pass, draw and index counts, layer reuse,
+`gpu_ui_backdrop` (the shared scene blur for mod-surface glass) on owned passes. A
+crosshair invert without model depth draws inside the composite pass before it, so
+its time is part of `gpu_ui_composite` and it counts an invert draw but no invert
+pass. It also reports submitted pass, draw and index counts, layer reuse,
 target extent/format/sample count, and geometry, texture and viewport upload bytes
 once per second. Metal timings retain the latency and invalid-pair limitations
 above; a missing category is not a zero-cost pass. Pair this diagnostic with query

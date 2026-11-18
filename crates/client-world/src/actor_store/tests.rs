@@ -281,15 +281,75 @@ fn boat_spawns_apply_the_network_offset_and_feet_moves_do_not() {
 }
 
 #[test]
+fn minecart_spawn_and_stationary_network_moves_keep_the_same_height() {
+    let facts = assets::facts::entity::EntityFacts::pinned();
+    let mut checked = 0;
+    for record in facts.records.iter().filter(|record| {
+        record.fact.native_class == assets::facts::entity::NativeEntityClass::Minecart
+    }) {
+        checked += 1;
+        let mut store = ActorStore::new(1, 0);
+        let spawn = entity_spawn(42, -7, &record.identifier, Arc::from([]));
+        store.apply(1, 1, spawn);
+        let expected_y = 64.0 - record.fact.collision.unwrap()[1] * 0.5;
+        let actor = store.get(42).unwrap();
+        assert_eq!(actor.position[1], expected_y, "{} spawn", record.identifier);
+        assert_eq!(actor.bounding_box().unwrap().0[1], expected_y);
+        store.apply(1, 2, network_move(42, 64.0, false));
+        for _ in 0..super::ACTOR_INTERPOLATION_TICKS {
+            store.advance_interpolation_ticks(1);
+            let actor = store.get(42).unwrap();
+            assert_eq!(
+                actor.position[1], expected_y,
+                "{} movement",
+                record.identifier
+            );
+            assert_eq!(actor.native_position()[1], 64.0);
+            for alpha in [0.0, 0.5, 1.0] {
+                assert_eq!(actor.interpolated_position(alpha).unwrap()[1], expected_y);
+            }
+        }
+    }
+    assert!(checked > 0, "pinned minecart constructors");
+}
+
+#[test]
+fn minecart_spawn_retains_the_exact_packet_origin_above_collision_feet() {
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut spawn) =
+        entity_spawn(42, -7, "minecraft:hopper_minecart", Arc::from([]))
+    else {
+        unreachable!()
+    };
+    // A cart summoned at 64.1 in the offline server fixture arrives at 64.45.
+    spawn.position[1] = 64.45;
+    store.apply(1, 1, ActorEvent::Spawn(spawn));
+    let actor = store.get(42).unwrap();
+    assert!((actor.position[1] - 64.1).abs() < 0.00001);
+    assert_eq!(actor.native_position()[1].to_bits(), 64.45_f32.to_bits());
+    let ActorEvent::Move(mut movement) = network_move(42, 65.0, true) else {
+        unreachable!()
+    };
+    movement.position_origin = ActorPositionOrigin::Feet;
+    store.apply(1, 2, ActorEvent::Move(movement));
+    assert_eq!(store.get(42).unwrap().position[1], 65.0);
+}
+
+#[test]
 fn absolute_network_positions_use_supported_entity_kind_offsets() {
+    let cart_offset = assets::facts::entity::EntityFacts::pinned()
+        .get("minecraft:minecart")
+        .collision
+        .unwrap()[1]
+        * 0.5;
     let cases = [
         ("minecraft:item", super::ITEM_ACTOR_NETWORK_OFFSET),
         ("minecraft:falling_block", 0.5),
-        ("minecraft:minecart", 0.5),
-        ("minecraft:chest_minecart", 0.5),
-        ("minecraft:hopper_minecart", 0.5),
-        ("minecraft:tnt_minecart", 0.5),
-        ("minecraft:command_block_minecart", 0.5),
+        ("minecraft:minecart", cart_offset),
+        ("minecraft:chest_minecart", cart_offset),
+        ("minecraft:hopper_minecart", cart_offset),
+        ("minecraft:tnt_minecart", cart_offset),
+        ("minecraft:command_block_minecart", cart_offset),
         ("minecraft:boat", 0.375),
         ("minecraft:chest_boat", 0.375),
     ];

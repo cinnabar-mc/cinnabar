@@ -24,10 +24,10 @@ fn pinned_dropped_item_classification_is_unchanged() {
         digest.update(if sprite { b"\t1\n" } else { b"\t0\n" });
     }
     // Freeze the complete classification, including every default block route.
-    assert_eq!((registry.len(), sprites), (1590, 85));
+    assert_eq!((registry.len(), sprites), (1590, 89));
     assert_eq!(
         format!("{:x}", digest.finalize()),
-        "9d8e9c27cb81f4ef2f64630da98a61efda23c136eef7d324ee67ae4545028a61"
+        "f5969237e99418dec9e515f453e683e7ae37da3412f042e9ca60dc3e7d3d4b14"
     );
 }
 
@@ -85,7 +85,9 @@ fn sprite_policy_preserves_special_cases_and_custom_namespaces() {
         "minecraft:spore_blossom",
         "minecraft:sea_lantern",
         "minecraft:stone",
-        "minecraft:amethyst_cluster",
+        "minecraft:amethyst_block",
+        "minecraft:budding_amethyst",
+        "cinnabar:amethyst_cluster",
         "minecraft:unlit_redstone_torch",
         "cinnabar:lantern",
         "cinnabar:chain",
@@ -106,4 +108,56 @@ fn sprite_policy_preserves_special_cases_and_custom_namespaces() {
             );
         }
     }
+}
+
+#[test]
+fn dropped_crystal_variants_use_their_flat_carried_artwork() {
+    let stream = stream(false, 1);
+    let registry = protocol::vanilla_item_registry();
+    let crystals: Vec<_> = registry
+        .iter()
+        .filter(|entry| {
+            assets::facts::block_render_fact(&entry.identifier).kind
+                == assets::facts::BlockRenderKind::Crystal
+        })
+        .collect();
+    assert!(!crystals.is_empty());
+    for entry in crystals {
+        assert!(
+            assets::facts::block_render_fact(&entry.identifier).flat_icon,
+            "{} must declare its carried presentation",
+            entry.identifier
+        );
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(&entry.identifier), None),
+                None,
+                "{}",
+                entry.identifier
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:amethyst_block"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1))
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
 }

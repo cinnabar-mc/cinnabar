@@ -16,10 +16,11 @@ use render_scene::{
 fn neutral_pbr_layers() -> (TextureArray, TextureArray) {
     let [normal, material] = [[128, 128, 255, 128], [0, 0, 255, 0]].map(|rgba| TextureArray {
         layers: 1,
-        mips: Box::new([TextureMip {
+        mips: [TextureMip {
             size: 1,
             rgba8: Box::new(rgba),
-        }]),
+        }]
+        .into(),
     });
     (normal, material)
 }
@@ -172,7 +173,7 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS];
     #[cfg(feature = "enhanced")]
     let enhanced = assets.enhanced().filter(|authored| {
-        let supported = authored.fits_device_limits(&device_limits);
+        let supported = render_scene::enhanced_maps_fit_device_limits(authored, &device_limits);
         if !supported {
             bevy::log::warn!("unsupported authored Enhanced maps; using carrier materials");
         }
@@ -224,6 +225,10 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
             variation_start: material.variation_start,
             variation_count: material.variation_count,
             variation_weight: material.variation_weight,
+            glow_mask: gpu_mask_reference(assets.assets(), material.glow_mask),
+            emissive_mask: gpu_mask_reference(assets.assets(), material.emissive_mask),
+            mask_strength: material.mask_strength,
+            ao_exponent: material.ao_exponent,
         })
         .collect::<Vec<_>>();
     let animation_words = assets
@@ -640,11 +645,19 @@ fn upload_texture_page_format(
     (texture, view, queue_upload_bytes)
 }
 
+/// The GPU texture reference of a material mask; [`assets::NO_MASK`] stays unset.
+fn gpu_mask_reference(assets: &assets::RuntimeAssets, raw: u32) -> u32 {
+    match assets::TextureRef::from_raw(raw) {
+        Ok(texture) if raw != assets::NO_MASK => gpu_texture_reference(assets, texture),
+        _ => assets::NO_MASK,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[cfg(feature = "enhanced")]
-    use render_scene::{EnhancedTextureAssets, plan_texture_mip_uploads};
+    use {assets::texture::EnhancedTextureAssets, render_scene::plan_texture_mip_uploads};
 
     /// Ordinary carrier uploads fit the five-page sRGB and native-leaf views, two samplers,
     /// and the biome table at binding 26.
@@ -707,10 +720,11 @@ mod tests {
         assert!(build_chunk_texture_assets(&carrier, &device, &queue).is_some());
         let array = TextureArray {
             layers: 2,
-            mips: Box::new([TextureMip {
+            mips: [TextureMip {
                 size: 1,
                 rgba8: vec![128; 8].into_boxed_slice(),
-            }]),
+            }]
+            .into(),
         };
         let authored = Arc::new(
             EnhancedTextureAssets::new(

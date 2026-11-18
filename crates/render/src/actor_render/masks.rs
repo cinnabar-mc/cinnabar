@@ -124,7 +124,7 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         }
         fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
             "MASK_BLEND".into(),
-            crate::actor::material::state(key.actor.material).is_some_and(|state| state.blend),
+            key.actor.raster().blend.is_some(),
         ));
         let component = wgpu::BlendComponent {
             src_factor: wgpu::BlendFactor::One,
@@ -546,6 +546,7 @@ pub(crate) fn prepare(
                     hdr: false,
                     enhanced: false,
                     material: span.material,
+                    raster: span.raster,
                 };
                 let Ok(id) = masks.variants.specialize(
                     &cache,

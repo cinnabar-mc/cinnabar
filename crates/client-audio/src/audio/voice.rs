@@ -106,6 +106,12 @@ impl VoiceSource {
         self.shared.cancel.load(Ordering::Acquire)
     }
 
+    /// The pitch consumed by the resampler, exposed only for playback regressions.
+    #[cfg(test)]
+    pub(super) fn pitch(&self) -> f32 {
+        load(&self.shared.pitch)
+    }
+
     fn sample(&self, frame: usize, channel: usize) -> f32 {
         let channels = usize::from(self.pcm.channels);
         let frames = self.pcm.frames();

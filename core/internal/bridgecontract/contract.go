@@ -141,6 +141,8 @@ const (
 	MethodProfile = "profile.v1"
 	// MethodRealmMembership: Control method for realm membership.
 	MethodRealmMembership = "realm_membership.v1"
+	// MethodRealmLeave: Control method for leaving a joined realm.
+	MethodRealmLeave = "realm_leave.v1"
 	// MethodPacketDelay: Control method for packet delay.
 	MethodPacketDelay = "packet_delay.v1"
 	// MethodPresence: Control method for presence.
@@ -275,10 +277,10 @@ const (
 	GameModeCreative = "creative"
 	// GameModeAdventure: Game mode a world starts players in. Adventure.
 	GameModeAdventure = "adventure"
-	// BackendBds: Server backend a world runs on; fixed when the world is created. Bds.
+	// BackendBds: Local-world host identity, including the marker retained for older saved worlds. Bds.
 	BackendBds = "bds"
-	// BackendDragonfly: Server backend a world runs on; fixed when the world is created. Dragonfly.
-	BackendDragonfly = "dragonfly"
+	// BackendLegacyDragonfly: Local-world host identity, including the marker retained for older saved worlds. LegacyDragonfly.
+	BackendLegacyDragonfly = "dragonfly"
 	// WorldStateIdle: Lifecycle of the open local world. Idle.
 	WorldStateIdle = "idle"
 	// WorldStateStarting: Lifecycle of the open local world. Starting.

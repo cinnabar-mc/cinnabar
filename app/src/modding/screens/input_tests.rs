@@ -1,4 +1,7 @@
 //! Input regressions across the real inventory suppression and mod-screen paths.
+#[path = "input_tests/scroll_tests.rs"]
+mod scroll_tests;
+
 use crate::ui_runtime::drive_chat_keyboard_input;
 use bevy::window::WindowEvent;
 use bevy::{

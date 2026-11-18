@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn minecart_constructor_display_blocks_follow_native_membership() {
+    let facts = EntityFacts::pinned();
+    for (identifier, expected) in [
+        ("minecraft:minecart", None),
+        ("minecraft:chest_minecart", Some("minecraft:chest")),
+        ("minecraft:hopper_minecart", Some("minecraft:hopper")),
+        ("minecraft:tnt_minecart", Some("minecraft:tnt")),
+        (
+            "minecraft:command_block_minecart",
+            Some("minecraft:command_block"),
+        ),
+        ("minecraft:zombie", None),
+    ] {
+        let record = facts
+            .records
+            .iter()
+            .find(|record| record.identifier.as_ref() == identifier)
+            .unwrap();
+        assert_eq!(record.minecart_display_block(), expected, "{identifier}");
+    }
+    let unresolved = EntityFactRecord {
+        identifier: "fixture:hopper_minecart".into(),
+        fact: EntityFact::default(),
+    };
+    assert_eq!(unresolved.minecart_display_block(), None);
+}
+
+#[test]
 fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
     for (class, expected) in [
         (NativeEntityClass::Player, "minecraft:player"),

@@ -106,3 +106,32 @@ fn painted_bounds_keep_nonzero_gradient_stops_borders_and_translucent_paint() {
         assert_eq!(drawing(paint, true).painted_bounds().unwrap().min().x(), 0.);
     }
 }
+
+#[test]
+fn painted_bounds_include_vertices_rounded_beyond_their_original_extent() {
+    let mut drawing = drawing(
+        UiCoveragePaint {
+            fill: [[255; 4]; 2],
+            border: [0; 4],
+        },
+        false,
+    );
+    drawing.batches[0].index_range = 0..3;
+    drawing.batches[0].clip = UiRect::new(
+        UiPoint::new(4000., 0.).unwrap(),
+        UiPoint::new(4200., 100.).unwrap(),
+    )
+    .unwrap();
+    for (vertex, position) in
+        drawing
+            .vertices
+            .iter_mut()
+            .zip([[4097., 5.], [4119., 5.], [4097., 20.]])
+    {
+        vertex.position = position;
+        vertex.style_flags |= render_api::UI_STYLE_HALF_FLOAT_XY;
+    }
+    let bounds = drawing.painted_bounds().unwrap();
+    assert!(bounds.min().x() <= 4096.);
+    assert!(bounds.max().x() >= 4120.);
+}

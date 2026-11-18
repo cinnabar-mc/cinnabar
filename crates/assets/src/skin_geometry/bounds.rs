@@ -28,6 +28,30 @@ impl SkinGeometryBounds {
         parse(description)
     }
 
+    /// The box from `low` to `high`, both relative to the actor's feet.
+    #[must_use]
+    pub fn from_corners(low: [f32; 3], high: [f32; 3]) -> Self {
+        Self {
+            center: std::array::from_fn(|axis| low[axis] * 0.5 + high[axis] * 0.5),
+            half_extents: std::array::from_fn(|axis| high[axis] * 0.5 - low[axis] * 0.5),
+        }
+    }
+
+    /// The smallest box holding both boxes, without overflow when finite offsets are far apart.
+    #[must_use]
+    pub fn union(self, other: Self) -> Self {
+        Self::from_corners(
+            std::array::from_fn(|axis| {
+                (self.center[axis] - self.half_extents[axis])
+                    .min(other.center[axis] - other.half_extents[axis])
+            }),
+            std::array::from_fn(|axis| {
+                (self.center[axis] + self.half_extents[axis])
+                    .max(other.center[axis] + other.half_extents[axis])
+            }),
+        )
+    }
+
     pub(crate) fn has_valid_dimensions(self) -> bool {
         let dimensions = [self.half_extents[0] * 2.0, self.half_extents[1] * 2.0];
         self.half_extents[0] == self.half_extents[2]
@@ -38,13 +62,19 @@ impl SkinGeometryBounds {
             })
     }
 
-    /// Positions the box at the actor's feet using the shared conservative scale policy.
-    pub fn at(self, feet: [f32; 3], scale: f32) -> ([f32; 3], [f32; 3]) {
-        let scale = if scale.is_finite() {
+    /// The conservative scale applied when positioning a culling box.
+    #[must_use]
+    pub fn culling_scale(scale: f32) -> f32 {
+        if scale.is_finite() {
             scale.max(1.0)
         } else {
             1.0
-        };
+        }
+    }
+
+    /// Positions the box at the actor's feet using the shared conservative scale policy.
+    pub fn at(self, feet: [f32; 3], scale: f32) -> ([f32; 3], [f32; 3]) {
+        let scale = Self::culling_scale(scale);
         (
             std::array::from_fn(|axis| {
                 feet[axis] + (self.center[axis] - self.half_extents[axis]) * scale
@@ -120,6 +150,17 @@ mod tests {
             SkinGeometryBounds::default().at([0.0; 3], 1.0),
             ([-0.5, 0.0, -0.5], [0.5, 2.0, 0.5])
         );
+    }
+
+    #[test]
+    fn union_holds_both_boxes_even_when_far_apart() {
+        let high_box = parse(&serde_json::json!({"visible_bounds_width":4,"visible_bounds_height":514,"visible_bounds_offset":[0,256,0]})).unwrap();
+        let feet = SkinGeometryBounds::from_corners([-0.25, 0.0, -0.25], [0.25, 0.5, 0.25]);
+        assert_eq!(
+            high_box.union(feet).at([0.0; 3], 1.0),
+            ([-2.0, 0.0, -2.0], [2.0, 281.0, 2.0])
+        );
+        assert_eq!(feet.union(high_box), high_box.union(feet));
     }
 
     #[test]

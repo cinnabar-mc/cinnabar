@@ -1,5 +1,6 @@
 //! Single-finger menu gestures defer control activation until a completed tap.
 
+use super::mode::MenuInputMode;
 use super::*;
 
 /// How long a finger rests on an OreUI control before its press sounds.

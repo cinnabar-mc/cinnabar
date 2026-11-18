@@ -135,11 +135,6 @@ impl HudState {
         };
     }
 
-    /// The hidden set this callback has staged, or the committed one.
-    pub(super) fn staged_hidden(&self) -> HiddenElements {
-        self.pending_hidden.unwrap_or(self.hidden)
-    }
-
     /// Resets per-callback read budgets.
     pub(super) fn begin_callback(&mut self) {
         self.measures = 0;

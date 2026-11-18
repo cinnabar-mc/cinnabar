@@ -11,6 +11,7 @@ mod input;
 mod inventory;
 #[cfg(target_os = "macos")]
 mod macos;
+mod materials;
 mod scoreboards;
 mod state;
 mod surface;

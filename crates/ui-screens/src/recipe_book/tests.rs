@@ -36,7 +36,7 @@ impl json_ui::ControlLibrary for RecipeCell {
 /// Modified templates may draw cells anywhere and must retain the complete grid.
 #[test]
 fn unverified_templates_build_every_recipe_cell() {
-    const CELLS: usize = 200;
+    const CELLS: usize = INITIAL_GRID_WINDOW * 2;
     let root = Arc::new(ResolvedControl {
         name: "grid".into(),
         control_type: Some("grid".into()),
@@ -63,7 +63,8 @@ fn unverified_templates_build_every_recipe_cell() {
             .filter(|cell| cell.children.iter().any(|child| child.name == "label"))
             .count()
     };
-    assert!(built(true) < CELLS);
+    // The retained template used for measurement is present in addition to the cell window.
+    assert_eq!(built(true), INITIAL_GRID_WINDOW + 1);
     assert!(built(false) >= CELLS);
 }
 

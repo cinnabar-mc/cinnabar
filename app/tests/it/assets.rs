@@ -111,7 +111,11 @@ fn synthetic_blob() -> Box<[u8]> {
         model_quads: Box::new([]),
         animations: Box::new([]),
         animation_frames: Box::new([]),
-        texture_pages: vec![TexturePage::new(TextureArray { layers: 2, mips })].into_boxed_slice(),
+        texture_pages: vec![TexturePage::new(TextureArray {
+            layers: 2,
+            mips: mips.into(),
+        })]
+        .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
         provenance: *pinned_world_provenance(),
     })

@@ -30,7 +30,7 @@ pub(super) fn with_video_fallback<T>(
         return attempt(video, &[]).map(|renderer| (renderer, None));
     };
     let reason = if crashed == Some(requested) {
-        "it stopped an earlier launch before the first frame".to_owned()
+        launcher::graphics_backend::PREVIOUS_FAILURE_REASON.to_owned()
     } else {
         match attempt(video, &[]) {
             Ok(renderer) => return Ok((renderer, None)),

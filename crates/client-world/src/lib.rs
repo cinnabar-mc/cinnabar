@@ -24,7 +24,7 @@ pub use actor_store::{
     ActorHitBoxes, ActorPickup, ActorPose, ActorShadowCaster, ActorSnapshot, ActorStatus,
     ActorStatusNotice, BlockEntityCandidate, BlockEntityKind, BlockEntityView, CrystalBeamView,
     DEATH_DURATION_TICKS, DEFAULT_PLAYER_HEALTH, DimensionWrite, DragonDeathView, DroppedItemView,
-    ExplicitDimensions, FIRE_FADE_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA,
+    ExplicitDimensions, FIRE_FADE_TICKS, FishingHookPose, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA,
     LightningBoltView, LocalItemUse, LocalPlayerFeed, LocalVehicleFeed, LoyaltyRopeView,
     MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MIN_COLLISION_DIMENSION, MovementFlagUpdate,
     PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin, PropertyDefault, ROCKET_LAUNCH_EVENT,

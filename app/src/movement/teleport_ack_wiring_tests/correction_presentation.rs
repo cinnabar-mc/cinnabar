@@ -9,8 +9,8 @@ use {
     gameplay::movement::{MovementSource, flush_player_auth_inputs},
 };
 
-/// Builds a local grounded stream for correction publication tests.
-fn grounded_stream(position: [f32; 3]) -> WorldStream {
+/// Builds a local grounded stream: a stone row at x 4 to 6, y 0, z 8.
+pub(super) fn grounded_stream(position: [f32; 3]) -> WorldStream {
     let records = assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
         assets::active_content_registry_protocol(),

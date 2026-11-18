@@ -89,7 +89,7 @@ fn presentation() -> UiPresentationRuntime {
         None,
         "preparing item sources leaves the live menu unchanged"
     );
-    presentation.install_gui_model_sources(prepared).unwrap();
+    presentation.install_gui_model_sources(prepared);
     assert!(
         presentation
             .color_mask_icon("minecraft:firework_star", 0, 0x112233)

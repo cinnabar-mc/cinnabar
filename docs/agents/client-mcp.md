@@ -34,11 +34,15 @@ schemas document every argument. Agents drive the client only through this endpo
   `category=level` directives (such as `net=debug`; the tool description lists the categories)
   and raw tracing `EnvFilter` directives, layered over the defaults and `RUST_LOG`.
   `log_filter_get` reports the runtime `spec` and the `effective` filter.
+- `state.hud` reports the latest `title` and `subtitle`, and the `action_bar` text until its title
+  timing ends or it is cleared (then null), whatever a pack keeps drawn.
 - `state.player_motion` includes the simulation tick, velocity, accepted motion sequence, jump
   eligibility, physical jump state, processed sprint state, active item use and the selected
   item's resolved use profile. `state.local_mods` also reports bounded
   host status and validated panel controls, so tests can verify module toggles and settings
   directly before sending a stimulus. These diagnostics do not grant movement authority.
+- `state.hand_draw` reports the last published main-hand and offhand item instance counts.
+  Check these alongside the selected item when verifying held-item captures; skin arms do not count.
 - `state.client_part_screens` lists each running client part's open modal screen: its `bundle`,
   its `template` (such as `ui/terminal.json`), whether it is `focused` (owns input) and whether
   the last frame `drawn` it. `state.screens` lists only the client's own scenes.

@@ -4,6 +4,15 @@ use super::{CameraDelta, ModHost};
 use std::sync::Arc;
 
 impl ModHost {
+    /// Visual terrain rules are withdrawn with owner authority or activation.
+    pub fn terrain_surface_rules(&self) -> &[mod_api::terrain_surface::Rule] {
+        if self.is_active() {
+            self.instance.terrain_surface_rules()
+        } else {
+            &[]
+        }
+    }
+
     /// Reads a committed pulse so filtering can run before the frame outputs are collected.
     pub fn attack_pulse_requested(&self) -> bool {
         self.instance.attack_pulse_requested()
@@ -103,6 +112,12 @@ impl ModHost {
     /// reports to later callbacks; none while the panel is not up.
     pub fn observe_panel_layout(&mut self, layout: Option<ui::mod_hud::PanelLayout>) {
         self.instance.observe_panel_layout(layout);
+    }
+
+    /// Records this mod's open panel's last pointer press on a declared control, which
+    /// `panel.read-press` reports to later callbacks; none while the panel is not up.
+    pub fn observe_panel_press(&mut self, press: Option<ui::mod_hud::PanelPress>) {
+        self.instance.observe_panel_press(press);
     }
 
     /// Installs the host label metrics `measure-text` uses; none reports them unavailable.

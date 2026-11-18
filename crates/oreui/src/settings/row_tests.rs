@@ -466,6 +466,29 @@ fn cloud_option_has_a_readable_title_and_description_without_locale_data() {
 }
 
 #[test]
+fn dynamic_lights_option_has_a_readable_description_without_locale_data() {
+    let view = MenuView::new(true, "Player".into());
+    let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+        let mut content = Content {
+            canvas,
+            view: &view,
+            span: [20.0, 1000.0],
+            column_width: 980.0,
+            y: 100.0,
+            translate: &|_| None,
+            nested: false,
+        };
+        content
+            .option(launcher::menu::settings_options::SettingId::DynamicLights)
+            .unwrap();
+    });
+    let labels = rendered_text(&nodes);
+    assert!(labels.contains("DynamicLights"));
+    assert!(labels.contains("Addssmoothclient-sidelight"));
+    assert!(labels.contains("Existingblockandskylightingstayunchanged."));
+}
+
+#[test]
 fn exact_server_ping_setting_has_a_title_description_and_toggle() {
     let view = MenuView::new(true, "Player".into());
     let (_, hits, nodes) = paint(HashMap::new(), |canvas| {

@@ -119,7 +119,7 @@ fn freelook_orbits_without_turning_gameplay_and_restores_on_release_or_focus_los
         app.update();
         let view = *app.world().resource::<LocalViewPose>();
         assert_eq!(view.rotation(), initial);
-        assert!(view.camera_rotation().angle_between(initial) > 0.1);
+        assert!(view.player_camera_rotation().angle_between(initial) > 0.1);
         assert_eq!(
             app.world()
                 .resource::<CameraSettingsAuthority>()
@@ -136,7 +136,7 @@ fn freelook_orbits_without_turning_gameplay_and_restores_on_release_or_focus_los
         app.update();
         let view = *app.world().resource::<LocalViewPose>();
         assert_eq!(view.rotation(), initial);
-        assert_eq!(view.camera_rotation(), initial);
+        assert_eq!(view.player_camera_rotation(), initial);
         assert_eq!(
             app.world()
                 .resource::<CameraSettingsAuthority>()
@@ -161,7 +161,7 @@ fn session_reset_clears_camera_orbit_without_turning_the_actor() {
         &mut view,
         &mut LocalAvatarPresentation::default(),
     );
-    assert_eq!(view.camera_rotation(), view.rotation());
+    assert_eq!(view.player_camera_rotation(), view.rotation());
     assert_eq!(settings.perspective(), PerspectiveMode::FirstPerson);
 }
 
@@ -396,7 +396,7 @@ fn presented_view_release_preserves_only_admitted_held_user_freelook() {
     for (user_held, admitted) in [(true, true), (false, true), (true, false)] {
         let mut settings = super::CameraSettingsAuthority::default();
         let mut view = crate::local_player::LocalViewPose::default();
-        let body = view.camera_rotation();
+        let body = view.player_camera_rotation();
         settings.apply_presented_view(&mut view, Some(presented), false);
         assert!(settings.captures_look());
         settings.freelook = admitted;
@@ -405,7 +405,7 @@ fn presented_view_release_preserves_only_admitted_held_user_freelook() {
         assert_eq!(view.rotation(), body, "captured look never turns the body");
         settings.apply_presented_view(&mut view, None, user_held);
         assert_eq!(
-            view.camera_rotation(),
+            view.player_camera_rotation(),
             if user_held && admitted { heading } else { body }
         );
         assert!(settings.presented_view().is_none());

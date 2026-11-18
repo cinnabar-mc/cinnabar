@@ -16,9 +16,46 @@ use protocol::identity::FifoSequence;
 use protocol_ids::ActorFlag;
 use semantic_input::PerspectiveMode;
 use simulation_clock::{PhysicsTick, identity::SessionGeneration};
+use ui::mod_presentation::{ActorSelector, NametagRule, NametagVisibility};
 
 const OWN_COLOR: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 const REMOTE_COLOR: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+
+/// A nametag rule applying whether or not the HUD is hidden.
+fn rule(actors: ActorSelector, visibility: NametagVisibility) -> NametagRule {
+    NametagRule {
+        actors,
+        hud_hidden: None,
+        visibility,
+    }
+}
+
+/// Distinguishable own and remote colours with `rules` from a mod granted players.
+fn with_rules(rules: Vec<NametagRule>) -> ui::mod_presentation::Presentation {
+    ui::mod_presentation::Presentation {
+        nametag_style: Some(ui::mod_presentation::NametagStyle {
+            own_text_color: Some(OWN_COLOR),
+            text_color: Some(REMOTE_COLOR),
+            ..Default::default()
+        }),
+        nametag_rules: (
+            ui::mod_presentation::ActorGrants {
+                players: true,
+                entities: false,
+            },
+            rules,
+        ),
+        ..Default::default()
+    }
+}
+
+/// The local player's own tag shown, as the former `show_self` flag did.
+fn shown_players() -> ui::mod_presentation::Presentation {
+    with_rules(vec![rule(
+        ActorSelector::LocalPlayer,
+        NametagVisibility::Shown,
+    )])
+}
 
 /// Enables distinguishable own and remote labels in a current gameplay session.
 fn fixture_world(perspective: PerspectiveMode) -> World {
@@ -33,15 +70,7 @@ fn fixture_world(perspective: PerspectiveMode) -> World {
     }
     world
         .resource_mut::<UiPresentationResource>()
-        .set_mod_presentation(std::sync::Arc::new(ui::mod_presentation::Presentation {
-            nametag_style: Some(ui::mod_presentation::NametagStyle {
-                show_self: true,
-                own_text_color: Some(OWN_COLOR),
-                text_color: Some(REMOTE_COLOR),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }));
+        .set_mod_presentation(std::sync::Arc::new(shown_players()));
     assert_own_policy(&world);
     world
 }
@@ -53,7 +82,18 @@ fn assert_own_policy(world: &World) {
         .mod_ui()
         .mod_nametag_style()
         .expect("self-tag cosmetic policy must remain published");
-    assert!(style.show_self && !style.hide && !style.hide_players);
+    assert_eq!(
+        presentation.mod_ui().mod_presentation().nametag_visibility(
+            &ui::mod_presentation::ActorFacts {
+                runtime_id: 1,
+                player: true,
+                local: true,
+                riding: false,
+            },
+            false
+        ),
+        NametagVisibility::Shown
+    );
     assert_eq!(style.own_text_color, Some(OWN_COLOR));
     assert_eq!(style.text_color, Some(REMOTE_COLOR));
     assert_ne!(
@@ -68,7 +108,6 @@ fn assert_own_policy(world: &World) {
             .value(SettingId::IngamePlayerNames),
         0
     );
-    assert_eq!(menu.settings_snapshot().0.value(SettingId::HideHud), 0);
 }
 
 /// Feeds completed local simulation positions through the actor authority's normal input.
@@ -630,4 +669,93 @@ fn own_tag_setting_does_not_override_server_visibility() {
     );
     world.run_system_cached(prepare_ui_runtime).unwrap();
     assert!(glyph_anchors(&mut world, OWN_COLOR).is_empty());
+}
+
+/// Publishes a frame with Hide HUD set as given and the given mod presentation.
+fn publish_with(
+    world: &mut World,
+    hide_hud: bool,
+    presentation: ui::mod_presentation::Presentation,
+) {
+    world
+        .resource_mut::<MenuRuntime>()
+        .set_session_option(SettingId::HideHud, Some(i32::from(hide_hud)));
+    world
+        .resource_mut::<UiPresentationResource>()
+        .set_mod_presentation(std::sync::Arc::new(presentation));
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+}
+
+#[test]
+fn mod_nametag_rules_select_tags_by_actor_and_hud_state() {
+    let perspective = PerspectiveMode::ThirdPersonBack;
+    let mut world = fixture_world(perspective);
+    prepare_actor_motion(&mut world);
+    let feet = Vec3::new(0.0, 64.0, 0.0);
+    prepare_local_frame(&mut world, perspective, feet, 1);
+    publish_visibility(&mut world, perspective, feet, 1, 1);
+    let tags = |world: &mut World| {
+        let records = world
+            .resource_mut::<UiPresentationResource>()
+            .nametag_scene()
+            .records;
+        let has = |color: [f32; 4]| {
+            records
+                .iter()
+                .any(|record| record.text != 0 && record.color[..3] == color[..3])
+        };
+        (has(OWN_COLOR), has(REMOTE_COLOR))
+    };
+    publish_with(&mut world, false, shown_players());
+    assert_eq!(
+        tags(&mut world),
+        (true, true),
+        "a shown local player draws its own tag"
+    );
+    publish_with(&mut world, false, with_rules(Vec::new()));
+    assert_eq!(tags(&mut world), (false, true), "native has no own tag");
+    let mut hide_remote = shown_players();
+    hide_remote
+        .nametag_rules
+        .1
+        .push(rule(ActorSelector::Actor(2), NametagVisibility::Hidden));
+    publish_with(&mut world, false, hide_remote);
+    assert_eq!(
+        tags(&mut world),
+        (true, false),
+        "a later rule for one actor decides"
+    );
+    let mut hide_players = shown_players();
+    hide_players
+        .nametag_rules
+        .1
+        .push(rule(ActorSelector::Players, NametagVisibility::Hidden));
+    publish_with(&mut world, false, hide_players);
+    assert_eq!(tags(&mut world), (false, false));
+    publish_with(&mut world, true, with_rules(Vec::new()));
+    assert_eq!(
+        tags(&mut world),
+        (false, false),
+        "the client hides tags with the HUD"
+    );
+    publish_with(&mut world, true, shown_players());
+    assert_eq!(
+        tags(&mut world),
+        (true, false),
+        "an unconditional rule also applies while the HUD is hidden"
+    );
+    let mut with_hidden_hud = with_rules(vec![NametagRule {
+        hud_hidden: Some(true),
+        ..rule(ActorSelector::All, NametagVisibility::Native)
+    }]);
+    with_hidden_hud
+        .nametag_rules
+        .1
+        .push(rule(ActorSelector::LocalPlayer, NametagVisibility::Shown));
+    publish_with(&mut world, true, with_hidden_hud);
+    assert_eq!(
+        tags(&mut world),
+        (true, true),
+        "a hidden-HUD rule draws tags then"
+    );
 }

@@ -7,6 +7,7 @@ use std::{
 };
 
 mod catalog;
+mod dials;
 mod images;
 mod tints;
 use images::{icon, resolve_key};
@@ -65,7 +66,10 @@ pub(super) fn compile_session_icons(
     let (guessed, explicit): (Vec<_>, Vec<_>) = icon_keys
         .iter()
         .filter(|(identifier, _)| !block_rendered.contains(identifier))
-        .partition(|(identifier, key)| key.as_ref() == short_name(identifier));
+        .partition(|(identifier, key)| {
+            key.as_ref() == short_name(identifier)
+                && (identifier.starts_with("minecraft:") || !paths.contains_key(key.as_ref()))
+        });
     let mut icons = Vec::new();
     let mut retained_bytes = 0;
     let mut bounded_sheets = Vec::new();
@@ -119,6 +123,7 @@ pub(super) fn compile_session_icons(
         }
     }
     append_block_icons(&mut icons, block_icons, &mut retained_bytes);
+    dials::append(view, &mut icons, &mut retained_bytes);
     vanilla::append(view, &mut icons, &mut retained_bytes);
     (!icons.is_empty() || !block_sheets.is_empty() || !misses.is_empty()).then(|| {
         Arc::new(SessionIcons {

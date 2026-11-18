@@ -4,7 +4,7 @@ use assets::facts::pack::PackTexture as T;
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 use assets::{
     BLOCK_VISUAL_VARIANT_COVERED_GRASS, BLOCK_VISUAL_VARIANT_SNOW_COVER, BlockVisual,
-    SNOWED_GRASS_SIDE_TEXTURE, VisualKind,
+    MATERIAL_FLAG_OVERLAY_MASK, SNOWED_GRASS_SIDE_TEXTURE, VisualKind,
 };
 
 // Native grass_side's final variant (installed native vanilla base pack), selected
@@ -31,8 +31,10 @@ pub(in crate::compiler) fn material_descriptor(
         Descriptor {
             path: path.into(),
             texture_key: key.into(),
-            // Snow is precolored; never apply the grass alpha-overlay tint.
-            flags: 0,
+            // The shipped snowed side keeps grass_side's layout: its alpha is an
+            // overlay weight (all zero), not transparency. Without a tint flag the
+            // overlay colour is white, so the precolored side draws opaque.
+            flags: MATERIAL_FLAG_OVERLAY_MASK,
             state_variant,
             flipbook_selector: None,
         },

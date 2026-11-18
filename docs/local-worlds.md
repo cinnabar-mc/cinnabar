@@ -4,27 +4,33 @@ Single-player worlds run on a local server behind the same core and session endp
 The launcher (`crates/launcher-host/src/local_worlds`) owns the world store, the BDS download and the
 server processes; the core only routes sessions to the open world. Full scope: `plan.md` Phase 7.
 
-## Backends
+## Local server
 
-Each world records the backend that created it (`world.json`) and always reopens on it; switching is never silent.
+Every new or imported world uses Minecraft's official Bedrock Dedicated Server (BDS).
+Infinite and Flat terrain use the same host. Creation waits for runtime detection and refuses
+unsupported hosts. Accepting the Minecraft EULA is required before downloading or opening BDS.
 
-| Backend | Where | Notes |
-| --- | --- | --- |
-| `bds` native | Windows and Linux x86-64 | Official Bedrock Dedicated Server: vanilla terrain and mobs. |
-| `bds` container | Desktop hosts without a native build, with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
-| `bds` translated | Android ARM64 with the bundled runtime | Linux BDS; device and performance acceptance remain incomplete. |
-| `dragonfly` | built-in local server on every supported host | Flat terrain through Dragonfly's built-in generators; mob behavior has parity gaps. |
+| Runtime | Where |
+| --- | --- |
+| Native BDS | Windows and Linux x86-64 |
+| Container BDS | Desktop hosts with a Docker-compatible runtime |
+| Translated BDS | Android ARM64 with the bundled runtime; device acceptance remains incomplete |
 
-New worlds use BDS and offer Infinite or Flat terrain. If BDS is unavailable, creation shows
-its runtime warning and the Docker setup prompt. Existing Dragonfly worlds keep their backend.
-Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and generator.
-`docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
-Android bundles Dragonfly and a translated BDS runtime, with BDS the default for new worlds.
-The BDS runtime starts, saves and reopens worlds in an Android 15 test-app sandbox, including
-production protocol login and spawn with every external interface down. BDS acquires the Linux server archive and pinned guest
-runtime on first use. Android does not probe for Docker or offer a container installer. Full client,
-physical-device, offline, lifecycle and performance acceptance remain incomplete; see
-[Android](android.md).
+The exact server version and container image come from `assets/bedrock-target.json`.
+`docker_missing` and `docker_not_running` are reported in world status. Android acquires the
+Linux server and pinned guest runtime on first use and does not offer Docker installation.
+See [Android](android.md) for the remaining device and lifecycle acceptance work.
+
+### Saved Dragonfly worlds
+
+Worlds tagged `dragonfly`, including older records with no backend field, remain in the list
+with a **Conversion required** label. Opening one reports that BDS cannot open it yet and leaves
+its files unchanged. Renaming and deleting remain available. There is no conversion or fallback
+server in this version. On desktop, use Settings → Storage to open the local-worlds folder and
+copy a backup before using an external conversion tool. Android keeps these saves in the app's
+private storage; in-app export and conversion are unavailable. Compatibility of converted chunks,
+actors and player data is unverified.
+Existing BDS worlds continue to open normally.
 
 ## World options
 
@@ -91,22 +97,11 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 
 - **Storage:** `<worlds>/<id>/world.json` plus `db/` (a Bedrock world folder: `level.dat` + LevelDB) and `players/`.
   BDS sees `db/` through a directory link at `worlds/<id>` (junction on Windows) or a bind mount, so one world
-  runs at a time. Worlds move between backends only where formats allow; dragonfly-written `level.dat` files may
-  not satisfy BDS and vice versa, so do not share one folder across backends.
+  runs at a time. Legacy Dragonfly folders are preserved and never opened by BDS.
 - **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`,
   the multiplayer player limit, `view-distance` at the client's largest render distance (each
   RequestChunkRadius picks the radius), independent simulation distance (4–12), `transport=nethernet`
   and `enable-lan-visibility=false`. Seed and level type apply at creation only.
-- **Dragonfly terrain:** only Flat is supported. Use BDS for natural terrain. Existing Dragonfly
-  Normal saves remain on disk, but cannot be opened with the built-in server. Existing chunks
-  are never silently extended with a different generator. Seeds are retained in world metadata
-  for BDS; Dragonfly's flat terrain does not use them. Natural-terrain imports are rejected before
-  saving if the selected backend is Dragonfly; retry with BDS available.
-- **Dragonfly chunk streaming:** each player gets up to 32 chunk requests per tick while fewer than 64
-  sub-chunk blob cache transactions await the client's acknowledgement (Dragonfly defaults: 4 and 8).
-  Unacknowledged blobs stay capped at 4,096 per session.
-- **Dragonfly animals:** Passive animal simulation and natural population are unsupported. Previously saved
-  unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
 - **Exposure:** native BDS listens on a random port with offline authentication and the configured player limit.
   The container publishes its transport and enabled discovery ports on `127.0.0.1` only.
@@ -115,24 +110,11 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
   budget before the exit sweep escalates to SIGTERM and kill.
 - **World lifetime:** saved worlds start only on an explicit open. Leaving requests a save and
-  stop immediately on every backend, including translated BDS. Reopening waits for the previous
+  stop immediately on every runtime, including translated BDS. Reopening waits for the previous
   server's save and backend cleanup before starting another server. Android setup prepares
   reusable startup code in a temporary world; attaching the launcher never starts a saved world.
-- **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
-  integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
-  continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
-  keep running and status reports `pause_supported: false`.
-- **Test commands:** dragonfly worlds give every player `/speed [multiplier|reset]` (vanilla fly speed and movement
-  attribute ×0.1–100, sent as UpdateAbilities and UpdateAttributes), `/fly` and `/tp <x> <y> <z>`.
-  `/flyspeed <blocks/s>` sets direct motion flight for chunk-streaming tests, for example `/flyspeed 500`.
-  Use `/fly` if the current game mode does not allow flight, then double-tap jump to start flying.
-  Movement follows yaw and raw forward/strafe input; jump and sneak move vertically, and releasing input stops motion.
-  `/flyspeed off` restores the previous flight abilities; `/speed` also switches back to ability flight.
-  Direct flight has no speed multiplier cap, but motion must fit the protocol's floating-point values.
-  Cinnabar's existing collision-query extent also limits accepted motion; acceptance beyond that bound remains incomplete.
-  `/time set <ticks|sunrise|day|noon|sunset|night|midnight>` sets the world's time of day and stops its
-  daylight cycle so captures see the same sky; `/time cycle` resumes it. The local server's
-  `-time <ticks|name>` flag opens every world at that time, frozen.
+- **Pause:** BDS worlds keep running while a menu is open or focus is lost;
+  status reports `pause_supported: false`.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. The launcher's own loopback BDS retries once with local identity if account
@@ -168,12 +150,18 @@ manager. Play and the OreUI create/edit screens bind to it.
 
 The Edit world screen saves changes before Play starts the server and when Back or Escape leaves
 the screen. Invalid names stay in the form for correction; failed saves keep the edits for retry.
-The selected game mode sets the world's default for new players and the local Dragonfly host's
-mode on each join, while keeping the host's other saved data. BDS launches use `force-gamemode=true`
+The selected game mode applies to new and returning players. BDS launches use `force-gamemode=true`
 (including `FORCE_GAMEMODE` in containers), so existing worlds use the selected mode too.
 
 ## v1 limits
 
-Natural terrain requires BDS. Dragonfly's mob AI and other parity gaps remain open. Docker-mounted LevelDB on macOS
+Full local-world parity and platform acceptance remain open. Docker-mounted LevelDB on macOS
 can be slow. A killed client can leave a container running; the next start of that world removes it
 before reserving ports.
+
+## Developer servers
+
+`tools/localserver` and its `cinnabarext` library remain available to server operators and mod
+authors. They are never shipped or selected by the launcher. Run `make local-server` in a source
+checkout to build the development server and Experience tools. `cinnabar-cxb mod run` builds its
+own checkout server under `target/mod-tools`; paired-mod testing does not require a player package.

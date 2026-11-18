@@ -15,7 +15,7 @@ use render_scene::{
     ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
-use ui::{DpiScale, LoadingStage, SafeArea};
+use ui::{DpiScale, LoadingStage};
 
 #[cfg(test)]
 use client_ui::ui_runtime::presentation::{HudFrame, menu_artwork};
@@ -26,9 +26,7 @@ pub mod forms;
 pub mod publish;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use forms::drive_menu_panorama;
-pub(crate) use publish::{
-    observe_mount_jump_input, platform_safe_area_insets, prepare_ui_runtime, publish_ui_runtime,
-};
+pub(crate) use publish::{observe_mount_jump_input, prepare_ui_runtime, publish_ui_runtime};
 
 #[cfg(test)]
 pub(crate) mod tests;

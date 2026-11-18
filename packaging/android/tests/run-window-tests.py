@@ -34,10 +34,11 @@ def main():
         (out / child).mkdir(exist_ok=True)
     package = "app.cinnabar.windowtests"
     minimum_api = "30"
-    source = (here.parent / "ImmersiveMode.java").read_text().replace("@APPLICATION_ID@", package)
-    (out / "src" / "ImmersiveMode.java").write_text(source)
+    for name in ("ImmersiveMode.java", "WindowGeometry.java"):
+        source = (here.parent / name).read_text().replace("@APPLICATION_ID@", package)
+        (out / "src" / name).write_text(source)
     run("javac", "--release", "8", "-Xlint:-options", "-classpath", str(android), "-d", str(out / "classes"),
-        str(out / "src" / "ImmersiveMode.java"), *map(str, here.glob("*.java")))
+        *map(str, (out / "src").glob("*.java")), *map(str, here.glob("*.java")))
     run(str(tools / "d8"), "--min-api", minimum_api, "--lib", str(android), "--output", str(out / "dex"),
         *map(str, (out / "classes").rglob("*.class")))
     manifest = ET.Element("manifest", {"xmlns:android": "http://schemas.android.com/apk/res/android", "package": package})

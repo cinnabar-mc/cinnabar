@@ -1,6 +1,13 @@
 //! Contained item identity and decoration retained for fixed world placements.
 use super::*;
 
+/// Reads the same signed numeric or string map identity as an inventory item.
+pub(super) fn map_id(stack: &NbtCompound) -> Option<i64> {
+    let tag = stack.compound("tag")?;
+    tag.integer("map_uuid")
+        .or_else(|| protocol::map_id_from_decimal(tag.string("map_uuid")?.as_bytes()))
+}
+
 /// Reads a usable retained item stack.
 pub(super) fn held_item(stack: &NbtCompound) -> Option<HeldItem> {
     let name = stack.string("Name").filter(|name| !name.is_empty())?;
@@ -10,10 +17,26 @@ pub(super) fn held_item(stack: &NbtCompound) -> Option<HeldItem> {
             .then(|| shield_pattern(stack.compound("tag")?))
             .flatten()
             .map(Arc::new),
+        trim: stack.compound("tag").and_then(item_trim),
         metadata: stack
             .integer("Damage")
             .and_then(|damage| u32::try_from(damage).ok())
             .unwrap_or(0),
+    })
+}
+
+/// Reads the Trim compound the stack keeps in its saved user data; both identifiers must be
+/// non-empty strings, as on the network stack.
+fn item_trim(tag: &NbtCompound) -> Option<render_api::ItemTrim> {
+    let trim = tag.compound("Trim")?;
+    let text = |key| {
+        trim.string(key)
+            .filter(|text| !text.is_empty())
+            .map(Arc::from)
+    };
+    Some(render_api::ItemTrim {
+        material: text("Material")?,
+        pattern: text("Pattern")?,
     })
 }
 
@@ -75,5 +98,32 @@ mod tests {
         );
         item.insert("Name", NbtValue::String("minecraft:stone".into()));
         assert!(held_item(&item).unwrap().shield_pattern.is_none());
+    }
+
+    #[test]
+    fn framed_armor_retains_its_saved_trim() {
+        let trim = |material: &str, pattern: &str| {
+            let mut trim = NbtCompound::default();
+            trim.insert("Material", NbtValue::String(material.into()));
+            trim.insert("Pattern", NbtValue::String(pattern.into()));
+            let mut tag = NbtCompound::default();
+            tag.insert("Trim", NbtValue::Compound(trim));
+            let mut item = NbtCompound::default();
+            item.insert(
+                "Name",
+                NbtValue::String("minecraft:diamond_chestplate".into()),
+            );
+            item.insert("tag", NbtValue::Compound(tag));
+            held_item(&item).unwrap().trim
+        };
+        assert_eq!(
+            trim("gold", "sentry"),
+            Some(render_api::ItemTrim {
+                material: "gold".into(),
+                pattern: "sentry".into(),
+            })
+        );
+        assert_eq!(trim("", "sentry"), None);
+        assert_eq!(trim("gold", ""), None);
     }
 }

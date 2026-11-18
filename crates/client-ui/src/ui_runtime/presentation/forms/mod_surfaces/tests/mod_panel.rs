@@ -99,25 +99,16 @@ fn actual_engine_geometry_routes_all_control_types() {
             .mod_panel_events(toggle, false, true)
             .is_empty()
     );
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    assert!(
-        presentation
-            .mod_ui_mut()
-            .mod_panel_events(choice, true, true)
-            .is_empty()
-    );
-    frame(&mut presentation, [1280, 720]);
-    let option = point(&presentation, "mod.option:1", 0.5);
+    let keybind = point(&presentation, "mod.control:2", 0.5);
     assert_eq!(
         presentation
             .mod_ui_mut()
-            .mod_panel_events(option, true, true),
+            .mod_panel_events(keybind, true, true),
         vec![Event {
-            id: "mode".into(),
+            id: "activate".into(),
             value: 1.0
         }]
     );
-    frame(&mut presentation, [1280, 720]);
     let button = point(&presentation, "mod.control:3", 0.5);
     assert_eq!(
         presentation
@@ -307,4 +298,93 @@ fn standard_keybind_displays_assigned_key_and_capture_state_without_rebuilding()
             .unwrap()
     ));
     assert_eq!(point(&presentation, "mod.control:0", 0.5), keycap);
+}
+
+/// Maps a window pointer into the pressed control's box, as a mod does with the
+/// `read-controls` pointer, `read-layout` and `read-press`: 0 at its left edge, 1 at its right.
+pub(super) fn press_fraction(
+    presentation: &UiPresentationRuntime,
+    pointer: [f32; 2],
+) -> Option<f32> {
+    let frame = presentation.mod_ui().mod_panel_state()?.frame?;
+    let (_, press) = presentation.mod_ui().mod_panel_press()?;
+    let [x, y] = [0, 1].map(|axis| (pointer[axis] - frame.origin[axis]) / frame.scale);
+    let [a, _, c, _, e, _] = press.to_local;
+    Some((a * x + c * y + e - press.rect[0]) / press.rect[2])
+}
+
+/// A mod-drawn slider built on a plain button follows a press, a drag that leaves the control
+/// and the panel, and the release, and lands on the value the host's own slider reports.
+#[test]
+fn panel_presses_let_a_mod_drive_its_own_slider() {
+    let mut presentation = mini_engine_presentation();
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
+        .unwrap();
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    frame(&mut presentation, [1280, 720]);
+    assert!(presentation.mod_ui().mod_panel_press().is_none());
+
+    // The host slider and a mod slider on a button agree on the pressed position.
+    let host = point(&presentation, "mod.control:1", 0.6);
+    let events = presentation.mod_ui_mut().mod_panel_events(host, true, true);
+    let [Event { value, .. }] = events.as_slice() else {
+        panic!("host slider press: {events:?}");
+    };
+    let (_, press) = presentation.mod_ui().mod_panel_press().unwrap();
+    assert_eq!(press.id, "strength");
+    assert!(press.held);
+    let fraction = press_fraction(&presentation, host).unwrap();
+    assert!((fraction * 100. - value).abs() <= 0.5, "{fraction} {value}");
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(host, false, false);
+    assert!(!presentation.mod_ui().mod_panel_press().unwrap().1.held);
+    frame(&mut presentation, [1280, 720]);
+
+    let start = point(&presentation, "mod.control:3", 0.25);
+    assert_eq!(
+        presentation
+            .mod_ui_mut()
+            .mod_panel_events(start, true, true),
+        vec![Event {
+            id: "binding".into(),
+            value: 1.0
+        }]
+    );
+    let (_, press) = presentation.mod_ui().mod_panel_press().unwrap();
+    assert_eq!(press.id, "binding");
+    assert!((press_fraction(&presentation, start).unwrap() - 0.25).abs() < 0.01);
+    // Dragging past the control and out of the panel keeps the press and its box.
+    for pointer in [
+        [start[0] + 40., start[1] + 30.],
+        [-500., -500.],
+        [5000., start[1]],
+    ] {
+        presentation
+            .mod_ui_mut()
+            .mod_panel_events(pointer, false, true);
+        let (_, held) = presentation.mod_ui().mod_panel_press().unwrap();
+        assert!(held.held, "{pointer:?}");
+        assert_eq!(held.rect, press.rect);
+    }
+    assert!(press_fraction(&presentation, [5000., start[1]]).unwrap() > 1.);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events([5000., start[1]], false, false);
+    let (_, released) = presentation.mod_ui().mod_panel_press().unwrap();
+    assert!(!released.held);
+    assert_eq!(released.id, "binding");
+
+    // A press outside every control clears it; closing the panel hides it.
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events([1., 1.], true, true);
+    assert!(presentation.mod_ui().mod_panel_press().is_none());
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(start, true, true);
+    presentation.mod_ui_mut().set_mod_panel_open(false);
+    assert!(presentation.mod_ui().mod_panel_press().is_none());
 }

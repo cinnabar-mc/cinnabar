@@ -369,6 +369,7 @@ pub struct WorldStream {
     block_entity_visuals: BlockEntityVisualDiagnostics,
     classifier: BlockClassifier,
     mesh_render_settings: ::meshing::MeshRenderSettings,
+    surface_rules: Arc<[::meshing::surface::SurfaceRule]>,
     mesh_render_revision: u64,
     /// Whether the server sent terrain before spawn; when it did not, startup
     /// has no view to wait for until the server publishes one.

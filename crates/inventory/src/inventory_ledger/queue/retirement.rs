@@ -191,6 +191,7 @@ impl PlayerInventoryLedger {
             .queue
             .iter_mut()
             .rev()
+            .filter(|request| request.mining.is_none())
             .flat_map(|request| request.predicted.iter_mut().rev())
         {
             prediction.active = !owned.contains(&prediction.cell);

@@ -13,7 +13,6 @@ pub struct CreateForm {
     pub name: String,
     pub game_mode: GameMode,
     pub generator: Generator,
-    pub backend: Backend,
     pub difficulty: Difficulty,
     /// Blank means random; digits are used as-is and other text uses a character hash.
     pub seed_text: String,
@@ -26,7 +25,6 @@ impl Default for CreateForm {
             name: DEFAULT_WORLD_NAME.to_owned(),
             game_mode: GameMode::Survival,
             generator: Generator::Normal,
-            backend: Backend::Bds,
             difficulty: Difficulty::Normal,
             seed_text: String::new(),
             options: Default::default(),
@@ -40,7 +38,6 @@ pub enum FormError {
     NameTooLong,
     ControlCharacters,
     SeedTooLong,
-    NaturalTerrainRequiresBds,
 }
 
 impl FormError {
@@ -50,7 +47,6 @@ impl FormError {
             Self::NameTooLong => "World name is too long",
             Self::ControlCharacters => "World name has invalid characters",
             Self::SeedTooLong => "World seed is too long",
-            Self::NaturalTerrainRequiresBds => super::world::NATURAL_TERRAIN_REQUIRES_BDS,
         }
     }
 }
@@ -115,15 +111,12 @@ impl CreateForm {
         if self.seed_text.chars().count() > MAX_SEED_CHARS {
             return Err(FormError::SeedTooLong);
         }
-        if !self.generator.supports_backend(self.backend) {
-            return Err(FormError::NaturalTerrainRequiresBds);
-        }
         Ok(NewWorld {
             name: validate_name(&self.name)?,
             game_mode: self.game_mode,
             generator: self.generator,
             difficulty: self.difficulty,
-            backend: Some(self.backend),
+            backend: Some(Backend::Bds),
             seed: seed_from_text(&self.seed_text),
             options: self.options.clone(),
         })
@@ -136,7 +129,7 @@ pub const FLAT_WORLD_LABEL: &str = "Flat";
 
 pub fn backend_label(backend: Backend) -> &'static str {
     match backend {
-        Backend::Dragonfly => "Dragonfly",
+        Backend::LegacyDragonfly => "Conversion required",
         Backend::Bds => "BDS",
     }
 }
@@ -219,26 +212,6 @@ mod tests {
             ..CreateForm::default()
         };
         assert_eq!(flat.build().map(|w| w.backend), Ok(Some(Backend::Bds)));
-    }
-
-    #[test]
-    fn natural_terrain_requires_bds() {
-        for backend in [Backend::Dragonfly, Backend::Bds] {
-            for generator in [Generator::Normal, Generator::Flat] {
-                let form = CreateForm {
-                    backend,
-                    generator,
-                    ..Default::default()
-                };
-                if backend == Backend::Dragonfly && generator == Generator::Normal {
-                    assert_eq!(form.build(), Err(FormError::NaturalTerrainRequiresBds));
-                    continue;
-                }
-                let built = form.build().unwrap();
-                assert_eq!(built.backend, Some(backend));
-                assert_eq!(built.generator, generator);
-            }
-        }
     }
 
     #[test]

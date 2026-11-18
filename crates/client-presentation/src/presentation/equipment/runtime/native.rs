@@ -458,8 +458,9 @@ impl EquipmentRuntime {
             .native_items
             .get(item.identifier.as_ref())?;
         if !artwork.texture_is_sprite {
+            let (identifier, metadata) = self.session_icon_key(item);
             let sprite = self
-                .session_sprite(&item.identifier, item.metadata)
+                .session_sprite(identifier, metadata)
                 .and_then(|(index, _, _)| self.session_sprite_pixels(index))
                 .or_else(|| self.icons.sprites().get(self.held_icon_index(item)?))?;
             return Some([sprite.width, sprite.height]);

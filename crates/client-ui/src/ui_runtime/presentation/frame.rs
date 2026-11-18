@@ -57,9 +57,12 @@ impl UiPresentationRuntime {
         dynamic_textures::observe_session(self, runtime.session_id());
         self.publish_shield_icons();
         session_icons::observe(self, runtime.session_icons());
+        self.gui_models
+            .trim_icons
+            .observe_session_items(runtime.session_items());
         self.observe_server_ui(runtime.server_ui());
         self.publish_local_player_identity(runtime.session_id());
-        session_glyphs::observe(self, runtime.session_glyphs());
+        session_glyphs::observe(self, Some(runtime.session_glyphs()));
         // Install artwork before any screen resolves its pixel UVs.
         if self.menu_artwork_loader.poll() {
             self.rebuild_dynamic_textures();
@@ -162,11 +165,31 @@ impl UiPresentationRuntime {
                             nodes,
                             next,
                             metrics,
-                            content,
+                            if crosshair {
+                                [logical_width, logical_height]
+                            } else {
+                                content
+                            },
                             now_millis,
                             crosshair,
                         )?;
-                        if !crosshair {
+                        if crosshair {
+                            // The reticle follows the world viewport, outside safe-area layout.
+                            for node in &mut nodes[hud_start..] {
+                                if node.parent().is_none() {
+                                    *node = node
+                                        .clone()
+                                        .with_bounds(
+                                            node.bounds()
+                                                .translated([-safe_area.left(), -safe_area.top()])
+                                                .map_err(UiPresentationError::Geometry)?,
+                                        )
+                                        .with_viewport_clip(
+                                            node.viewport_clip().unwrap_or(viewport),
+                                        );
+                                }
+                            }
+                        } else {
                             hud_nodes = hud_start..nodes.len();
                             self.append_mod_hud(
                                 player_runtime,

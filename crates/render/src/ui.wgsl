@@ -13,6 +13,9 @@ const STYLE_FONT_SDF: u32 = FONT_STYLE_SDF;
 const STYLE_FONT_OUTLINE: u32 = FONT_STYLE_OUTLINE_COVERAGE;
 // Injected from the renderer's single Rust style-bit definition.
 const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
+const STYLE_TERRAIN_MIPS: u32 = UI_STYLE_TERRAIN_MIPS;
+const STYLE_HALF_FLOAT_XY: u32 = UI_STYLE_HALF_FLOAT_XY;
+const STYLE_UNORM16_UV: u32 = UI_STYLE_UNORM16_UV;
 const STYLE_COLOR_MASK: u32 = UI_STYLE_COLOR_MASK;
 const STYLE_ADDITIVE: u32 = UI_STYLE_ADDITIVE;
 const STYLE_PARTICLE: u32 = UI_STYLE_PARTICLE;
@@ -35,6 +38,7 @@ struct PageFormat {
 
 UI_REPEAT_DECODER
 UI_SHADOW_DECODER
+UI_HALF_FLOAT_ROUNDING
 
 // Sample the shared decoder's source coordinates with the requested filter.
 fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
@@ -91,6 +95,21 @@ struct UiVertexOutput {
     @location(9) @interpolate(flat) cull_back_faces: u32,
 };
 
+// Converts final projected coordinates to the UI viewport's homogeneous clip frame.
+fn ui_clip_position(position: vec4<f32>, style_flags: u32) -> vec4<f32> {
+    var xy = position.xy;
+    if (style_flags & STYLE_HALF_FLOAT_XY) != 0u {
+        xy = vec2<f32>(ui_half_float(xy.x), ui_half_float(xy.y));
+    }
+    let ndc = vec2<f32>(
+        xy.x / viewport.viewport_size.x * 2.0 - position.w,
+        position.w - xy.y / viewport.viewport_size.y * 2.0,
+    );
+    return vec4<f32>(ndc, position.z, position.w);
+}
+
+UI_TEXTURE_VERTEX
+
 @vertex
 fn ui_vertex(
     @location(0) position: vec4<f32>,
@@ -132,14 +151,11 @@ fn ui_vertex(
             model_styles |= STYLE_REPEAT_X | STYLE_REPEAT_Y;
         }
     }
-    let ndc = vec2<f32>(
-        point.x / viewport.viewport_size.x * 2.0 - point.w,
-        point.w - point.y / viewport.viewport_size.y * 2.0,
-    );
     var output: UiVertexOutput;
-    output.clip_position = vec4<f32>(ndc, point.z, point.w);
-    output.uv = model_uv;
-    output.atlas_offset = atlas_offset;
+    output.clip_position = ui_clip_position(point, model_styles);
+    let texture_vertex = ui_texture_vertex(model_uv, atlas_offset, model_styles, vec2<f32>(textureDimensions(ui_pages)));
+    output.uv = texture_vertex.xy;
+    output.atlas_offset = texture_vertex.zw;
     // Pages, vertex colours and the UI layer all stay sRGB-encoded: vanilla UI
     // blends in gamma space, and the layer composites over the scene after.
     output.color = model_color;
@@ -185,8 +201,11 @@ fn sample_outline(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, dimensions: vec2<
 }
 
 fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32> {
-    let uv_dx = dpdx(input.uv);
-    let uv_dy = dpdy(input.uv);
+    let dimensions = vec2<f32>(textureDimensions(ui_pages));
+    let normalized_texture_vertex = (input.style_flags & STYLE_UNORM16_UV) != 0u;
+    let source_uv = select(input.uv, input.uv * dimensions, normalized_texture_vertex);
+    let uv_dx = dpdx(source_uv);
+    let uv_dy = dpdy(source_uv);
     if input.cull_back_faces != 0u && !front_facing { discard; }
     if (input.style_flags & STYLE_SHADOW) != 0u {
         let pixel = max(length(uv_dx), length(uv_dy));
@@ -218,7 +237,6 @@ fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32
         }
         return gradient;
     }
-    let dimensions = vec2<f32>(textureDimensions(ui_pages));
     // Sprite/glyph UVs address texel *edges*: a glyph spans x0..x0+width. Linear
     // interpolation across the quad therefore already lands on texel centres,
     // and adding half a texel here shifted the whole nearest-sampling grid by
@@ -227,7 +245,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32
     // bled a column of the neighbouring glyph in on the right. Model extrusion
     // side faces instead supply native fractional texel centers; preserve those too.
     // Preserve source interpolation and SDF derivatives when a glyph moves in the atlas.
-    var sample_uv = input.uv + input.atlas_offset;
+    var sample_uv = source_uv + input.atlas_offset;
     let particle = (input.style_flags & STYLE_PARTICLE) != 0u;
     let repeated = (input.style_flags & (STYLE_REPEAT_X | STYLE_REPEAT_Y)) != 0u;
     if particle && all(input.overlay_color.zw > vec2<f32>(0.0)) {
@@ -236,7 +254,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32
             + input.atlas_offset - vec2<f32>(0.5);
         sample_uv = clamp(sample_uv, low, max(low, high));
     }
-    let normalized_uv = sample_uv / dimensions;
+    let normalized_uv = select(sample_uv / dimensions, input.uv, normalized_texture_vertex);
     let native_font = (input.style_flags & STYLE_FONT_GAMMA) != 0u;
     let sdf_font = (input.style_flags & STYLE_FONT_SDF) != 0u;
     let texels_per_pixel = sqrt(abs(uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x));
@@ -250,6 +268,10 @@ fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32
     } else if native_font && !sdf_font {
         let texel = clamp(vec2<i32>(floor(sample_uv)), vec2<i32>(0), vec2<i32>(dimensions) - vec2<i32>(1));
         sample = textureLoad(ui_pages, texel, i32(input.texture_page), 0);
+    } else if (input.style_flags & STYLE_TERRAIN_MIPS) != 0u {
+        let footprint = max(length(uv_dx), length(uv_dy));
+        let level = max(0.0, log2(max(footprint, 1.0)));
+        sample = textureSampleLevel(ui_pages, ui_sampler, normalized_uv, i32(input.texture_page), level);
     } else if sdf_font || (input.style_flags & STYLE_BILINEAR) != 0u {
         sample = textureSampleLevel(ui_pages, ui_linear_sampler, normalized_uv, i32(input.texture_page), 0.0);
     } else {
@@ -297,15 +319,18 @@ fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32
     // Sampled and node alpha remain unchanged.
     var model_rgb = mix(sample.rgb * straight_color.rgb, entity_overlay.rgb, entity_overlay.a);
     let color_mask = (input.style_flags & STYLE_COLOR_MASK) != 0u;
-    if color_mask {
+    let alpha_weighted_tint = color_mask || (input.style_flags & STYLE_TERRAIN_MIPS) != 0u;
+    if alpha_weighted_tint {
         model_rgb = mix(mix(sample.rgb, sample.rgb * straight_color.rgb, sample.a),
             entity_overlay.rgb, entity_overlay.a);
+    }
+    if color_mask {
         sample.a = 1.0;
     }
     if direct {
         sample = vec4<f32>(srgb_to_linear(sample.rgb), sample.a);
         straight_color = vec4<f32>(srgb_to_linear(straight_color.rgb), straight_color.a);
-        if color_mask {
+        if alpha_weighted_tint {
             model_rgb = srgb_to_linear(model_rgb);
         } else {
             model_rgb = mix(sample.rgb * straight_color.rgb,
@@ -318,6 +343,10 @@ fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32
         var shine = glint(input.clip_position.xy);
         if direct { shine = srgb_to_linear(shine); }
         premultiplied_rgb += shine * viewport.glint_strength * alpha;
+    }
+    // Store opaque terrain shading as rounded gamma-space bytes in the UI layer.
+    if !direct && alpha == 1.0 && (input.style_flags & STYLE_TERRAIN_MIPS) != 0u {
+        premultiplied_rgb = floor(premultiplied_rgb * 255.0 + vec3<f32>(0.5)) / 255.0;
     }
     // Zero coverage keeps alpha-over's destination factor at one for authored additive effects.
     let coverage = select(alpha, 0.0, (input.style_flags & STYLE_ADDITIVE) != 0u);

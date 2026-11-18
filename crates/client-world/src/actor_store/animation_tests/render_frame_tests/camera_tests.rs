@@ -113,6 +113,7 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
     compiled.render.layers = (0..3)
         .map(|layer| assets::EntityRenderLayer {
             first_slot: layer,
+            material_masks: None,
             first_geometry: layer.saturating_sub(1),
             geometry_count: u16::from(layer > 0),
             ..body

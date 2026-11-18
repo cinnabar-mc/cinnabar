@@ -416,3 +416,50 @@ fn sync_reported_speed_retains_large_attributes_and_local_sprint_edges() {
     assert!(authority.apply(7, 3, 0, attribute(0.2, 0.2, None)));
     assert_eq!(authority.reported_current(), authority.current());
 }
+
+/// Completed ticks and corrections update the reported modifier state together with prediction.
+#[test]
+fn recorded_and_replayed_speed_update_supported_reporting() {
+    for replay in [false, true] {
+        let mut authority = started(0.1);
+        authority.adopt_recorded_speed(authority.speed);
+        for sprinting in [true, false] {
+            let mut speed = authority.speed;
+            speed.set_sprinting(sprinting);
+            if replay {
+                authority.adopt_replayed_speed(speed);
+            } else {
+                authority.adopt_recorded_speed(speed);
+            }
+            let expected = if sprinting { 0.13_f32 } else { 0.1_f32 };
+            assert_eq!(authority.current(), Some(f64::from(expected)));
+            assert_eq!(authority.reported_current(), authority.current());
+        }
+    }
+}
+
+/// Physics results preserve a newer reportable attribute that exceeds collision admission.
+#[test]
+fn recorded_and_replayed_speed_preserve_reporting_outside_the_collision_budget() {
+    for replay in [false, true] {
+        let mut authority = started(0.1);
+        authority.adopt_recorded_speed(authority.speed);
+        assert!(!authority.apply(7, 2, 0, attribute(33.0, 33.0, None)));
+        for sprinting in [true, false] {
+            let mut speed = authority.speed;
+            speed.set_sprinting(sprinting);
+            if replay {
+                authority.adopt_replayed_speed(speed);
+            } else {
+                authority.adopt_recorded_speed(speed);
+            }
+            let expected = if sprinting {
+                33.0_f32 * sim::SPRINT_SPEED_MULTIPLIER as f32
+            } else {
+                33.0_f32
+            };
+            assert_eq!(authority.reported_current(), Some(f64::from(expected)));
+            assert!(authority.current().unwrap() < 1.0);
+        }
+    }
+}

@@ -37,10 +37,12 @@ pub fn tab(engine: &mut FormEngineState, frame: &EngineFrame) {
     }
 }
 
-/// Focus `key`, showing its hover look and keeping it inside its scroll view.
+/// Focus `key`, showing its hover look and keeping it inside its scroll view. The resting
+/// pointer stops hovering until it moves, so it cannot take the hover look back.
 fn focus(engine: &mut FormEngineState, frame: &EngineFrame, key: String) {
     json_ui::set_focus(&mut engine.view, &frame.hits, Some(key.clone()));
     engine.view.hovered = Some(key.clone());
+    engine.keyboard_hover = Some(engine.pointer_at);
     let Some(region) = frame.hits.iter().find(|region| region.key == key) else {
         return;
     };

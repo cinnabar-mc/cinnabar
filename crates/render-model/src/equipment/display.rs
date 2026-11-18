@@ -184,6 +184,18 @@ pub fn held_block_display() -> ItemDisplay {
     held_block_display_for_hand(false)
 }
 
+/// A block worn on the head, facing along the head after vanilla's half-turn: the block's
+/// default direction (+Z) lies along the head's forward (-Z). The cube size and vertical
+/// placement remain provisional.
+pub fn head_block_display() -> ItemDisplay {
+    ItemDisplay {
+        rotation: Quat::from_rotation_y(std::f32::consts::PI),
+        translation: Vec3::new(0.0, 0.25, 0.0),
+        scale: 0.5625,
+        axis_scale: Vec3::ONE,
+    }
+}
+
 /// Offhand rendering adds its own reference-bone X offset before the shared
 /// legacy block display. Custom block presentations use a different native path.
 pub fn held_block_display_for_hand(off_hand: bool) -> ItemDisplay {

@@ -204,9 +204,10 @@ impl WorldActorFlames {
                 material: ActorMaterial {
                     state: Some(assets::EntityRenderMaterialState {
                         alpha_test: true,
-                        cull: true,
-                        blend: true,
-                        depth_write: true,
+                        ..Default::default()
+                    }),
+                    render_state: Some(render_api::render_state::RenderState {
+                        blend: Some(render_api::render_state::BlendState::ALPHA),
                         ..Default::default()
                     }),
                     ..Default::default()

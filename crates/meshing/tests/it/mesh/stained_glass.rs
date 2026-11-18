@@ -53,8 +53,10 @@ fn write_stained_glass_render_pack(root: &Path, cube_name: &str) {
 fn compiled_stained_glass_fixture() -> &'static CompiledStainedGlassFixture {
     static FIXTURE: OnceLock<CompiledStainedGlassFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode stained-glass registry");
+        let records = read_registry(include_bytes!(
+            "../../../../assets/data/block-registry-v1001.bin"
+        ))
+        .expect("decode stained-glass registry");
         let named = |name: &str| {
             records
                 .iter()
@@ -252,4 +254,41 @@ fn clear_glass_wall_remains_cave_open() {
     let mesh = mesh_stained_glass(&wall, &Neighbourhood::empty());
 
     assert!(mesh.connectivity().is_all_connected());
+}
+
+#[test]
+fn surface_rules_keep_stained_glass_in_the_transparent_draw_stream() {
+    use meshing::surface::{CoverageClause, SurfaceRule};
+    let fixture = compiled_stained_glass_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.red],
+        &[([8, 8, 8], 1)],
+    )]);
+    let rules = [SurfaceRule {
+        states: vec![fixture.red],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![],
+            tiles: 1,
+        }],
+    }];
+    let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &world::MeshNeighbourhood::new(&source),
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            surface_rules: &rules,
+            ..Default::default()
+        },
+    );
+    assert!(mesh.model_draw_refs().is_empty());
+    assert_eq!(mesh.transparent_model_draw_refs().len(), 6);
+    assert!(
+        mesh.transparent_model_draw_refs()
+            .iter()
+            .all(|draw| draw.words()[1] >> 9 == 16)
+    );
 }

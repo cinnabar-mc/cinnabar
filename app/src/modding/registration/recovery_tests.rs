@@ -448,7 +448,10 @@ fn marketplace_fence_drains_predecessor_before_successor_loads_saved_settings() 
     });
     assert_eq!(successor.registration.mods.len(), 1);
     assert!(successor.registration.mods[0].enabled);
-    assert_eq!(successor.registration.mods[0].component, next);
+    assert_eq!(
+        successor.registration.mods[0].component,
+        next.canonicalize().unwrap()
+    );
     let host = successor.changes[0]
         .result
         .as_ref()

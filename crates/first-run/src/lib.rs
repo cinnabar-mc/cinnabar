@@ -1,15 +1,16 @@
 //! First-run preparation of the game resources, which installers never ship.
 //!
-//! Runs before the game window: consent, a download of the pinned public pack, then one
-//! `assetc prepare`. Android also tries to prepare local worlds before starting the game. A setup
-//! window in a child process shows desktop setup; without one, native dialogs do. Android's setup
-//! activity draws setup on its startup screen. Progress is mirrored to
-//! `logs/first-run-status.json`.
+//! Runs before the game window: the ownership gate on every launch, then, when needed, consent,
+//! a download of the pinned public pack and one `assetc prepare`. Android also tries to prepare
+//! local worlds before starting the game. A setup window in a child process shows desktop setup;
+//! without one, native dialogs do. Android's setup activity draws setup on its startup screen.
+//! Progress is mirrored to `logs/first-run-status.json`.
 
 mod download;
 mod fs_retry;
 mod headless;
 mod next;
+mod ownership;
 mod prepare;
 mod progress;
 mod runner;
@@ -37,9 +38,9 @@ use {
 
 const CONSENT_ENV: &str = "CINNABAR_ACCEPT_MOJANG_EULA";
 #[cfg(not(target_os = "android"))]
-const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack. It is downloaded from Mojang's public release (a large one-time download), converted on this computer, and never redistributed by Cinnabar.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup runs once and takes a few minutes.";
+const CONSENT_BODY: &str = "Cinnabar is for people who own Minecraft. It needs Minecraft's official sample resource pack. It is downloaded from Mojang's public release (a large one-time download), converted on this computer, and never redistributed by Cinnabar.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup runs once and takes a few minutes.";
 #[cfg(target_os = "android")]
-const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack and dedicated server. They are downloaded from Mojang (a large one-time download) and prepared on this device for game assets and local worlds. Cinnabar never redistributes these downloads. Local worlds are prepared during setup and may need preparation again after an app update.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup takes a few minutes.";
+const CONSENT_BODY: &str = "Cinnabar is for people who own Minecraft. It needs Minecraft's official sample resource pack and dedicated server. They are downloaded from Mojang (a large one-time download) and prepared on this device for game assets and local worlds. Cinnabar never redistributes these downloads. Local worlds are prepared during setup and may need preparation again after an app update.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup takes a few minutes.";
 const EULA_URL: &str = "https://www.minecraft.net/eula";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,12 +51,27 @@ pub enum Outcome {
     Quit,
 }
 
-/// Prepares a packaged install's resources when they are missing or stale; a no-op for development
-/// checkouts. Carriers the previous version built in the background are promoted without setup.
-/// Android's setup activity also tries to prepare local worlds before starting the game.
+/// Runs the ownership gate, then prepares a packaged install's resources when they are missing or
+/// stale; a no-op for development checkouts. Carriers the previous version built in the
+/// background are promoted without setup. Android's setup activity also tries to prepare local
+/// worlds before starting the game.
 pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
-    let promoted = next::promote(layout);
-    if !needs_preparation(layout) {
+    ensure(layout, true)
+}
+
+/// Runs only the ownership gate, for launches that bring their own carriers.
+pub fn ensure_owned(layout: &InstallLayout) -> Result<Outcome> {
+    ensure(layout, false)
+}
+
+fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
+    let verify = layout.is_installed() && !ownership::open_without_asking(layout);
+    let promoted = prepare && next::promote(layout);
+    let plan = window::Plan {
+        verify,
+        prepare: prepare && needs_preparation(layout),
+    };
+    if !plan.verify && !plan.prepare {
         return Ok(if promoted {
             Outcome::Prepared
         } else {
@@ -70,32 +86,57 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     let _ = fs::remove_file(progress_file(layout));
     after_window(
         layout,
-        window::run_in_child(),
+        window::run_in_child(plan),
         &NativePrompter,
         env_consent(),
+        plan,
     )
 }
 
 /// Finishes setup once the setup window process has ended with `child`. A window that could not
-/// open, or whose process crashed (often inside a graphics driver), leaves setup to `prompter`.
+/// open, or whose process crashed (often inside a graphics driver), leaves the rest of `plan` to
+/// `prompter`.
 fn after_window(
     layout: &InstallLayout,
     child: window::ChildOutcome,
     prompter: &dyn Prompter,
     env_consent: bool,
+    plan: window::Plan,
 ) -> Result<Outcome> {
     match child {
-        window::ChildOutcome::Prepared => Ok(Outcome::Prepared),
-        window::ChildOutcome::Quit => Ok(Outcome::Quit),
-        window::ChildOutcome::Crashed(code) => {
-            tracing::warn!(
-                exit_code = ?code,
-                "first-time setup window crashed; continuing setup with system dialogs"
-            );
-            ensure_with(layout, prompter, env_consent)
-        }
-        window::ChildOutcome::Unavailable => ensure_with(layout, prompter, env_consent),
+        window::ChildOutcome::Prepared => return Ok(Outcome::Prepared),
+        window::ChildOutcome::Verified => return Ok(Outcome::NotNeeded),
+        window::ChildOutcome::Quit => return Ok(Outcome::Quit),
+        window::ChildOutcome::Crashed(code) => tracing::warn!(
+            exit_code = ?code,
+            "first-time setup window crashed; continuing setup with system dialogs"
+        ),
+        window::ChildOutcome::Unavailable => {}
     }
+    if plan.verify {
+        let title = setup_title(
+            std::env::var(bootstrap_ui::window::TITLE_ENV)
+                .ok()
+                .as_deref(),
+        );
+        // The prompts wait on the player, which an update helper must not take for a hang.
+        reporter(layout, |_| {})(Status::awaiting_ownership());
+        let owned = ownership::with_dialogs(
+            launcher::ownership::sources(),
+            prompter,
+            &title,
+            &mut |sign_in, on_code| {
+                ownership::verify(layout, sign_in, &AtomicBool::new(false), on_code)
+            },
+        );
+        if !owned {
+            return Ok(Outcome::Quit);
+        }
+    }
+    if !plan.prepare {
+        return Ok(Outcome::NotNeeded);
+    }
+    ensure_with(layout, prompter, env_consent)
 }
 
 /// Whether required assets need setup. Local worlds are optional, so an unprepared server

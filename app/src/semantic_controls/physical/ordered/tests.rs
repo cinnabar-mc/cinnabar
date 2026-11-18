@@ -11,10 +11,10 @@ fn mod_reservations_remove_ordered_mouse_edges_and_preserve_other_controls() {
         .init_resource::<Touches>()
         .init_resource::<SemanticTouchTargets>()
         .init_resource::<PendingDeviceFrame>()
-        .insert_resource(crate::semantic_controls::ReservedControls(vec![
-            "MouseRight".into(),
-            "KeyW".into(),
-        ]))
+        .insert_resource(crate::semantic_controls::ReservedControls {
+            keys: vec!["MouseRight".into(), "KeyW".into()],
+            scroll: true,
+        })
         .add_systems(Update, collect_raw_input);
     let window = app
         .world_mut()
@@ -42,6 +42,16 @@ fn mod_reservations_remove_ordered_mouse_edges_and_preserve_other_controls() {
             ));
         }
     }
+    let wheel = || {
+        WindowEvent::MouseWheel(bevy::input::mouse::MouseWheel {
+            phase: bevy::input::touch::TouchPhase::Moved,
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: -1.0,
+            window,
+        })
+    };
+    app.world_mut().write_message(wheel());
     for key_code in [KeyCode::KeyW, KeyCode::KeyA] {
         for state in [ButtonState::Pressed, ButtonState::Released] {
             app.world_mut().write_message(WindowEvent::KeyboardInput(
@@ -79,6 +89,23 @@ fn mod_reservations_remove_ordered_mouse_edges_and_preserve_other_controls() {
     })
     .collect();
     assert_eq!(events.events(), expected);
+    app.world_mut()
+        .resource_mut::<crate::semantic_controls::ReservedControls>()
+        .scroll = false;
+    app.world_mut().write_message(wheel());
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<PendingDeviceFrame>()
+            .frame
+            .as_ref()
+            .unwrap()
+            .desktop_events
+            .as_ref()
+            .unwrap()
+            .events(),
+        [DesktopEvent::Scroll { next: true }]
+    );
 }
 
 /// A platform click drained after a same-frame modifier press and release keeps the modifiers the
@@ -167,9 +194,10 @@ fn reserved_platform_buttons_keep_modifier_records_aligned() {
         .init_resource::<Touches>()
         .init_resource::<SemanticTouchTargets>()
         .init_resource::<PendingDeviceFrame>()
-        .insert_resource(crate::semantic_controls::ReservedControls(vec![
-            "MouseRight".into(),
-        ]))
+        .insert_resource(crate::semantic_controls::ReservedControls {
+            keys: vec!["MouseRight".into()],
+            ..Default::default()
+        })
         .add_systems(Update, collect_raw_input);
     let window = app
         .world_mut()

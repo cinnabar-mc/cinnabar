@@ -27,6 +27,8 @@ pub(in crate::runtime::network) struct CompileEnvironment {
     language: String,
     /// Device capacity affects which block texture routes can be retained.
     max_layers: u32,
+    /// Graphics mode selects the entity material list.
+    fancy_graphics: bool,
     /// Material keys, terrain aliases, item routes and actor artwork: each is installed once at
     /// startup and never changes afterwards.
     carrier_tables: [bool; 5],
@@ -42,6 +44,7 @@ impl CompileEnvironment {
         Self {
             language: pack_runtime::pack_language::active_language_code(),
             max_layers: super::overlay_texture_layer_limit(),
+            fancy_graphics: pack_runtime::graphics::fancy_graphics(),
             carrier_tables: [
                 super::BASE_MATERIAL_KEYS.get().is_some(),
                 crate::runtime::network::block_entity_art::base().is_some(),
@@ -60,6 +63,7 @@ impl PartialEq for CompileEnvironment {
     fn eq(&self, other: &Self) -> bool {
         self.language == other.language
             && self.max_layers == other.max_layers
+            && self.fancy_graphics == other.fancy_graphics
             && self.carrier_tables == other.carrier_tables
             && match (&self.vanilla_refs, &other.vanilla_refs) {
                 (Some(ours), Some(theirs)) => Arc::ptr_eq(ours, theirs),

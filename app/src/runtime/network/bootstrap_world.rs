@@ -19,6 +19,8 @@ pub(super) struct StreamBootstrap<'a> {
     pub world_default_game_mode: protocol::GameModeUpdate,
     pub player_game_mode_uses_world_default: bool,
     pub terrain_before_spawn: bool,
+    /// StartGame's generator-selected overworld range.
+    pub overworld_range: protocol::DimensionRange,
 }
 
 /// Collision and render owners the stream must share with the application.
@@ -48,6 +50,7 @@ pub(super) fn build(
         world_default_game_mode,
         player_game_mode_uses_world_default,
         terrain_before_spawn,
+        overworld_range,
     } = input;
     let StreamResources {
         client_world,
@@ -114,6 +117,7 @@ pub(super) fn build(
         stream.observe_commits(super::world_ingress::trace_committed);
     }
     stream.set_server_animation_compiler(server_animation::compile_stop);
+    stream.set_start_game_overworld_range(overworld_range);
     stream.set_world_default_game_mode(world_default_game_mode);
     stream.set_local_game_mode_follows_default(player_game_mode_uses_world_default);
     stream.set_display_interval(display_interval);

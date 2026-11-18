@@ -233,7 +233,7 @@ fn sleeping_pose_is_shared_before_camera_publication_and_reanchors_only_on_trans
                         look
                     };
                     // These getters also supply both actor query publication passes.
-                    assert!(view.camera_rotation().abs_diff_eq(rotation, 1e-5));
+                    assert!(view.player_camera_rotation().abs_diff_eq(rotation, 1e-5));
                     let expected = crate::camera::perspective_pose(eye, rotation, perspective);
                     assert!(captured.translation.abs_diff_eq(expected.translation, 1e-5));
                     assert!(captured.rotation.abs_diff_eq(expected.rotation, 1e-5));
@@ -540,7 +540,10 @@ fn sleep_entry_after_freelook_reanchors_the_first_person_hand() {
                 .unwrap();
             assert_sway(&mut app, 0.0, 0.0);
             let view = app.world().resource::<LocalViewPose>();
-            assert!(view.camera_rotation().abs_diff_eq(view.rotation(), 1e-5));
+            assert!(
+                view.player_camera_rotation()
+                    .abs_diff_eq(view.rotation(), 1e-5)
+            );
             assert_eq!(app.world().resource::<TestPhysics>().state, physics);
             // A real turn immediately after waking must retain its ordinary hand lag.
             app.world_mut()

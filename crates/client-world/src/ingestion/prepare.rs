@@ -7,7 +7,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-use world::{BlockIds, DecodedLevelChunk, DecodedSubChunk, MutationError, SubChunk, SubChunkKey};
+use world::{
+    BlockIds, DecodedLevelChunk, DecodedSubChunk, MutationError, PreparedSubChunkMutation,
+    SubChunk, SubChunkKey,
+};
 
 use super::{
     BlockMutationBatch, DecodeIds, PreparedBlockMutations, PreparedSubChunk, PreparedSubChunkResult,
@@ -47,19 +50,13 @@ pub(super) fn prepare_resolved_block_mutations(
             ids.air,
             ids.mode,
         )?;
-        if mutation.changed()
-            && light_semantics_changed_at(
-                ids.air,
-                &ids.assets,
-                ids.mode,
-                batch.previous.as_deref(),
-                mutation.replacement(),
-                mutation.changed_positions().map(|position| {
-                    [position.x, position.y, position.z]
-                        .map(|coordinate| coordinate.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8)
-                }),
-            )
-        {
+        if mutation_changes_light(
+            ids.air,
+            &ids.assets,
+            ids.mode,
+            batch.previous.as_deref(),
+            &mutation,
+        ) {
             prepared.relight.insert(mutation.key());
         }
         prepared.mutations.push(mutation);
@@ -122,8 +119,32 @@ pub fn light_neutral_sections(
         .collect()
 }
 
+/// Whether a prepared mutation changes any cell's block-light inputs. `previous` must be the
+/// section the mutation was prepared from: only the cells it set can then differ, so a block
+/// placed or broken compares one cell instead of the whole section.
+pub fn mutation_changes_light(
+    air_network_id: u32,
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
+    previous: Option<&SubChunk>,
+    mutation: &PreparedSubChunkMutation,
+) -> bool {
+    mutation.changed()
+        && light_semantics_changed_at(
+            air_network_id,
+            assets,
+            mode,
+            previous,
+            mutation.replacement(),
+            mutation.changed_positions().map(|position| {
+                [position.x, position.y, position.z]
+                    .map(|coordinate| coordinate.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8)
+            }),
+        )
+}
+
 /// Compares the exact block-light inputs against an immutable registry snapshot.
-pub fn light_semantics_changed(
+fn light_semantics_changed(
     air_network_id: u32,
     assets: &RuntimeAssets,
     mode: NetworkIdMode,
@@ -232,17 +253,12 @@ mod tests {
                     previous.as_ref(),
                     mutation.replacement(),
                 );
-                let sparse = light_semantics_changed_at(
+                let sparse = mutation_changes_light(
                     0,
                     &assets,
                     NetworkIdMode::Sequential,
                     previous.as_ref(),
-                    mutation.replacement(),
-                    mutation.changed_positions().map(|position| {
-                        [position.x, position.y, position.z].map(|coordinate| {
-                            coordinate.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8
-                        })
-                    }),
+                    &mutation,
                 );
                 assert_eq!(
                     sparse,

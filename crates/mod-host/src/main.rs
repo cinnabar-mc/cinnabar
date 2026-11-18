@@ -16,6 +16,9 @@ fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
         [command] if command == "server-helper" => mod_host::helper::serve_developer()?,
+        [command] if command == mod_host::helper::restricted::RESTRICTED_COMMAND => {
+            mod_host::helper::serve_restricted()?
+        }
         [command, source, output] if command == "pack" => {
             packing::pack(source, output, None)?;
         }
@@ -97,7 +100,6 @@ fn probe_render(path: &Path) -> Result<()> {
             pitch: 0.0,
             attack_held: frame % 20 < 3,
             frame_seconds: 1.0 / 60.0,
-            players: Vec::new(),
         };
         let mut controls = mod_host::empty_controls();
         controls.seconds = 1.0 / 60.0;

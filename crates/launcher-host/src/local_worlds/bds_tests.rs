@@ -135,10 +135,6 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
         fs::canonicalize(&link).expect("link"),
         fs::canonicalize(world_dir.join(LEVEL_DIR)).expect("world data")
     );
-    assert!(!instance.can_pause(), "BDS cannot pause");
-    instance
-        .set_paused(true)
-        .expect("pausing is a harmless no-op");
     assert_eq!(instance.max_players(), Some(HOSTED_WORLD_MAX_PLAYERS));
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     assert!(instance.exited_cleanly());

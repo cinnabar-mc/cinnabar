@@ -221,12 +221,13 @@ impl MenuRuntime {
             language_choices,
             language_pending,
             language_asset_path,
-            input_mode: input::MenuInputMode::default(),
+            input_mode: input::mode::MenuInputMode::default(),
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
             invite: Default::default(),
             realm_membership: Default::default(),
+            realm_leave: Default::default(),
             join_requests: Default::default(),
         }
     }

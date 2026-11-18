@@ -11,6 +11,7 @@ use {
 /// Current actor-use packet and the local effects committed on successful admission.
 pub(crate) struct ActorUse {
     packet: protocol::Packet,
+    actor_runtime_id: u64,
     local_use: LocalUse,
     tick: u64,
     due: std::time::Duration,
@@ -89,6 +90,7 @@ pub(super) fn prepare(
     );
     Some(ActorUse {
         packet,
+        actor_runtime_id: runtime_id,
         local_use,
         tick: state.tick.saturating_add(1),
         due,
@@ -137,6 +139,11 @@ pub(crate) fn advance(
         .send_inventory_packets(vec![attempt.packet.clone()])
     {
         Ok(()) => {
+            runtime.record_actor_use(
+                context.ui.session_id(),
+                attempt.actor_runtime_id,
+                context.time.elapsed(),
+            );
             runtime.admit(
                 ItemUseTrigger::PlayerInput,
                 attempt.due,

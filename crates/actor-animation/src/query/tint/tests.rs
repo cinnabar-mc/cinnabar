@@ -50,27 +50,32 @@ fn sheep_wool_takes_the_byte_dye_palette_entry() {
 }
 
 #[test]
-fn white_absent_or_mistyped_sheep_colour_stays_neutral() {
+fn white_absent_or_mistyped_sheep_colour_reads_the_palette_white() {
     for metadata in [
         vec![(COLOR, ActorMetadataValue::Byte(0))],
         vec![],
         vec![(COLOR, ActorMetadataValue::Int(14))],
         vec![(COLOR, ActorMetadataValue::Long(14))],
     ] {
-        assert_eq!(default_render_color(&sheep(&metadata), 3), [1.0; 4]);
+        assert_eq!(
+            default_render_color(&sheep(&metadata), 3),
+            actor_palette_color(0)
+        );
     }
 }
 
 #[test]
-fn only_sheep_and_tamed_wolves_inherit_their_colour_index() {
+fn every_actor_but_a_wild_wolf_inherits_its_colour_index_without_the_rainbow() {
     let dyed = [(COLOR, ActorMetadataValue::Byte(14)), named(RAINBOW_NAME)];
-    let mut ordinary = sheep(&dyed);
-    ordinary.kind = ActorKind::Entity {
-        identifier: "minecraft:cow".into(),
-    };
-    assert_eq!(default_render_color(&ordinary, 30), [1.0; 4]);
+    for identifier in ["minecraft:cow", "minecraft:cat", "minecraft:llama"] {
+        let mut ordinary = sheep(&dyed);
+        ordinary.kind = ActorKind::Entity {
+            identifier: identifier.into(),
+        };
+        assert_eq!(default_render_color(&ordinary, 30), RED, "{identifier}");
+    }
     let wolf = actor(NativeEntityClass::Wolf, &dyed);
-    assert_eq!(default_render_color(&wolf, 30), [1.0; 4]);
+    assert_eq!(default_render_color(&wolf, 30), actor_palette_color(0));
     let mut tamed = wolf;
     tamed.metadata.insert(
         0,

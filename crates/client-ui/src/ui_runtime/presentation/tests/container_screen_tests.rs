@@ -11,6 +11,7 @@ use super::*;
 pub(super) use crate::test_support::{creative_with, inventory_session as session};
 use ui_screens::container_actions::InventoryCellHit;
 
+mod book_field_tests;
 mod fallback_recipe_tests;
 mod furnace_fuel_tests;
 mod furnace_recipe_tests;

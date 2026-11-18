@@ -208,6 +208,7 @@ fn previews_resolve_the_world_players_armor_material_and_dye() {
 #[test]
 fn authored_material_dye_reaches_the_player_preview() {
     let materials = serde_json::json!({"materials": {
+        "version": "1.0.0",
         "cloth_tint:entity": {"+defines": ["USE_COLOR_MASK"]},
         "renamed:cloth_tint": {},
         "leather_decoy:entity": {}

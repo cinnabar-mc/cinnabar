@@ -32,6 +32,7 @@ fn render_only_swing_updates_persona_visibility_without_reposing_it() {
     compiled.render.visibility = vec![assets::EntityRenderVisibility {
         pattern: "root".into(),
         condition: 4,
+        hide_only: false,
     }]
     .into_boxed_slice();
     compiled.render.layers[0].first_visibility = 0;

@@ -37,7 +37,6 @@ fn snapshot() -> GameplaySnapshot {
         pitch: 0.,
         attack_held: false,
         frame_seconds: 0.016,
-        players: vec![],
     }
 }
 /// Observes the terrain session, then runs one frame.

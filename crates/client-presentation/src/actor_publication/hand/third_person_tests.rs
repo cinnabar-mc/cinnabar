@@ -8,30 +8,52 @@ use bevy::time::Real;
 #[derive(Clone, Copy, PartialEq)]
 enum BodyCase {
     Native,
+    Offset,
     JavaFallback,
     Emote,
     InvalidEmote,
     Persona,
     Coverage,
     CoverageEmpty,
+    /// First person through a shader pack, whose shadow pass still draws the local body.
+    PackShadow,
+}
+
+impl BodyCase {
+    /// Cases whose first-person local body is published hidden from the camera.
+    fn hidden_body(self) -> bool {
+        matches!(
+            self,
+            Self::Coverage | Self::CoverageEmpty | Self::PackShadow
+        )
+    }
 }
 
 /// Runs the actual early and final publication owners with independent interpolation clocks.
 fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
     for duration in [6.0f32, 4.0, 8.0] {
         for (actor_alpha, physics_alpha) in [(0.1, 0.75), (0.9, 0.25)] {
-            let ((mut stream, equipment, artwork, input), entities) =
-                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
-                    super::native_tests::fixture_with_hidden_body(
-                        (case == BodyCase::Coverage).then_some("minecraft:shield"),
-                    )
-                } else {
-                    super::native_tests::fixture_with_appearance(
-                        Some("minecraft:shield"),
-                        false,
-                        case == BodyCase::Persona,
-                    )
-                };
+            let ((mut stream, equipment, artwork, input), entities) = if case.hidden_body() {
+                super::native_tests::fixture_with_hidden_body(
+                    (case != BodyCase::CoverageEmpty).then_some("minecraft:shield"),
+                )
+            } else if case == BodyCase::Offset {
+                super::native_tests::fixture_with_visibility(
+                    Some("minecraft:shield"),
+                    false,
+                    false,
+                    true,
+                    false,
+                    false,
+                    Some("math.abs(query.camera_rotation(1) - 90) < 0.01"),
+                )
+            } else {
+                super::native_tests::fixture_with_appearance(
+                    Some("minecraft:shield"),
+                    false,
+                    case == BodyCase::Persona,
+                )
+            };
             if case == BodyCase::JavaFallback {
                 stream
                     .submit(
@@ -94,21 +116,30 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
             world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
             let mut settings = crate::camera::CameraSettingsAuthority::default();
             let mut user = ui::UserSettings::default();
-            user.gameplay.default_perspective =
-                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
-                    semantic_input::PerspectiveMode::FirstPerson
-                } else {
-                    semantic_input::PerspectiveMode::ThirdPersonBack
-                };
+            user.gameplay.default_perspective = if case.hidden_body() {
+                semantic_input::PerspectiveMode::FirstPerson
+            } else {
+                semantic_input::PerspectiveMode::ThirdPersonBack
+            };
             user.video.java_animations = case == BodyCase::JavaFallback;
             settings.replace(1, &user).unwrap();
+            if case == BodyCase::Offset {
+                settings.set_view_yaw_offset(Some(90.));
+            }
             world.insert_resource(settings);
             world.insert_resource(crate::local_player::LocalViewPose::default());
-            world.spawn((
-                Transform::default(),
-                Projection::Perspective(PerspectiveProjection::default()),
-                crate::camera::FlyCamera::default(),
-            ));
+            let camera = world
+                .spawn((
+                    Transform::default(),
+                    Projection::Perspective(PerspectiveProjection::default()),
+                    crate::camera::FlyCamera::default(),
+                ))
+                .id();
+            if case == BodyCase::PackShadow {
+                world
+                    .entity_mut(camera)
+                    .insert(render_scene::shaderpack::ShaderPackRendering);
+            }
             let mut params = SystemState::<super::super::ActorFramePublication>::new(&mut world);
             let mut prepared_artwork = None;
             super::super::advance_actor_frame(
@@ -143,6 +174,26 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 |_, _| (None, None),
                 params.get_mut(&mut world).unwrap(),
             );
+            if case == BodyCase::Offset {
+                assert!(
+                    stream
+                        .authority()
+                        .actor_render_frame(actor_alpha)
+                        .visibility(1)
+                        .unwrap()
+                        .hide_held_items
+                        == Some(true),
+                    "early animation queries must use the presented heading"
+                );
+                let state = world.resource::<super::super::ActorFrameState>();
+                assert!((state.captured_sampling_camera.unwrap().0[1] - 90.).abs() < 0.01);
+                assert_eq!(
+                    world
+                        .resource::<crate::local_player::LocalViewPose>()
+                        .rotation(),
+                    Quat::IDENTITY
+                );
+            }
             world
                 .resource_mut::<super::super::ActorFrameState>()
                 .step
@@ -168,6 +219,18 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 None,
                 params.get_mut(&mut world).unwrap(),
             );
+            if case == BodyCase::Offset {
+                assert!(
+                    stream
+                        .authority()
+                        .actor_render_frame(actor_alpha)
+                        .visibility(1)
+                        .unwrap()
+                        .hide_held_items
+                        == Some(true),
+                    "final rendering must retain the presented heading"
+                );
+            }
             let rig = stream.authority().actor_rig(1).unwrap();
             let actor = stream.authority().actor(1).unwrap();
             let committed = (
@@ -184,7 +247,18 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 .find(|draw| draw.input.identity.layer == render_model::ACTOR_LAYER_BODY)
                 .unwrap()
                 .clone();
-            if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+            if case.hidden_body() {
+                if case == BodyCase::PackShadow {
+                    let pending = world
+                        .resource::<super::super::PreparedActorPublication>()
+                        .0
+                        .as_ref()
+                        .unwrap();
+                    assert!(
+                        pending.mask_only_runtime_ids.contains(&1),
+                        "the first-person body reaches only the pack's shadow pass"
+                    );
+                }
                 let full = crate::presentation::actors::convert_bones(
                     stream.authority().actor_ui_pose(1).unwrap(),
                 )
@@ -405,4 +479,16 @@ fn native_third_person_persona_layer_samples_its_own_physics_pose() {
 fn first_person_coverage_uses_full_body_pose_without_changing_hand_or_actor_state() {
     assert_native_body_sample(false, BodyCase::Coverage);
     assert_native_body_sample(false, BodyCase::CoverageEmpty);
+}
+
+/// Shader packs draw the player into their shadow map in first person, as Iris does.
+#[test]
+fn first_person_shader_pack_keeps_a_shadow_only_full_body() {
+    assert_native_body_sample(false, BodyCase::PackShadow);
+}
+
+/// Both animation stages and native pose sampling follow the camera without changing aim.
+#[test]
+fn yaw_offset_reaches_actor_queries_and_sampling_without_changing_player_aim() {
+    assert_native_body_sample(false, BodyCase::Offset);
 }

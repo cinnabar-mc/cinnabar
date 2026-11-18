@@ -293,7 +293,7 @@ impl UiGpuTextures {
             }
             let bytes = pages
                 .iter()
-                .map(|&page| catalog.pages()[page].pixels().len() as u64)
+                .map(|&page| catalog.pages()[page].byte_len() as u64)
                 .sum();
             let state = &mut self.state;
             let issued = gpu_allocation::checked(device, "UI texture page upload", bytes, || {
@@ -382,10 +382,7 @@ impl UiGpuTextures {
 
 /// Counts the storage requested by a validated dimension bucket.
 fn bucket_bytes(bucket: &render_model::UiTextureBucket) -> u64 {
-    u64::from(bucket.dimensions[0])
-        * u64::from(bucket.dimensions[1])
-        * u64::from(bucket.layers)
-        * bucket.format.bytes_per_texel() as u64
+    bucket.byte_len() as u64
 }
 
 /// Creates bindings only after a bucket's texture has passed its allocation scope.
@@ -419,7 +416,7 @@ fn create_texture(device: &RenderDevice, bucket: &render_model::UiTextureBucket)
             height: bucket.dimensions[1],
             depth_or_array_layers: bucket.layers,
         },
-        mip_level_count: 1,
+        mip_level_count: bucket.mip_level_count,
         sample_count: 1,
         dimension: TextureDimension::D2,
         format: match bucket.format {
@@ -471,6 +468,7 @@ fn write_page(
     if page.font_atlas_side().is_some() {
         return;
     }
+    #[cfg(feature = "tracy")]
     let [width, height] = page.dimensions();
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
@@ -483,34 +481,33 @@ fn write_page(
     )
     .entered();
     if let Some(profile) = profile {
-        profile.record_upload(
-            super::profile::UploadKind::Texture,
-            page.pixels().len() as u64,
+        profile.record_upload(super::profile::UploadKind::Texture, page.byte_len() as u64);
+    }
+    for (level, ([width, height], pixels)) in page.mip_levels().enumerate() {
+        queue.profiled_write_texture(
+            TexelCopyTextureInfo {
+                texture,
+                mip_level: level as u32,
+                origin: Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: location.layer,
+                },
+                aspect: Default::default(),
+            },
+            pixels,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
+                rows_per_image: Some(height),
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
     }
-    queue.profiled_write_texture(
-        TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: Origin3d {
-                x: 0,
-                y: 0,
-                z: location.layer,
-            },
-            aspect: Default::default(),
-        },
-        page.pixels(),
-        TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
-            rows_per_image: Some(height),
-        },
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-    );
 }
 
 /// Bind each page bucket with the viewport and both samplers once the frame is accepted.

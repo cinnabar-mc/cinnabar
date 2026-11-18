@@ -23,6 +23,30 @@ pub fn snapped(rect: [f64; 4], pixels: f32, logical: f32) -> [f32; 4] {
     [x0, y0, x0 + size(w), y0 + size(h)].map(|edge| edge * to_logical)
 }
 
+/// Snaps one image partition with shared internal edges and the whole image's outer bounds.
+/// Independently rounding each piece's size upward would paint translucent seams twice.
+pub(super) fn slice(rect: [f64; 4], parent: [f64; 4], pixels: f32, logical: f32) -> [f32; 4] {
+    let outer = snapped(parent, pixels, logical);
+    let edge = |value: f64, axis: usize| {
+        let physical = value as f32 * pixels;
+        let first = parent[axis] as f32 * pixels;
+        let last = (parent[axis] + parent[axis + 2]) as f32 * pixels;
+        if (physical - first).abs() <= EPSILON {
+            outer[axis]
+        } else if (physical - last).abs() <= EPSILON {
+            outer[axis + 2]
+        } else {
+            (position(physical) * (logical / pixels)).clamp(outer[axis], outer[axis + 2])
+        }
+    };
+    [
+        edge(rect[0], 0),
+        edge(rect[1], 1),
+        edge(rect[0] + rect[2], 0),
+        edge(rect[1] + rect[3], 1),
+    ]
+}
+
 /// `rect` moved to a whole physical pixel with its size kept, as vanilla places text.
 pub fn positioned(rect: [f64; 4], pixels: f32, logical: f32) -> [f32; 4] {
     let [x, y, w, h] = rect.map(|value| value as f32 * pixels);

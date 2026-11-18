@@ -12,6 +12,7 @@ mod hud_index;
 pub mod local_player_head;
 mod paint_transform;
 mod patch;
+mod scrollbar;
 mod shadow;
 mod static_templates;
 mod transition;
@@ -558,6 +559,7 @@ fn node(
     }
     let rotated = paint_transform::control(object, rotated)?;
     let filtered = backdrop::filter(object, filtered)?;
+    scrollbar::validate(kind, object)?;
     if let Some(bindings) = object.get("bindings") {
         for binding in bindings
             .as_array()
@@ -583,7 +585,6 @@ fn node(
                     name,
                     json_ui::rounded::RENDERER
                         | backdrop::GLASS_RENDERER
-                        | "cinnabar_vector_icon"
                         | "cinnabar_vector_path"
                         | "gradient_renderer"
                         | ITEM_RENDERER

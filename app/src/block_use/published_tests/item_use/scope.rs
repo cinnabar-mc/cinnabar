@@ -160,6 +160,63 @@ fn server_using_bow(held: bool) -> (World, client_session::CapturedPackets) {
     (world, captured)
 }
 
+/// A server stop arriving while a dismount holds the frame's ticks waits for the tick that
+/// runs, in the frame's system order.
+#[test]
+fn a_dismount_wait_keeps_a_server_stop_for_the_next_tick() {
+    let (mut world, _captured) = server_using_bow(true);
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(false),
+                ..Default::default()
+            },
+        );
+    {
+        // A seated tick produced but not yet sent holds the frame's ticks.
+        let mut movement = world.resource_mut::<MovementTicker>();
+        let mut seated = gameplay::test_support::survival_mining::completed(movement.next_tick());
+        seated.position = [4.5, 2.620_01, 8.5];
+        movement.enqueue_completed_physics(seated).unwrap();
+        let session = movement.session_generation();
+        world
+            .resource_mut::<client_interaction::movement::LocomotionState>()
+            .testing_request_dismount(session, 9);
+    }
+    assert!(
+        world.resource::<MovementTicker>().pending_count() > 0,
+        "seated movement is still going out"
+    );
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    // The frame's order: block use decides the hold, then item use reads it.
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    let runtime = world.resource::<ItemUseRuntime>();
+    assert!(runtime.is_using(), "a held tick keeps the charged use");
+    assert!(runtime.has_server_using_item(), "the stop stays pending");
+    // The rider got off: the next frame runs its tick.
+    world
+        .resource_mut::<client_interaction::movement::LocomotionState>()
+        .reset();
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    assert!(
+        !world.resource::<ItemUseRuntime>().is_using(),
+        "the tick that runs applies the server stop"
+    );
+}
+
 /// Finalizes one ordered batch against the fixture's current button state.
 fn route_use_events(world: &mut World, events: semantic_input::DesktopEvents, buttons: Vec<u8>) {
     let snapshot = world

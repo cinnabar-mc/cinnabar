@@ -34,7 +34,7 @@
 //! vanilla containers at or next to the anchor and its network. A block whose rule makes it a
 //! `redstone` block reads the power it receives with [`Callback::redstone_power`] and sets what
 //! it emits with [`Callback::set_redstone_power`]. [`Callback::game_mode`] reads the actor's
-//! [`GameMode`].
+//! [`GameMode`], and [`Callback::pose`] where it faces and how it moves, as a [`PlayerPose`].
 
 /// Bindings generated from `wit/server/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
@@ -59,11 +59,11 @@ pub use bindings::cinnabar::experience_server::{
         Flipbook, GameMode, Generator, GuestError, Inventory, ItemDef, ItemKey, ItemStack,
         LogLevel, Material, Mining, Network, NewStack, Overlay, OverlayItem, OverlayLook,
         OverlayRegistration, OverlayType, OverlayVisual, Permutation, Pixel, PixelBox,
-        PlacementStates, PlayerEvent, PlayerId, PlayerLocation, PlayerTransition, Position,
-        QuarterTurns, Registration, RenderMethod, Scalar, ScheduleHandle, SimulationStep, StateDef,
-        StateTest, StateValue, StateValues, StoreKey, StoreScope, TextureBinding, ValueNode,
-        Visual, WorldDefinition, WorldDefinitionId, WorldError, WorldHandle, WorldInstance,
-        WorldInstanceId, WorldRegistration, WorldSettings,
+        PlacementStates, PlayerEvent, PlayerId, PlayerLocation, PlayerPose, PlayerTransition,
+        Position, QuarterTurns, Registration, RenderMethod, Scalar, ScheduleHandle, SimulationStep,
+        StateDef, StateTest, StateValue, StateValues, StoreKey, StoreScope, TextureBinding,
+        ValueNode, Visual, WorldDefinition, WorldDefinitionId, WorldError, WorldHandle,
+        WorldInstance, WorldInstanceId, WorldRegistration, WorldSettings,
     },
 };
 pub use nodes::{nodes, values};

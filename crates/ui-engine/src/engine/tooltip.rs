@@ -100,7 +100,7 @@ impl Canvas<'_> {
                 alpha([255; 4]),
                 json_ui::SpriteFilter::default(),
             ) {
-                self.push(visual, self.snapped(&quad.dest))?;
+                self.push(visual, self.snapped_slice(&quad.dest, &background.into()))?;
             }
         }
         let origin = self.positioned(&RectOut {

@@ -7,7 +7,9 @@ use super::*;
 use crate::compiler::compile_pack_inner;
 
 const GRASS_SIDE: &str = "textures/blocks/test_grass_side";
-const SNOW_PIXEL: [u8; 4] = [241, 244, 249, 255];
+/// The vanilla pack's `grass_side_snowed.tga` has an all-zero alpha channel: like
+/// `grass_side.tga`, its alpha is an overlay weight rather than transparency.
+const SNOW_PIXEL: [u8; 4] = [241, 244, 249, 0];
 
 fn fixture(native_array: bool) -> tempfile::TempDir {
     let directory = tempfile::tempdir().unwrap();
@@ -85,7 +87,7 @@ fn current_records() -> (Vec<RegistryRecord>, u32) {
 }
 
 #[test]
-fn current_registry_snowy_grass_compiles_opaque_untinted_alternate_without_changing_carried_faces()
+fn current_registry_snowy_grass_compiles_untinted_overlay_alternate_without_changing_carried_faces()
 {
     use assets::{
         BlockFace, CompiledBiomeAssets, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_OVERLAY_MASK,
@@ -121,8 +123,8 @@ fn current_registry_snowy_grass_compiles_opaque_untinted_alternate_without_chang
         let snowy_id = visual.variant & assets::BLOCK_VISUAL_VARIANT_MATERIAL_MASK;
         let material = compiled.materials[snowy_id as usize];
         assert_eq!(
-            material.flags, 0,
-            "snowy dirt fringe is already colored and opaque"
+            material.flags, MATERIAL_FLAG_OVERLAY_MASK,
+            "snowy side alpha is an untinted overlay weight, so the side draws opaque"
         );
         let texture = material.texture;
         let mip = &compiled.texture_pages[texture.page() as usize].texture.mips[0];

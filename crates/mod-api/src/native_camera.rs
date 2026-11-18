@@ -2,6 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
+/// An ephemeral selection of the ordinary local camera perspective.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Perspective {
+    FirstPerson,
+    ThirdPersonBack,
+    ThirdPersonFront,
+}
+
 /// The optional `camera-frame` export receives the same bounded frame observations.
 pub const CAPABILITY: u32 = 4;
 /// Optional retained look and walking intents on the camera-frame transport.

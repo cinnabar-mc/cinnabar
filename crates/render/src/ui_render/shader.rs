@@ -14,6 +14,14 @@ pub(crate) fn source(raw: &str) -> String {
     // Keep the GPU style bits owned by the renderer, with no UI-crate dependency or WGSL copy.
     let raw = raw.replace("UI_REPEAT_DECODER", render_api::ui_repeat::WGSL_DECODER);
     let raw = raw.replace("UI_SHADOW_DECODER", render_api::ui_shadow::WGSL);
+    let raw = raw.replace(
+        "UI_HALF_FLOAT_ROUNDING",
+        include_str!("../ui_half_float.wgsl"),
+    );
+    let raw = raw.replace(
+        "UI_TEXTURE_VERTEX",
+        include_str!("../ui_texture_vertex.wgsl"),
+    );
     raw.replace(
         "UI_STYLE_MODEL_VERTEX",
         &format!("{}u", render_api::UI_STYLE_MODEL_VERTEX),
@@ -42,6 +50,18 @@ pub(crate) fn source(raw: &str) -> String {
     .replace(
         "UI_STYLE_ALPHA_TEST",
         &format!("{}u", render_api::UI_STYLE_ALPHA_TEST),
+    )
+    .replace(
+        "UI_STYLE_TERRAIN_MIPS",
+        &format!("{}u", render_api::UI_STYLE_TERRAIN_MIPS),
+    )
+    .replace(
+        "UI_STYLE_UNORM16_UV",
+        &format!("{}u", render_api::UI_STYLE_UNORM16_UV),
+    )
+    .replace(
+        "UI_STYLE_HALF_FLOAT_XY",
+        &format!("{}u", render_api::UI_STYLE_HALF_FLOAT_XY),
     )
     .replace(
         "UI_STYLE_SHADOW",

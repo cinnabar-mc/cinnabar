@@ -101,6 +101,72 @@ fn actor_attacks(
 }
 
 #[test]
+fn controller_and_touch_attacks_record_the_admitted_actor_for_storage() {
+    for (mode, frame) in [
+        (
+            semantic_input::InputMode::GamePad,
+            semantic_input::DeviceFrame {
+                controllers: vec![semantic_input::ControllerFrame {
+                    device_id: 1,
+                    activity_sequence: 1,
+                    axes: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ),
+        (
+            semantic_input::InputMode::Touch,
+            semantic_input::DeviceFrame {
+                touches: vec![semantic_input::TouchContact {
+                    contact_id: 1,
+                    activity_sequence: 1,
+                    position: [0.8, 0.8],
+                    delta: [0.0; 2],
+                    hit_id: Some(semantic_input::touch::ATTACK),
+                }],
+                ..Default::default()
+            },
+        ),
+    ] {
+        let (mut world, mut captured) = unpublished_attack_fixture(7.5);
+        let mut input = world.resource_mut::<crate::semantic_controls::SemanticInputRuntime>();
+        // The fixture has already routed a frame, so a controller first seen mid-press stays
+        // quarantined. Connect it at rest first, as a polled controller would be.
+        if !frame.controllers.is_empty() {
+            input
+                .route_and_finalize(semantic_input::DeviceFrame {
+                    controllers: frame
+                        .controllers
+                        .iter()
+                        .map(|controller| semantic_input::ControllerFrame {
+                            device_id: controller.device_id,
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let snapshot = input.route_and_finalize(frame).unwrap();
+        assert_eq!(snapshot.input_mode, mode);
+        assert!(snapshot.phases[Action::Attack as usize].pressed);
+        assert!(snapshot.ordered.is_none());
+        world.insert_resource(client_state::SemanticInputSnapshot(
+            semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+        ));
+        produce(&mut world);
+        assert_eq!(actor_attacks(&mut captured).len(), 1);
+        let now = world.resource::<Time<Real>>().elapsed();
+        assert_eq!(
+            world.resource::<BlockUseRuntime>().recent_actor_use(7, now),
+            Some(99),
+            "the {mode:?} attack must retain its storage anchor"
+        );
+    }
+}
+
+#[test]
 fn attack_press_waits_for_backing_drop_admission() {
     let (mut world, mut captured) = unpublished_attack_fixture(7.5);
     world.resource_scope(|world, mut player: Mut<client_state::PlayerRuntime>| {
@@ -143,6 +209,11 @@ fn attack_press_waits_for_backing_drop_admission() {
     produce(&mut world);
     assert!(actor_attacks(&mut captured).is_empty());
     assert!(world.resource::<MeleeRuntime>().press_pending());
+    let now = world.resource::<Time<Real>>().elapsed();
+    assert_eq!(
+        world.resource::<BlockUseRuntime>().recent_actor_use(7, now),
+        None
+    );
 
     {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
@@ -188,6 +259,10 @@ fn attack_press_waits_for_backing_drop_admission() {
         "the admitted drop leaves an empty hand"
     );
     assert!(!world.resource::<MeleeRuntime>().press_pending());
+    assert_eq!(
+        world.resource::<BlockUseRuntime>().recent_actor_use(7, now),
+        Some(99)
+    );
 }
 
 #[test]

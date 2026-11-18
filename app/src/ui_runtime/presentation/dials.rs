@@ -153,7 +153,7 @@ pub(crate) fn advance_dials(
     let celestial_angle = render_model::celestial_angle(
         client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64()),
     );
-    let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
+    let (yaw, _, _) = view.player_camera_rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
     let after = needles.advanced_tick;
     physics.visit_completed_ticks(after, &mut |sample, _, _| {

@@ -649,16 +649,17 @@ impl DrawUniforms {
     /// core programs add `chunkOffset` to `vaPosition` themselves.
     pub(crate) fn value(&self, name: &str) -> Option<HostValue> {
         use HostValue::{Mat3 as M3, Mat4 as M4};
-        let legacy = self.model_view * Mat4::from_translation(self.chunk_offset);
-        let normal = Mat3::from_mat4(self.model_view).inverse().transpose();
+        // Derived matrices are computed per matching name: blocks look up every member.
+        let legacy = || self.model_view * Mat4::from_translation(self.chunk_offset);
+        let normal = || Mat3::from_mat4(self.model_view).inverse().transpose();
         Some(match name {
-            "iris_ModelViewMat" => M4(legacy),
-            "iris_ModelViewMatInverse" => M4(legacy.inverse()),
+            "iris_ModelViewMat" => M4(legacy()),
+            "iris_ModelViewMatInverse" => M4(legacy().inverse()),
             "modelViewMatrix" => M4(self.model_view),
             "modelViewMatrixInverse" => M4(self.model_view.inverse()),
             "iris_ProjMat" | "projectionMatrix" => M4(self.projection),
             "iris_ProjMatInverse" | "projectionMatrixInverse" => M4(self.projection.inverse()),
-            "iris_NormalMat" | "normalMatrix" => M3(normal),
+            "iris_NormalMat" | "normalMatrix" => M3(normal()),
             "iris_TextureMat[1]" if self.lightmap_matrix => {
                 M4(super::geometry::LIGHTMAP_TEXTURE_MATRIX)
             }

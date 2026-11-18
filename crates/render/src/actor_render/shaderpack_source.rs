@@ -41,8 +41,22 @@ impl RigSource for ShaderpackActors<'_> {
 
     fn for_each_instance(&self, visit: &mut dyn FnMut(RigInstance<'_>)) {
         let gpu = self.gpu;
-        let camera_count = gpu.manifest.len() as u32;
-        for span in &gpu.spans {
+        // Mask-only instances follow the camera-drawn prefix and still cast pack shadows.
+        let camera_count = gpu.main_manifest.len() as u32;
+        let shadow_only: Vec<_> = gpu
+            .mask_spans
+            .iter()
+            .filter_map(|span| {
+                let first = span.first.max(camera_count);
+                let end = span.first + span.count;
+                (first < end).then(|| crate::actor::gpu::ActorDrawSpan {
+                    first,
+                    count: end - first,
+                    ..*span
+                })
+            })
+            .collect();
+        for span in gpu.spans.iter().chain(&shadow_only) {
             if !gpu.pack_supports_span(span) {
                 continue;
             }
@@ -70,12 +84,17 @@ impl RigSource for ShaderpackActors<'_> {
                 visit(RigInstance {
                     index,
                     data,
+                    raster: span.raster,
                     vertex_count: span.vertex_count,
                     texture: LayerTexture {
                         texture,
                         layer,
                         compose: page.map_or(LayerCompose::Plain, |page| {
-                            LayerCompose::for_page(page.color_mask, page.multitexture, data)
+                            LayerCompose::for_page(
+                                data.material & assets::EntityRenderMaterialState::COLOR_MASK != 0,
+                                page.multitexture,
+                                data,
+                            )
                         }),
                     },
                     runtime_id: gpu
@@ -146,6 +165,29 @@ mod replacement_tests {
         assert_eq!(replaced, [0]);
     }
 
+    /// A body hidden from the camera, such as the local player in first person, still reaches
+    /// the pack's shadow pass while staying out of its camera passes.
+    #[test]
+    fn mask_only_bodies_are_exported_as_shadow_only_instances() {
+        use crate::actor_render::tests::allocation_fault_tests::{
+            draw_frame, fixture, publication,
+        };
+        let mut app = fixture();
+        app.sub_app_mut(RenderApp)
+            .insert_resource(crate::actor::gpu::ArtworkRawViews(true));
+        let mut frame = publication(1, &[55, 77], 1);
+        let hidden = frame.rig.manifest[1].identity.runtime_id;
+        frame.mask_only_runtime_ids = Arc::from([hidden]);
+        frame.main_pass_instance_count = Some(1);
+        draw_frame(&mut app, &frame);
+        let world = app.sub_app(RenderApp).world();
+        let mut exported = Vec::new();
+        shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| exported.push((instance.index, instance.camera)));
+        assert_eq!(exported, [(0, true), (1, false)]);
+    }
+
     #[test]
     fn equal_depth_overlays_keep_their_depth_producers_on_the_native_path() {
         use crate::actor_render::tests::allocation_fault_tests::{
@@ -158,12 +200,17 @@ mod replacement_tests {
         let manifest = Arc::make_mut(&mut frame.rig.manifest);
         manifest[1].identity.runtime_id = manifest[0].identity.runtime_id;
         manifest[1].identity.layer = render_model::ACTOR_LAYER_BODY + 1;
-        let eye_state = assets::EntityRenderMaterialState {
+        let eye_state = crate::actor::test_material::TestMaterial {
             depth_equal: true,
             ..Default::default()
         };
-        Arc::make_mut(&mut frame.rig.instances)[1].material =
-            assets::EntityRenderMaterial::Default.word(Some(eye_state));
+        frame.rig.rasters = Arc::from([
+            assets::entity::material::UNAUTHORED_RENDER_STATE,
+            eye_state.raster(),
+        ]);
+        let eye = &mut Arc::make_mut(&mut frame.rig.instances)[1];
+        eye.material = eye_state.word(assets::EntityRenderMaterial::Default);
+        eye.raster = 1;
         draw_frame(&mut app, &frame);
         let world = app.sub_app(RenderApp).world();
         let gpu = world.resource::<ActorGpu>();
@@ -180,8 +227,9 @@ mod replacement_tests {
         );
 
         frame.rig.frame_generation += 1;
-        Arc::make_mut(&mut frame.rig.instances)[1].material =
-            assets::EntityRenderMaterial::Default as u32;
+        let eye = &mut Arc::make_mut(&mut frame.rig.instances)[1];
+        eye.material = assets::EntityRenderMaterial::Default as u32;
+        eye.raster = 0;
         draw_frame(&mut app, &frame);
         let world = app.sub_app(RenderApp).world();
         let gpu = world.resource::<ActorGpu>();

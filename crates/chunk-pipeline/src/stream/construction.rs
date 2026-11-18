@@ -96,6 +96,7 @@ impl WorldStream {
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             classifier: BlockClassifier::new(air_network_id),
             mesh_render_settings: ::meshing::MeshRenderSettings::default(),
+            surface_rules: Arc::from([]),
             mesh_render_revision: 0,
             startup_terrain_announced: true,
             java_meshing: None,

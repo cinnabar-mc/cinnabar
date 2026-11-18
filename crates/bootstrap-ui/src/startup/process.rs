@@ -33,18 +33,20 @@ enum Notice {
 }
 
 impl Process {
-    /// Spawns feedback without waiting for its window or graphics device to initialize.
-    pub fn start(size: [f32; 2]) -> Result<Self> {
+    /// Spawns feedback without waiting for its window or graphics device to initialize; the
+    /// window stays hidden for `reveal_in`, and the first-frame deadline starts after it.
+    pub fn start(size: [f32; 2], reveal_in: Duration) -> Result<Self> {
         let child = children::spawn(
             Command::new(std::env::current_exe()?)
                 .arg(FLAG)
                 .args(size.map(|value| value.to_string()))
+                .arg(reveal_in.as_millis().to_string())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit()),
         )
         .context("open startup screen")?;
-        Self::from_child(child, FIRST_FRAME_TIMEOUT)
+        Self::from_child(child, reveal_in + FIRST_FRAME_TIMEOUT)
     }
 
     /// Connects the feedback protocol to an already owned helper process.

@@ -16,6 +16,44 @@ pub(crate) struct EffectiveMovementSpeed {
     sprinting: bool,
 }
 
+/// Accepted edits retain their operation so replay preserves unrelated modifiers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum MovementSpeedUpdate {
+    /// Ends the preceding actor's attribute and sprint state.
+    Reset,
+    Attribute(MovementSpeedAttribute),
+    Sprinting(bool),
+    Effect {
+        action: protocol::ActorEffectAction,
+        amplifier: i32,
+    },
+}
+
+impl MovementSpeedUpdate {
+    /// Applies this edit to the modifier state reached at its position in the timeline.
+    pub(crate) fn apply(self, speed: &mut EffectiveMovementSpeed) {
+        match self {
+            Self::Reset => *speed = EffectiveMovementSpeed::default(),
+            Self::Attribute(attribute) => {
+                *speed = EffectiveMovementSpeed::authoritative(attribute, speed.sprinting());
+            }
+            Self::Sprinting(sprinting) => speed.adopt_server_sprinting(Some(sprinting)),
+            Self::Effect { action, amplifier } => {
+                let sprinting = speed.sprinting();
+                let attribute = speed.attribute.get_or_insert_with(|| {
+                    let mut attribute =
+                        MovementSpeedAttribute::unmodified(sim::DEFAULT_MOVEMENT_SPEED as f32);
+                    if sprinting {
+                        attribute.set_sprint_modifier(Some(sim::SPRINT_SPEED_MULTIPLIER as f32));
+                    }
+                    attribute
+                });
+                attribute.apply_speed_effect(action, amplifier);
+            }
+        }
+    }
+}
+
 impl EffectiveMovementSpeed {
     /// Restores the server current, its sprint modifier, and the matching actor flag.
     pub(crate) fn authoritative(attribute: MovementSpeedAttribute, sprinting: bool) -> Self {
@@ -26,7 +64,7 @@ impl EffectiveMovementSpeed {
     }
 
     /// Metadata changes the actor flag without installing an attribute modifier.
-    fn adopt_server_sprinting(&mut self, sprinting: Option<bool>) {
+    pub(crate) fn adopt_server_sprinting(&mut self, sprinting: Option<bool>) {
         if let Some(sprinting) = sprinting {
             self.sprinting = sprinting;
         }
@@ -49,6 +87,16 @@ impl EffectiveMovementSpeed {
         } else {
             attribute.set_sprint_modifier(None);
         }
+    }
+
+    /// Returns the actor flag used to decide whether the next sprint write is an edge.
+    pub(crate) fn sprinting(self) -> bool {
+        self.sprinting
+    }
+
+    /// Returns the attribute including the currently installed modifiers.
+    pub(crate) fn attribute(self) -> Option<MovementSpeedAttribute> {
+        self.attribute
     }
 
     /// Supplies the default attribute with the currently installed local sprint modifier.
@@ -102,6 +150,8 @@ pub struct LocalMovementSpeedAuthority {
     dimension: i32,
     last_sequence: Option<u64>,
     speed: EffectiveMovementSpeed,
+    /// Accepted edits after the latest completed tick, in arrival order.
+    pending_updates: Vec<MovementSpeedUpdate>,
     /// Accepted attribute state retained independently of collision-query admission.
     reported_speed: EffectiveMovementSpeed,
     /// Unsupported attribute models leave reporting with the current actor attribute.
@@ -128,6 +178,12 @@ impl LocalMovementSpeedAuthority {
             dimension,
             ..Self::default()
         };
+    }
+
+    /// Records an actor lifetime reset before its next attribute or successful tick.
+    pub(crate) fn replace_actor(&mut self, session_id: u64, dimension: i32) {
+        self.begin_session(session_id, dimension);
+        self.pending_updates.push(MovementSpeedUpdate::Reset);
     }
 
     /// Clears speed authority when the active session changes dimension.
@@ -229,10 +285,13 @@ impl LocalMovementSpeedAuthority {
             }
         }
         self.speed = EffectiveMovementSpeed::authoritative(attribute, self.speed.sprinting);
+        self.pending_updates.clear();
+        self.pending_updates
+            .push(MovementSpeedUpdate::Attribute(attribute));
         true
     }
 
-    /// Returns the effective attribute current after local sprint transitions.
+    /// Returns the effective attribute current after completed local sprint transitions.
     pub fn current(&self) -> Option<f64> {
         self.speed.attribute.map(|attribute| attribute.current)
     }
@@ -305,7 +364,21 @@ impl LocalMovementSpeedAuthority {
             }
         }
         self.speed.attribute = Some(attribute);
+        self.pending_updates.push(MovementSpeedUpdate::Effect {
+            action,
+            amplifier: active_speed_effect.unwrap_or_default(),
+        });
         self.active_speed_effect = active_speed_effect;
+    }
+
+    /// Returns the attribute fixed-tick prediction must update with sprint edges.
+    pub(crate) fn attribute(&self) -> Option<MovementSpeedAttribute> {
+        self.speed.attribute()
+    }
+
+    /// Edits remain pending until a successful tick or retained rewrite records them.
+    pub(crate) fn pending_updates(&self) -> &[MovementSpeedUpdate] {
+        &self.pending_updates
     }
 
     /// Returns the pre-sprint value expected by the simulator.
@@ -334,10 +407,40 @@ impl LocalMovementSpeedAuthority {
         self.reported_speed.adopt_server_sprinting(sprinting);
     }
 
-    /// Carries the replayed modifier state into future movement frames.
-    pub(crate) fn adopt_replayed_speed(&mut self, speed: EffectiveMovementSpeed) {
+    /// Retains an adopted live flag among pending attribute and effect edits.
+    pub(crate) fn record_live_sprinting(&mut self, sprinting: bool) {
+        self.pending_updates
+            .push(MovementSpeedUpdate::Sprinting(sprinting));
+    }
+
+    /// Applies unrecorded server edits to the modifier state reached by replay.
+    pub(crate) fn adopt_replayed_speed(&mut self, mut speed: EffectiveMovementSpeed) {
+        for update in &self.pending_updates {
+            update.apply(&mut speed);
+        }
+        self.adopt_physics_speed(speed);
+    }
+
+    /// Adopts speed after a completed live tick or a retained attribute rewrite.
+    pub(crate) fn adopt_recorded_speed(&mut self, speed: EffectiveMovementSpeed) {
+        self.adopt_physics_speed(speed);
+        self.pending_updates.clear();
+    }
+
+    /// Advances supported reporting with physics while preserving attributes outside its budget.
+    fn adopt_physics_speed(&mut self, speed: EffectiveMovementSpeed) {
+        if self.reported_speed == self.speed {
+            self.reported_speed = speed;
+        } else {
+            self.reported_speed.set_sprinting(speed.sprinting());
+        }
         self.speed = speed;
-        self.reported_speed = speed;
+    }
+
+    /// Stops sprint and folds accepted edits into loading's new prediction baseline.
+    pub(crate) fn stop_for_loading(&mut self) {
+        self.set_sprinting(false);
+        self.pending_updates.clear();
     }
 }
 

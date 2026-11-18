@@ -417,6 +417,7 @@ fn inactive_swing_consumers_preserve_turning_players_walk_endpoints() {
             compiled.render.visibility = vec![assets::EntityRenderVisibility {
                 pattern: "rightitem".into(),
                 condition: attack,
+                hide_only: false,
             }]
             .into();
             compiled.render.layers[0].visibility_count = 1;
@@ -488,13 +489,25 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
             state: None,
+            definition: None,
+            masks: None,
+            uv_anim: false,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
+            definition: None,
+            masks: None,
+            uv_anim: true,
         },
     ]
     .into();
+    let uv = expression(
+        &mut compiled,
+        &[MolangOp::Push(crate::test_support::scalar(0.25))],
+        1,
+    );
+    compiled.render.layers[0].uv_anim = Some([uv; 4]);
     compiled.render.layers[0].material_selection = Some(0);
     let (store, actors) = fixture_with(compiled, 0.0, Default::default());
     for (alpha, expected) in [
@@ -507,6 +520,14 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
             .unwrap();
         assert_eq!(layers.render.len(), 1);
         assert_eq!(
+            layers.render[0].uv_anim,
+            if alpha == 0.0 {
+                [0.25; 4]
+            } else {
+                [0.0, 0.0, 1.0, 1.0]
+            }
+        );
+        assert_eq!(
             layers
                 .render
                 .iter()
@@ -515,6 +536,78 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
                 .material,
             expected
         );
+    }
+}
+
+#[test]
+fn selected_material_decides_whether_textures_group_into_one_draw() {
+    use assets::EntityRenderMaterialSelection as Node;
+    let mut compiled = compiled_fixture(180.0);
+    let frame_alpha = compiled
+        .molang_symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
+        .unwrap() as u32;
+    let choice = expression(&mut compiled, &[MolangOp::LoadQuery(frame_alpha)], 1);
+    compiled.render.material_selections = vec![
+        Node::Branch {
+            condition: choice,
+            yes: 1,
+            no: 2,
+        },
+        Node::Raster {
+            material: assets::EntityRenderMaterial::Default,
+            state: None,
+            definition: None,
+            masks: None,
+            uv_anim: true,
+        },
+        Node::Raster {
+            material: assets::EntityRenderMaterial::Default,
+            state: Some(assets::EntityRenderMaterialState {
+                multitexture: true,
+                ..Default::default()
+            }),
+            definition: None,
+            masks: None,
+            uv_anim: true,
+        },
+    ]
+    .into();
+    // Give the first layer three samplers while keeping every layer's slot and candidate ranges
+    // contiguous, as compiled carriers lay them out.
+    let mut layers = compiled.render.layers.to_vec();
+    let (mut slots, mut candidates) = (Vec::new(), Vec::new());
+    for (index, layer) in layers.iter_mut().enumerate() {
+        let first = layer.first_slot as usize;
+        let mut own = compiled.render.slots[first..first + usize::from(layer.slot_count)].to_vec();
+        if index == 0 {
+            own = vec![own[0]; 3];
+            layer.slot_count = 3;
+            layer.material_state = None;
+            layer.material_selection = Some(0);
+        }
+        layer.first_slot = slots.len() as u32;
+        for mut slot in own {
+            let first = slot.first_candidate as usize;
+            let range = first..first + usize::from(slot.candidate_count);
+            slot.first_candidate = candidates.len() as u32;
+            candidates.extend_from_slice(&compiled.render.candidates[range]);
+            slots.push(slot);
+        }
+    }
+    compiled.render.layers = layers.into();
+    compiled.render.slots = slots.into();
+    compiled.render.candidates = candidates.into();
+    let (store, actors) = fixture_with(compiled, 0.0, Default::default());
+    for (alpha, grouped) in [(0.0, true), (1.0, false)] {
+        let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let layers = store
+            .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+            .unwrap();
+        // Either way one draw: later slots are samplers, read only by a multitexture material.
+        assert_eq!(layers.render.len(), 1, "{alpha}");
+        assert_eq!(layers.render[0].multitexture.is_some(), grouped, "{alpha}");
     }
 }
 
@@ -593,10 +686,16 @@ fn material_decisions_preserve_one_controller_execution_with_script_effects() {
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
             state: None,
+            definition: None,
+            masks: None,
+            uv_anim: true,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
+            definition: None,
+            masks: None,
+            uv_anim: true,
         },
     ]
     .into();
@@ -618,6 +717,7 @@ fn material_decisions_preserve_one_controller_execution_with_script_effects() {
     compiled.render.visibility = vec![assets::EntityRenderVisibility {
         pattern: "*".into(),
         condition: visibility,
+        hide_only: false,
     }]
     .into();
     let slot = compiled.render.slots[0];
@@ -643,5 +743,33 @@ fn material_decisions_preserve_one_controller_execution_with_script_effects() {
             .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
             .unwrap();
         assert_layers(&layers.render);
+    }
+}
+
+#[test]
+fn hide_only_visibility_hides_bones_but_never_reveals_them() {
+    for (choices, hidden) in [
+        // A later hide-only rule that holds leaves an earlier hide in place.
+        ([(false, false), (true, true)], true),
+        // A hide-only rule that does not hold hides a shown bone.
+        ([(true, false), (false, true)], true),
+        // A hide-only rule that holds leaves a shown bone shown.
+        ([(true, false), (true, true)], false),
+    ] {
+        let mut compiled = compiled_fixture(180.0);
+        let rules = choices.map(|(holds, hide_only)| {
+            let value = crate::test_support::scalar(if holds { 1.0 } else { 0.0 });
+            assets::EntityRenderVisibility {
+                pattern: "rightitem".into(),
+                condition: expression(&mut compiled, &[MolangOp::Push(value)], 1),
+                hide_only,
+            }
+        });
+        compiled.render.visibility = rules.into();
+        compiled.render.layers[0].visibility_count = 2;
+        let (mut store, actors) = fixture_with(compiled, 0.0, Default::default());
+        store.advance_tick(&actors, None, None, true, true, |_| Default::default());
+        let layer = sample(&store, &actors[&1], 0.0);
+        assert_eq!(!layer.hidden_bones.is_empty(), hidden, "{choices:?}");
     }
 }

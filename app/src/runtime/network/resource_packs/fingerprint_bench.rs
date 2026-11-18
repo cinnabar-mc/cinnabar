@@ -47,6 +47,7 @@ fn shared_stack_fingerprint_timing() {
             &blocks,
             false,
             overlay_texture_layer_limit(),
+            true,
             || None,
         ));
         black_box(pack_runtime::entity_pack::compile_session_entities(

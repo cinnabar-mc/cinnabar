@@ -14,6 +14,7 @@ use json_ui::{
 };
 
 mod offhand;
+mod titles;
 mod world_text;
 
 fn pack() -> Option<PathBuf> {
@@ -145,6 +146,46 @@ fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
 
 fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
     render_full(model, java).map(|render| render.nodes.to_vec())
+}
+
+#[test]
+fn actionbar_keeps_its_authored_fade_and_reappears_for_a_new_request() {
+    let mut model = HudModel {
+        actionbar: Some(Timed {
+            text: "Action".into(),
+            born: 0.0,
+        }),
+        ..Default::default()
+    };
+    let Some(nodes) = render_with(&model, true) else {
+        return;
+    };
+    let label = nodes
+        .iter()
+        .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "Action"))
+        .expect("action bar label");
+    let mut animator = json_ui::Animator::new();
+    let clocks = json_ui::hud_clocks(&model);
+    let drawn = label.animate(&mut animator, 0.1, Some(&clocks), None);
+    assert!(!drawn.hidden && drawn.opacity > 0.9);
+    let drawn = label.animate(&mut animator, 2.5, Some(&clocks), None);
+    assert!(!drawn.hidden && (drawn.opacity - 0.5).abs() < 0.05);
+    let drawn = label.animate(&mut animator, 3.1, Some(&clocks), None);
+    assert!(drawn.hidden || drawn.opacity == 0.0);
+    animator.end_frame();
+
+    model.actionbar.as_mut().unwrap().born = 4.0;
+    let nodes = render_with(&model, true).expect("same installed HUD fixture");
+    let label = nodes
+        .iter()
+        .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "Action"))
+        .expect("new action bar label");
+    let clocks = json_ui::hud_clocks(&model);
+    let drawn = label.animate(&mut animator, 4.1, Some(&clocks), None);
+    assert!(
+        !drawn.hidden && drawn.opacity > 0.9,
+        "a later action-bar request must appear after the first has faded"
+    );
 }
 
 /// The vanilla UI catalog for the pack's directory, before any overlay.
@@ -350,6 +391,36 @@ fn descendant<'a>(
         .children
         .iter()
         .find_map(|child| descendant(child, name))
+}
+
+#[test]
+fn popups_create_their_own_named_item_text_controls() {
+    let mut popups = model();
+    popups.item_name = Some(Timed {
+        text: "Dirt".into(),
+        born: 0.0,
+    });
+    popups.popup = Some(Timed {
+        text: "\nPopup".into(),
+        born: 0.0,
+    });
+    popups.jukebox_popup = Some(Timed {
+        text: "Jukebox\n".into(),
+        born: 0.0,
+    });
+    let Some(render) = render_full(&popups, true) else {
+        return;
+    };
+    assert!(
+        descendant(&render.bound, "item_name_text").is_none(),
+        "the popup takes the item-text field"
+    );
+    for name in ["popup_item_text", "popup_jukebox_text"] {
+        assert!(descendant(&render.bound, name).is_some(), "missing {name}");
+    }
+    let popup = text_node(&render.nodes, "\nPopup");
+    let jukebox = text_node(&render.nodes, "Jukebox\n");
+    assert!(popup.dest.h > 0.0 && popup.dest.h == jukebox.dest.h);
 }
 
 #[test]
@@ -591,6 +662,49 @@ fn bedrock_hotbar_flag_raises_the_java_hud_to_the_vanilla_hotbar() {
             "{text} keeps its place"
         );
     }
+}
+
+// With the touch inventory button the hotbar is 20 GUI px wider. The status rows and the bars
+// stacked on it span that button too, as vanilla's touch layout does, instead of keeping the
+// nine slots' width around the hotbar's shifted centre.
+#[test]
+fn touch_inventory_button_widens_the_java_status_rows_and_bars() {
+    let mut touch_model = model();
+    touch_model.touch_inventory = true;
+    let context = hud_context(&Context::desktop()).with_flag("cinnabar_touch_hotbar", true);
+    let (Some(plain), Some(touch)) = (
+        render_with(&model(), true),
+        render_in(&touch_model, true, &context),
+    ) else {
+        return;
+    };
+    let touch = touch.nodes.to_vec();
+    let x = |nodes: &[DrawNode], renderer: &str| custom(nodes, renderer)[0].dest.x;
+    let slots = x(&touch, "hotbar_slots_renderer");
+    assert_eq!(slots, x(&plain, "hotbar_slots_renderer") - 10.0);
+    // Hearts and armour keep starting one px left of the first slot; hunger moves right.
+    for renderer in ["heart_renderer", "armor_renderer"] {
+        assert_eq!(x(&touch, renderer), slots - 1.0, "{renderer}");
+    }
+    assert_eq!(
+        x(&touch, "hunger_renderer"),
+        x(&plain, "hunger_renderer") + 10.0
+    );
+    // The bar paints in slices; its extent is their union.
+    let bar = |nodes: &[DrawNode]| {
+        let slices = || {
+            named(nodes, "empty_progress_bar")
+                .into_iter()
+                .filter(|node| node.dest.y > 200.0)
+        };
+        let left = slices().map(|node| node.dest.x).fold(f64::MAX, f64::min);
+        let right = slices()
+            .map(|node| node.dest.x + node.dest.w)
+            .fold(f64::MIN, f64::max);
+        [left, right - left]
+    };
+    assert_eq!(bar(&plain), [149.0, 182.0]);
+    assert_eq!(bar(&touch), [139.0, 202.0]);
 }
 
 // The tip text rides its own `hud_tip_text` slot: it draws beside, not over, the

@@ -166,10 +166,6 @@ fn android_detection_requires_the_bundled_helper_and_does_not_change_desktop_hos
     }
     let translation = Translation::detect(platform, &core, dir.path().into()).unwrap();
     assert_eq!(translation.runtime().kind, RuntimeKind::Translated);
-    assert_eq!(
-        super::super::manager::default_backend(&translation.runtime()),
-        bridge::Backend::Bds
-    );
     for os in ["linux", "darwin", "windows"] {
         assert!(
             Translation::detect(Platform { os, arch: "arm64" }, &core, dir.path().into()).is_none()
@@ -289,7 +285,6 @@ trap '[ "$BOX64_DYNACACHE" != 1 ] || printf code > "$BOX64_DYNACACHE_FOLDER/bedr
         fs::read(guest_dir.join("libguest.so")).unwrap(),
         b"original guest library fixture"
     );
-    assert!(!instance.can_pause());
     instance.stop(test_time::DEFAULT_TIMEOUT).unwrap();
     let install = install_dir(&server).unwrap();
     assert_eq!(fs::read(install.join("saved")).unwrap(), b"saved");

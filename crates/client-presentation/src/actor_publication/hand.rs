@@ -68,12 +68,30 @@ pub(super) fn decorated_item_atlas(
     layer: &mut FirstPersonItem,
     artwork: &render_model::ActorArtworkPages,
 ) -> Option<HandItemAtlas> {
-    if let Some((raster, rig)) = equipment.shield_raster(
-        item,
-        artwork,
-        layer.presentation.location,
-        layer.presentation.submission.input.rig,
-    ) {
+    if let Some((raster, rig)) = equipment
+        .trim_raster(
+            item,
+            artwork,
+            layer.presentation.location,
+            layer.presentation.submission.input.rig,
+            (layer.presentation.submission.tint != 0).then(|| {
+                let [r, g, b, _] = layer.presentation.submission.tint.to_le_bytes();
+                assets::item::trim::Dye {
+                    rgb: [r, g, b],
+                    alpha: assets::item::trim::DyeAlpha::Coverage,
+                }
+            }),
+            None,
+        )
+        .or_else(|| {
+            equipment.shield_raster(
+                item,
+                artwork,
+                layer.presentation.location,
+                layer.presentation.submission.input.rig,
+            )
+        })
+    {
         layer.presentation.submission.input.rig = rig;
         layer.presentation.location.layer = 0;
         layer.presentation.submission.texture_layer = 0;
@@ -119,6 +137,7 @@ pub(super) fn publish_hand_rig(
     for (index, entry) in source.items.into_iter().enumerate() {
         if let Some((layer, atlas)) = entry {
             light.java_normal_axes[index + 1] = layer.java_normal_axis.extend(0.0).to_array();
+            light.emitted_light[index + 1] = u32::from(layer.emitted_light);
             atlases[index] = Some(atlas);
         }
     }

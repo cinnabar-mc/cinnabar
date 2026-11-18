@@ -5,6 +5,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod book_field;
 mod command_chat;
 mod focus;
 mod platform_back;

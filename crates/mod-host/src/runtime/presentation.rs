@@ -33,6 +33,8 @@ impl State {
                 .bind_session(session.connection, session.dimension);
             self.render.masks.bind(session);
         }
+        self.environment.surface_rules.clear();
+        self.environment.pending_surface_rules = None;
         self.environment.time_override = None;
         self.environment.weather_override = None;
         self.environment.fullbright = false;

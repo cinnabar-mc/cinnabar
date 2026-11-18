@@ -4,9 +4,20 @@ use super::*;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum EntityRenderMaterialSelection {
+    /// This choice has no drawable material.
+    Empty,
     Raster {
         material: EntityRenderMaterial,
         state: Option<EntityRenderMaterialState>,
+        /// Index into [`EntityRenderData::materials`] when the choice resolved completely.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition: Option<u32>,
+        /// Index into [`EntityRenderData::material_masks`] for a Cinnabar material with masks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        masks: Option<u32>,
+        /// Whether this material applies the controller's UV animation.
+        #[serde(default = "default_uv_anim")]
+        uv_anim: bool,
     },
     Branch {
         condition: u32,
@@ -19,11 +30,16 @@ pub enum EntityRenderMaterialSelection {
     },
 }
 
+/// Older selection leaves keep the controller's UV animation enabled.
+fn default_uv_anim() -> bool {
+    true
+}
+
 impl EntityRenderMaterialSelection {
     /// The expression evaluated by this decision; raster leaves read no Molang state.
     pub fn expression(&self) -> Option<u32> {
         match self {
-            Self::Raster { .. } => None,
+            Self::Empty | Self::Raster { .. } => None,
             Self::Branch { condition, .. } => Some(*condition),
             Self::Array { index, .. } => Some(*index),
         }
@@ -33,17 +49,24 @@ impl EntityRenderMaterialSelection {
     fn children(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match self {
             Self::Branch { yes, no, .. } => [Some(*yes), Some(*no)],
-            Self::Raster { .. } | Self::Array { .. } => [None; 2],
+            Self::Empty | Self::Raster { .. } | Self::Array { .. } => [None; 2],
         };
         let choices = match self {
             Self::Array { choices, .. } => choices.as_ref(),
-            Self::Raster { .. } | Self::Branch { .. } => &[],
+            Self::Empty | Self::Raster { .. } | Self::Branch { .. } => &[],
         };
         pair.into_iter().flatten().chain(choices.iter().copied())
     }
 }
 
 impl EntityRenderData {
+    /// Mask textures Cinnabar materials sample; their alpha weights the mask.
+    pub fn material_mask_sources(&self) -> impl Iterator<Item = u32> + '_ {
+        self.material_masks
+            .iter()
+            .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
+    }
+
     /// Walks reachable decisions once, tolerating unvalidated indices without looping.
     pub fn material_nodes(
         &self,
@@ -66,22 +89,43 @@ impl EntityRenderData {
         })
     }
 
-    /// Every possible raster state, for artwork preservation and conservative capabilities.
+    /// Every possible raster choice with its resolved definition, for artwork preservation and
+    /// conservative capabilities.
     pub fn materials(
         &self,
         layer: &EntityRenderLayer,
-    ) -> impl Iterator<Item = (EntityRenderMaterial, Option<EntityRenderMaterialState>)> {
+    ) -> impl Iterator<
+        Item = (
+            EntityRenderMaterial,
+            Option<EntityRenderMaterialState>,
+            Option<&super::super::material::EntityMaterialDefinition>,
+        ),
+    > {
+        let definition =
+            |index: Option<u32>| index.and_then(|index| self.materials.get(index as usize));
         layer
             .material_selection
             .is_none()
-            .then_some((layer.material, layer.material_state))
+            .then(|| {
+                (
+                    layer.material,
+                    layer.material_state,
+                    definition(layer.material_definition),
+                )
+            })
             .into_iter()
-            .chain(self.material_nodes(layer).filter_map(|node| match node {
-                EntityRenderMaterialSelection::Raster { material, state } => {
-                    Some((*material, *state))
-                }
-                _ => None,
-            }))
+            .chain(
+                self.material_nodes(layer)
+                    .filter_map(move |node| match node {
+                        EntityRenderMaterialSelection::Raster {
+                            material,
+                            state,
+                            definition: index,
+                            ..
+                        } => Some((*material, *state, definition(*index))),
+                        _ => None,
+                    }),
+            )
     }
 }
 
@@ -95,6 +139,8 @@ pub(super) fn validate(render: &EntityRenderData, expressions: usize) -> Result<
             .expression()
             .is_some_and(|expression| expression as usize >= expressions)
             || matches!(node, EntityRenderMaterialSelection::Array { choices, .. } if choices.is_empty())
+            || matches!(node, EntityRenderMaterialSelection::Raster { definition: Some(definition), .. } if *definition as usize >= render.materials.len())
+            || matches!(node, EntityRenderMaterialSelection::Raster { masks: Some(masks), .. } if *masks as usize >= render.material_masks.len())
             || node.children().any(|child| {
                 child as usize <= index || child as usize >= render.material_selections.len()
             })

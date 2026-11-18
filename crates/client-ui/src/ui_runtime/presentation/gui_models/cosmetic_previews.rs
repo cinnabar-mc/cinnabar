@@ -196,6 +196,7 @@ fn gallery_mesh(item: Item, source: &[ActorVertex], icon: IconRef) -> Option<Arc
             let [width, height] = hats::thumbnail::SIZE;
             let [x, y, z] = frame.project(vertex.position, center, width, height);
             UiMeshVertex {
+                terrain_mips: false,
                 position: [x, y],
                 clip_z: z,
                 clip_w: 1.0,

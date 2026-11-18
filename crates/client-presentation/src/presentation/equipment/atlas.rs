@@ -167,6 +167,65 @@ impl SpriteAtlas {
 mod tests {
     use super::*;
 
+    use std::sync::Arc;
+
+    /// Creates a square sprite filled with one byte value for atlas packing checks.
+    fn sprite(side: u16, fill: u8) -> IconSprite {
+        IconSprite {
+            width: side,
+            height: side,
+            rgba8: vec![fill; usize::from(side) * usize::from(side) * 4].into(),
+        }
+    }
+
+    #[test]
+    fn atlas_places_sprites_without_overlap_and_copies_their_pixels() {
+        let sprites = [sprite(16, 1), sprite(32, 2), sprite(16, 3)];
+        let atlas = SpriteAtlas::pack(&sprites);
+        assert_eq!(atlas.layers.len(), 1);
+        let placements = atlas
+            .placements
+            .iter()
+            .map(|placement| placement.expect("every sprite fits"))
+            .collect::<Vec<_>>();
+        for (index, placement) in placements.iter().enumerate() {
+            let offset =
+                (usize::from(placement.y) * usize::from(ATLAS_SIDE) + usize::from(placement.x)) * 4;
+            assert_eq!(
+                atlas.layers[placement.layer].rgba8[offset],
+                sprites[index].rgba8[0]
+            );
+            for other in &placements[..index] {
+                let disjoint = placement.x + placement.width <= other.x
+                    || other.x + other.width <= placement.x
+                    || placement.y + placement.height <= other.y
+                    || other.y + other.height <= placement.y;
+                assert!(disjoint);
+            }
+        }
+        let rect = placements[1].uv_rect();
+        assert!(rect[0] >= 0.0 && rect[2] <= 1.0 && rect[2] > rect[0] && rect[3] > rect[1]);
+    }
+
+    #[test]
+    fn atlas_spills_into_extra_layers_and_skips_invalid_sprites() {
+        let size = ATLAS_SIDE.min(32);
+        let count = usize::from(ATLAS_SIDE).pow(2) / usize::from(size).pow(2) + 1;
+        let mut sprites = (0..count).map(|_| sprite(size, 9)).collect::<Vec<_>>();
+        sprites.push(IconSprite {
+            width: 4,
+            height: 4,
+            rgba8: Arc::from([0u8; 3]),
+        });
+        let atlas = SpriteAtlas::pack(&sprites);
+        assert!(
+            atlas.layers.len() > 1,
+            "sprites exceed a single atlas layer"
+        );
+        assert!(atlas.placements[..count].iter().all(Option::is_some));
+        assert!(atlas.placements[count].is_none());
+    }
+
     #[test]
     fn failed_admission_keeps_every_occupied_layer() {
         let mut sprites = (0..4)

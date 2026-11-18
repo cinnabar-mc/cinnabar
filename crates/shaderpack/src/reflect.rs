@@ -396,7 +396,9 @@ fn flatten_uniforms(
     match &module.types[ty].inner {
         TypeInner::Struct { members, .. } => {
             for m in members {
-                let name = m.name.clone().unwrap_or_default();
+                let name =
+                    crate::transform::original_identifier(m.name.as_deref().unwrap_or_default())
+                        .to_owned();
                 let p = if path.is_empty() {
                     name
                 } else {

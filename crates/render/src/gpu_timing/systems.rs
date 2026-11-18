@@ -40,7 +40,12 @@ where
                 .get_resource::<GpuTimestamps>()
                 .and_then(|timestamps| timestamps.open_graph_span(stage))
         {
-            mark(context.command_encoder(), span.queries, span.begin);
+            mark(
+                context.command_encoder(),
+                span.queries,
+                span.begin,
+                span.in_encoder,
+            );
             if close {
                 begin_marker.store(span.begin, Ordering::Relaxed);
             }
@@ -59,7 +64,12 @@ where
         if begin != NO_SPAN
             && let Some(timestamps) = world.get_resource::<GpuTimestamps>()
         {
-            mark(context.command_encoder(), &timestamps.queries, begin + 1);
+            mark(
+                context.command_encoder(),
+                &timestamps.queries,
+                begin + 1,
+                timestamps.encoder_marks,
+            );
         }
         #[cfg(feature = "tracy")]
         super::nodes::close_node(

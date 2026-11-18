@@ -73,6 +73,7 @@ pub(super) fn append(
             return None;
         }
         vertices.push(UiMeshVertex {
+            terrain_mips: false,
             position: [
                 projected.screen[0] / PREVIEW_WIDTH as f32,
                 projected.screen[1] / PREVIEW_HEIGHT as f32,
@@ -100,7 +101,7 @@ pub(super) fn append(
         blend: UiBlendMode::Alpha,
         depth_test: true,
         depth_write: true,
-        alpha_cutoff: Some(0.5),
+        alpha_cutoff: model.alpha_cutoff(),
     });
     Some(())
 }

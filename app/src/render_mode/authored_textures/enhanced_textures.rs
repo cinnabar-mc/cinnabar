@@ -2,15 +2,8 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::{
-    NO_ANIMATION, RuntimeAssets, TextureRef,
-    material_keys::MaterialKeys,
-    texture::{TextureArray, TextureMip},
-};
-use image::{ImageBuffer, Rgba};
-use pack_compiler::pbr::{
-    PbrMipLayer, PbrPack, PbrSurface, build_pbr_mips, load_pbr_texture_for_key,
-};
+use assets::{NO_ANIMATION, RuntimeAssets, TextureRef, material_keys::MaterialKeys};
+use pack_compiler::pbr::{PbrPack, PbrPages, build_pbr_mips, load_pbr_texture_for_key};
 
 mod audit;
 mod cache;
@@ -21,11 +14,9 @@ mod tint_tests;
 /// Semicolon- or newline-separated pack directories that replace the local PBR configuration.
 pub(crate) const ENHANCED_PBR_DIR_ENVIRONMENT: &str = "CINNABAR_ENHANCED_PBR_DIR";
 const REF_FALLBACK: u32 = u32::MAX;
-/// Authored layers sit below the `PBR_REF_*` flag bits of their packed reference.
-const MAX_AUTHORED_LAYERS: u32 = assets::texture::PBR_REF_COLOR;
-const AUTHORED_LAYER_MASK: u32 = MAX_AUTHORED_LAYERS - 1;
-const _: () = assert!(MAX_AUTHORED_LAYERS as usize <= assets::MAX_TEXTURE_LAYERS);
-const LOW_PBR_TILE_SIZE: u32 = assets::texture::TILE_SIZE * 2;
+const AUTHORED_LAYER_MASK: u32 = pack_compiler::pbr::MAX_AUTHORED_LAYERS - 1;
+const _: () =
+    assert!(pack_compiler::pbr::MAX_AUTHORED_LAYERS as usize <= assets::MAX_TEXTURE_LAYERS);
 
 #[derive(Clone, Copy)]
 struct Source {
@@ -120,77 +111,12 @@ fn sources(
     groups
 }
 
-struct Page {
-    size: u32,
-    layers: u32,
-    data: Vec<Vec<u8>>,
-}
-
-impl Page {
-    /// Creates empty layer buffers for every mip of a power-of-two page.
-    fn new(size: u32) -> Self {
-        Self {
-            size,
-            layers: 0,
-            data: (0..=size.ilog2()).map(|_| Vec::new()).collect(),
-        }
-    }
-    /// Adds one complete layer to the page in mip order.
-    fn append(&mut self, mips: &[TextureMip]) {
-        for (data, mip) in self.data.iter_mut().zip(mips) {
-            data.extend_from_slice(&mip.rgba8);
-        }
-        self.layers += 1;
-    }
-    /// Freezes accumulated layer bytes into a texture array.
-    fn finish(self) -> TextureArray {
-        TextureArray {
-            layers: self.layers,
-            mips: self
-                .data
-                .into_iter()
-                .enumerate()
-                .map(|(level, data)| TextureMip {
-                    size: self.size >> level,
-                    rgba8: data.into_boxed_slice(),
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        }
-    }
-}
-
-/// Builds a neutral layer for an otherwise empty authored page.
-fn fallback(size: u32) -> PbrMipLayer {
-    let image = |pixel| ImageBuffer::from_pixel(1, 1, Rgba(pixel));
-    build_pbr_mips(
-        &PbrSurface {
-            color: image([128, 128, 128, 255]),
-            normal: image([128, 128, 255, 128]),
-            material: image([0, 0, 255, 0]),
-            flags: 0,
-        },
-        size,
-        false,
-        false,
-    )
-    .expect("constant authored fallback is valid")
-}
-
 /// Resolves material aliases into sparse authored pages and coverage records.
 fn load(
     groups: BTreeMap<(String, String), Vec<Source>>,
     packs: &[PbrPack],
 ) -> (Option<cache::Payload>, Vec<audit::Alias>) {
-    let pages = || {
-        [
-            Page::new(assets::texture::PBR_TILE_SIZE),
-            Page::new(LOW_PBR_TILE_SIZE),
-        ]
-    };
-    let mut colors = pages();
-    let mut normals = pages();
-    let mut materials = pages();
+    let mut pages = PbrPages::default();
     let mut references = BTreeMap::new();
     let mut audit_aliases = Vec::with_capacity(groups.len());
     for ((key, alias), sources) in groups {
@@ -212,8 +138,8 @@ fn load(
             }
         };
         audit_alias.apply_source(&texture);
-        let target_page = usize::from(texture.native_frame_size() <= LOW_PBR_TILE_SIZE);
-        let tile_size = colors[target_page].size;
+        let target_page = PbrPages::page_for(texture.native_frame_size());
+        let tile_size = pages.tile_size(target_page);
         audit_alias.upload_tile_size = Some(tile_size);
         let mut completed = BTreeMap::new();
         for source in sources {
@@ -227,7 +153,7 @@ fn load(
             let encoded = if let Some(&reference) = completed.get(&key) {
                 reference
             } else {
-                if colors[target_page].layers >= MAX_AUTHORED_LAYERS {
+                if !pages.has_room(target_page) {
                     audit_alias.fallback = true;
                     break;
                 }
@@ -244,12 +170,7 @@ fn load(
                         continue;
                     }
                 };
-                let layer = colors[target_page].layers;
-                // Authored references keep their page in the top bit, above the PBR flags.
-                let reference = ((target_page as u32) << 31) | layer | mip.flags;
-                colors[target_page].append(&mip.color);
-                normals[target_page].append(&mip.normal);
-                materials[target_page].append(&mip.material);
+                let reference = pages.push(target_page, &mip);
                 completed.insert(key, reference);
                 reference
             };
@@ -263,23 +184,19 @@ fn load(
         audit_alias.finish();
         audit_aliases.push(audit_alias);
     }
-    if colors.iter().all(|page| page.layers == 0) {
+    let tile_sizes = [
+        assets::texture::PBR_TILE_SIZE,
+        pack_compiler::pbr::LOW_PBR_TILE_SIZE,
+    ];
+    let Some([color, normal, material]) = pages.finish(|page| tile_sizes[page]) else {
         return (None, audit_aliases);
-    }
-    for index in 0..2 {
-        if colors[index].layers == 0 {
-            let fallback = fallback(colors[index].size);
-            colors[index].append(&fallback.color);
-            normals[index].append(&fallback.normal);
-            materials[index].append(&fallback.material);
-        }
-    }
+    };
     (
         Some(cache::Payload {
-            color: colors.map(Page::finish),
-            normal: normals.map(Page::finish),
-            material: materials.map(Page::finish),
-            references: render_scene::EnhancedTextureAssets::material_references(references),
+            color,
+            normal,
+            material,
+            references: assets::texture::EnhancedTextureAssets::material_references(references),
         }),
         audit_aliases,
     )
@@ -295,7 +212,7 @@ fn reference_slot(texture: u32) -> Option<usize> {
 pub(crate) fn load_optional_enhanced_textures(
     runtime: &RuntimeAssets,
     keys: &MaterialKeys,
-) -> Option<Arc<render_scene::EnhancedTextureAssets>> {
+) -> Option<Arc<assets::texture::EnhancedTextureAssets>> {
     let packs: Vec<_> = config::selected_packs()?
         .into_iter()
         .map(|pack| pack.with_terrain_aliases(keys.aliases()))
@@ -317,12 +234,12 @@ pub(crate) fn load_optional_enhanced_textures(
         &fingerprint.unwrap_or([0; 32]),
         aliases,
         payload.as_ref().map_or(0, |payload| {
-            render_scene::EnhancedTextureAssets::reference_values(&payload.references)
+            assets::texture::EnhancedTextureAssets::reference_values(&payload.references)
                 .filter(|&reference| reference != REF_FALLBACK)
                 .count()
         }),
         payload.as_ref().map_or(0, |payload| {
-            render_scene::EnhancedTextureAssets::reference_values(&payload.references)
+            assets::texture::EnhancedTextureAssets::reference_values(&payload.references)
                 .filter(|&reference| reference != REF_FALLBACK)
                 .map(|reference| (reference >> 31, reference & AUTHORED_LAYER_MASK))
                 .collect::<std::collections::BTreeSet<_>>()
@@ -344,6 +261,7 @@ pub(crate) fn load_optional_enhanced_textures(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::{ImageBuffer, Rgba};
 
     /// Creates two distinct materials that share one carrier image.
     pub(super) fn shared_carrier() -> (RuntimeAssets, MaterialKeys) {
@@ -372,7 +290,7 @@ mod tests {
 
     /// Reads an authored layer's first albedo texel through the production reference lookup.
     pub(super) fn albedo(
-        maps: &render_scene::EnhancedTextureAssets,
+        maps: &assets::texture::EnhancedTextureAssets,
         runtime: &RuntimeAssets,
         id: u32,
     ) -> Option<[u8; 4]> {

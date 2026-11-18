@@ -163,7 +163,7 @@ impl UiRuntime {
         }
         if let Some(screen) = host.menu {
             let reference = if host.over_world || screen.requires_session() {
-                launcher::menu::menu_reference(screen)
+                launcher::menu::flow::menu_reference(screen)
             } else {
                 None
             };

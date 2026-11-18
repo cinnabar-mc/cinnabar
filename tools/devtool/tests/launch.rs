@@ -31,15 +31,14 @@ fn launch(profile: &str, experiences: bool) -> String {
 }
 
 #[test]
-fn dev_profile_places_go_binaries_beside_the_debug_client() {
+fn dev_profile_places_the_core_beside_the_client_without_a_developer_server() {
     for (profile, directory) in [("dev", "debug"), ("play", "play"), ("release", "release")] {
         let commands = launch(profile, false);
-        for binary in ["bedrock-core", "bedrock-local-server"] {
-            assert!(
-                commands.contains(&format!("target/{directory}/{binary}")),
-                "{commands}"
-            );
-        }
+        assert!(
+            commands.contains(&format!("target/{directory}/bedrock-core")),
+            "{commands}"
+        );
+        assert!(!commands.contains("bedrock-local-server"), "{commands}");
         assert!(commands.contains(&format!("build --profile {profile} -p cinnabar")));
         if cfg!(target_os = "macos") {
             assert!(commands.contains(&format!(

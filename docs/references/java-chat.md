@@ -45,6 +45,20 @@ bottom edge. Status rows, XP bar, offhand, item name, HUD chat and focused
 history rise with it, so their Java spacing above the hotbar stays the same.
 Turning it off keeps Java's flush hotbar.
 
+Incoming messages retain their full resolved text in both HUD notifications and
+open history. The compact-label presentation budget must not trim chat: one
+packet can contain a formatted guide with several paragraphs, and a byte prefix
+can remove its later paragraphs even though the receive store retained them.
+Chat color, mention highlighting and server content filters receive the complete
+text. Existing wrapping, scrolling, visibility and message retention still apply.
+
+Original synthetic regressions cover long Cyrillic messages, paragraph breaks,
+formatting, translation parameters and the retained HUD's idle path. Inspected CPU
+snapshots show the complete message in both HUD and open history on Linux at
+1280×720, GUI scale 2 and DPI 1. Contributor gameplay captures show a server guide's
+previously truncated map footer remaining visible in HUD chat. Existing protocol,
+layout and retained-history limits still need native qualification.
+
 ## Vanilla rules
 
 | Rule | Behaviour |

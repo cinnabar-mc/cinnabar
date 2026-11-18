@@ -58,6 +58,8 @@ pub(super) fn clear_presentation(world: &mut World) {
     {
         camera.set_rig(None);
         camera.set_presented_view(None);
+        camera.set_mod_perspective(None);
+        camera.set_view_yaw_offset(None);
         camera.set_view_scale(1.0, 1.0);
         camera.set_view_tilt(None);
     }

@@ -62,10 +62,22 @@ pub fn binding_pressed(
     keys: &bevy::prelude::ButtonInput<bevy::prelude::KeyCode>,
     mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
 ) -> bool {
-    if keys
-        .get_just_pressed()
-        .any(|key| binding_key(menu, name, *key))
-    {
+    binding_pressed_unless_typing(menu, name, keys, mouse, false)
+}
+
+/// Like [`binding_pressed`], but while `typing` a key that enters text into the focused box
+/// doesn't count; keys that type nothing, such as F2, and mouse buttons still do.
+pub fn binding_pressed_unless_typing(
+    menu: Option<&crate::menu::MenuRuntime>,
+    name: BindingId,
+    keys: &bevy::prelude::ButtonInput<bevy::prelude::KeyCode>,
+    mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
+    typing: bool,
+) -> bool {
+    if keys.get_just_pressed().any(|key| {
+        binding_key(menu, name, *key)
+            && !(typing && crate::physical_input::keyboard_key(*key).types_text())
+    }) {
         return true;
     }
     match named_control(menu, name) {

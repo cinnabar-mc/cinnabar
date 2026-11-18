@@ -185,7 +185,8 @@ impl ItemUseRuntime {
         Some(crossbow_animation_frame(None, 0, projectile, false))
     }
 
-    /// The local rig's use flag: set while a use runs, cleared while a held-use item idles.
+    /// The local rig's use flag: set while a use runs, cleared while a held-use item or a
+    /// brush idles.
     pub fn local_item_use(
         &self,
         player_runtime: &client_state::PlayerRuntime,
@@ -201,6 +202,8 @@ impl ItemUseRuntime {
             self.selected_projectile(player_runtime, ui),
         ) {
             Some(AirUse::Hold { .. } | AirUse::Instant { .. }) => LocalItemUse::Idle,
+            // A brush's use starts and ends locally, so its idle state is predicted too.
+            _ if selection::selected_brush(player_runtime, stream) => LocalItemUse::Idle,
             Some(AirUse::Swing | AirUse::Throw { .. } | AirUse::GlideRocket) | None => {
                 LocalItemUse::Unpredicted
             }

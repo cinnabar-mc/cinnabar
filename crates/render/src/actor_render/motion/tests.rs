@@ -32,18 +32,18 @@ fn empty_actor_views_prewarm_motion_for_later_visible_materials() {
         pipeline
             .prewarm(cache, Msaa::Sample4, false, false)
             .unwrap();
-        let material =
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                alpha_test: true,
-                cull: true,
-                depth_write: true,
-                ..Default::default()
-            }));
+        let flags = crate::actor::test_material::TestMaterial {
+            alpha_test: true,
+            cull: true,
+            depth_write: true,
+            ..Default::default()
+        };
         let key = ActorPipelineKey {
             msaa: Msaa::Sample4,
             hdr: false,
             enhanced: false,
-            material,
+            material: flags.word(assets::EntityRenderMaterial::Default),
+            raster: flags.raster(),
         };
         assert!(
             pipeline.motion_variant(key).is_some(),
@@ -99,8 +99,14 @@ fn shader_definition_names(values: &[bevy::shader::ShaderDefVal]) -> Vec<&str> {
 }
 
 #[test]
-fn production_motion_fragment_fits_default_device_interface_limits() {
-    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+fn production_motion_fragment_fits_fifteen_variable_device_interface_limits() {
+    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_inter_stage_shader_variables: 15,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
     let layouts: Vec<_> = [
         actor_bind_group_layout(),
         crate::lighting::layout(),
@@ -121,11 +127,10 @@ fn production_motion_fragment_fits_default_device_interface_limits() {
         ..Default::default()
     });
     for msaa in [Msaa::Off, Msaa::Sample4] {
-        let material =
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                alpha_test: true,
-                ..Default::default()
-            }));
+        let flags = crate::actor::test_material::TestMaterial {
+            alpha_test: true,
+            ..Default::default()
+        };
         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
         MotionSpecializer
             .specialize(
@@ -133,7 +138,8 @@ fn production_motion_fragment_fits_default_device_interface_limits() {
                     msaa,
                     hdr: false,
                     enhanced: false,
-                    material,
+                    material: flags.word(assets::EntityRenderMaterial::Default),
+                    raster: flags.raster(),
                 },
                 &mut descriptor,
             )
@@ -154,7 +160,7 @@ fn production_motion_fragment_fits_default_device_interface_limits() {
             ),
         });
         let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("default actor motion limits"),
+            label: Some("fifteen-variable actor motion limits"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex,
@@ -228,13 +234,13 @@ fn stationary_actor_publications_keep_both_motion_buffers_without_uploads() {
 
 #[test]
 fn actor_velocity_preserves_cutout_culling_and_reads_depth_without_changing_it() {
-    let material =
-        assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-            alpha_test: true,
-            cull: true,
-            depth_write: true,
-            ..Default::default()
-        }));
+    let flags = crate::actor::test_material::TestMaterial {
+        alpha_test: true,
+        cull: true,
+        depth_write: true,
+        ..Default::default()
+    };
+    let material = flags.word(assets::EntityRenderMaterial::Default);
     let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
     MotionSpecializer
         .specialize(
@@ -243,6 +249,7 @@ fn actor_velocity_preserves_cutout_culling_and_reads_depth_without_changing_it()
                 hdr: false,
                 enhanced: false,
                 material,
+                raster: flags.raster(),
             },
             &mut descriptor,
         )
@@ -256,12 +263,14 @@ fn actor_velocity_preserves_cutout_culling_and_reads_depth_without_changing_it()
     let depth = descriptor.depth_stencil.unwrap();
     assert_eq!(depth.depth_compare, Some(CompareFunction::Equal));
     assert_eq!(depth.depth_write_enabled, Some(false));
-    assert!(eligible(material));
-    assert!(!eligible(assets::EntityRenderMaterial::Default.word(Some(
-        assets::EntityRenderMaterialState {
-            blend: true,
-            depth_write: false,
-            ..Default::default()
-        }
-    ))));
+    assert!(eligible(material, &flags.raster()));
+    let blended = crate::actor::test_material::TestMaterial {
+        blend: true,
+        depth_write: false,
+        ..Default::default()
+    };
+    assert!(!eligible(
+        blended.word(assets::EntityRenderMaterial::Default),
+        &blended.raster()
+    ));
 }

@@ -28,7 +28,6 @@ impl RenderCache {
         rig: RenderRig<'_>,
         layer: &assets::EntityRenderLayer,
         color: [f32; 4],
-        multitexture: bool,
         budget: &mut EvalBudget<'_>,
     ) -> Result<&LayerOutput, EvalError> {
         let hurt = evaluator.actor.shows_damage();
@@ -59,15 +58,7 @@ impl RenderCache {
         cached.output = None;
         cached.color = color;
         cached.hurt = hurt;
-        let output = evaluate_layer(
-            evaluator,
-            variables,
-            rig,
-            layer,
-            color,
-            multitexture,
-            budget,
-        )?;
+        let output = evaluate_layer(evaluator, variables, rig, layer, color, budget)?;
         Ok(cached.output.insert(output))
     }
 }

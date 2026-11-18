@@ -168,3 +168,26 @@ fn scopes_crossing_an_invert_force_replay_but_independent_previews_can_retain() 
     hud[1].1.isolated_depth_scope = None;
     assert!(plan.segments[0].independent_depth(&hud));
 }
+
+/// The crosshair invert draws in the composite pass before it instead of its own pass,
+/// except when it needs model depth or no composite precedes it.
+#[test]
+fn crosshair_invert_shares_the_composite_pass_unless_it_needs_depth() {
+    let crosshair = batch(UI_BLEND_INVERT).1;
+    assert!(!segments::invert_needs_depth(&crosshair));
+    let shared = |composited, batch: Option<&UiRenderBatch>| {
+        segments::invert_shares_composite(composited, batch.map(segments::invert_needs_depth))
+    };
+    assert!(shared(true, Some(&crosshair)));
+    // An empty or deferred layer encodes no composite for the invert to join.
+    assert!(!shared(false, Some(&crosshair)));
+    assert!(!shared(true, None));
+
+    let mut scoped = crosshair;
+    scoped.isolated_depth_scope = Some(1);
+    assert!(!segments::invert_needs_depth(&scoped));
+    assert!(shared(true, Some(&scoped)));
+    scoped.depth_test = 1;
+    assert!(segments::invert_needs_depth(&scoped));
+    assert!(!shared(true, Some(&scoped)));
+}

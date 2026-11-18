@@ -17,6 +17,8 @@ pub enum WorldError {
     NotOpen,
     #[error("the Minecraft EULA must be accepted before the server is downloaded")]
     EulaRequired,
+    #[error("{}", launcher::local_worlds::world::LEGACY_WORLD_REQUIRES_CONVERSION)]
+    LegacyWorld,
     #[error("world backend is not available on this platform")]
     BackendUnavailable,
     #[error("still checking whether Docker is running; try again")]

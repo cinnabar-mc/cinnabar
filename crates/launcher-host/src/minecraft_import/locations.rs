@@ -73,7 +73,10 @@ fn known(
             );
             add(
                 local,
-                "Packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/games/com.mojang",
+                &format!(
+                    "Packages/{}/LocalState/games/com.mojang",
+                    crate::ownership::MINECRAFT_PACKAGE_FAMILY
+                ),
                 "Windows legacy",
                 false,
             );

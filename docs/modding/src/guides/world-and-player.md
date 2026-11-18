@@ -13,7 +13,7 @@ Most `player-state` reads need the `player_state` grant; actor and actor-life re
 | `read_world` | Session-fenced feet position, alive state, the stable world identity and the local player's runtime id |
 | `read_motion` | Yaw and pitch (YXZ degrees, yaw left, pitch up), velocity in blocks per tick, on-ground |
 | `read_vitals` | Hunger, maximum hunger and saturation as attribute points, and the held item's server food definition |
-| `read_actors`, `read_actors_limited` | At most 16 nearby actors within 128 blocks; the limited form reads a prefix of 1 to `MAX_OBSERVED_ACTORS` and adds each actor's maximum health |
+| `read_actors`, `read_actors_limited` | The nearest 16 (`MAX_READ_ACTORS`) actors within 128 blocks; the limited form reads the nearest 1 to 64 (`MAX_OBSERVED_ACTORS`) and adds each actor's maximum health and unique ID |
 | `read_actor_lives` | Per runtime id, the actor's current `life` and whether it is dead; at most `MAX_ACTOR_LIFE_READS` (64) ids |
 | `read_combat`, `read_combat_lives` | Retained combat events — `attack-admitted`, `hurt`, `death`, `totem` — at most 4 events per `read_combat`; `read_combat_lives` takes up to `MAX_COMBAT_LIFE_READS` (64) event sequences and returns the actor life at each |
 | `read_chat` | Newest 32 retained received messages, filtered by sequence, at most 4 per read, each text at most 256 bytes |

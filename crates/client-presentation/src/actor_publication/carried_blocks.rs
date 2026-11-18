@@ -10,6 +10,7 @@ use protocol_ids::ActorDataKey;
 
 use crate::presentation::actors::ActorPresentationBatch;
 
+mod minecart;
 #[cfg(test)]
 mod tests;
 
@@ -111,6 +112,17 @@ pub(super) fn carried_blocks_for(
                         head.previous,
                         head.current,
                         partial_tick,
+                    )?,
+                )
+            } else if actor.entity_fact.native_class
+                == assets::facts::entity::NativeEntityClass::Minecart
+            {
+                let (block, offset) = minecart::display(actor)?;
+                (
+                    block,
+                    render_model::dropped_item::minecart_display_block_transform(
+                        body.world_from_actor,
+                        offset,
                     )?,
                 )
             } else {

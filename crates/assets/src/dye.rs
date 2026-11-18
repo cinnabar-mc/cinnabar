@@ -20,15 +20,12 @@ pub(crate) const DYE_RGB: [[u8; 3]; 16] = [
     [0xF0, 0xF0, 0xF0],
 ];
 
-/// Gamma-space RGBA for an actor palette index, wrapping to its low four bits.
-/// White is neutral; the remaining dye entries carry zero alpha.
+/// Gamma-space RGBA for an actor palette index, wrapping to its low four bits, with zero
+/// alpha. Index 0 is Bedrock's white, 0xF0F0F0, as the native palette's colour-to-index map
+/// lists it, not a neutral multiplier.
 #[must_use]
 pub fn actor_palette_color(index: u8) -> [f32; 4] {
-    let index = index & 0xF;
-    if index == 0 {
-        return [1.0; 4];
-    }
-    let [r, g, b] = DYE_RGB[usize::from(15 - index)].map(|value| f32::from(value) / 255.0);
+    let [r, g, b] = DYE_RGB[usize::from(15 - (index & 0xF))].map(|value| f32::from(value) / 255.0);
     [r, g, b, 0.0]
 }
 
@@ -37,9 +34,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn actor_and_banner_indices_share_rgb_with_neutral_actor_white() {
-        assert_eq!(actor_palette_color(0), [1.0; 4]);
-        for index in 1..16 {
+    fn actor_and_banner_indices_share_rgb_including_bedrock_white() {
+        let white = 240.0 / 255.0;
+        assert_eq!(actor_palette_color(0), [white, white, white, 0.0]);
+        for index in 0..16 {
             let rgb = crate::banner::color_rgb(i64::from(15 - index))
                 .map(|value| f32::from(value) / 255.0);
             assert_eq!(actor_palette_color(index), [rgb[0], rgb[1], rgb[2], 0.0]);

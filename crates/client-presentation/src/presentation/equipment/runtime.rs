@@ -43,6 +43,7 @@ mod routing;
 mod session;
 mod shield;
 mod style;
+mod trims;
 mod types;
 pub use block_items::{BlockItemPreparer, PreparedBlockItems};
 pub use java::java_draws_attachable;
@@ -62,10 +63,10 @@ use {
         atlas::{Placement, SpriteAtlas},
         display::{
             FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET,
-            LAYER_LEGGINGS, LAYER_OFF_HAND, head_block_display, view_bone,
+            LAYER_LEGGINGS, LAYER_OFF_HAND, view_bone,
         },
     },
-    render_model::equipment::{self as attachable, blocks::BlockSheets},
+    render_model::equipment::{self as attachable, blocks::BlockSheets, head_block_display},
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -95,8 +96,20 @@ pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
     SkullKind::from_block_identifier(identifier).filter(|kind| kind.packed_rig_index().is_some())
 }
 
-/// Generated item meshes kept resident; further distinct items draw nothing.
-const MAX_ITEM_MESHES: usize = 512;
+/// Startup meshes occupy the item namespace below session icons and static item meshes.
+const STARTUP_MESH_ID_CAPACITY: usize =
+    render_model::ITEM_MESH_RIG_ID_CAPACITY - session::MAX_SESSION_MESHES - ReservedItemMesh::COUNT;
+
+/// Maps generic humanoid armor geometries used by third-party attachables to the native player armor rig.
+pub(super) fn canonical_armor_geometry_identifier(identifier: &str) -> &str {
+    match identifier {
+        "geometry.humanoid.armor.helmet" => "geometry.player.armor.helmet",
+        "geometry.humanoid.armor.chestplate" => "geometry.player.armor.chestplate",
+        "geometry.humanoid.armor.leggings" => "geometry.player.armor.leggings",
+        "geometry.humanoid.armor.boots" => "geometry.player.armor.boots",
+        other => other,
+    }
+}
 
 /// Body bone index per armor bone; `None` where the body lacks it.
 type ArmorBoneMap = Arc<[Option<usize>]>;
@@ -104,6 +117,7 @@ type ArmorBoneMap = Arc<[Option<usize>]>;
 #[derive(Resource)]
 pub struct EquipmentRuntime {
     shield_patterns: shield::Patterns,
+    trims: trims::Trims,
     assets: Arc<RuntimeEntityAssets>,
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
@@ -136,7 +150,7 @@ pub struct EquipmentRuntime {
     session: session::SessionLayer,
     /// Next startup item mesh index; session icons use their own range.
     next_mesh: u32,
-    map_meshes: Option<[EntityRigId; 2]>,
+    map_meshes: Option<[EntityRigId; maps::MAP_MESH_COUNT]>,
     /// Retired pack slots, reused only after replacement geometry is queued.
     free_meshes: Vec<EntityRigId>,
     /// The session's server-pack attachables, consulted before `catalog`.
@@ -149,6 +163,8 @@ pub struct EquipmentRuntime {
     layers: Vec<EquipmentPresentation>,
     attachables: actor_animation::AttachablesRuntime,
     attachable_meshes: BTreeMap<AttachableMeshKey, EntityRigId>,
+    /// Whether a worn geometry, by `(from_pack, geometry index)`, has texture meshes.
+    texture_mesh_geometries: BTreeMap<(bool, u32), bool>,
     native_meshes: BTreeMap<(u16, u32), EntityRigId>,
     /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
     java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
@@ -301,8 +317,10 @@ impl EquipmentRuntime {
         );
         let runtime = Self {
             shield_patterns: Default::default(),
+            trims: Default::default(),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
+            texture_mesh_geometries: BTreeMap::new(),
             native_meshes: BTreeMap::new(),
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
@@ -535,6 +553,24 @@ impl EquipmentRuntime {
                         continue;
                     }
                     routing::EquipmentRoute::Armor(source) => source,
+                    routing::EquipmentRoute::SlotAttachable(source) => {
+                        let before = layers.len();
+                        if let Some(animation) = animation {
+                            self.push_slot_attachable(
+                                body,
+                                item,
+                                &source,
+                                input,
+                                animation,
+                                (slot, layer),
+                                layers,
+                            );
+                        }
+                        if layers.len() == before {
+                            self.note_missing_layer(item, Some(slot), bones.head);
+                        }
+                        continue;
+                    }
                     _ => {
                         self.note_missing_layer(item, Some(slot), bones.head);
                         continue;
@@ -617,17 +653,20 @@ impl EquipmentRuntime {
         if let Some(entry) = self.armor_geometry.get(identifier) {
             return entry.clone();
         }
-        let entry = find_geometry_index(&self.assets, identifier).and_then(|index| {
-            Some(Arc::new(ArmorGeometry {
-                rig: equipment_rig_id(index),
-                names: geometry_bone_names(&self.assets, index as usize)?,
-                pivots: geometry_bone_pivots(&self.assets, index as usize)?,
-                binding_expressions: geometry_bone_binding_expressions(
-                    &self.assets,
-                    index as usize,
-                )?,
-            }))
-        });
+        let canonical = canonical_armor_geometry_identifier(identifier);
+        let entry = find_geometry_index(&self.assets, identifier)
+            .or_else(|| find_geometry_index(&self.assets, canonical))
+            .and_then(|index| {
+                Some(Arc::new(ArmorGeometry {
+                    rig: equipment_rig_id(index),
+                    names: geometry_bone_names(&self.assets, index as usize)?,
+                    pivots: geometry_bone_pivots(&self.assets, index as usize)?,
+                    binding_expressions: geometry_bone_binding_expressions(
+                        &self.assets,
+                        index as usize,
+                    )?,
+                }))
+            });
         self.armor_geometry.insert(identifier.into(), entry.clone());
         entry
     }
@@ -652,7 +691,8 @@ impl EquipmentRuntime {
         make: impl FnOnce(EntityRigId) -> Option<ActorRigGeometry>,
     ) -> Option<EntityRigId> {
         let id = self.free_meshes.last().copied().or_else(|| {
-            (self.next_mesh < MAX_ITEM_MESHES as u32).then(|| item_mesh_rig_id(self.next_mesh))
+            (self.next_mesh < STARTUP_MESH_ID_CAPACITY as u32)
+                .then(|| item_mesh_rig_id(self.next_mesh))
         })?;
         let geometry = make(id)?;
         if self.free_meshes.pop().is_none() {
@@ -686,6 +726,9 @@ impl EquipmentRuntime {
                     .copied()
                     .map(|mut vertex| {
                         for uv in [&mut vertex.uv, &mut vertex.back_uv] {
+                            if *uv == render_model::ONE_SIDED_BACK_UV {
+                                continue;
+                            }
                             for axis in 0..2 {
                                 uv[axis] = rect[axis] + uv[axis] * (rect[axis + 2] - rect[axis]);
                             }

@@ -51,9 +51,10 @@ pub use settings::{SettingsSnapshot, settings_companion};
 pub use packet_mod::NativeFrame;
 pub use runtime::HudTextMeasure;
 pub use runtime::cinnabar::extension::input::{
-    ActionBinding as InputActionBinding, BindingContext, BindingModifiers,
-    Bindings as InputBindings,
+    ActionBinding as InputActionBinding, BindingChange as InputBindingChange, BindingContext,
+    BindingModifiers, Bindings as InputBindings,
 };
+pub use runtime::input_bindings::InputBindingWrite;
 pub use runtime::legacy_input::{
     MovementSnapshot as GameplayMovementSnapshot, Snapshot as GameplaySnapshot,
 };
@@ -61,9 +62,9 @@ pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens}
 
 pub use runtime::cinnabar::extension::gameplay::{
     BlockPosition as GameplayBlockPosition, CameraPose as GameplayCameraPose,
-    CameraRig as GameplayCameraRig, ControlModes as GameplayControlModes, Mob as GameplayMob,
+    CameraRig as GameplayCameraRig, ControlModes as GameplayControlModes,
     MovementInput as GameplayMovementInput, MovementIntents as GameplayMovementIntents,
-    Player as GameplayPlayer, Vector3 as GameplayVector3,
+    Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, ActorLife, Bounds as ActorObservationBounds,
@@ -75,7 +76,7 @@ pub use runtime::cinnabar::extension::player_state::{
 };
 pub use runtime::cinnabar::extension::{
     camera::DamageShake, events::Cue as ModCue, input::Controls as ControlFrame,
-    panel::Event as ControlEvent,
+    input::Scroll as ScrollFrame, panel::Event as ControlEvent,
 };
 
 pub use runtime::cinnabar::extension::terrain::{
@@ -225,6 +226,16 @@ pub fn empty_controls() -> ControlFrame {
         events: Vec::new(),
         pointer: None,
         wheel: 0.0,
+    }
+}
+
+/// No wheel input for an unowned or already consumed native frame.
+pub fn empty_scroll() -> ScrollFrame {
+    ScrollFrame {
+        line_x: 0.0,
+        line_y: 0.0,
+        pixel_x: 0.0,
+        pixel_y: 0.0,
     }
 }
 

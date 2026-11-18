@@ -600,7 +600,7 @@ fn session_menu_bindings_keep_their_existing_root_families() {
         assert!(!shown.out_of_game());
         assert_eq!(
             screen_data(&shown, &|_| None, 0).map(|data| data.reference),
-            launcher::menu::menu_reference(screen)
+            launcher::menu::flow::menu_reference(screen)
         );
     }
 }

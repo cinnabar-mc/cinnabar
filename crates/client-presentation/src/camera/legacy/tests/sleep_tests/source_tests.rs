@@ -51,7 +51,7 @@ fn loaded_bed_heading_is_ready_on_the_first_metadata_frame_without_actor_ticks()
         .unwrap();
     let view = app.world().resource::<LocalViewPose>();
     assert_eq!(
-        view.camera_rotation(),
+        view.player_camera_rotation(),
         crate::local_player::sleeping_view_rotation(270.0)
     );
     assert_eq!(
@@ -76,9 +76,9 @@ fn actor_camera_heading_reads_the_sleeping_presentation_without_replacing_input_
         .run_system_cached(resolve_presentation)
         .unwrap();
     let view = app.world().resource::<LocalViewPose>();
-    assert_ne!(view.camera_rotation(), input);
+    assert_ne!(view.player_camera_rotation(), input);
     assert_eq!(
-        view.camera_rotation(),
+        view.player_camera_rotation(),
         crate::local_player::sleeping_view_rotation(270.0)
     );
     assert_eq!(view.look_rotation(), input);
@@ -416,7 +416,9 @@ fn changed_and_missing_bed_facts_refresh_without_actor_ticks() {
             heading
         );
         assert_eq!(
-            app.world().resource::<LocalViewPose>().camera_rotation(),
+            app.world()
+                .resource::<LocalViewPose>()
+                .player_camera_rotation(),
             crate::local_player::sleeping_view_rotation(heading.unwrap_or(0.0))
         );
     }

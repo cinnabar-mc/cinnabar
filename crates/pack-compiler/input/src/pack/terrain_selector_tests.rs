@@ -90,6 +90,40 @@ fn capture(root: &Path, unknown: Option<(&str, u32)>, wheat: Option<(&str, u32)>
 }
 
 #[test]
+fn carried_class_arrays_use_the_model_missing_variant_fallback() {
+    let root = fixture();
+    let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
+    let mut state = record("{}");
+    state.name = "minecraft:pumpkin".into();
+    assert_eq!(
+        terrain.get_for_model_record("test:array", &state),
+        Some(("textures/first", 0))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &state),
+        Some(("textures/first", None))
+    );
+    state.name = "minecraft:lit_pumpkin".into();
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &state),
+        Some(("textures/second", None))
+    );
+    state.name = "minecraft:carved_pumpkin".into();
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &state),
+        Some(("textures/first", None))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &record("{}")),
+        Some(("textures/first", None))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("wheat", &record(r#"{"growth":{"type":"int","value":7}}"#)),
+        Some(("textures/stage_7", None))
+    );
+}
+
+#[test]
 fn unknown_model_arrays_use_first_entry_ignoring_unrelated_properties() {
     let root = fixture();
     let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();

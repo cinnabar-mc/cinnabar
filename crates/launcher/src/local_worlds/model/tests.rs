@@ -16,7 +16,7 @@ fn world(id: &str, name: &str) -> World {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
-        backend: Backend::Dragonfly,
+        backend: Backend::LegacyDragonfly,
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
@@ -377,7 +377,6 @@ fn prefs_are_polled_until_docker_detection_settles() {
     );
     assert!(menu.update(Input::BeginCreate).is_empty());
     assert_eq!(menu.screen(), Screen::Create);
-    assert_eq!(menu.create_form().backend, Backend::Bds);
 }
 
 #[test]
@@ -489,43 +488,6 @@ fn cancelling_the_docker_probe_drops_the_action() {
 }
 
 #[test]
-fn backend_selection_preserves_terrain_and_seed() {
-    let mut menu = loaded(&[]);
-    menu.update(Input::BeginCreate);
-    menu.update(Input::SetSeed("42".into()));
-    menu.update(Input::SetFlat(true));
-    menu.update(Input::SetBackend(Backend::Bds));
-    assert_eq!(menu.create_form().generator, Generator::Flat);
-    menu.update(Input::SetFlat(false));
-    assert_eq!(menu.create_form().backend, Backend::Bds);
-    menu.update(Input::SetBackend(Backend::Dragonfly));
-    assert_eq!(menu.create_form().generator, Generator::Normal);
-    assert_eq!(menu.create_form().seed_text, "42");
-}
-
-/// Unsupported terrain stays in the form until the user chooses flat terrain or BDS.
-#[test]
-fn dragonfly_natural_terrain_can_be_corrected_before_creation() {
-    let mut menu = loaded(&[]);
-    menu.update(Input::BeginCreate);
-    menu.update(Input::SetBackend(Backend::Dragonfly));
-    assert!(menu.update(Input::SubmitCreate).is_empty());
-    assert_eq!(
-        menu.form_error(),
-        Some(super::super::world::NATURAL_TERRAIN_REQUIRES_BDS)
-    );
-    assert_eq!(menu.screen(), Screen::Create);
-    menu.update(Input::SetFlat(true));
-    let effects = menu.update(Input::SubmitCreate);
-    let [Effect::Create(spec)] = effects.as_slice() else {
-        panic!("expected a flat world: {effects:?}");
-    };
-    assert_eq!(spec.backend, Some(Backend::Dragonfly));
-    assert_eq!(spec.generator, Generator::Flat);
-    assert!(menu.form_error().is_none());
-}
-
-#[test]
 fn retry_redetects_and_continues_once_docker_is_up() {
     let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);
     menu.update(Input::BeginCreate);
@@ -575,14 +537,6 @@ fn playing_a_dragonfly_world_skips_the_modal_but_a_bds_world_needs_docker() {
     assert_eq!(
         menu.prompt(),
         prompt(PromptKind::DockerNotRunning, PromptFor::Play)
-    );
-    assert!(
-        !menu
-            .prompt()
-            .expect("prompt")
-            .buttons()
-            .contains(&PromptButton::UseDragonfly),
-        "a saved BDS world never falls back to another server"
     );
     menu.update(Input::Prompt(PromptButton::Retry));
     assert_eq!(
@@ -649,7 +603,6 @@ fn create_defaults_to_bds_and_normal_independent_of_bds_availability() {
         menu.apply(Event::Prefs(Prefs::default(), idle));
         menu.update(Input::BeginCreate);
         assert_eq!(menu.create_form().generator, Generator::Normal);
-        assert_eq!(menu.create_form().backend, Backend::Bds);
     }
 }
 
@@ -822,7 +775,6 @@ fn new_world_backend_defaults_to_bds_and_requires_docker() {
     let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
     menu.update(Input::BeginCreate);
     assert_eq!(menu.screen(), Screen::Create);
-    assert_eq!(menu.create_form().backend, Backend::Bds);
     assert_eq!(menu.create_form().generator, Generator::Normal);
     menu.update(Input::SubmitCreate);
     assert_eq!(menu.screen(), Screen::BackendPrompt);

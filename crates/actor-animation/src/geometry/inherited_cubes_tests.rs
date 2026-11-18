@@ -35,3 +35,44 @@ fn inherited_skeleton_metadata_preserves_defaults_without_copying_cubes() {
     assert_eq!(bones[0].rotation, [4.0, 5.0, 6.0]);
     assert!(bones[0].has_binding_expression);
 }
+
+#[test]
+fn merged_bone_indices_follow_the_inherited_skeleton_order() {
+    let mut compiled = crate::test_support::compiled_fixture();
+    let parent = compiled.geometries[0].clone();
+    let bone = |name: &str| assets::EntityGeometryBone {
+        name: name.into(),
+        ..parent.bones[0].clone()
+    };
+    let mut child = parent.clone();
+    child.identifier = "geometry.layer".into();
+    child.inherits = Some(assets::EntityGeometryInheritance {
+        identifier: parent.identifier.clone(),
+        resolution: assets::EntityDependencyResolution::Catalog,
+    });
+    child.bones = vec![bone("wing"), bone("RightItem"), bone("tail"), bone("WING")].into();
+    let mut symbols = compiled.symbols.into_vec();
+    symbols.insert(
+        1,
+        assets::EntityAssetSymbol {
+            identifier: child.identifier.clone(),
+            ..symbols[0].clone()
+        },
+    );
+    compiled.symbols = symbols.into();
+    // Symbols after the inserted geometry move up by one.
+    compiled.animation_clips[0].symbol += 1;
+    compiled.rig_bindings[0].entity_symbol += 1;
+    compiled.rig_bindings[0].render_controller = compiled.rig_bindings[0]
+        .render_controller
+        .map(|index| index + 1);
+    compiled.geometries = vec![parent, child].into();
+    let assets = RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap();
+    let (_, names) = resolve_bones(&assets, 1).unwrap();
+    assert_eq!(names.len(), 3);
+    for (index, name) in names.iter().enumerate() {
+        assert_eq!(merged_bone_index(&assets, 1, name), Some(index));
+    }
+    assert_eq!(merged_bone_index(&assets, 1, "RIGHTITEM"), Some(0));
+    assert_eq!(merged_bone_index(&assets, 1, "absent"), None);
+}

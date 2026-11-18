@@ -376,6 +376,7 @@ fn a_controller_selected_geometry_is_culled_in_the_trident_frame() {
     assert!(super::super::admit_frame_bounds(
         &mut presentation,
         &rig,
+        actor,
         view,
         Some(&mut frame)
     ));

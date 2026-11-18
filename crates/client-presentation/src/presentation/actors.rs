@@ -92,7 +92,7 @@ pub fn update_actor_rig_scene(
 }
 
 /// Checks camera overlap, distance and frustum bounds before building a rig's presentation.
-/// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
+/// Layers that can pass behind terrain survive occlusion, using cached draw layers when available.
 /// Controllers and persona meshes that can extend the base defer its bounds proof.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
@@ -122,6 +122,7 @@ pub fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
+    let culling_bounds = actor_animation::actor_culling_bounds(rig.culling_bounds(), actor, scale);
     // Culling places the model frame's box at the model origin, as the drawn submission does.
     let (origin, bounds) = sampled_rig_placement(
         rig,
@@ -134,10 +135,10 @@ pub fn rig_may_be_visible(
             rig.axis_scale[2],
         ],
     )
-    .map_or((feet, rig.culling_bounds()), |placement| {
+    .map_or((feet, culling_bounds), |placement| {
         (
             placement.model_origin(),
-            placement.frame.culling_bounds(rig.culling_bounds()),
+            placement.frame.culling_bounds(culling_bounds),
         )
     });
     if !actor_bounds_are_visible(origin, scale, bounds, Some(view)) {
@@ -147,11 +148,13 @@ pub fn rig_may_be_visible(
     !occluded(low, high)
         || frame.map_or_else(
             || {
-                rig.render
-                    .iter()
-                    .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+                rig.render.iter().any(|layer| {
+                    layer
+                        .render_state
+                        .is_some_and(|raster| raster.may_pass_behind_terrain())
+                })
             },
-            |frame| frame.has_always_depth_material(rig.actor.runtime_id),
+            |frame| frame.has_occlusion_bypass_material(rig.actor.runtime_id),
         )
 }
 
@@ -382,7 +385,12 @@ fn place(
         return None;
     }
     submission.world_from_actor = placement.world_from_model;
-    submission.culling_bounds = placement.frame.culling_bounds(submission.culling_bounds);
+    let bounds = actor_animation::actor_culling_bounds(
+        submission.culling_bounds,
+        actor,
+        submission.culling_scale(),
+    );
+    submission.culling_bounds = placement.frame.culling_bounds(bounds);
     submission.overlay_rgba8 =
         crate::presentation::combat::overlay(actor, render_api::DEFAULT_COMBAT_VISUALS);
     present_thrown_trident(submission, actor);

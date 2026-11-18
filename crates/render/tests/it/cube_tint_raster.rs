@@ -367,7 +367,7 @@ fn render_fixture(cache_admission: bool) {
         .into_iter()
         .enumerate()
         .flat_map(|(index, flags)| {
-            [
+            crate::material_records::plain_material(
                 0,
                 flags,
                 if index % 2 == 0 {
@@ -375,10 +375,7 @@ fn render_fixture(cache_admission: bool) {
                 } else {
                     0
                 },
-                0,
-                0,
-                0,
-            ]
+            )
         })
         .collect::<Vec<_>>();
     let view = gpu.buffer(
@@ -548,7 +545,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.material_flags,
         tint_gamma,
         in.native_ao_face,
-        terrain_light_colour(in.native_light_levels),
+        point_lit_terrain_light_colour(in.native_light_levels, in.world_position),
         atmosphere.fog_gamma.rgb,
         distance_fog_amount(in.world_position),
     );

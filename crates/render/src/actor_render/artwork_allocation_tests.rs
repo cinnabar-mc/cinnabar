@@ -10,7 +10,6 @@ fn publication(marker: u8, layers: u32) -> ActorArtworkPages {
         height: 16,
         layers,
         rgba8: vec![marker; 16 * 16 * layers as usize * 4].into(),
-        color_mask: false,
         multitexture: false,
     }]);
     pages
@@ -142,7 +141,6 @@ fn reduced_actor_uploads_sample_every_layer_with_normalized_uvs() {
         height: 64,
         layers: 2,
         rgba8: pixels.into(),
-        color_mask: false,
         multitexture: false,
     };
     let before_texture =

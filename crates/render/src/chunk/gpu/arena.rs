@@ -1,6 +1,7 @@
 use crate::chunk::*;
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
+pub(in crate::chunk) mod buffers;
 mod free_ranges;
 mod priority;
 
@@ -34,6 +35,8 @@ pub(in crate::chunk) struct ChunkGpuUploadStats {
     pub(in crate::chunk) model_streams_validated: usize,
     pub(in crate::chunk) range_plans: usize,
     pub(in crate::chunk) candidates_deferred: usize,
+    /// All selected updates were prepared and their writes completed this frame.
+    pub(in crate::chunk) publication_complete: bool,
     pub(in crate::chunk) time_limited: bool, // preparation stopped at its elapsed allowance
 }
 
@@ -150,6 +153,10 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) pending_removals: BTreeSet<Entity>,
     pub(in crate::chunk) retirement_budget: TransparentRetirementBudget,
     pub(in crate::chunk) migration: Option<ArenaMigration>,
+    /// A failed speculative allocation waits until arena storage has been released.
+    pub(in crate::chunk) growth_blocked: bool,
+    /// Advances only when owned ranges become reusable.
+    pub(in crate::chunk) release_revision: u64,
     pub(in crate::chunk) memory: super::telemetry::ArenaMemoryTelemetry,
     /// Queue completion for an empty arena; new work cancels this release attempt.
     pub(in crate::chunk) idle_completion: Option<Arc<std::sync::atomic::AtomicBool>>,
@@ -204,18 +211,6 @@ pub(in crate::chunk) fn try_create_storage_buffer(
     size: u64,
 ) -> Option<Buffer> {
     crate::gpu_allocation::buffer(render_device, &storage_buffer_descriptor(label, size))
-}
-
-pub(in crate::chunk) fn create_indirect_buffer(
-    render_device: &RenderDevice,
-    command_capacity: usize,
-) -> Buffer {
-    render_device.create_buffer(&BufferDescriptor {
-        label: Some("packed chunk indirect commands"),
-        size: command_capacity as u64 * INDEXED_INDIRECT_BYTES,
-        usage: BufferUsages::INDIRECT | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -790,6 +785,8 @@ pub(in crate::chunk) fn allocate_origin(arena: &mut ChunkGpuArena) -> Option<u32
 }
 
 pub(in crate::chunk) fn release_origin(arena: &mut ChunkGpuArena, index: u32) {
+    arena.release_revision = arena.release_revision.wrapping_add(1);
+    arena.growth_blocked = false;
     arena.free_origins.push(index);
     while arena.origin_len > 0 {
         let tail = (arena.origin_len - 1) as u32;
@@ -844,6 +841,8 @@ pub(in crate::chunk) fn release_completed_transparent_retirements(
             continue;
         }
         let bytes = retirement.owned_bytes();
+        arena.release_revision = arena.release_revision.wrapping_add(1);
+        arena.growth_blocked = false;
         if let Some((range, capacity)) = retirement.quad {
             release_quad_range(
                 &mut arena.quad_len,

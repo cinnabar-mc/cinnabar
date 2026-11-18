@@ -141,7 +141,6 @@ fn assert_pulse_gates(input: &FinalizedInput, keys: &[String], attack: bool, use
             pitch: 0.,
             attack_held: input.phase(Action::Attack).held,
             frame_seconds: 0.016,
-            players: Vec::new(),
         }),
         controls,
     )

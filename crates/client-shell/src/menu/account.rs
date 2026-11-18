@@ -117,6 +117,15 @@ impl MenuRuntime {
             (!catalog.errors.is_empty()).then(|| "Social: Refresh to try again.".to_owned());
     }
 
+    /// The token cache the current sign-in writes: the pending one while adding an account.
+    fn sign_in_cache(&self) -> PathBuf {
+        if self.feeds.account_adding {
+            launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache()
+        } else {
+            self.layout.auth_cache()
+        }
+    }
+
     /// Validates the saved account in the background, without taking focus for a prompt.
     fn start_cached_sign_in(&mut self) {
         self.start_sign_in();
@@ -257,11 +266,14 @@ impl MenuRuntime {
             self.message = Some(failure.into());
             return;
         };
-        let cache = if self.feeds.account_adding {
-            launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache()
-        } else {
-            self.layout.auth_cache()
-        };
+        let cache = self.sign_in_cache();
+        // The helper resumes an unexpired prompt saved before the system ended the client, as
+        // phones do to an app left for the browser. The player already took that code there.
+        if let Some(code) =
+            launcher::pending_sign_in::awaiting(&cache, std::time::SystemTime::now())
+        {
+            self.sign_in_browser.skip_automatic_open(&code);
+        }
         match AuthSupervisor::spawn(&executable, &cache) {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
@@ -495,3 +507,5 @@ mod tests;
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(all(test, unix))]
+mod resume_tests;

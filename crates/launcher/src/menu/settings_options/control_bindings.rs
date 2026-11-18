@@ -50,24 +50,54 @@ pub fn is_gamepad(control: PhysicalControl) -> bool {
     )
 }
 
+/// The pack texture that pictures a gamepad control on the controls screen, and the emoticon
+/// that names it in vanilla's server text.
+fn gamepad_glyph(control: PhysicalControl) -> Option<(&'static str, &'static str)> {
+    Some(match control {
+        PhysicalControl::GamepadButton(0) => {
+            ("textures/ui/xbox_face_button_down", "xbox_face_button_down")
+        }
+        PhysicalControl::GamepadButton(1) => (
+            "textures/ui/xbox_face_button_right",
+            "xbox_face_button_right",
+        ),
+        PhysicalControl::GamepadButton(2) => {
+            ("textures/ui/xbox_face_button_up", "xbox_face_button_up")
+        }
+        PhysicalControl::GamepadButton(3) => {
+            ("textures/ui/xbox_face_button_left", "xbox_face_button_left")
+        }
+        PhysicalControl::GamepadButton(4) => ("textures/ui/xbox_bumper_left", "xbox_bumper_left"),
+        PhysicalControl::GamepadButton(5) => ("textures/ui/xbox_bumper_right", "xbox_bumper_right"),
+        PhysicalControl::GamepadButton(8) => ("textures/ui/xbox_stick_left", "xbox_stick_left"),
+        PhysicalControl::GamepadButton(9) => ("textures/ui/xbox_stick_right", "xbox_stick_right"),
+        PhysicalControl::GamepadButton(11) => ("textures/ui/xbox_dpad_up", "xbox_dpad_up"),
+        PhysicalControl::GamepadButton(12) => ("textures/ui/xbox_dpad_down", "xbox_dpad_down"),
+        PhysicalControl::GamepadButton(13) => ("textures/ui/xbox_dpad_left", "xbox_dpad_left"),
+        PhysicalControl::GamepadButton(14) => ("textures/ui/xbox_dpad_right", "xbox_dpad_right"),
+        PhysicalControl::GamepadAxis { axis: 4, .. } => {
+            ("textures/ui/xbox_left_trigger", "xbox_trigger_left")
+        }
+        PhysicalControl::GamepadAxis { axis: 5, .. } => {
+            ("textures/ui/xbox_right_trigger", "xbox_trigger_right")
+        }
+        _ => return None,
+    })
+}
+
 /// Displays the pack's Xbox button glyph for a captured gamepad control.
 pub fn gamepad_icon(control: PhysicalControl) -> &'static str {
+    gamepad_glyph(control).map_or("", |(texture, _)| texture)
+}
+
+/// The emoticon, without its colons, that vanilla's server text uses for a mouse button or
+/// gamepad control, or `None` for controls it names with text.
+pub fn control_emoticon(control: PhysicalControl) -> Option<&'static str> {
     match control {
-        PhysicalControl::GamepadButton(0) => "textures/ui/xbox_face_button_down",
-        PhysicalControl::GamepadButton(1) => "textures/ui/xbox_face_button_right",
-        PhysicalControl::GamepadButton(2) => "textures/ui/xbox_face_button_up",
-        PhysicalControl::GamepadButton(3) => "textures/ui/xbox_face_button_left",
-        PhysicalControl::GamepadButton(4) => "textures/ui/xbox_bumper_left",
-        PhysicalControl::GamepadButton(5) => "textures/ui/xbox_bumper_right",
-        PhysicalControl::GamepadButton(8) => "textures/ui/xbox_stick_left",
-        PhysicalControl::GamepadButton(9) => "textures/ui/xbox_stick_right",
-        PhysicalControl::GamepadButton(11) => "textures/ui/xbox_dpad_up",
-        PhysicalControl::GamepadButton(12) => "textures/ui/xbox_dpad_down",
-        PhysicalControl::GamepadButton(13) => "textures/ui/xbox_dpad_left",
-        PhysicalControl::GamepadButton(14) => "textures/ui/xbox_dpad_right",
-        PhysicalControl::GamepadAxis { axis: 4, .. } => "textures/ui/xbox_left_trigger",
-        PhysicalControl::GamepadAxis { axis: 5, .. } => "textures/ui/xbox_right_trigger",
-        _ => "",
+        PhysicalControl::MouseButton(1) => Some("mouse_left_button"),
+        PhysicalControl::MouseButton(2) => Some("mouse_right_button"),
+        PhysicalControl::MouseButton(3) => Some("mouse_middle_button"),
+        _ => gamepad_glyph(control).map(|(_, emoticon)| emoticon),
     }
 }
 

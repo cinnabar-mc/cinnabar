@@ -2,7 +2,7 @@ use super::*;
 use protocol::{ActorEvent, ActorStatusKind, WorldEvent};
 
 /// A local actor and its observation scope, independent of game assets and input capture.
-fn fixture() -> (client_world::WorldAuthority, WorldObservation) {
+pub(super) fn fixture() -> (client_world::WorldAuthority, WorldObservation) {
     let mut authority = client_world::WorldAuthority::new(
         protocol::WorldBootstrap {
             dimension: 0,

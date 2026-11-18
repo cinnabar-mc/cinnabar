@@ -112,6 +112,35 @@ impl GpuCull {
         }
     }
 
+    /// Replaces storage and rewrites every record and draw order into it.
+    fn install_storage(&mut self, storage: CullStorage) {
+        self.args = Some(Buffer::from(storage.args.clone()));
+        self.draw_counts = Some(Buffer::from(storage.draw_counts.clone()));
+        self.draw_offsets = Some(Buffer::from(storage.draw_offsets.clone()));
+        self.storage = Some(storage);
+        self.bind_groups = None;
+        self.raster = None;
+        self.table.mark_all_dirty();
+        self.order.mark_stale();
+    }
+
+    /// Resets derived records and temporal visibility while retaining physical storage.
+    pub(super) fn invalidate_publication(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        self.table = default();
+        self.order = default();
+        self.failed = default();
+        self.ready = false;
+        self.bind_groups = None;
+        self.raster = None;
+        self.raster_orders = default();
+        self.prepared_view = None;
+        if let Some(storage) = &self.storage {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.clear_buffer(&storage.history, 0, None);
+            queue.submit([encoder.finish()]);
+        }
+    }
+
     /// Enables the experiment only after the adapter and developer override admit it.
     pub(super) fn enable_raster(&mut self) {
         self.raster_enabled = true;
@@ -226,7 +255,7 @@ pub(super) fn upload_gpu_cull(
         cull.table.refresh_entity(entity, &hidden.hidden);
     }
     cull.table.trim();
-    cull.ready = upload_records(cull, &device, &queue);
+    cull.ready = upload_records(cull, &device, &queue).is_ok();
 }
 
 /// Prepares the selected view after queueing has confirmed usable cull storage.
@@ -323,7 +352,16 @@ pub(super) fn prepare_gpu_cull(
             };
             uniform.order[2] = cull.raster_orders[0].len() as u32;
         }
-        storage.write_uniform(&queue, phase, &uniform);
+        if crate::gpu_allocation::terrain_write(
+            &device,
+            "terrain cull uniform upload",
+            std::mem::size_of_val(&uniform) as u64,
+            || storage.write_uniform(&queue, phase, &uniform),
+        )
+        .is_err()
+        {
+            return;
+        }
     }
     let pyramid_id = cull.pyramid.as_ref().map(|prepared| prepared.depth);
     if cull.bind_groups.is_none() || cull.bound_pyramid != pyramid_id {
@@ -334,20 +372,31 @@ pub(super) fn prepare_gpu_cull(
         ));
         cull.bound_pyramid = pyramid_id;
     }
-    if cull.raster_enabled {
-        cull.order
-            .set_visible_prefix(&cull.raster_orders[1], cull.table.records().len());
-        for (index, order) in cull.raster_orders.iter().enumerate() {
-            storage.write_stream_order(&queue, index as u32, 0, order);
-        }
-    } else {
-        cull.order.update(
-            cull.table.records(),
-            eye_sub_chunk(extracted.world_from_view.translation()),
-        );
-        if let Some((first, slots)) = cull.order.take_stale() {
-            storage.write_order(&queue, first, slots);
-        }
+    if crate::gpu_allocation::terrain_write(
+        &device,
+        "terrain cull order upload",
+        storage.enabled.size(),
+        || {
+            if cull.raster_enabled {
+                cull.order
+                    .set_visible_prefix(&cull.raster_orders[1], cull.table.records().len());
+                for (index, order) in cull.raster_orders.iter().enumerate() {
+                    storage.write_stream_order(&queue, index as u32, 0, order);
+                }
+            } else {
+                cull.order.update(
+                    cull.table.records(),
+                    eye_sub_chunk(extracted.world_from_view.translation()),
+                );
+                if let Some((first, slots)) = cull.order.take_stale() {
+                    storage.write_order(&queue, first, slots);
+                }
+            }
+        },
+    )
+    .is_err()
+    {
+        return;
     }
     cull.prepared_view = Some(view.entity);
     let work = feedback
@@ -367,64 +416,63 @@ pub(super) fn prepare_gpu_cull(
     );
 }
 
-/// Grows storage when the slot watermark passes it, then writes dirty records and bits.
-fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue) -> bool {
+/// Grows storage and writes a complete table, retaining the old buffers on failure.
+fn upload_records(
+    cull: &mut GpuCull,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
     let slots = cull.slot_count();
     if cull
         .storage
         .as_ref()
         .is_none_or(|storage| storage.capacity < slots)
     {
-        let Some(capacity) = CullStorage::capacity(&device.limits(), slots) else {
-            return false;
-        };
-        let Some(storage) = cull.failed.attempt(Entity::PLACEHOLDER, capacity, || {
-            crate::gpu_allocation::checked(
-                device,
-                "terrain cull storage",
-                super::model::draw_offset_bytes(capacity),
-                || CullStorage::new(device.wgpu_device(), capacity, false),
-            )
-        }) else {
-            return false;
-        };
-        cull.args = Some(Buffer::from(storage.args.clone()));
-        cull.draw_counts = Some(Buffer::from(storage.draw_counts.clone()));
-        cull.draw_offsets = Some(Buffer::from(storage.draw_offsets.clone()));
-        cull.storage = Some(storage);
-        cull.bind_groups = None;
-        cull.raster = None;
-        cull.table.mark_all_dirty();
-        cull.order.mark_stale();
+        let capacity = CullStorage::capacity(&device.limits(), slots)
+            .ok_or(crate::gpu_allocation::TerrainWriteError)?;
+        let storage = cull
+            .failed
+            .attempt(Entity::PLACEHOLDER, capacity, || {
+                crate::gpu_allocation::terrain_checked(
+                    device,
+                    "terrain cull storage",
+                    super::model::draw_offset_bytes(capacity),
+                    || CullStorage::new(device.wgpu_device(), capacity, cfg!(test)),
+                )
+            })
+            .ok_or(crate::gpu_allocation::TerrainWriteError)?;
+        cull.install_storage(storage);
     }
     let storage = cull.storage.as_ref().expect("storage was just ensured");
-    let uploaded = crate::gpu_allocation::checked(
-        device,
-        "terrain cull upload",
-        storage.records.size(),
-        || {
-            write_dirty_records(&mut cull.table, queue, &storage.records);
-            if cull.table.take_enabled_dirty() {
-                let enabled = cull.table.enabled();
-                let words = enabled.len().min((storage.capacity as usize).div_ceil(32));
-                if words != 0 {
-                    #[cfg(feature = "tracy")]
-                    let _span = bevy::log::info_span!(
-                        "terrain.cull_enabled_write",
-                        bytes = words * std::mem::size_of::<u32>()
-                    )
-                    .entered();
-                    queue.profiled_write_buffer(
-                        &storage.enabled,
-                        0,
-                        bytemuck::cast_slice(&enabled[..words]),
-                    );
-                }
+    let uploaded = (|| {
+        write_dirty_records(&mut cull.table, device, queue, &storage.records)?;
+        if cull.table.take_enabled_dirty() {
+            let enabled = cull.table.enabled();
+            let words = enabled.len().min((storage.capacity as usize).div_ceil(32));
+            if words != 0 {
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "terrain.cull_enabled_write",
+                    bytes = words * std::mem::size_of::<u32>()
+                )
+                .entered();
+                crate::gpu_allocation::terrain_write(
+                    device,
+                    "terrain cull enabled upload",
+                    words as u64 * 4,
+                    || {
+                        queue.profiled_write_buffer(
+                            &storage.enabled,
+                            0,
+                            bytemuck::cast_slice(&enabled[..words]),
+                        )
+                    },
+                )?;
             }
-        },
-    )
-    .is_some();
-    if !uploaded {
+        }
+        Ok(())
+    })();
+    if uploaded.is_err() {
         cull.table.mark_all_dirty();
     }
     uploaded
@@ -444,12 +492,13 @@ pub(super) fn sampleable_depth<'a>(
     })
 }
 
-/// Writes the table's dirty records into `records` in contiguous runs.
+/// Writes every dirty CPU record in contiguous runs after storage capacity is ensured.
 pub(super) fn write_dirty_records(
     table: &mut CullSlots,
+    device: &RenderDevice,
     queue: &RenderQueue,
     records: &wgpu::Buffer,
-) {
+) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
     let record_bytes = std::mem::size_of::<CullRecord>() as u64;
     let dirty = table.take_dirty();
     let source = table.records();
@@ -463,12 +512,20 @@ pub(super) fn write_dirty_records(
             bytes = run.len() as u64 * record_bytes,
         )
         .entered();
-        queue.profiled_write_buffer(
-            records,
-            first as u64 * record_bytes,
-            bytemuck::cast_slice(&source[first..=last]),
-        );
+        crate::gpu_allocation::terrain_write(
+            device,
+            "terrain cull records upload",
+            run.len() as u64 * record_bytes,
+            || {
+                queue.profiled_write_buffer(
+                    records,
+                    first as u64 * record_bytes,
+                    bytemuck::cast_slice(&source[first..=last]),
+                )
+            },
+        )?;
     }
+    Ok(())
 }
 
 /// Keeps `prepared` seeded from `depth`, reusing the pyramid while the target size holds.
@@ -550,6 +607,10 @@ pub(super) fn cull_view_input(
         }),
     }
 }
+
+#[cfg(test)]
+#[path = "storage_tests.rs"]
+mod storage_tests;
 
 #[cfg(test)]
 #[path = "allocation_tests.rs"]

@@ -22,8 +22,6 @@ pub enum PromptFor {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PromptButton {
-    /// Create using Dragonfly while preserving the terrain choice.
-    UseDragonfly,
     GetDocker,
     Retry,
     Cancel,
@@ -81,7 +79,6 @@ impl Prompt {
 impl PromptButton {
     pub fn label(self) -> String {
         match self {
-            Self::UseDragonfly => "Use Dragonfly".to_owned(),
             Self::GetDocker => "Get Docker".to_owned(),
             Self::Retry => "Retry".to_owned(),
             Self::Cancel => "Cancel".to_owned(),

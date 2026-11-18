@@ -41,7 +41,7 @@ wasmtime::component::bindgen!({
 
 use cinnabar::experience_server::types::{
     BlockDef, BlockState, BlockType, CallbackInfo, Crafted, GameMode, Inventory, ItemKey, LogLevel,
-    Network, NewStack, PlacementStates, WorldError,
+    Network, NewStack, PlacementStates, PlayerPose, WorldError,
 };
 use cinnabar::experience_server::{diagnostics, types, types as wit, world_access};
 
@@ -742,6 +742,10 @@ impl world_access::HostCallback for HostState {
 
     fn game_mode(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<GameMode, WorldError>> {
         self.table.get_mut(&ctx)?.game_mode()
+    }
+
+    fn pose(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<PlayerPose, WorldError>> {
+        self.table.get_mut(&ctx)?.pose()
     }
 
     fn set_slot(

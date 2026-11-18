@@ -6,6 +6,9 @@ use render_model::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+#[path = "font_atlas_tests/terrain_mips.rs"]
+mod terrain_mips;
+
 /// Makes a sparse source page with a glyph far from the demand atlas's first slot.
 pub(super) fn input() -> UiRenderInput {
     let side = 2048usize;
@@ -156,6 +159,7 @@ fn actual_gpu_pixels_match_the_full_rgba_page_before_the_first_glyph_draw() {
                 pixels: &rgba,
                 size: source.dimensions(),
                 coverage: false,
+                mips: None,
             },
             flags,
         );
@@ -168,6 +172,7 @@ fn actual_gpu_pixels_match_the_full_rgba_page_before_the_first_glyph_draw() {
                 pixels: &atlas,
                 size: [side; 2],
                 coverage: true,
+                mips: None,
             },
             flags,
         );
@@ -190,6 +195,7 @@ struct Page<'a> {
     pixels: &'a [u8],
     size: [u32; 2],
     coverage: bool,
+    mips: Option<&'a UiTexturePage>,
 }
 
 /// Draws the production fragment shader with fixture vertices and returns native GPU pixels.
@@ -206,6 +212,7 @@ fn raster(
         pixels,
         size,
         coverage,
+        mips,
     } = page;
     let texture = gpu.device.create_texture(&TextureDescriptor {
         label: Some("font residency pixel witness"),
@@ -214,7 +221,7 @@ fn raster(
             height: size[1],
             depth_or_array_layers: 1,
         },
-        mip_level_count: 1,
+        mip_level_count: mips.map_or(1, UiTexturePage::mip_level_count),
         sample_count: 1,
         dimension: TextureDimension::D2,
         format: if coverage {
@@ -225,16 +232,29 @@ fn raster(
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    gpu.queue.write_texture(
-        texture.as_image_copy(),
-        pixels,
-        TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(size[0] * if coverage { 1 } else { 4 }),
-            rows_per_image: Some(size[1]),
-        },
-        texture.size(),
+    let levels = mips.map_or_else(
+        || vec![(size, pixels)],
+        |page| page.mip_levels().collect::<Vec<_>>(),
     );
+    for (level, (size, pixels)) in levels.into_iter().enumerate() {
+        gpu.queue.write_texture(
+            TexelCopyTextureInfo {
+                mip_level: level as u32,
+                ..texture.as_image_copy()
+            },
+            pixels,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(size[0] * if coverage { 1 } else { 4 }),
+                rows_per_image: Some(size[1]),
+            },
+            Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+        );
+    }
     let view = texture.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..Default::default()
@@ -305,13 +325,20 @@ fn raster(
         })
         .collect::<Vec<_>>()
         .join(",");
+    let texture_width = size[0] as f32;
+    let texture_height = size[1] as f32;
     let shader = format!(
-        "{}\n@vertex fn fixture(@builtin(vertex_index) i: u32) -> UiVertexOutput {{ let pos = array<vec2<f32>, 6>({}); let uv = array<vec2<f32>, 6>({}); var out: UiVertexOutput; out.clip_position = vec4<f32>(pos[i].x / 128.0 - 1.0, 1.0 - pos[i].y / 128.0, 0.0, 1.0); out.uv = uv[i]; let offsets = array<vec2<f32>, 6>({}); out.atlas_offset = offsets[i]; out.color = vec4<f32>(0.667, 0.824, 1.0, 1.0); out.texture_page = 0u; out.style_flags = {}u; out.alpha_cutoff = -1.0; out.model_light = 1.0; out.overlay_color = vec4<f32>(0.0); return out; }}",
+        "{}\n@vertex fn fixture(@builtin(vertex_index) i: u32) -> UiVertexOutput {{ let pos = array<vec2<f32>, 6>({}); let uv = array<vec2<f32>, 6>({}); var out: UiVertexOutput; out.clip_position = ui_clip_position(vec4<f32>(pos[i], 0.0, 1.0), {flags}u); let offsets = array<vec2<f32>, 6>({}); let texture_vertex = ui_texture_vertex(uv[i], offsets[i], {flags}u, vec2<f32>({texture_width:?}, {texture_height:?})); out.uv = texture_vertex.xy; out.atlas_offset = texture_vertex.zw; out.color = vec4<f32>({:?}, {:?}, {:?}, {:?}); out.texture_page = 0u; out.style_flags = {}u; out.alpha_cutoff = {:?}; out.model_light = 1.0; out.overlay_color = vec4<f32>(0.0); return out; }}",
         super::shader::source(include_str!("../ui.wgsl")),
         values(true),
         values(false),
         offsets,
-        flags
+        f32::from(vertices[0].color[0]) / 255.,
+        f32::from(vertices[0].color[1]) / 255.,
+        f32::from(vertices[0].color[2]) / 255.,
+        f32::from(vertices[0].color[3]) / 255.,
+        flags,
+        vertices[0].alpha_cutoff,
     );
     gpu.render(
         &shader,

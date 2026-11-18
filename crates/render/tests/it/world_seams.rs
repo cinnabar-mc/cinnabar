@@ -269,7 +269,10 @@ impl Fixture {
         atmosphere.extend(render_model::celestial::rgb_to_gamma(frame.fog_color()));
         atmosphere.push(0.0);
         Some(Self {
-            materials: gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage),
+            materials: gpu.words(
+                &crate::material_records::plain_material(0, 0, assets::NO_ANIMATION),
+                storage,
+            ),
             zeros: gpu.words(&UNUSED, storage),
             clock: gpu.words(&[0; 4], uniform),
             tints: gpu.buffer(

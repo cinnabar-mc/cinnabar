@@ -12,7 +12,7 @@ fn terrain_array_rebuild_preserves_layers_and_does_not_mutate_shared_art() {
             size: 2,
             rgba8: base.clone().into_boxed_slice(),
         }]
-        .into_boxed_slice(),
+        .into(),
     };
     let native = assets::rebuild_legacy_terrain_mips(&texture).unwrap();
     assert_eq!(native.layers, texture.layers);
@@ -34,7 +34,7 @@ fn terrain_array_rebuild_rejects_malformed_layers() {
                 size: 1,
                 rgba8: vec![0; 4].into_boxed_slice(),
             }]
-            .into_boxed_slice(),
+            .into(),
         };
         assert!(assets::rebuild_legacy_terrain_mips(&texture).is_err());
     }

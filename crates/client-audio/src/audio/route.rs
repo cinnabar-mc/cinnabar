@@ -14,6 +14,8 @@ const DESTROY_BLOCK_EVENT: i32 = 2001;
 const DOOR_EVENT: i32 = 1003;
 
 const NOTE_EVENT: &str = "note";
+/// Pack event of an actor entering or striking water, and of a fish biting a hook.
+pub(super) const SPLASH_EVENT: &str = "splash";
 
 #[cfg(test)]
 #[path = "route/block_tests.rs"]
@@ -66,7 +68,7 @@ pub(super) fn level_sound_request_with_component_material(
     if name == NOTE_EVENT {
         return note_request(tables, event, position);
     }
-    if !actor.is_empty() || matches!(name, "splash" | "swim") {
+    if !actor.is_empty() || matches!(name, SPLASH_EVENT | "swim") {
         match tables.entity_lookup(actor, name, None) {
             RouteLookup::Route(route) => {
                 return Some(from_level_route(route, event, position));
@@ -102,7 +104,7 @@ fn from_level_route(
     position: Option<[f32; 3]>,
 ) -> SoundRequest {
     let mut request = from_route(route, position);
-    if matches!(event.sound_event.as_ref(), "splash" | "swim") {
+    if matches!(event.sound_event.as_ref(), SPLASH_EVENT | "swim") {
         let actor = event
             .actor_identifier
             .strip_prefix("minecraft:")
@@ -110,7 +112,7 @@ fn from_level_route(
         let native = assets::facts::entity::EntityFacts::pinned()
             .get(&format!("minecraft:{actor}"))
             .native_class;
-        if event.sound_event.as_ref() != "splash"
+        if event.sound_event.as_ref() != SPLASH_EVENT
             || native != assets::facts::entity::NativeEntityClass::FishingHook
         {
             let volume = super::water::encoded_volume(event.data);

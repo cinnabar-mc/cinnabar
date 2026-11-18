@@ -1,0 +1,8 @@
+{
+  "resource_pack_name": "fixture",
+  "texture_name": "atlas.terrain",
+  "texture_data": {
+    "weighted": {"textures": {"variations": [{"path": "textures/blocks/a", "weight": 3}, {"path": "textures/blocks/b", "weight": 1}]}},
+    "unweighted": {"textures": {"variations": [{"path": "textures/blocks/a"}, {"path": "textures/blocks/b"}]}}
+  }
+}

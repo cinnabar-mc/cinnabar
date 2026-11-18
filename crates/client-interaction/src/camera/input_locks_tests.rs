@@ -54,7 +54,7 @@ fn assert_locked_freelook_cleanup(focus_loss: bool) {
     assert!(
         app.world()
             .resource::<LocalViewPose>()
-            .camera_rotation()
+            .player_camera_rotation()
             .angle_between(initial)
             > 0.1
     );
@@ -77,7 +77,9 @@ fn assert_locked_freelook_cleanup(focus_loss: bool) {
     app.update();
     assert_eq!(app.world().resource::<LocalViewPose>().rotation(), initial);
     assert_eq!(
-        app.world().resource::<LocalViewPose>().camera_rotation(),
+        app.world()
+            .resource::<LocalViewPose>()
+            .player_camera_rotation(),
         initial
     );
     assert_eq!(

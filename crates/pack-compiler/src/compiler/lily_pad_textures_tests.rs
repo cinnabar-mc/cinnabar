@@ -26,7 +26,7 @@ fn lily_pad_copies_keep_pages_device_compatible_and_fail_at_total_capacity() {
     assert_eq!(pages.len(), MAX_CARRIER_TEXTURE_PAGES);
     assert_eq!(pages[0], full);
     assert_eq!(pages[1].texture.layers, 1);
-    assert_eq!(pages[1].texture.mips, tinted);
+    assert_eq!(pages[1].texture.mips[..], tinted[..]);
 
     let mut pages = vec![full; MAX_CARRIER_TEXTURE_PAGES];
     let original = pages.clone();

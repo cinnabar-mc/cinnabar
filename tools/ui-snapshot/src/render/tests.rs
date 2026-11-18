@@ -100,10 +100,11 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
             input.rect.y > viewport[1] / 2.0,
             "input must stay near the bottom"
         );
-        assert_eq!(input.rect.x, 4.0, "input text keeps its left inset");
-        assert_eq!(input.rect.w, viewport[0] - 8.0);
+        // The input bar starts right of the 12px settings button and keeps its 2px text inset.
+        assert_eq!(input.rect.x, 18.0, "input text keeps its left inset");
+        assert_eq!(input.rect.w, viewport[0] - 22.0);
         let draws = json_ui::emit(&laid, &env);
-        // The backdrop spans the viewport with a two-pixel inset on each side.
+        // The settings button and input backdrops span the viewport with a two-pixel inset.
         let (left, right) = draws
             .iter()
             .filter(|node| {

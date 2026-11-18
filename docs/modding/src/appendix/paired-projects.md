@@ -122,8 +122,10 @@ covered by this repository's license. Game assets are not included.
 `cinnabar-cxb`.
 
 The first build creates `.local/publisher.seed`; keep it private and stable.
-Install with `cinnabar-cxb mod install <file.cmod> --server <world>`. Start
-`bedrock-local-server -dir <world> -addr 127.0.0.1:19132`; it discovers installed mods.
+Install with `cinnabar-cxb mod install <file.cmod> --server <world>`. From a Cinnabar checkout,
+run `make local-server`, then `target/release/bedrock-local-server -dir <world> -addr 127.0.0.1:19132`;
+it discovers installed mods. This development server is built from `tools/localserver` and is
+not included in player packages. `cinnabar-cxb mod run` builds it from the checkout automatically.
 Keep `experience-runtime` and `cinnabar-cxb` beside the server, or set
 `-experience-runtime` and `CINNABAR_CXB_BIN`. To replace an installation, stop the
 server and remove `<world>/mods/<id>` first. Preserve saved block identities.

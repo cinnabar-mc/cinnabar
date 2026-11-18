@@ -4,6 +4,9 @@ use super::*;
 use pack_compile_input::json::parse_unique_json;
 use std::cmp::Ordering;
 
+/// Selected entity documents and their source paths, keyed by identifier.
+type SelectedDefinitions = BTreeMap<Box<str>, (Box<str>, Value)>;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Version {
     parts: [u16; 3],
@@ -141,58 +144,100 @@ fn ceiling(payloads: &SourcePayloads) -> Result<Version, AssetError> {
     version(&target["game_version"]).ok_or_else(|| invalid("invalid target engine version"))
 }
 
+/// Loads installed entity documents by identifier using the pack's engine ceiling.
+pub fn load_vanilla_entity_definitions(
+    root: &Path,
+) -> Result<BTreeMap<Box<str>, Value>, AssetError> {
+    let mut files = Vec::new();
+    collect_optional_file(root, "manifest.json", &mut files)?;
+    let payloads = files
+        .drain(..)
+        .map(|(relative, absolute)| Ok((relative, read_bounded_source(root, &absolute)?.into())))
+        .collect::<Result<SourcePayloads, AssetError>>()?;
+    collect_optional_family(root, "entity", &["json"], &mut files)?;
+    let definitions = files.into_iter().map(|(relative, absolute)| {
+        let bytes = read_bounded_source(root, &absolute)?;
+        Ok((relative, parse_unique_json(&absolute, &bytes)?))
+    });
+    Ok(select_definitions(definitions, ceiling(&payloads)?)?
+        .into_iter()
+        .map(|(identifier, (_, definition))| (identifier, definition))
+        .collect())
+}
+
+/// Keeps the same versioned definitions used when loading installed entity documents.
 pub(super) fn select_vanilla_definitions(
     symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
     payloads: &SourcePayloads,
 ) -> Result<(), AssetError> {
-    let ceiling = Some(ceiling(payloads)?);
-    let mut selected = BTreeMap::<Box<str>, (Option<Version>, Box<str>, bool)>::new();
-    for symbol in symbols
+    let definitions = symbols
         .values()
         .filter(|symbol| symbol.kind == EntityAssetKind::Entity)
-    {
-        let bytes = payloads
-            .get(&symbol.source_path)
-            .ok_or_else(|| invalid("entity source is absent"))?;
-        let definition = parse_unique_json(Path::new(symbol.source_path.as_ref()), bytes)?;
-        let schema = definition.get("format_version").and_then(version);
-        let minimum = if schema.is_some_and(|schema| schema < Version::release([1, 8, 0])) {
-            None
-        } else {
-            animation::roots::description(&definition)
-                .and_then(|description| description.get("min_engine_version"))
-                .and_then(version)
-        };
-        if minimum > ceiling {
-            continue;
-        }
-        let entry = selected.entry(symbol.identifier.clone());
-        match entry {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert((minimum, symbol.source_path.clone(), false));
-            }
-            std::collections::btree_map::Entry::Occupied(mut entry) => {
-                let current = entry.get_mut();
-                if minimum > current.0 {
-                    *current = (minimum, symbol.source_path.clone(), false);
-                } else if minimum == current.0 {
-                    current.2 = true;
-                }
-            }
-        }
-    }
-    if let Some((identifier, _)) = selected.iter().find(|(_, (_, _, tied))| *tied) {
-        return Err(invalid(format!(
-            "equally versioned client definitions require pack-order merging: {identifier}"
-        )));
-    }
+        .map(|symbol| {
+            let bytes = payloads
+                .get(&symbol.source_path)
+                .ok_or_else(|| invalid("entity source is absent"))?;
+            let definition = parse_unique_json(Path::new(symbol.source_path.as_ref()), bytes)?;
+            Ok((symbol.source_path.clone(), definition))
+        });
+    let selected = select_definitions(definitions, ceiling(payloads)?)?;
     symbols.retain(|_, symbol| {
         symbol.kind != EntityAssetKind::Entity
             || selected
                 .get(&symbol.identifier)
-                .is_some_and(|(_, path, _)| *path == symbol.source_path)
+                .is_some_and(|(path, _)| *path == symbol.source_path)
     });
     Ok(())
+}
+
+/// Selects the highest compatible minimum per identifier, rejecting equally ranked sources.
+fn select_definitions(
+    definitions: impl IntoIterator<Item = Result<(Box<str>, Value), AssetError>>,
+    ceiling: Version,
+) -> Result<SelectedDefinitions, AssetError> {
+    let ceiling = Some(ceiling);
+    let mut selected = BTreeMap::<Box<str>, (Option<Version>, Box<str>, Value, bool)>::new();
+    for definition in definitions {
+        let (path, definition) = definition?;
+        let description = animation::roots::description(&definition)
+            .ok_or_else(|| invalid("client entity description is absent"))?;
+        let identifier = description
+            .get("identifier")
+            .and_then(Value::as_str)
+            .ok_or_else(|| invalid("client entity identifier is absent"))?;
+        let schema = definition.get("format_version").and_then(version);
+        let minimum = if schema.is_some_and(|schema| schema < Version::release([1, 8, 0])) {
+            None
+        } else {
+            description.get("min_engine_version").and_then(version)
+        };
+        if minimum > ceiling {
+            continue;
+        }
+        let entry = selected.entry(identifier.into());
+        match entry {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert((minimum, path, definition, false));
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let current = entry.get_mut();
+                if minimum > current.0 {
+                    *current = (minimum, path, definition, false);
+                } else if minimum == current.0 {
+                    current.3 = true;
+                }
+            }
+        }
+    }
+    if let Some((identifier, _)) = selected.iter().find(|(_, (_, _, _, tied))| *tied) {
+        return Err(invalid(format!(
+            "equally versioned client definitions require pack-order merging: {identifier}"
+        )));
+    }
+    Ok(selected
+        .into_iter()
+        .map(|(identifier, (_, path, definition, _))| (identifier, (path, definition)))
+        .collect())
 }
 
 #[cfg(test)]

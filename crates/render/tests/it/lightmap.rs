@@ -202,3 +202,71 @@ fn uploaded_native_lightmap_matches_gpu_quantization_at_byte_boundaries() {
         "uploaded quantization changed a native sample"
     );
 }
+
+#[test]
+fn disabled_point_lights_preserve_actor_and_terrain_lightmap_pixels() {
+    use crate::gpu_snapshot::{Draw, DrawPipeline, Gpu, RasterState, SNAPSHOT_SIDE};
+
+    let Some(gpu) = Gpu::for_fixture("disabled point-light raster bindings") else {
+        return;
+    };
+    let mut source = crate::shader_source::standalone(include_str!("../../src/lighting.wesl"), &[])
+        .replace("@group(1) @binding(0)", "@group(0) @binding(0)");
+    source.push_str(
+        r#"
+@vertex fn light_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    return vec4(corners[index], 0.5, 1.0);
+}
+@fragment fn actor_light_fragment() -> @location(0) vec4<f32> {
+    return vec4(point_lit_actor_light_colour(0u, vec3(0.0)), 1.0);
+}
+@fragment fn terrain_light_fragment() -> @location(0) vec4<f32> {
+    return vec4(point_lit_terrain_light_colour(vec2(0.0), vec3(0.0)), 1.0);
+}
+@fragment fn static_light_fragment() -> @location(0) vec4<f32> {
+    return vec4(light_colour(0u), 1.0);
+}
+"#,
+    );
+    let lightmap = gpu.lightmap(&[0.25; 256 * 4]);
+    let bindings = [wgpu::BindGroupEntry {
+        binding: 0,
+        resource: lightmap.as_entire_binding(),
+    }];
+    for fragment in [
+        "actor_light_fragment",
+        "terrain_light_fragment",
+        "static_light_fragment",
+    ] {
+        let draws = [Draw {
+            fragment,
+            vertices: 0..3,
+            bindings: &bindings,
+            blend: None,
+            write_depth: true,
+        }];
+        let pixels = gpu.render(&source, "light_vertex", &draws);
+        let expected = if fragment == "static_light_fragment" {
+            64
+        } else {
+            63
+        };
+        let offset = ((SNAPSHOT_SIDE / 2 * SNAPSHOT_SIDE + SNAPSHOT_SIDE / 2) * 4) as usize;
+        assert_eq!(
+            &pixels[offset..offset + 4],
+            &[expected, expected, expected, 255],
+            "{fragment} keeps its original lightmap response",
+        );
+        let mixed = gpu.render_sources(
+            &[&source],
+            &draws,
+            &[DrawPipeline {
+                vertex: "light_vertex",
+                topology: wgpu::PrimitiveTopology::TriangleList,
+            }],
+            RasterState::default(),
+        );
+        assert_eq!(pixels, mixed, "shared and per-draw shader bindings agree");
+    }
+}

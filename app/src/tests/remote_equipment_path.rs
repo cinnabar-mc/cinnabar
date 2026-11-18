@@ -51,8 +51,11 @@ impl Session {
         );
         let entities =
             Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
-        let base =
-            ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
+        let base = ActorArtworkPages::default().with_pack_artwork(
+            &compiled.textures,
+            &compiled.bindings,
+            &Default::default(),
+        );
         let icons = Arc::new(
             assets::RuntimeIconCatalog::decode(
                 &assets::encode_icon_catalog([1; 32], &[], &[]).unwrap(),

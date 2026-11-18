@@ -117,6 +117,7 @@ impl<'a> MeshSources<'a> {
         let end = u32::try_from(indices).ok()?;
         let texture_page = self.layers.first()?.icon.page;
         let vertex = UiMeshVertex {
+            terrain_mips: false,
             position: [0.0; 2],
             clip_z: 0.5,
             clip_w: 1.0,

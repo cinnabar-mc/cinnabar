@@ -125,7 +125,7 @@ impl QueuedMiningInteraction {
         }
         if let Some(
             protocol::BlockItemInteraction::Use(request)
-            | protocol::BlockItemInteraction::Destroy(request),
+            | protocol::BlockItemInteraction::Destroy(request, _),
         ) = self.interactions.block_interaction.as_mut()
         {
             request.player_position = player_position;

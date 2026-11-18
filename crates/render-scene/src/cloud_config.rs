@@ -3,7 +3,7 @@ use std::{error::Error, fmt, fmt::Write as _, mem::size_of};
 use assets::AtmosphereTexture;
 use assets::CloudQuality;
 use meshing::cloud_viewport::{
-    MAX_VIEWPORT_CLOUD_BYTES, MAX_VIEWPORT_CLOUD_QUADS, ViewportCloudQuad,
+    CloudViewport, MAX_VIEWPORT_CLOUD_BYTES, MAX_VIEWPORT_CLOUD_QUADS, ViewportCloudQuad,
 };
 use meshing::{CLOUD_MASK_SIZE, MAX_CLOUD_BYTES, MAX_CLOUD_QUADS, PackedCloudQuad};
 
@@ -163,6 +163,7 @@ pub struct CloudGeometryDiagnostic {
     quad_count: u32,
     quad_bytes: u32,
     record_stride_bytes: u32,
+    sampled_span_cells: Option<u16>,
     instance_count: u8,
     texture_period_milliblocks: u32,
     underside_y_milliblocks: i32,
@@ -246,6 +247,7 @@ impl CloudGeometryDiagnostic {
         config: CloudRenderConfig,
         asset_identity_sha256: [u8; 32],
         texture: &AtmosphereTexture,
+        viewport: CloudViewport,
         records: &[ViewportCloudQuad],
         texture_period_milliblocks: u32,
         underside_y_milliblocks: i32,
@@ -268,7 +270,7 @@ impl CloudGeometryDiagnostic {
             .checked_mul(size_of::<ViewportCloudQuad>())
             .and_then(|bytes| u32::try_from(bytes).ok())
             .ok_or(CloudGeometryDiagnosticError::QuadByteOverflow)?;
-        Self::try_new_with_layout(
+        let mut diagnostic = Self::try_new_with_layout(
             config,
             asset_identity_sha256,
             occupied_texels,
@@ -281,7 +283,9 @@ impl CloudGeometryDiagnostic {
             size_of::<ViewportCloudQuad>() as u32,
             MAX_VIEWPORT_CLOUD_BYTES,
             MAX_VIEWPORT_CLOUD_QUADS,
-        )
+        )?;
+        diagnostic.sampled_span_cells = Some(viewport.span());
+        Ok(diagnostic)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -349,6 +353,7 @@ impl CloudGeometryDiagnostic {
             quad_count,
             quad_bytes,
             record_stride_bytes,
+            sampled_span_cells: None,
             instance_count,
             texture_period_milliblocks,
             underside_y_milliblocks,
@@ -422,12 +427,11 @@ impl CloudGeometryDiagnostic {
             self.config.distance_control(),
             self.config.lighting(),
         );
-        if self.record_stride_bytes == size_of::<ViewportCloudQuad>() as u32 {
+        if let Some(span) = self.sampled_span_cells {
             write!(
                 &mut marker,
                 " geometry=viewport record_stride_bytes={} sampled_span_cells={}",
-                self.record_stride_bytes,
-                u32::from(self.config.mesh_size()) * u32::from(self.config.grid_size()),
+                self.record_stride_bytes, span,
             )
             .expect("writing to a String cannot fail");
         }

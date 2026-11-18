@@ -15,6 +15,11 @@ impl PhysicsSampleContext {
 #[derive(Debug, Clone)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    /// Modifier state and actor flag after this tick, including ticks before an attribute arrives.
+    pub speed: crate::movement::speed_authority::EffectiveMovementSpeed,
+    pub start_sprinting: bool,
+    /// Accepted attribute, effect and live metadata edits before this tick's local sprint edges.
+    pub speed_updates: Vec<crate::movement::speed_authority::MovementSpeedUpdate>,
     pub sync_state: posture::SyncState,
     pub sync_server: Vec<posture::ServerWrite>,
     /// Feet position before travel, retained independently of live position updates.
@@ -32,6 +37,7 @@ pub(super) struct ControllerFrame {
     pub requested_sneak: bool,
     pub requested_sprint: bool,
     pub sprint_down: bool,
+    /// Server sprint flag applied before this tick, live or from a delayed write.
     pub server_sprinting: Option<bool>,
     /// Flags and accepted writes at this input boundary.
     pub flags: flag_frame::FrameFlags,
@@ -117,9 +123,9 @@ impl ControllerFrame {
         input.liquid_contact_height =
             Some(modes.spin_aware_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
-        input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
-        if let Some(sprinting) = self.sprint_override {
-            modes.restore_controls(sprinting, modes.sneaking());
+        input.sprinting = modes.replay_sprint_request(self.sprint_override, self.requested_sprint);
+        if self.sprint_override == Some(false) {
+            modes.restore_controls(false, modes.sneaking());
         }
         let previous_modes = *modes;
         // Live intent reads the sneak request before this tick's pose can force a crouch, while
@@ -162,14 +168,19 @@ impl ControllerFrame {
                     mode: modes.mode(),
                     forced_sneak: self.forced_sneak,
                     sprinting: input.sprinting,
+                    start_sprinting: false,
                     flight_request: None,
                     glide_ascent: false,
                 }
             }
             Err(error) => return Err(error.into()),
         };
+        self.start_sprinting = choice.start_sprinting && self.sprint_override != Some(false);
         input.mode = self.mode_override.unwrap_or(choice.mode);
-        input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
+        input.sprinting = self
+            .sprint_override
+            .filter(|sprinting| !sprinting)
+            .unwrap_or(choice.sprinting);
         input.glide_ascent = choice.glide_ascent;
         modes.restore_mode(input.mode);
         input.horizontal_pose = modes.pose_flags().horizontal();
@@ -190,7 +201,9 @@ impl ControllerFrame {
             input.sneaking = false;
         }
         modes.restore_controls(input.sprinting, input.sneaking);
-        if self.sprint_override.is_some() || self.mode_override.is_some() {
+        if self.speed.attribute().is_none()
+            && (self.sprint_override.is_some() || self.mode_override.is_some())
+        {
             crate::movement::speed_authority::preserve_effective_speed(input, previous_sprinting);
         }
         self.ride_delta = None;

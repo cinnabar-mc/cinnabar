@@ -42,7 +42,10 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
     let uniform = wgpu::BufferUsages::UNIFORM;
     let view = gpu.buffer(&[0.0; 104], uniform);
     let origins = gpu.words(&[0; 8], storage);
-    let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage);
+    let materials = gpu.words(
+        &crate::material_records::plain_material(0, 0, assets::NO_ANIMATION),
+        storage,
+    );
     let animations = gpu.words(&[0; 5], storage);
     let frames = gpu.words(&[0], storage);
     let clock = gpu.words(&[0; 4], uniform);

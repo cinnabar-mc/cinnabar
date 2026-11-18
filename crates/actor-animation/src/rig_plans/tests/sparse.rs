@@ -125,7 +125,10 @@ fn alternate_geometry_bindings_are_shared_after_owner_root_binding() {
         ActorTickContext::default()
     });
     for state in store.rigs.values_mut() {
-        render::bind_attachable_roots(state, &["rightitem".into()]);
+        render::bind_attachable_roots(
+            state,
+            crate::attachment::OwnerSkeleton::body(&[], &[], &["rightitem".into()]),
+        );
     }
     let states: Vec<_> = store.rigs.values().collect();
     let first = states[0].layer_skeletons[&0].as_ref().unwrap();

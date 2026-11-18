@@ -208,8 +208,11 @@ fn pack() -> (Pack, ActorArtworkPages) {
     let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
         .unwrap();
-    let artwork =
-        ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
+    let artwork = ActorArtworkPages::default().with_pack_artwork(
+        &compiled.textures,
+        &compiled.bindings,
+        &Default::default(),
+    );
     let candidates = compiled
         .bindings
         .iter()

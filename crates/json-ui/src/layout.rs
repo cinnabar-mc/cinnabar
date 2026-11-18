@@ -33,8 +33,8 @@ mod style;
 
 pub use grid::grid_template_columns;
 pub(crate) use grid::{
-    CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY,
-    TEMPLATE_KEY as GRID_TEMPLATE_KEY,
+    CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, MARGIN_CELLS_KEY as GRID_MARGIN_CELLS_KEY,
+    PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY, TEMPLATE_KEY as GRID_TEMPLATE_KEY,
 };
 pub use measure::MeasureCache;
 pub(crate) use reuse::Output;
@@ -301,7 +301,7 @@ fn lay_out<'a>(
         key,
         rect,
         screen,
-        (0, true, false, true),
+        (0, true, false, true, false),
         &Inherited::default(),
         &mut ctx,
     );
@@ -420,7 +420,7 @@ fn place_subtree<'a>(
     key: String,
     rect: Rect,
     parent_clip: Rect,
-    (parent_layer, shown, packed, parent_allows): (i32, bool, bool, bool),
+    (parent_layer, shown, packed, parent_allows, replaced): (i32, bool, bool, bool, bool),
     inherited: &Inherited,
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
@@ -454,6 +454,7 @@ fn place_subtree<'a>(
             layer: parent_layer,
             shown,
             packed,
+            replaced,
             allows: parent_allows,
             enabled: enabled_above,
             emitting: reuse.emitting,
@@ -533,7 +534,15 @@ fn place_subtree<'a>(
     if !enabled {
         ctx.disabled += 1;
     }
-    let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
+    let own_anims = control_anims(
+        control,
+        &key,
+        rect,
+        parent_rect,
+        inherited,
+        (packed, replaced),
+        ctx.env,
+    );
     let mut space = inherited.space;
     if let Some(region) = control
         .properties
@@ -612,17 +621,34 @@ fn place_subtree<'a>(
     }
     ctx.ancestors.push((&control.name, rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
+    let virtual_grid = grid::is_grid(control)
+        .then(|| {
+            control.children.iter().find_map(|child| {
+                grid::placeholder_of(child).map(|grid| {
+                    (
+                        grid,
+                        child
+                            .properties
+                            .get(GRID_MARGIN_CELLS_KEY)
+                            .and_then(Value::as_u64)
+                            .and_then(|margin| usize::try_from(margin).ok()),
+                    )
+                })
+            })
+        })
+        .flatten();
     let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
     } else {
         let indexed_clip = (ctx.cull
             && grid::is_grid(control)
-            && allows
-            && !style.unclipped_descendant
-            && control.children.iter().all(|child| {
-                let style = measure::style(child);
-                child.children.is_empty() || style.clips
-            })
+            && (allows || virtual_grid.is_some())
+            && (virtual_grid.is_some()
+                || (!style.unclipped_descendant
+                    && control.children.iter().all(|child| {
+                        let style = measure::style(child);
+                        child.children.is_empty() || style.clips
+                    })))
             && dropdown.is_none()
             && ctx.sliders.is_empty()
             && ctx
@@ -634,10 +660,13 @@ fn place_subtree<'a>(
                 .iter()
                 .any(|frame| frame.adjusts_children(control)))
         .then(|| {
-            bounds::local_clip(
+            let clip = bounds::local_clip(
                 inherit.space.transform,
                 inherit.space.clip.unwrap_or(child_clip),
-            )
+            )?;
+            Some(virtual_grid.map_or(clip, |(_, margin)| {
+                grid::virtual_clip(control, rect, ctx.env, clip, margin)
+            }))
         })
         .flatten();
         measure::placed_children(
@@ -655,6 +684,9 @@ fn place_subtree<'a>(
             .collect(),
         None => Vec::new(),
     };
+    if let Some(reuse) = ctx.reuse.as_mut() {
+        reuse.placements.considered(placed.len());
+    }
     let priority = stack::hidden_by_priority(control, rect, ctx.env);
     let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
@@ -685,15 +717,14 @@ fn place_subtree<'a>(
         reuse.inspected += 1;
     }
     // A grid standing in placeholders reports which cells it shows, for its next bind to build.
-    let placeholders = grid::is_grid(control)
-        .then(|| control.children.iter().find_map(grid::placeholder_of))
-        .flatten();
+    let placeholders = virtual_grid.map(|(grid, _)| grid);
     // Its report of the cells in view is not part of a spliced output.
     if placeholders.is_some() {
         ctx.taint();
     }
     let mut in_view: Option<std::ops::Range<usize>> = None;
     for (child, mut child_rect) in placed {
+        let mut replaced = false;
         let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
                 .get(measure::child_index(control, child))
@@ -712,6 +743,7 @@ fn place_subtree<'a>(
                 placed_rects.iter().find(|(name, _)| *name == drop.as_str())
         {
             child_rect.y = widgets::dropdown_content_top(*drop_rect, *area_rect, child_rect.h);
+            replaced = true;
             clip_for_child = *area_clip;
         }
         let mut child_shown = child_shown;
@@ -720,8 +752,14 @@ fn place_subtree<'a>(
             match frame.adjust(child, child_rect) {
                 Adjusted::Kept => continue,
                 Adjusted::Moved(moved) => child_rect = moved,
-                Adjusted::Box(moved, fade) => (child_rect, box_fade) = (moved, fade),
-                Adjusted::Hidden => child_shown = false,
+                Adjusted::Box(moved, fade) => {
+                    (child_rect, box_fade) = (moved, fade);
+                    replaced = true;
+                }
+                Adjusted::Hidden => {
+                    child_shown = false;
+                    replaced = true;
+                }
             }
             break;
         }
@@ -734,6 +772,7 @@ fn place_subtree<'a>(
         // Stack items and grid cells have no offset delta term.
         if !packs {
             if place::follows_pointer(child) {
+                replaced = true;
                 ctx.report.tracks_pointer = true;
                 ctx.taint();
             }
@@ -750,6 +789,7 @@ fn place_subtree<'a>(
             && frame.names[0].as_deref() == Some(child.name.as_str())
         {
             child_rect = frame.place_box(child_rect);
+            replaced = true;
         }
         let cull_clip = if inherit.space.transform.is_some() {
             bounds::local_clip(
@@ -766,16 +806,13 @@ fn place_subtree<'a>(
             && child_shown
             && !disjoint(
                 bounds::subtree(child, child_rect, ctx.env, inherit.space.transform),
-                if child.properties.get(GRID_CLIPPED_CELL_KEY) == Some(&Value::Bool(true)) {
-                    cull_clip
-                } else {
-                    Rect {
-                        x: cull_clip.x - cull_clip.w,
-                        y: cull_clip.y - cull_clip.h,
-                        w: cull_clip.w * 3.0,
-                        h: cull_clip.h * 3.0,
-                    }
-                },
+                grid::virtual_clip(
+                    control,
+                    rect,
+                    ctx.env,
+                    cull_clip,
+                    virtual_grid.and_then(|(_, margin)| margin),
+                ),
             )
             && let Some(index) =
                 collection_index(child).and_then(|index| usize::try_from(index).ok())
@@ -812,7 +849,7 @@ fn place_subtree<'a>(
             next_key,
             child_rect,
             clip_for_child,
-            (absolute_layer, child_shown, packs, allows),
+            (absolute_layer, child_shown, packs, allows, replaced),
             &inherit,
             ctx,
         );
@@ -930,34 +967,6 @@ fn progress_clip(control: &ResolvedControl, sliders: &[widgets::SliderFrame]) ->
         return Some((1.0 - fraction) as f32);
     }
     widgets::bound_number(control, "clip_ratio").map(|ratio| ratio.clamp(0.0, 1.0) as f32)
-}
-
-/// Resolve the rects of `parent`'s direct children within `parent_rect`.
-fn layout_children<'a>(
-    parent: &'a ResolvedControl,
-    parent_rect: Rect,
-    env: &LayoutEnv,
-) -> Vec<(&'a ResolvedControl, Rect)> {
-    if grid::is_grid(parent) {
-        return grid::grid_children(parent, parent_rect, env);
-    }
-    if stack::orientation(parent).is_some() {
-        return stack::stack_children(parent, parent_rect, env);
-    }
-    let extent = [Some(parent_rect.w), Some(parent_rect.h)];
-    let sizes = measure::sizes(parent, extent, env);
-    let siblings = measure::sibling_maxima(parent, &sizes);
-    parent
-        .children
-        .iter()
-        .zip(sizes.iter())
-        .map(|(child, own)| {
-            (
-                child,
-                place_by_anchor(child, parent_rect, *own, siblings, env),
-            )
-        })
-        .collect()
 }
 
 // --- property readers -------------------------------------------------------

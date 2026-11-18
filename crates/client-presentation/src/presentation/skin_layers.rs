@@ -231,14 +231,14 @@ impl ActorLayerCache {
         rigs: &mut SkinRigCache,
         mut register: impl FnMut(ActorRigGeometry),
         mut decoration_of: impl FnMut(
-            &ActorRigSubmission,
+            &mut ActorRigSubmission,
             Option<ActorArtworkLocation>,
         ) -> Option<(EquipmentRaster, render_model::EntityRigId)>,
     ) -> Option<ActorArtworkPages> {
         self.desired.clear();
         self.decorations.clear();
         self.poses.begin_frame();
-        for (index, draw) in batch.submissions.iter().enumerate() {
+        for (index, draw) in batch.submissions.iter_mut().enumerate() {
             if let Some((raster, rig)) =
                 decoration_of(draw, batch.artwork.get(&draw.input.identity).copied())
             {

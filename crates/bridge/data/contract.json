@@ -70,6 +70,7 @@
     {"rust_name": "METHOD_MESSAGE_EVENT", "go_name": "MethodMessageEvent", "value": "message_event.v1", "rust_type": "str", "doc": "Control method for message event."},
     {"rust_name": "METHOD_PROFILE", "go_name": "MethodProfile", "value": "profile.v1", "rust_type": "str", "doc": "Control method for profile."},
     {"rust_name": "METHOD_REALM_MEMBERSHIP", "go_name": "MethodRealmMembership", "value": "realm_membership.v1", "rust_type": "str", "doc": "Control method for realm membership."},
+    {"rust_name": "METHOD_REALM_LEAVE", "go_name": "MethodRealmLeave", "value": "realm_leave.v1", "rust_type": "str", "doc": "Control method for leaving a joined realm."},
     {"rust_name": "METHOD_PACKET_DELAY", "go_name": "MethodPacketDelay", "value": "packet_delay.v1", "rust_type": "str", "doc": "Control method for packet delay."},
     {"rust_name": "METHOD_PRESENCE", "go_name": "MethodPresence", "value": "presence.v1", "rust_type": "str", "doc": "Control method for presence."},
     {"rust_name": "METHOD_LOCAL_WORLD", "go_name": "MethodLocalWorld", "value": "local_world.v1", "rust_type": "str", "doc": "Control method for local world."},
@@ -191,11 +192,11 @@
     },
     {
       "rust_name": "Backend",
-      "doc": "Server backend a world runs on; fixed when the world is created.",
+      "doc": "Local-world host identity, including the marker retained for older saved worlds.",
       "derive": ["Clone", "Copy", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
       "variants": [
-        {"rust_name": "Bds", "go_name": "BackendBds", "value": "bds", "doc": "Bedrock Dedicated Server: vanilla terrain and mobs."},
-        {"rust_name": "Dragonfly", "go_name": "BackendDragonfly", "value": "dragonfly", "doc": "Built-in Dragonfly server with flat or natural terrain.", "default": true}
+        {"rust_name": "Bds", "go_name": "BackendBds", "value": "bds", "doc": "Bedrock Dedicated Server, the only supported local-world host.", "default": true},
+        {"rust_name": "LegacyDragonfly", "go_name": "BackendLegacyDragonfly", "value": "dragonfly", "doc": "Saved-world marker only; conversion is required before opening on BDS."}
       ]
     },
     {

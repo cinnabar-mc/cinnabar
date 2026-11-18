@@ -4,10 +4,7 @@ use std::sync::Arc;
 
 use json_ui::Catalog;
 use serde_json::Value;
-use ui::{
-    mod_hud::Card,
-    mod_panel::{Control, Panel},
-};
+use ui::mod_panel::{Control, Panel};
 use ui_engine::frame::EngineFrame;
 
 /// The personal panel's catalog and last drawn frame.
@@ -19,21 +16,6 @@ pub struct ModPanelState<'a> {
     /// Static root resolutions performed on the renderer's frame path.
     #[cfg(feature = "test-support")]
     pub resolves: usize,
-}
-
-/// A card's size in GUI units.
-pub fn card_dimensions(card: &Card) -> [f64; 2] {
-    crate::mod_widgets::template::dimensions(card)
-}
-
-/// A card's top-left in a `viewport` of GUI units.
-pub fn card_origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
-    crate::mod_widgets::template::origin(card, viewport)
-}
-
-/// The JSON-UI control authored for `card`, numbering its rows from `row_index`.
-pub fn card_control(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
-    crate::mod_widgets::template::card(card, card_index, row_index)
 }
 
 /// Whether two panels keep one catalog.
@@ -115,7 +97,7 @@ pub fn sample_surface(controls: &[Control]) -> ui::mod_panel::Surface {
     }
 }
 
-/// A panel with one control of each kind and a [`sample_surface`].
+/// A panel with a toggle, slider, keybind and button, drawn by a [`sample_surface`].
 pub fn sample_panel() -> Panel {
     let controls = vec![
         Control::Toggle {
@@ -131,11 +113,11 @@ pub fn sample_panel() -> Panel {
             max: 100.0,
             step: 1.0,
         },
-        Control::Choice {
-            id: "mode".into(),
-            label: "Activation".into(),
-            index: 0,
-            options: vec!["Continuous".into(), "While clicking".into()],
+        Control::Keybind {
+            id: "activate".into(),
+            label: "Activate".into(),
+            key: "KeyC".into(),
+            capturing: false,
         },
         Control::Button {
             id: "binding".into(),

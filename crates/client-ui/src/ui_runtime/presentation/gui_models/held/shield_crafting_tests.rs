@@ -208,6 +208,7 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
             .identifier
             .as_ref();
         Some(client_world::CanonicalItemStack {
+            trim: None,
             shield_pattern: (name == item)
                 .then(|| protocol::item_shield_pattern(&stack.extra_data))
                 .flatten()

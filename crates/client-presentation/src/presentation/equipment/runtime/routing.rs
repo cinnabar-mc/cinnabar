@@ -16,6 +16,9 @@ pub(super) enum EquipmentRoute {
     HeadBlock,
     Armor(pack::BindingSource),
     Elytra(pack::BindingSource),
+    /// An attachable whose item names no worn slot. Native sets up every armor slot's
+    /// attachable, so it is worn wherever the server put it.
+    SlotAttachable(pack::BindingSource),
     Hidden,
 }
 
@@ -79,6 +82,7 @@ impl EquipmentRuntime {
             {
                 EquipmentRoute::Armor(source)
             }
+            EquipmentCategory::Held => EquipmentRoute::SlotAttachable(source),
             _ => EquipmentRoute::Hidden,
         }
     }

@@ -401,7 +401,7 @@ mod tests {
             if index == 0 {
                 scene.install_prepared_assets(&prepared);
             } else {
-                scene.reload_prepared_assets(&prepared);
+                assert!(scene.reload_prepared_assets(&prepared));
             }
             scene.update(
                 crate::SceneClock::default(),
@@ -434,7 +434,7 @@ mod tests {
             "join must admit a model absent from startup"
         );
         let prepared = empty.with_chalkboard_assets(&base, None);
-        scene.reload_prepared_assets(&prepared);
+        assert!(scene.reload_prepared_assets(&prepared));
         scene.update(crate::SceneClock::default(), &[], &[submission]);
         assert!(
             scene.frame().solid.is_empty(),

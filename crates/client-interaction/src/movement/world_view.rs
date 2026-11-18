@@ -49,6 +49,10 @@ impl gameplay::GameplayWorld for GameplayWorldView<'_> {
     fn local_vehicle_revision(&self) -> client_world::VehicleRevision {
         self.0.authority().local_vehicle_revision()
     }
+    /// Reads whether the local player got off its mount on the client.
+    fn local_player_left_mount(&self) -> bool {
+        self.0.authority().local_player_left_mount()
+    }
     /// Reads the controller identity selected from current passenger links and mount flags.
     fn local_vehicle_controlled(&self) -> bool {
         self.0.authority().local_vehicle_controlled()

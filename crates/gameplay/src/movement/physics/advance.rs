@@ -3,12 +3,25 @@
 use super::*;
 
 impl LocalPhysicsController {
-    /// Advances fixed ticks while retaining their controls, effects and completed samples.
+    /// Advances fixed ticks with their controls, effects and completed samples.
     pub fn advance_with_context_and_effects(
+        &mut self,
+        elapsed: Duration,
+        input: MovementInput,
+        context: PhysicsSampleContext,
+        world: &impl CollisionWorld,
+        effects: &mut impl MovementEffectSource,
+    ) -> LocalPhysicsFrame {
+        self.advance_with_speed_updates(elapsed, input, context, &[], world, effects)
+    }
+
+    /// Records accepted speed operations on the first successful tick of this frame.
+    pub(in crate::movement) fn advance_with_speed_updates(
         &mut self,
         elapsed: Duration,
         mut input: MovementInput,
         mut context: PhysicsSampleContext,
+        updates: &[super::super::speed_authority::MovementSpeedUpdate],
         world: &impl CollisionWorld,
         effects: &mut impl MovementEffectSource,
     ) -> LocalPhysicsFrame {
@@ -40,6 +53,20 @@ impl LocalPhysicsController {
         let physical_jump_held = input.jumping;
         let sprint_request = input.sprinting;
         let requested_movement_speed = input.movement_speed;
+        let mut movement_speed = self
+            .controller_history
+            .back()
+            .map_or(Default::default(), |frame| frame.speed);
+        let mut speed_updates: Vec<_> = context
+            .movement_speed_attribute
+            .map(super::super::speed_authority::MovementSpeedUpdate::Attribute)
+            .into_iter()
+            .chain(updates.iter().copied())
+            .collect();
+        for update in &speed_updates {
+            update.apply(&mut movement_speed);
+        }
+        movement_speed.adopt_server_sprinting(Some(self.modes.sprinting()));
         let sneak_request = input.sneaking;
         input.descent_request = Some(input_requests::descent_request(
             context.input_mode,
@@ -126,6 +153,7 @@ impl LocalPhysicsController {
             );
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
+            let mut start_sprinting = false;
             let mut flight_request = None;
             let mut before_flight_action = None;
             let mut mode_error = None;
@@ -166,6 +194,7 @@ impl LocalPhysicsController {
                 Ok(choice) => {
                     input.mode = choice.mode;
                     input.sprinting = choice.sprinting;
+                    start_sprinting = choice.start_sprinting;
                     input.glide_ascent = choice.glide_ascent;
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
@@ -189,6 +218,7 @@ impl LocalPhysicsController {
             if input.mode == sim::MovementMode::Riding {
                 input.sneaking = false;
             }
+            speed::apply_sprint_speed(&mut movement_speed, &mut input, start_sprinting);
             self.modes.record_controls(input, context.input.sneak_down);
             // A rider's position is its seat on the mount, not a simulated result.
             let seated = if input.mode == sim::MovementMode::Riding {
@@ -282,6 +312,9 @@ impl LocalPhysicsController {
                     flags.climber_write = self.pending_climber.consume_live();
                     let mut controller = ControllerFrame {
                         tick: state.tick,
+                        speed: movement_speed,
+                        start_sprinting,
+                        speed_updates: std::mem::take(&mut speed_updates),
                         sync_state: Default::default(),
                         sync_server: std::mem::take(&mut self.sync_pending),
                         position_before_tick: before,

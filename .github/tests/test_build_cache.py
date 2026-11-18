@@ -595,8 +595,33 @@ class ProvenanceTests(unittest.TestCase):
         self.assertFalse(cache.trusted_run({**run, "path": ".github/workflows/package.yml"}, env))
         self.assertFalse(cache.trusted_run({**run, "event": "pull_request"}, env))
         self.assertFalse(cache.trusted_run({**run, "head_branch": "feature"}, env))
-        for workflow in cache.CI_WORKFLOWS:
+        for workflow in cache.CI_WORKFLOWS | cache.CI_READERS:
             self.assertTrue((MODULE.parents[3] / workflow).is_file(), workflow)
+
+    def test_ci_readers_restore_ci_archives_and_nothing_they_saved(self):
+        """An offloaded command starts from dev's CI cache, never from an archive of a maintainer branch."""
+        for reader in cache.CI_READERS:
+            env = {**self.ENV, "CACHE_BUCKET": "build-v1-rust-Linux-X64-ci-",
+                   "GITHUB_WORKFLOW_REF": f"{self.REPOSITORY}/{reader}@refs/heads/offload/1"}
+            for workflow in cache.CI_WORKFLOWS:
+                self.assertTrue(cache.trusted_run(self.run_(path=workflow), env))
+                self.assertFalse(cache.trusted_run(self.run_(path=workflow, head_branch="offload/1"), env))
+            self.assertFalse(cache.trusted_run(self.run_(path=reader), env))
+            self.assertFalse(cache.trusted_run(self.run_(), {**env, "CACHE_BUCKET": "build-v1-rust-Linux-X64-release-"}))
+
+    def test_workflows_sharing_ci_caches_set_the_same_compiler_environment(self):
+        """Cache keys hash the compiler environment, so a workflow whose `env` drifts restores nothing."""
+        def workflow_env(workflow):
+            """Return the lines of a workflow's top-level `env` block, without comments."""
+            lines = (MODULE.parents[3] / workflow).read_text().splitlines()
+            block = lines[lines.index("env:") + 1:]
+            end = next(index for index, line in enumerate(block) if line and not line.startswith((" ", "#")))
+            return sorted(line.strip() for line in block[:end] if line.strip() and not line.lstrip().startswith("#"))
+
+        shared = workflow_env(".github/workflows/ci.yml")
+        self.assertTrue(shared)
+        for workflow in cache.CI_WORKFLOWS | cache.CI_READERS:
+            self.assertEqual(workflow_env(workflow), shared, workflow)
 
     def test_artifact_listing_accepts_attempt_names_and_legacy_names(self):
         """Unique uploads remain discoverable by compiler prefix without matching unrelated artifacts."""

@@ -94,6 +94,8 @@ pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
 pub const MATERIAL_FLAG_UV_ROTATE_270: u32 = 3;
 /// The rotation code within `MATERIAL_FLAG_UV_MASK`; the remaining bits reflect U and V.
 pub const MATERIAL_FLAG_UV_ROTATION_MASK: u32 = 0x0000_0003;
+/// Reflects both UV axes, keeping a half-turn independent of positional rotation.
+pub const MATERIAL_FLAG_UV_INVERT: u32 = MATERIAL_FLAG_UV_MASK & !MATERIAL_FLAG_UV_ROTATION_MASK;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;
@@ -125,24 +127,55 @@ pub const MATERIAL_FLAG_DISABLE_FACE_DIMMING: u32 = 1 << 26;
 pub const MATERIAL_FLAG_CAULDRON_WATER: u32 = 1 << 27;
 /// Packed vertex colour used by ordinary cauldron water, including its translucency.
 pub const CAULDRON_WATER_COLOUR: [u8; 4] = [52, 81, 89, 191];
-/// Compact world-leaf AO exponent. Zero selects the native omitted default (1).
-pub const MATERIAL_LEAF_AO_EXPONENT_SHIFT: u32 = 17;
-pub const MATERIAL_LEAF_AO_EXPONENT_MAX: u32 = u8::MAX as u32;
-pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
-    MATERIAL_LEAF_AO_EXPONENT_MAX << MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-pub const MATERIAL_LEAF_AO_EXPONENT_SCALE: u32 = 100;
-pub const MATERIAL_LEAF_METADATA_MASK: u32 =
-    MATERIAL_FLAG_ISOTROPIC | MATERIAL_LEAF_AO_EXPONENT_MASK;
+/// Unassigned flag bits; valid materials leave them clear.
+pub const MATERIAL_FLAGS_RESERVED: u32 = 0xff << 17 & !crate::redstone_wire::SIGNAL_MASK;
+/// Pack-authored leaf metadata carried in the flags word.
+pub const MATERIAL_LEAF_METADATA_MASK: u32 = MATERIAL_FLAG_ISOTROPIC;
+/// The AO exponent of a material that names none, as vanilla terrain draws.
+pub const DEFAULT_AO_EXPONENT: f32 = 1.0;
 
-/// Decodes admitted pack-authored hundredths, without changing the native default.
+/// Coverage flags one block render method selects: blend, cutout, or neither for opaque layers.
+/// Two-sidedness depends on the caller's geometry; see [`protocol_ids::BlockRenderMethod::two_sided`].
 #[must_use]
-pub fn material_leaf_ao_exponent(flags: u32) -> f32 {
-    let value = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    if value == 0 {
-        1.0
+pub const fn block_render_method_flags(method: protocol_ids::BlockRenderMethod) -> u32 {
+    if method.blends() {
+        MATERIAL_FLAG_ALPHA_BLEND
+    } else if method.alpha_tests() {
+        MATERIAL_FLAG_ALPHA_CUTOUT
     } else {
-        value as f32 / MATERIAL_LEAF_AO_EXPONENT_SCALE as f32
+        0
     }
+}
+
+/// The block render method closest to drawing `raster` with or without an alpha test, and
+/// whether it draws it exactly. Block passes draw opaque, cutout or alpha-blended faces, one- or
+/// two-sided, with the default depth test and every channel written; blended faces are always
+/// two-sided.
+#[must_use]
+pub fn block_render_method_for(
+    raster: &render_api::render_state::RenderState,
+    alpha_test: bool,
+) -> (protocol_ids::BlockRenderMethod, bool) {
+    use protocol_ids::BlockRenderMethod as Method;
+    use render_api::render_state::{BlendState, CompareFunction, CullMode};
+    let two_sided = raster.cull == CullMode::None;
+    let method = match (raster.blend.is_some(), alpha_test, two_sided) {
+        (true, _, _) => Method::Blend,
+        (false, true, true) => Method::AlphaTest,
+        (false, true, false) => Method::AlphaTestSingleSided,
+        (false, false, true) => Method::DoubleSided,
+        (false, false, false) => Method::Opaque,
+    };
+    let exact = method.two_sided() == two_sided
+        && raster.cull != CullMode::Front
+        && raster.blend.is_none_or(|blend| blend == BlendState::ALPHA)
+        && raster.depth.compare == Some(CompareFunction::LessEqual)
+        && (raster.depth.write || method.blends())
+        && raster.stencil.is_none()
+        && raster.write_color
+        && raster.write_alpha
+        && !raster.alpha_to_coverage;
+    (method, exact)
 }
 
 pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
@@ -161,17 +194,23 @@ pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | MATERIAL_FLAG_DISABLE_FACE_DIMMING
     | MATERIAL_FLAG_CAULDRON_WATER
     | crate::stem::MATERIAL_FLAG
-    | crate::stem::GROWTH_MASK;
+    | crate::stem::GROWTH_MASK
+    | crate::redstone_wire::SIGNAL_MASK;
 
-// Every flag bit is assigned, so validity depends only on the combination rules below.
-const _: () = assert!(MATERIAL_FLAGS_MASK == u32::MAX);
+// Every flag bit is assigned or reserved, so validity depends only on the rules below.
+const _: () = assert!(MATERIAL_FLAGS_MASK | MATERIAL_FLAGS_RESERVED == u32::MAX);
+const _: () = assert!(MATERIAL_FLAGS_MASK & MATERIAL_FLAGS_RESERVED == 0);
 
-pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
-    (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
+/// Whether `flags` is a combination the carrier, overlay and shaders accept.
+pub const fn material_flags_are_valid(flags: u32) -> bool {
+    flags & MATERIAL_FLAGS_RESERVED == 0
+        && (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
+        && (flags & crate::redstone_wire::SIGNAL_MASK == 0
+            || flags & crate::stem::MATERIAL_FLAG != 0)
         && (flags & crate::stem::MATERIAL_FLAG == 0
             || (flags
                 & (MATERIAL_FLAG_TINT_MASK
-                    | (MATERIAL_LEAF_METADATA_MASK & !crate::redstone_wire::SIGNAL_MASK)
+                    | MATERIAL_LEAF_METADATA_MASK
                     | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
                     | MATERIAL_FLAG_CAULDRON_WATER)
                 == 0
@@ -184,8 +223,6 @@ pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
                 }))
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
-        && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0
-            || flags & (MATERIAL_FLAG_NATIVE_LEAF_COLOUR | crate::stem::MATERIAL_FLAG) != 0)
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         && (flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR == 0 || flags & MATERIAL_FLAG_ALPHA_BLEND == 0)
         && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)
@@ -217,7 +254,19 @@ pub struct Material {
     pub variation_count: u32,
     /// Normalized f32 weight bits; zero for ordinary materials.
     pub variation_weight: u32,
+    /// Raw [`TextureRef`] of a Cinnabar glow mask, added after lighting; [`NO_MASK`] for none.
+    pub glow_mask: u32,
+    /// Raw [`TextureRef`] of a Cinnabar emissive mask, drawn unlit; [`NO_MASK`] for none.
+    pub emissive_mask: u32,
+    /// f32 bits of the strength scaling both masks.
+    pub mask_strength: u32,
+    /// f32 bits of the exponent raising this material's ambient occlusion; any finite value, as
+    /// Bedrock carries the authored float unchanged. [`DEFAULT_AO_EXPONENT`] draws vanilla AO.
+    pub ao_exponent: u32,
 }
+
+/// A material texture-reference slot that names no mask.
+pub const NO_MASK: u32 = u32::MAX;
 
 impl Material {
     /// Returns an ordinary diagnostic material with no positional alternatives.
@@ -229,11 +278,53 @@ impl Material {
             variation_start: 0,
             variation_count: 0,
             variation_weight: 0,
+            glow_mask: NO_MASK,
+            emissive_mask: NO_MASK,
+            mask_strength: 0,
+            ao_exponent: DEFAULT_AO_EXPONENT.to_bits(),
         }
     }
 }
 
-const _: () = assert!(std::mem::size_of::<Material>() == 24);
+const _: () = assert!(std::mem::size_of::<Material>() == 40);
+
+/// Native's wrapping position mix that picks a cell's weighted texture alternative; the
+/// terrain shaders' `material_position_random` computes the same value on the GPU.
+#[must_use]
+pub const fn material_position_random(position: [i32; 3]) -> u32 {
+    let [x, y, z] = [position[0] as u32, position[1] as u32, position[2] as u32];
+    let hash = z.wrapping_mul(0x06eb_fff5) ^ x.wrapping_mul(0x002f_c20f) ^ y;
+    hash.wrapping_mul(0x0285_b825)
+        .wrapping_add(11)
+        .wrapping_mul(hash)
+}
+
+/// The weighted alternative material `id` draws at `position`, or `id` itself when it has
+/// none, exactly as the terrain shaders' `positional_material_id` selects it.
+#[must_use]
+pub fn positional_material_id(materials: &[Material], id: u32, position: [i32; 3]) -> u32 {
+    let Some(base) = materials.get(id as usize) else {
+        return id;
+    };
+    match base.variation_count {
+        0 => id,
+        1 => base.variation_start,
+        count => {
+            let mut sample = (material_position_random(position) >> 16) as f32 / 65535.0;
+            for index in 0..count {
+                let candidate = base.variation_start + index;
+                let weight = materials
+                    .get(candidate as usize)
+                    .map_or(0.0, |material| f32::from_bits(material.variation_weight));
+                if sample <= weight || index + 1 == count {
+                    return candidate;
+                }
+                sample -= weight;
+            }
+            id
+        }
+    }
+}
 
 /// Per-face material IDs and registry facts for one sequential block ID.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -321,4 +412,90 @@ pub struct CompiledAssets {
     /// Exact source identities bound into the blob header. Encode rejects
     /// incomplete identity, so serialized output always names its inputs.
     pub provenance: BlobProvenance,
+}
+
+#[cfg(test)]
+#[path = "compiled/tests.rs"]
+mod tests;
+
+#[cfg(test)]
+mod block_render_method_tests {
+    use protocol_ids::BlockRenderMethod as Method;
+    use render_api::render_state::{
+        BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction, CullMode,
+        RenderState,
+    };
+
+    use super::block_render_method_for;
+
+    #[test]
+    fn rasters_lower_to_the_closest_block_render_method() {
+        let raster = |cull, blend| RenderState {
+            cull,
+            blend,
+            ..Default::default()
+        };
+        for (state, alpha_test, expected) in [
+            (raster(CullMode::Back, None), false, (Method::Opaque, true)),
+            (
+                raster(CullMode::None, None),
+                false,
+                (Method::DoubleSided, true),
+            ),
+            (
+                raster(CullMode::None, None),
+                true,
+                (Method::AlphaTest, true),
+            ),
+            (
+                raster(CullMode::Back, None),
+                true,
+                (Method::AlphaTestSingleSided, true),
+            ),
+            (
+                raster(CullMode::None, Some(BlendState::ALPHA)),
+                false,
+                (Method::Blend, true),
+            ),
+            // Blended faces are always two-sided, and additive blending has no block pass.
+            (
+                raster(CullMode::Back, Some(BlendState::ALPHA)),
+                false,
+                (Method::Blend, false),
+            ),
+            (
+                raster(CullMode::Front, None),
+                false,
+                (Method::Opaque, false),
+            ),
+        ] {
+            assert_eq!(
+                block_render_method_for(&state, alpha_test),
+                expected,
+                "{state:?}"
+            );
+        }
+        let additive = BlendComponent {
+            source: BlendFactor::One,
+            destination: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+        let glow = raster(
+            CullMode::None,
+            Some(BlendState {
+                color: additive,
+                alpha: additive,
+            }),
+        );
+        assert_eq!(
+            block_render_method_for(&glow, false),
+            (Method::Blend, false)
+        );
+        let mut through = raster(CullMode::Back, None);
+        through.depth.compare = Some(CompareFunction::Always);
+        assert_eq!(
+            block_render_method_for(&through, false),
+            (Method::Opaque, false)
+        );
+    }
 }

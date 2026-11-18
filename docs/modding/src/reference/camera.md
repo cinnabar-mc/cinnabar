@@ -10,6 +10,26 @@ Opt-in local camera policy; requires the explicit camera grant.
 
 ## Types
 
+<a id="type-perspective"></a>
+
+### `perspective`
+
+The ordinary local view modes, without changing the player's saved choice.
+
+```wit
+enum perspective {
+    first-person,
+    third-person-back,
+    third-person-front,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `first-person` |  |  |
+| `third-person-back` |  |  |
+| `third-person-front` |  |  |
+
 <a id="type-view-tilt"></a>
 
 ### `view-tilt`
@@ -58,6 +78,33 @@ record damage-shake {
 | `pitch` | `f32` |  |
 
 ## Functions
+
+<a id="set-view-yaw-offset"></a>
+
+### `set-view-yaw-offset`
+
+```wit
+set-view-yaw-offset: func(degrees: f32) -> result<_, string>;
+```
+
+Presentation-only world-up yaw, in finite degrees -180..180; 0 is neutral.
+Requires camera authority and focused gameplay; renew for every successful frame.
+Eye position, player aim, interaction rays and movement are unchanged. Off-axis
+views hide the first-person viewmodel. Omission, menus, focus loss, traps and
+unload restore the aligned view. Body visibility follows the selected perspective.
+
+<a id="set-perspective"></a>
+
+### `set-perspective`
+
+```wit
+set-perspective: func(view: option<perspective>) -> result<_, string>;
+```
+
+Requires camera authority. Current focused gameplay frame only; renew while needed.
+None, omission, UI focus, unload and failed callbacks restore the player's own view.
+
+Types: [`perspective`](camera.md#type-perspective).
 
 <a id="set-view-tilt"></a>
 

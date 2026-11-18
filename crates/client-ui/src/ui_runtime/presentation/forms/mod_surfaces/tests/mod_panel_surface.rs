@@ -30,7 +30,7 @@ fn authored() -> Panel {
                     "bindings":[{"binding_name":"#surface_color","binding_name_override":"#color"}]}},
                 {"toggle":button("mod.control:0",20.)},
                 {"number":button("mod.edit:1",100.)},
-                {"choice":button("mod.control:2",180.)}
+                {"keybind":button("mod.control:2",180.)}
             ]
         }}).to_string(),
         bindings: std::collections::BTreeMap::from([("#surface_color".into(), SurfaceValue::Vector(vec![1.,0.,0.,1.]))]),
@@ -39,7 +39,7 @@ fn authored() -> Panel {
 }
 
 #[test]
-fn custom_geometry_routes_toggles_and_native_number_and_choice_editors() {
+fn custom_geometry_routes_toggles_keybinds_and_the_native_number_editor() {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
@@ -76,21 +76,13 @@ fn custom_geometry_routes_toggles_and_native_number_and_choice_editors() {
         }]
     );
     frame(&mut presentation, [1280, 720]);
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    assert!(
-        presentation
-            .mod_ui_mut()
-            .mod_panel_events(choice, true, true)
-            .is_empty()
-    );
-    frame(&mut presentation, [1280, 720]);
-    let option = point(&presentation, "mod.option:1", 0.5);
+    let keybind = point(&presentation, "mod.control:2", 0.5);
     assert_eq!(
         presentation
             .mod_ui_mut()
-            .mod_panel_events(option, true, true),
+            .mod_panel_events(keybind, true, true),
         [Event {
-            id: "mode".into(),
+            id: "activate".into(),
             value: 1.0
         }]
     );

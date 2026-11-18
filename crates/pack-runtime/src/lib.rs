@@ -10,6 +10,7 @@ mod block_physics;
 pub use block_mining::{CustomMiningFilters, custom_mining_seconds};
 pub mod compile_cache;
 pub mod entity_pack;
+pub mod graphics;
 mod item_digger;
 pub use item_digger::{DiggerFilters, DiggerMatch, digger_match};
 pub mod pack_flipbooks;

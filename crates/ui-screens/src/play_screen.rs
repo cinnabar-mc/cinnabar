@@ -7,7 +7,7 @@ use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
 use launcher::menu::{
     MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo, pingable,
-    play_featured,
+    play::play_featured,
 };
 
 const FEATURED: &str = "third_party_server_network_worlds";
@@ -291,6 +291,10 @@ fn realms(view: &MenuView, data: &mut DataSource) {
                 "#realms_world_expiry_notification_visible",
                 Scalar::Bool(!realm.member && (realm.expired || realm.days_left <= 7)),
             )
+            .with(
+                "#leave_realm_button_visible",
+                Scalar::Bool(realm.leave_id().is_some()),
+            )
     };
     let personal = view
         .realms
@@ -330,6 +334,19 @@ pub(super) fn realm_action(view: &MenuView, region: &HitRegion) -> Option<MenuAc
         .filter(|(_, realm)| realm.member == member)
         .nth(index)
         .map(|(overall, _)| MenuAction::PlayRealm(overall))
+}
+
+/// The leave confirmation a joined Realm row's remove button opens.
+pub(super) fn realm_leave_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
+    if region.collection.as_deref() != Some(FRIEND_REALMS) {
+        return None;
+    }
+    view.realms
+        .iter()
+        .filter(|realm| realm.member)
+        .nth(region.collection_index?)
+        .and_then(MenuRealmCard::leave_id)
+        .map(MenuAction::LeaveRealmDialog)
 }
 
 /// Selecting a featured-list entry shows it in the info panel.
@@ -588,6 +605,29 @@ mod tests {
         assert_eq!(
             realm_action(&view, &press(Some(PERSONAL_REALMS), Some(1))),
             Some(MenuAction::PlayRealm(2))
+        );
+    }
+
+    #[test]
+    fn only_joined_realm_rows_leave_their_own_realm() {
+        let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
+        let with_target = |mut card: MenuRealmCard, id: u32| {
+            card.target = format!("{}{id}", launcher::menu::REALM_ADDRESS_PREFIX);
+            card
+        };
+        view.realms = vec![
+            with_target(realm("mine", false), 3),
+            with_target(realm("theirs", true), 7),
+            with_target(realm("other", true), 9),
+        ]
+        .into();
+        assert_eq!(
+            realm_leave_action(&view, &press(Some(FRIEND_REALMS), Some(1))),
+            Some(MenuAction::LeaveRealmDialog(9))
+        );
+        assert_eq!(
+            realm_leave_action(&view, &press(Some(PERSONAL_REALMS), Some(0))),
+            None
         );
     }
 }

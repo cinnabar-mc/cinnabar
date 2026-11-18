@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{Map, Value};
 
@@ -162,21 +163,25 @@ struct FileRead {
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
     globals: BTreeMap<String, Value>,
-    scopes: BTreeMap<String, std::sync::Arc<BTreeMap<String, String>>>,
+    scopes: BTreeMap<String, Arc<BTreeMap<String, String>>>,
     /// Every `_ui_defs` path loaded so far; a pack file loads only when listed.
     ui_defs: std::collections::BTreeSet<String>,
-    defs: BTreeMap<String, BTreeMap<String, RawControl>>,
+    /// Definitions are shared with every catalog cloned from this one; writes copy one
+    /// definition on demand, so layered catalogs keep a single copy of unchanged controls.
+    defs: BTreeMap<String, BTreeMap<String, Arc<RawControl>>>,
     /// First-file parse state and namespace inherited by later layers at that path.
     files: BTreeMap<String, FileRead>,
     diagnostics: Vec<String>,
-    /// Keeps Cinnabar transforms, normalized placement and filters for opted-in catalogs.
+    /// Keeps Cinnabar transforms, normalized placement, filters and scrollbar extensions for
+    /// opted-in catalogs.
     paint_transforms: bool,
 }
 
 impl Catalog {
-    /// Opts this catalog into [`crate::transform::TRANSFORM_PROPERTY`] and
-    /// [`crate::filter::FILTER_PROPERTY`] and [`crate::position::PROPERTY`]. Other
-    /// catalogs resolve as if the properties were never authored.
+    /// Opts this catalog into [`crate::transform::TRANSFORM_PROPERTY`],
+    /// [`crate::filter::FILTER_PROPERTY`], [`crate::position::PROPERTY`] and the
+    /// [`crate::scrollbar`] extensions. Other catalogs resolve as if the properties were
+    /// never authored.
     pub fn with_paint_transforms(mut self) -> Self {
         self.paint_transforms = true;
         self
@@ -290,7 +295,7 @@ impl Catalog {
             }
             let control = RawControl::from_entry(&namespace, key, body, &mut self.diagnostics);
             let table = self.defs.entry(namespace.clone()).or_default();
-            if let Some(existing) = table.insert(control.name.clone(), control) {
+            if let Some(existing) = table.insert(control.name.clone(), Arc::new(control)) {
                 self.diagnostics.push(format!(
                     "{namespace}.{}: redefined; last wins",
                     existing.name
@@ -300,22 +305,39 @@ impl Catalog {
     }
 
     pub fn lookup(&self, namespace: &str, name: &str) -> Option<&RawControl> {
-        self.defs.get(namespace)?.get(name)
+        self.defs.get(namespace)?.get(name).map(Arc::as_ref)
     }
 
     /// Every top-level definition; nested instances belong to its child list.
     pub fn controls(&self) -> impl Iterator<Item = &RawControl> {
-        self.defs.values().flat_map(|table| table.values())
+        self.defs
+            .values()
+            .flat_map(|table| table.values().map(Arc::as_ref))
     }
 
-    /// Mutable definition bodies for an application-owned presentation policy.
-    pub fn controls_mut(&mut self) -> impl Iterator<Item = &mut RawControl> {
-        self.defs.values_mut().flat_map(|table| table.values_mut())
+    /// Applies an application-owned presentation policy to every definition. A definition
+    /// the policy leaves unchanged keeps the storage it shares with other catalogs.
+    pub fn update_controls(&mut self, mut update: impl FnMut(&mut RawControl)) {
+        for control in self.defs.values_mut().flat_map(|table| table.values_mut()) {
+            if let Some(owned) = Arc::get_mut(control) {
+                update(owned);
+                continue;
+            }
+            let mut updated = RawControl::clone(control);
+            update(&mut updated);
+            if updated != **control {
+                *control = Arc::new(updated);
+            }
+        }
     }
 
-    /// Mutates one definition for an application-owned presentation policy.
+    /// Mutates one definition for an application-owned presentation policy, first copying it
+    /// when another catalog shares it.
     pub fn lookup_mut(&mut self, namespace: &str, name: &str) -> Option<&mut RawControl> {
-        self.defs.get_mut(namespace)?.get_mut(name)
+        self.defs
+            .get_mut(namespace)?
+            .get_mut(name)
+            .map(Arc::make_mut)
     }
 
     /// Replace a complete definition, including its inherited template and children.
@@ -323,7 +345,18 @@ impl Catalog {
         self.defs
             .entry(control.owner_ns.clone())
             .or_default()
-            .insert(control.name.clone(), control);
+            .insert(control.name.clone(), Arc::new(control));
+    }
+
+    /// Adds every definition of `other`, replacing same-named ones; the two catalogs then
+    /// share those definitions' storage.
+    pub fn insert_definitions_from(&mut self, other: &Catalog) {
+        for (namespace, table) in &other.defs {
+            let target = self.defs.entry(namespace.clone()).or_default();
+            for (name, control) in table {
+                target.insert(name.clone(), Arc::clone(control));
+            }
+        }
     }
 
     pub(crate) fn lists(&self, entry: &str) -> bool {
@@ -447,6 +480,9 @@ pub enum LoadError {
     #[error("unexpected shape in {path}")]
     Shape { path: PathBuf },
 }
+
+#[cfg(test)]
+mod sharing_tests;
 
 #[cfg(test)]
 mod overlay_tests {

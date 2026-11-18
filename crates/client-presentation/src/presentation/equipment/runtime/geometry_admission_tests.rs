@@ -139,6 +139,7 @@ fn runtime(
 /// Supplies the complete stack fields used by the production owner-selection entry point.
 fn item() -> WornItem {
     WornItem {
+        trim: None,
         identifier: ITEM.into(),
         kind: HeldKind::Other,
         metadata: 0,

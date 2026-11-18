@@ -14,6 +14,8 @@ const PRIMARY_TINT: [u8; 4] = [0x6c, 0xc3, 0x49, 255];
 /// Closed and expired tag fill (needs the OreUI reference).
 const WARNING_TINT: [u8; 4] = [0xd0, 0x3c, 0x3c, 255];
 const PLAY_HEIGHT: f32 = 4.4;
+/// Leave Realm's preferred width beside Play, in rem.
+const LEAVE_WIDTH: f32 = 20.0;
 const DETAILS_PAD: f32 = 2.4;
 /// A complete Play control and its trailing inset must fit when scrolled to the end.
 pub(super) const MIN_DETAILS_HEIGHT: f32 = PLAY_HEIGHT + DETAILS_PAD;
@@ -76,16 +78,17 @@ pub(super) fn draw(
         )?;
         for (index, realm) in realms {
             first.get_or_insert(index);
-            if y + item_height < body[1] || y > body[3] {
-                y += item_height;
-                continue;
-            }
             let bounds = [
                 menu_left + canvas.r(0.2),
                 y,
                 menu_right - canvas.r(0.2),
                 y + item_height,
             ];
+            if y + item_height < body[1] || y > body[3] {
+                canvas.focus_target(MenuAction::SelectRealm(index), bounds)?;
+                y += item_height;
+                continue;
+            }
             row(
                 canvas,
                 view,
@@ -194,20 +197,40 @@ fn draw_details(
     }
     y += canvas.r(2.0) + space(canvas, 3);
     let play_width = canvas.r(32.0).min((right - left) * 0.5);
+    let bottom = y + canvas.r(PLAY_HEIGHT);
     button(
         canvas,
         view,
-        [
-            left + pad,
-            y,
-            left + pad + play_width,
-            y + canvas.r(PLAY_HEIGHT),
-        ],
+        [left + pad, y, left + pad + play_width, bottom],
         Variant::Hero,
         "Play",
         open.then_some(MenuAction::PlayRealm(index)),
     )?;
-    Ok(y + canvas.r(PLAY_HEIGHT) + pad)
+    // A joined Realm offers Leave on the Play row, so the details keep their height.
+    if let Some(action) = leave_action(view, realm) {
+        let start = left + pad + play_width + canvas.r(0.8);
+        let end = (start + canvas.r(LEAVE_WIDTH)).min(right - pad);
+        button(
+            canvas,
+            view,
+            [start, y, end, bottom],
+            Variant::Destructive,
+            "Leave Realm",
+            action,
+        )?;
+    }
+    Ok(bottom + pad)
+}
+
+/// The Leave control a joined Realm shows: `None` for an owned Realm, and a disabled control
+/// while a leave is awaiting its outcome.
+fn leave_action(view: &MenuView, realm: &MenuRealmCard) -> Option<Option<MenuAction>> {
+    let id = realm.leave_id()?;
+    Some(
+        view.leaving_realm
+            .is_none()
+            .then_some(MenuAction::LeaveRealmDialog(id)),
+    )
 }
 
 /// The owner of a joined Realm, or the time left on an owned one.
@@ -244,6 +267,23 @@ mod tests {
             expired,
             member,
         }
+    }
+
+    #[test]
+    fn only_joined_realms_offer_leave_and_it_waits_for_a_pending_leave() {
+        let mut view = MenuView::new(true, "Steve".to_owned());
+        let mut joined = realm(true, 0, false);
+        joined.target = format!("{}7", launcher::menu::REALM_ADDRESS_PREFIX);
+        let mut owned = joined.clone();
+        owned.member = false;
+        assert_eq!(
+            leave_action(&view, &joined),
+            Some(Some(MenuAction::LeaveRealmDialog(7)))
+        );
+        assert_eq!(leave_action(&view, &owned), None);
+        assert_eq!(leave_action(&view, &realm(true, 0, false)), None);
+        view.leaving_realm = Some(7);
+        assert_eq!(leave_action(&view, &joined), Some(None));
     }
 
     #[test]

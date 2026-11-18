@@ -36,7 +36,7 @@ impl<P: Send + Sync + 'static> Plugin for ClientRuntimePlugin<P> {
         world_service::configure_world_service(app, network::NetworkFrameFlush);
         publication::configure_publication_frame(app);
         #[cfg(not(target_arch = "wasm32"))]
-        app.add_systems(bevy::prelude::Last, shutdown::arm_shutdown_watchdog);
+        shutdown::configure_shutdown(app);
     }
 
     fn finish(&self, app: &mut App) {

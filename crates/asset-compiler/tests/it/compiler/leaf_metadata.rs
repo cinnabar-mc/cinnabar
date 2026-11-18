@@ -90,10 +90,7 @@ fn pack_authored_leaf_face_metadata_survives_world_groups_and_runtime_only() {
         for offset in 0..assets::SEASONAL_LEAF_MATERIAL_COUNT as usize {
             let face = BlockFace::ALL[offset % BlockFace::ALL.len()];
             let world = compiled.materials[base + offset];
-            assert_eq!(
-                assets::material_leaf_ao_exponent(world.flags).to_bits(),
-                exponent.to_bits()
-            );
+            assert_eq!(world.ao_exponent, exponent.to_bits());
             let isotropic = match id {
                 0 => matches!(face, BlockFace::Down | BlockFace::Up),
                 1 => face.is_horizontal(),
@@ -126,10 +123,10 @@ fn pack_authored_leaf_face_metadata_survives_world_groups_and_runtime_only() {
         assert_eq!(encode_blob(&reordered).unwrap(), baseline);
     }
     let carried = compiled.visuals[0].faces[0] as usize;
-    compiled.materials[carried].flags |= 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
+    compiled.materials[carried].ao_exponent = 0.8_f32.to_bits();
     assert!(
-        encode_blob(&compiled).is_err(),
-        "world-only metadata must require the native leaf material flag"
+        encode_blob(&compiled).is_ok(),
+        "authored AO exponents apply to every block material, not only native leaves"
     );
 }
 
@@ -161,30 +158,38 @@ fn world_leaf_variations_receive_face_metadata_without_changing_carried_choices(
                 choice.flags & assets::MATERIAL_LEAF_METADATA_MASK,
                 world.flags & assets::MATERIAL_LEAF_METADATA_MASK
             );
-            assert_eq!(
-                assets::material_leaf_ao_exponent(choice.flags).to_bits(),
-                0.8_f32.to_bits()
-            );
+            assert_eq!(choice.ao_exponent, 0.8_f32.to_bits());
             assert_ne!(choice.texture, carried_choice.texture);
         }
     }
 }
 
 #[test]
-fn unsupported_custom_leaf_exponents_fail_explicitly_instead_of_quantizing() {
-    for exponent in [0.0, -0.8, 0.805, 2.56] {
+fn custom_leaf_exponents_keep_every_finite_authored_float() {
+    for exponent in [0.0_f32, -0.8, 0.805, 2.56, 9.75] {
         let blocks = serde_json::json!({"cherry_leaves": {"textures":"leaves", "ambient_occlusion_exponent": exponent}}).to_string();
         let directory = fixture(
             &blocks,
             r#"{"texture_data":{"leaves":{"textures":"textures/blocks/leaves"}}}"#,
         );
-        let error =
-            compile_pack(directory.path(), &[leaf(0, "minecraft:cherry_leaves")]).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("unsupported world leaf ambient_occlusion_exponent"),
-            "{error}"
+        let compiled =
+            compile_pack(directory.path(), &[leaf(0, "minecraft:cherry_leaves")]).unwrap();
+        let visual = &compiled.visuals[0];
+        let base = (visual.variant & assets::BLOCK_VISUAL_VARIANT_MATERIAL_MASK) as usize;
+        assert_eq!(
+            compiled.materials[base].ao_exponent,
+            exponent.to_bits(),
+            "{exponent}"
         );
     }
+    let blocks = r#"{"cherry_leaves": {"textures":"leaves", "ambient_occlusion_exponent": "0.8"}}"#;
+    let directory = fixture(
+        blocks,
+        r#"{"texture_data":{"leaves":{"textures":"textures/blocks/leaves"}}}"#,
+    );
+    let error = compile_pack(directory.path(), &[leaf(0, "minecraft:cherry_leaves")]).unwrap_err();
+    assert!(
+        error.to_string().contains("is not a finite number"),
+        "{error}"
+    );
 }

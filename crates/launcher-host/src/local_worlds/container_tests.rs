@@ -59,7 +59,6 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     let world_dir = dir.path().join("world");
     let spec = spec(&world_dir);
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
-    assert!(!instance.can_pause(), "container BDS cannot pause");
     let level = fs::read(world_dir.join(LEVEL_DIR).join("level.dat")).expect("level data");
     let has = |tag: &[u8]| level.windows(tag.len()).any(|window| window == tag);
     assert!(

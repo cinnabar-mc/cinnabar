@@ -66,6 +66,46 @@ pub enum CrackShape {
     Quads(Arc<[CrackQuad]>),
 }
 
+impl CrackShape {
+    /// The six outer faces of the block-local box `min..max`, each wound outward and mapped to
+    /// the destroy-stage tile in proportion to its size.
+    #[must_use]
+    pub fn cuboid(min: [f32; 3], max: [f32; 3]) -> Self {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+        let [dx, dy, dz] = [x1 - x0, y1 - y0, z1 - z0];
+        // Origin corner, then the two edges that span the face; their cross product is outward.
+        let faces = [
+            ([x0, y1, z0], [dx, 0.0, 0.0], [0.0, -dy, 0.0]),
+            ([x1, y1, z1], [-dx, 0.0, 0.0], [0.0, -dy, 0.0]),
+            ([x1, y1, z0], [0.0, 0.0, dz], [0.0, -dy, 0.0]),
+            ([x0, y1, z1], [0.0, 0.0, -dz], [0.0, -dy, 0.0]),
+            ([x0, y1, z1], [dx, 0.0, 0.0], [0.0, 0.0, -dz]),
+            ([x0, y0, z0], [dx, 0.0, 0.0], [0.0, 0.0, dz]),
+        ];
+        let quads: Vec<CrackQuad> = faces
+            .into_iter()
+            .map(|(origin, u, v)| {
+                let at = |a: f32, b: f32| -> [f32; 3] {
+                    std::array::from_fn(|axis| origin[axis] + u[axis] * a + v[axis] * b)
+                };
+                let length = |edge: [f32; 3]| Vec3::from_array(edge).length();
+                CrackQuad {
+                    corners: [at(0.0, 0.0), at(1.0, 0.0), at(1.0, 1.0), at(0.0, 1.0)],
+                    uvs: [
+                        [0.0, 0.0],
+                        [length(u), 0.0],
+                        [length(u), length(v)],
+                        [0.0, length(v)],
+                    ],
+                    two_sided: false,
+                }
+            })
+            .collect();
+        Self::Quads(quads.into())
+    }
+}
+
 /// Stages are `0..=9`; larger values clamp to the last.
 #[must_use]
 pub fn crack_texture_name(stage: u8) -> String {

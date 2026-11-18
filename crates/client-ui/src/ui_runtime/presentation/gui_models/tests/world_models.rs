@@ -141,7 +141,8 @@ fn cutout_world_model_slots_preserve_original_texels_and_rotated_uvs() {
     }
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
     let mut expected_atlas = atlas::Atlas::new(first, MODEL_PAGES);
-    let expected = block_models::mesh(&world, VISUAL, &mut expected_atlas).unwrap();
+    let expected =
+        block_models::mesh(&world, VISUAL, &mut expected_atlas, Default::default()).unwrap();
     let (_, textures) = expected_atlas.finish().unwrap();
     let expected_source = textures[&atlas::key([side as u16; 2], tile)];
     assert_eq!(actual.indices(), expected.indices());
@@ -181,5 +182,116 @@ fn world_models_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
             flags & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING == 0,
             "a shaded mesh must not replace an unshaded thumbnail"
         );
+    }
+}
+
+#[test]
+fn gui_thumbnails_keep_their_artwork_when_only_world_tiles_fit() {
+    let (base, entities) = cubes::catalog_for_visual(ITEM, 255, 255, VISUAL);
+    let world = world(&entities, assets::MATERIAL_FLAG_ALPHA_CUTOUT);
+    let original = base.icon_catalog.as_deref().unwrap();
+    let models: Vec<_> = original
+        .entries()
+        .iter()
+        .map(|entry| assets::IconBlockModel {
+            sprite: entry.sprite,
+            // Held states can differ from the item's GUI visual.
+            visual: assets::BlockVisualId(1),
+            held_sprite: None,
+        })
+        .collect();
+    let icons = Arc::new(
+        assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_gui_cube_sheets(
+                entities.source_manifest_sha256(),
+                original.sprites(),
+                original.entries(),
+                &[],
+                &models,
+                &[],
+                original.block_sheets(),
+            )
+            .unwrap(),
+        )
+        .unwrap(),
+    );
+    let mut textures = cubes::equipment(&entities, MODEL_PAGES).textures().to_vec();
+    let last = textures.last_mut().unwrap();
+    last.width -= assets::BLOCK_ITEM_SHEET_SIZE[0] + assets::BLOCK_ITEM_FACE_SIDE;
+    last.rgba8 = [9, 8, 7, 255]
+        .repeat(usize::from(last.width) * usize::from(last.height))
+        .into();
+    let equipment = Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            entities.source_manifest_sha256(),
+            Vec::new(),
+            textures,
+        )
+        .unwrap(),
+    );
+    let mut atlas = atlas::Atlas::new(0, MODEL_PAGES);
+    for texture in equipment.textures() {
+        atlas
+            .insert([texture.width, texture.height], &texture.rgba8)
+            .unwrap();
+    }
+    let sheet = &icons.sprites()[icons.gui_block_sheets()[0].sprite as usize];
+    assert!(
+        atlas
+            .try_insert(
+                [([sheet.width, sheet.height], sheet.rgba8.as_ref())],
+                |_| Some(())
+            )
+            .is_none(),
+        "the independent GUI sheet must not fit"
+    );
+    assert!(
+        block_models::mesh(&world, models[0].visual, &mut atlas, Default::default()).is_some(),
+        "the held world model's individual tiles must still fit"
+    );
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        crate::test_support::fixture_hud(),
+        Arc::clone(&icons),
+    )
+    .unwrap();
+    presentation.set_equipment_catalog(Some(equipment));
+    presentation.set_gui_models(&world, &entities).unwrap();
+    let held = render_model::equipment::blocks::prepare_held(Some(&world), &entities, &icons);
+    assert_eq!(
+        render_model::equipment::blocks::held_route(&icons, ITEM, 0, Some(VISUAL.0), |visual| {
+            held.models.contains_key(&visual)
+        }),
+        Some(render_model::equipment::blocks::HeldRoute::Block(VISUAL.0)),
+        "independent GUI artwork retains the held block geometry"
+    );
+    let bounds = ui::UiRect::new(
+        ui::UiPoint::new(0.0, 0.0).unwrap(),
+        ui::UiPoint::new(32.0, 32.0).unwrap(),
+    )
+    .unwrap();
+    for entry in icons.entries() {
+        let icon = presentation
+            .item_icon(&entry.identifier, entry.metadata)
+            .unwrap();
+        assert!(
+            !presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon)),
+            "the held model must not replace independent GUI artwork"
+        );
+        for alpha in [255, 254, 127, 0] {
+            let original =
+                UiNode::new(ui::UiNodeId::new(1), None, bounds).with_visual(UiVisual::Sprite {
+                    texture_page: icon.page,
+                    uv: icon.uv,
+                    color: [255, 255, 255, alpha],
+                });
+            let mut nodes = [original.clone()];
+            presentation.apply_gui_models(&mut nodes);
+            assert_eq!(nodes[0], original, "fading keeps the same GUI artwork");
+        }
     }
 }

@@ -50,9 +50,14 @@ pub(crate) fn book_data(data: &mut DataSource, book: &BookView<'_>) {
             data.set_global(name, Scalar::Bool(value));
         }
     }
+    // The field typing reaches shows its caret.
+    let shown = |text: &str, focused: bool| match book.caret.as_ref().filter(|_| focused) {
+        Some(caret) => crate::menu_caret::insert_caret(caret, text).into_owned(),
+        None => text.to_owned(),
+    };
     data.set_global(
         "#title_text_box_item_name",
-        Scalar::Text(book.title.to_owned()),
+        Scalar::Text(shown(book.title, book.signing)),
     );
     data.set_global(
         "#author_text_box_item_name",
@@ -71,7 +76,10 @@ pub(crate) fn book_data(data: &mut DataSource, book: &BookView<'_>) {
                 .with("#page_visible", Scalar::Bool(true))
                 .with("#is_text_page", Scalar::Bool(true))
                 .with("#editable", Scalar::Bool(editable))
-                .with("#text_box_item_name", Scalar::Text(text.clone()))
+                .with(
+                    "#text_box_item_name",
+                    Scalar::Text(shown(text, !book.signing && index == book.page)),
+                )
                 .with("#page_number", Scalar::Text((index + 1).to_string()))
                 .with("#edit_button_active", flag(book.editing != Some(index)))
                 .with("#edit_controls_active", flag(book.editing == Some(index)))

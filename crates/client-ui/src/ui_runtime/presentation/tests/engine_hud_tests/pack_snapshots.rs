@@ -30,7 +30,7 @@ fn snapshot_local_pack_hud() {
         }
     }
     assert!(
-        !customs(presentation.hud_draw_nodes(), "hotbar_renderer").is_empty(),
+        !customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS).is_empty(),
         "pack must preserve the hotbar"
     );
 }

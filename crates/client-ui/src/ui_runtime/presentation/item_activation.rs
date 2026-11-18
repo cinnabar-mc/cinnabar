@@ -77,6 +77,7 @@ fn activation_mesh(
             let rx = zx * cos_turn + zy * sin_wobble * sin_turn;
             let ry = zy * cos_wobble;
             UiMeshVertex {
+                terrain_mips: false,
                 position: [
                     2.0 * (translate[0] + scale * rx) / viewport[0],
                     (translate[1] - scale * ry + viewport[1] * 0.15) / (viewport[1] * 0.65),

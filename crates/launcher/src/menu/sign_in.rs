@@ -42,6 +42,12 @@ impl SignInLink {
         self.open_target(uri, Some(uri.to_owned()), explicit, dispatch);
     }
 
+    /// Counts `code` as already taken to the browser, as a code resumed after the system ended the
+    /// client was, so only an explicit press opens it again.
+    pub fn skip_automatic_open(&mut self, code: &str) {
+        self.attempted.insert(code.to_owned());
+    }
+
     /// Orders handoffs for either prompt, retaining the one automatic attempt per target.
     fn open_target(
         &mut self,
@@ -122,6 +128,24 @@ mod tests {
         link.complete(requests[1].1, true);
         assert_eq!(link.state_for("TEST-CODE"), BrowserState::Opened);
         assert_eq!(requests.len(), 2);
+    }
+
+    #[test]
+    fn a_skipped_code_opens_only_on_an_explicit_press() {
+        let mut link = SignInLink::default();
+        link.skip_automatic_open("SAVED-CODE");
+        link.open("SAVED-CODE", false, |_, _| {
+            panic!("automatic open of a skipped code")
+        });
+        assert_eq!(link.state_for("SAVED-CODE"), BrowserState::Waiting);
+        link.open("SAVED-CODE", true, |_, _| true);
+        assert_eq!(link.state_for("SAVED-CODE"), BrowserState::Opening);
+        let mut opened = false;
+        link.open("FRESH-CODE", false, |_, _| {
+            opened = true;
+            true
+        });
+        assert!(opened, "a different code still opens automatically");
     }
 
     #[test]

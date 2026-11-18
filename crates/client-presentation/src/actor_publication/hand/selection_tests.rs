@@ -14,7 +14,7 @@ fn java_hand_reuses_its_cold_selection_when_drawing_the_bow() {
         .write_to(&mut png, image::ImageFormat::Png)
         .unwrap();
     files.push(("textures/fixture.png".into(), png.into_inner()));
-    let cost = assets::MAX_MOLANG_OPS_PER_EXPRESSION;
+    let cost = crate::selection_test_support::REJECTED_PREDICATE_OPS;
     let count = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK / cost;
     let definitions = std::iter::once(("fixture:accepted".to_owned(), "1".to_owned())).chain(
         (0..count).map(|index| {

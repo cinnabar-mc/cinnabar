@@ -4,7 +4,7 @@ This guide covers the camera policies, the world-space drawing interfaces and th
 
 ## Camera reads and rotation
 
-`gameplay::read_frame` returns the current input-owned frame: session, dimension, eye position, yaw and pitch in actor YXZ radians (yaw left, pitch up), whether attack is held, frame seconds, and remote players' feet positions without names. It needs the `players` or `terrain` grant, and player rows need `players`. `gameplay::read_camera` returns the last rendered camera pose, including third-person and rig offsets. Both return none when gameplay does not own input — in a menu, for instance — so treat none as "not now", not as an error.
+`gameplay::read_frame` returns the current input-owned frame: session, dimension, eye position, yaw and pitch in actor YXZ radians (yaw left, pitch up), and frame seconds. It needs the `players` or `terrain` grant. Nearby players and other actors come from `player_state::read_actors`. `gameplay::read_camera` returns the last rendered camera pose, including third-person and rig offsets. Both return none when gameplay does not own input — in a menu, for instance — so treat none as "not now", not as an error.
 
 `gameplay::rotate(yaw_delta, pitch_delta)` turns the view, in radians. It needs the `camera` grant and a current frame, commits only after the frame returns, and the accumulated change per axis in one callback is capped at `MAX_CAMERA_DELTA_RADIANS` (0.25).
 

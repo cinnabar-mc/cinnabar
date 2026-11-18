@@ -177,6 +177,7 @@ mod tests {
             variation_start: 0,
             variation_count: 0,
             variation_weight: 0,
+            ..assets::Material::unvaried()
         };
         let compiled = assets::CompiledAssets {
             visuals: vec![
@@ -212,7 +213,7 @@ mod tests {
                         rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                     })
                     .collect::<Vec<_>>()
-                    .into_boxed_slice(),
+                    .into(),
             })]
             .into_boxed_slice(),
             biomes: assets::CompiledBiomeAssets::diagnostic(),

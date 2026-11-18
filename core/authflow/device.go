@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
 	"sync/atomic"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
@@ -22,6 +24,11 @@ import (
 type DeviceFlow struct {
 	Authorize func(context.Context) (*oauth2.DeviceAuthResponse, error)
 	Token     func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error)
+	// Pending is the token cache whose prompt is saved while it awaits approval, so a process
+	// ended meanwhile resumes the same code; empty saves nothing. See authcache.SavePendingPrompt.
+	Pending string
+	// Logger records a prompt that could not be saved; nil discards it.
+	Logger *slog.Logger
 }
 
 // Request validates and publishes a device prompt before polling for its token.
@@ -33,18 +40,29 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 	if f.Token == nil {
 		f.Token = auth.AndroidConfig.DeviceAccessToken
 	}
-	response, err := f.Authorize(ctx)
-	if err != nil {
-		return nil, &deviceFailure{reason: "device_start:" + failureReason(err)}
-	}
-	if err := validatePrompt(response); err != nil {
-		return nil, &deviceFailure{reason: "device_prompt"}
+	response, resumed := f.resume()
+	if !resumed {
+		var err error
+		response, err = f.Authorize(ctx)
+		if err != nil {
+			return nil, &deviceFailure{reason: "device_start:" + failureReason(err)}
+		}
+		if err := validatePrompt(response); err != nil {
+			return nil, &deviceFailure{reason: "device_prompt"}
+		}
+		f.save(response)
 	}
 	if err := publish(response); err != nil {
 		return nil, &deviceFailure{reason: "device_publish"}
 	}
 	var lostAnswer atomic.Bool
 	token, err := f.Token(tolerantPollContext(ctx, &lostAnswer), response)
+	if err == nil || ctx.Err() == nil {
+		// The code is settled. A cancelled flow that got no token keeps it, whether the
+		// client's process ended or the player cancelled: the next sign-in resumes the
+		// unexpired code, which completes at once if the player already approved it.
+		f.forget()
+	}
 	if err != nil {
 		if deviceCodeExpired(ctx, response, err) {
 			return nil, fmt.Errorf("%w: %w", &deviceFailure{reason: "device_expired"}, errDeviceCodeExpired)
@@ -56,6 +74,42 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 		return nil, &deviceFailure{reason: reason}
 	}
 	return token, nil
+}
+
+// resume returns the saved prompt still awaiting approval, if Pending names one.
+func (f DeviceFlow) resume() (*oauth2.DeviceAuthResponse, bool) {
+	if f.Pending == "" {
+		return nil, false
+	}
+	response := authcache.LoadPendingPrompt(f.Pending, time.Now())
+	if response == nil {
+		return nil, false
+	}
+	if validatePrompt(response) != nil {
+		f.forget()
+		return nil, false
+	}
+	return response, true
+}
+
+// save keeps response for a later process; a failure only costs that process the resume.
+func (f DeviceFlow) save(response *oauth2.DeviceAuthResponse) {
+	if f.Pending == "" {
+		return
+	}
+	if err := authcache.SavePendingPrompt(f.Pending, response); err != nil && f.Logger != nil {
+		f.Logger.Warn("sign-in prompt not saved for resuming", "diagnostic", authcache.FailureDiagnostic(err))
+	}
+}
+
+// forget removes the saved prompt once its code is settled.
+func (f DeviceFlow) forget() {
+	if f.Pending == "" {
+		return
+	}
+	if err := authcache.ForgetPendingPrompt(f.Pending); err != nil && f.Logger != nil {
+		f.Logger.Warn("settled sign-in prompt not removed", "diagnostic", authcache.FailureDiagnostic(err))
+	}
 }
 
 // deviceFailure is a failed device flow reduced to a credential-free reason for the log.

@@ -34,6 +34,7 @@ test-support = []
 [dependencies]
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 protocol-ids = { path = "../protocol-ids" }
+render-api = { path = "../render-api" }
 env-compat = { path = "../env-compat" }
 block-transform = { path = "../block-transform" }
 bitflags = { version = "2", features = ["serde"] }
@@ -42,7 +43,7 @@ glam.workspace = true
 png = "0.18"
 lewton = "0.10.2"
 rayon.workspace = true
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true

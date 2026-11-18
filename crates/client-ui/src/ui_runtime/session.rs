@@ -36,6 +36,8 @@ pub struct SessionUi {
     pub(super) chat_focused: bool,
     pub(super) inventory_open: bool,
     pub(super) hud: HudStore,
+    /// FIFO sequence, receive time and scheduled start of the last sounded finite toast.
+    pub(super) last_sounded_toast: Option<(u64, u64, u64)>,
     pub(super) death_reason: Arc<str>,
     pub(super) death_rules: protocol::DeathRules,
     pub(super) chat: ChatStore,
@@ -129,6 +131,7 @@ impl SessionUi {
             touch_player_list: false,
             hurt_pending: false,
             hud: HudStore::default(),
+            last_sounded_toast: None,
             death_reason: Arc::from(""),
             death_rules: protocol::DeathRules::default(),
             chat: ChatStore::default(),

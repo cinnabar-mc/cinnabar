@@ -703,6 +703,10 @@ impl ServerAtlas {
         };
         if settled {
             let mut extra = self.extra.borrow_mut();
+            // Cache admission also bounds diagnostics when misses churn.
+            if found.is_none() && extra.len() < MAX_EXTRA {
+                tracing::debug!(target: "server_form", key, "UI texture unresolved");
+            }
             if extra.len() >= MAX_EXTRA {
                 extra.pop_first();
             }

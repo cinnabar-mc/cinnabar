@@ -5,12 +5,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{AssetError, RuntimeEntityAssets};
 mod alpha;
-pub(crate) mod color_mask;
 mod eligibility;
-pub use alpha::actor_sources_keeping_alpha;
-pub use color_mask::{
-    native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
-    native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
+pub use alpha::{
+    ActorMultitextureSources, ActorPageSharing, actor_multitexture_sources, actor_page_sharing,
+    actor_sources_keeping_alpha,
 };
 pub use eligibility::{
     neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
@@ -32,6 +30,10 @@ const MAX_ACTOR_MATERIAL_BYTES: usize = 128;
 const HEADER: usize = 128;
 const HASH: usize = 32;
 const POLICY: &[u8] = include_bytes!("../data/neutral-actor-materials-v1.json");
+const RETAIL_ACTOR_CARRIER_POLICY: [u8; 32] = [
+    0xce, 0x15, 0x96, 0xdf, 0x44, 0x43, 0xe0, 0x53, 0xd8, 0x68, 0x67, 0x99, 0xbd, 0x48, 0xb6, 0x81,
+    0x9a, 0x40, 0x10, 0x80, 0x98, 0x2f, 0x19, 0xc9, 0xbd, 0xa7, 0x81, 0x12, 0x1d, 0x75, 0x75, 0x1f,
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActorTexture {
@@ -76,7 +78,6 @@ pub struct RuntimeActorCatalog {
     entity_identity: [u8; 32],
     textures: Arc<[ActorTexture]>,
     bindings: Arc<[ActorArtworkBinding]>,
-    color_mask_textures: Arc<[bool]>,
     multitexture_textures: Arc<[bool]>,
 }
 
@@ -121,7 +122,8 @@ impl RuntimeActorCatalog {
             .filter(|end| end.checked_add(HASH) == Some(bytes.len()))
             .ok_or_else(|| invalid("actor carrier layout is invalid"))?;
         if Sha256::digest(&bytes[..end]).as_slice() != &bytes[end..]
-            || policy != <[u8; 32]>::from(Sha256::digest(POLICY))
+            || (policy != <[u8; 32]>::from(Sha256::digest(POLICY))
+                && policy != RETAIL_ACTOR_CARRIER_POLICY)
             || entities.carrier_identity() != Some(entity_identity)
         {
             return Err(invalid("actor carrier identity mismatch"));
@@ -185,22 +187,10 @@ impl RuntimeActorCatalog {
             return Err(invalid("actor carrier has trailing payload"));
         }
         validate(&textures, &bindings, entities, PixelHashes::Sealed)?;
-        let color_mask_textures = textures
-            .iter()
-            .map(|texture| {
-                native_actor_texture_uses_color_mask(&entities.sources()[texture.source as usize])
-            })
-            .collect::<Vec<_>>()
-            .into();
-        let masked_sources = alpha::masked_multitexture_sources(entities.render_data());
+        let multitexture = actor_multitexture_sources(entities.render_data());
         let multitexture_textures = textures
             .iter()
-            .map(|texture| {
-                masked_sources.contains(&texture.source)
-                    || native_actor_texture_uses_multitexture(
-                        &entities.sources()[texture.source as usize],
-                    )
-            })
+            .map(|texture| multitexture.contains(&texture.source))
             .collect::<Vec<_>>()
             .into();
         Ok(Self {
@@ -210,7 +200,6 @@ impl RuntimeActorCatalog {
             entity_identity,
             textures: textures.into(),
             bindings: bindings.into(),
-            color_mask_textures,
             multitexture_textures,
         })
     }
@@ -224,14 +213,7 @@ impl RuntimeActorCatalog {
     pub fn textures(&self) -> &[ActorTexture] {
         &self.textures
     }
-    /// Whether this exact raster uses the witnessed native alpha-as-color-mask material.
-    pub fn texture_uses_color_mask(&self, texture: usize) -> bool {
-        self.color_mask_textures
-            .get(texture)
-            .copied()
-            .unwrap_or(false)
-    }
-    /// Whether this raster participates in a grouped multi-sampler draw.
+    /// Whether a `USE_MULTITEXTURE` or `MASKED_MULTITEXTURE` material samples this raster.
     pub fn texture_uses_multitexture(&self, texture: usize) -> bool {
         self.multitexture_textures
             .get(texture)
@@ -326,7 +308,7 @@ fn validate(
     }
     let mut total = 0usize;
     let mut seen_sources = std::collections::BTreeSet::new();
-    let keeps_alpha = actor_sources_keeping_alpha(entities.render_data(), entities.sources());
+    let keeps_alpha = actor_sources_keeping_alpha(entities.render_data());
     for texture in textures {
         let length = pixel_length(texture.width, texture.height)?;
         total = total

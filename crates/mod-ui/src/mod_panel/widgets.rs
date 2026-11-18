@@ -1,5 +1,5 @@
-//! JSON-UI builders and colours of the host-drawn popup widgets: the choice dropdown and the
-//! slider and text value editor with its hint.
+//! JSON-UI builders and colours of the host-drawn popup widget: the slider and text value
+//! editor with its hint.
 
 use serde_json::{Value, json};
 use ui::mod_panel::{FONT_NAME, Panel, WidgetColors};
@@ -7,23 +7,19 @@ use ui::mod_panel::{FONT_NAME, Panel, WidgetColors};
 /// Body labels and their native editor use the same font scale.
 pub(super) const LABEL_SCALE: f64 = 0.85;
 
-/// Popup widget colours, from the panel's `widget_colors` over the built-in dark palette.
+/// Value editor colours, from the panel's `widget_colors` over the built-in dark palette.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
-    /// The popup's own fill.
-    pub card: [f64; 4],
-    pub border: [f64; 4],
     pub text: [f64; 4],
-    /// Fields and the highlighted row.
+    /// The value field and its hint.
     pub raised: [f64; 4],
+    /// The caret, selection, borders and hint text.
     pub accent: [f64; 4],
 }
 
 impl Default for Palette {
     fn default() -> Self {
         Self {
-            card: [0.055, 0.058, 0.065, 0.96],
-            border: [0.2, 0.21, 0.23, 0.94],
             text: [0.94, 0.95, 0.97, 1.0],
             raised: [0.15, 0.16, 0.18, 1.0],
             accent: [0.96, 0.46, 0.40, 1.0],
@@ -32,25 +28,22 @@ impl Default for Palette {
 }
 
 impl Palette {
-    /// The built-in palette with each colour the panel authors replaced.
+    /// The built-in palette with each painted colour the panel authors replaced.
     pub fn for_panel(panel: &Panel) -> Self {
         let mut palette = Self::default();
         let Some(colors) = panel.widget_colors else {
             return palette;
         };
         let WidgetColors {
-            background,
             surface,
             text,
             accent,
-            border,
+            ..
         } = colors;
         for (slot, color) in [
-            (&mut palette.card, background),
             (&mut palette.raised, surface),
             (&mut palette.text, text),
             (&mut palette.accent, accent),
-            (&mut palette.border, border),
         ] {
             if let Some(color) = color {
                 *slot = color.map(f64::from);
@@ -102,17 +95,17 @@ pub(super) fn label(
     label
 }
 
-/// A bordered rounded popup background of `size`.
+/// A rounded popup background of `size`: the palette's raised fill inside an accent border.
 pub(super) fn chrome(size: [f64; 2], palette: Palette, radius: f64) -> Vec<Value> {
     vec![
-        named("border", rounded(size, [0.0; 2], radius, palette.border)),
+        named("border", rounded(size, [0.0; 2], radius, palette.accent)),
         named(
             "surface",
             rounded(
                 [size[0] - 1.0, size[1] - 1.0],
                 [0.5; 2],
                 radius - 0.5,
-                palette.card,
+                palette.raised,
             ),
         ),
     ]
@@ -129,12 +122,12 @@ mod tests {
         assert_eq!(Palette::for_panel(&panel), Palette::default());
         panel.widget_colors = Some(WidgetColors {
             accent: Some([0., 1., 0., 1.]),
-            background: Some([0., 0., 0., 0.5]),
+            surface: Some([0., 0., 0., 0.5]),
             ..Default::default()
         });
         let palette = Palette::for_panel(&panel);
         assert_eq!(palette.accent, [0., 1., 0., 1.]);
-        assert_eq!(palette.card, [0., 0., 0., 0.5]);
+        assert_eq!(palette.raised, [0., 0., 0., 0.5]);
         assert_eq!(palette.text, Palette::default().text);
     }
 }

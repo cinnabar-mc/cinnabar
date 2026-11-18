@@ -68,8 +68,6 @@ pub(crate) struct Store {
 
 #[derive(Default)]
 struct StoreState {
-    /// Backend of worlds created without one; Dragonfly until set.
-    default_backend: Option<Backend>,
     /// Pinned Unix time for tests; `None` reads the clock.
     now: Option<i64>,
 }
@@ -77,10 +75,6 @@ struct StoreState {
 impl StoreState {
     fn now(&self) -> i64 {
         self.now.unwrap_or_else(unix_now)
-    }
-
-    fn default_backend(&self) -> Backend {
-        self.default_backend.unwrap_or(Backend::Dragonfly)
     }
 }
 
@@ -152,15 +146,7 @@ impl Store {
         lock(&self.state)
     }
 
-    /// Sets the backend of worlds created without one.
-    pub(crate) fn set_default_backend(&self, backend: Backend) {
-        self.lock().default_backend = Some(backend);
-    }
-
-    pub(crate) fn default_backend(&self) -> Backend {
-        self.lock().default_backend()
-    }
-
+    /// Pins metadata timestamps for deterministic store tests.
     #[cfg(test)]
     pub(crate) fn pin_clock(&self, unix: i64) {
         self.lock().now = Some(unix);
@@ -223,7 +209,7 @@ impl Store {
         let saved = self.saved(id)?;
         let corrupt = || failed(format!("corrupt world metadata for {id}"));
         let backend = match saved.backend.as_str() {
-            "" | "dragonfly" => Backend::Dragonfly,
+            "" | "dragonfly" => Backend::LegacyDragonfly,
             "bds" => Backend::Bds,
             _ => return Err(corrupt()),
         };
@@ -281,6 +267,9 @@ impl Store {
 
     /// Validates `world` and saves it with a fresh id.
     pub(crate) fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
+        if world.backend == Some(Backend::LegacyDragonfly) {
+            return Err(WorldError::LegacyWorld);
+        }
         let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         let state = self.lock();
         let world = new_record(&state, id, world)?;
@@ -554,7 +543,7 @@ fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World,
         game_mode: world.game_mode,
         generator: world.generator,
         difficulty: world.difficulty,
-        backend: world.backend.unwrap_or_else(|| state.default_backend()),
+        backend: Backend::Bds,
         seed,
         options: world.options.clone(),
         created_unix: now,

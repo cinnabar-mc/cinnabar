@@ -422,6 +422,27 @@ fn calibrated_fixture() -> (RenderDevice, wgpu::Queue, Entity, GpuCullFeedback) 
     (device, queue, view, feedback)
 }
 
+/// Rebuilt allocations cannot inherit the failed generation's view or measured verdict.
+#[test]
+fn publication_invalidation_clears_feedback_view_and_context() {
+    let (device, queue, view, mut feedback) = calibrated_fixture();
+    assert!(feedback.select(Some(view), Some(measured_context())));
+    feedback
+        .admission
+        .observe_profitability(view, feedback.admission.frame, false);
+    assert!(feedback.select(Some(view), Some(measured_context())));
+    assert!(!feedback.select(Some(view), Some(measured_context())));
+    let mut world = World::new();
+    world.insert_resource(device);
+    world.insert_resource(bevy::render::renderer::RenderQueue::new(queue));
+    world.insert_resource(feedback);
+    super::super::publication::invalidate_publication(&mut world);
+    let mut feedback = world.resource_mut::<GpuCullFeedback>();
+    assert_eq!(feedback.admission.view, None);
+    assert_eq!(feedback.context, None);
+    assert!(feedback.select(Some(view), Some(measured_context())));
+}
+
 /// Supplies completed decision bytes without an asynchronous GPU map or clock wait.
 fn mapped_sample(
     device: &RenderDevice,

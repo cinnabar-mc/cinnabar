@@ -40,10 +40,16 @@ pub struct HudModel {
     pub title_text: Option<String>,
     pub subtitle_text: Option<String>,
     pub actionbar: Option<Timed>,
+    /// Controller request identity; absent uses the action bar's creation clock.
+    pub actionbar_creation_id: Option<u64>,
     /// The tip text above the hotbar, which server packs reposition (the
     /// Lumine array list moves it to the screen's top right).
     pub tip: Option<Timed>,
     pub item_name: Option<Timed>,
+    /// Ordinary popup, which takes the item-text field from `item_name` while it is present.
+    pub popup: Option<Timed>,
+    /// Jukebox notification, emitted by `item_text_factory` independently of the action bar.
+    pub jukebox_popup: Option<Timed>,
     pub chat: Vec<Timed>,
     /// Optional presentation color; parser inputs retain the original message bytes.
     pub chat_color: Option<char>,
@@ -51,6 +57,8 @@ pub struct HudModel {
     pub chat_mention_color: Option<char>,
     /// The current local actor display name used for mention matching.
     pub chat_local_player: std::sync::Arc<str>,
+    /// Restricts mention coloring to the local display name and all-player mentions.
+    pub chat_mentions_only_self: bool,
     pub chat_visible: bool,
     /// Seconds a chat line stays before its fade.
     pub chat_lifetime: f64,
@@ -150,6 +158,10 @@ pub fn hud_context(base: &Context) -> Context {
 const TITLE_CLOCK: &str = "hud_title_text";
 const ACTIONBAR_CLOCK: &str = "hud_actionbar_text";
 const ITEM_NAME_CLOCK: &str = "item_name_text";
+/// The popup's control name, `$destroy_id` and fade clock.
+const POPUP_CLOCK: &str = "popup_item_text";
+/// The jukebox popup's control name, `$destroy_id` and fade clock.
+const JUKEBOX_CLOCK: &str = "popup_jukebox_text";
 /// The tip text's own fade clock, named by `hud_tip_text`'s `$destroy_id`.
 const TIP_CLOCK: &str = "popup_tip_text";
 
@@ -166,7 +178,12 @@ pub fn hud_clocks(model: &HudModel) -> std::collections::BTreeMap<String, f64> {
             ITEM_NAME_CLOCK,
             model.item_name.as_ref().map(|item| item.born),
         ),
+        (POPUP_CLOCK, model.popup.as_ref().map(|popup| popup.born)),
         (TIP_CLOCK, model.tip.as_ref().map(|tip| tip.born)),
+        (
+            JUKEBOX_CLOCK,
+            model.jukebox_popup.as_ref().map(|popup| popup.born),
+        ),
     ]
     .into_iter()
     .filter_map(|(clock, born)| Some((clock.to_owned(), born?)))
@@ -391,20 +408,36 @@ fn text_data(data: &mut DataSource, model: &HudModel) {
             ],
         );
     }
-    if let Some(item) = &model.item_name {
+    let mut item_text = Vec::new();
+    let item_request = |clock: &str| {
+        FactoryItem::new("item_text", 0.0)
+            .clocked(clock)
+            .named(clock)
+            .var("localize", Value::Bool(false))
+            .var("show_survival_padding", Value::Bool(model.survival_ui))
+            .var("show_text_background", Value::Bool(false))
+            .var("item_text_background_alpha", Value::from(0.0))
+    };
+    if let Some(popup) = &model.popup {
+        data.set_global("#item_text", Scalar::Text(popup.text.clone()));
+        item_text.push(item_request(POPUP_CLOCK).var("destroy_id", Value::from(POPUP_CLOCK)));
+    } else if let Some(item) = &model.item_name {
         data.set_global("#item_text", Scalar::Text(item.text.clone()));
-        data.set_factory(
-            "item_text_factory",
-            vec![
-                FactoryItem::new("item_text", 0.0)
-                    .clocked(ITEM_NAME_CLOCK)
-                    .named("item_name_text")
-                    .var("localize", Value::Bool(false))
-                    .var("show_survival_padding", Value::Bool(model.survival_ui))
-                    .var("show_text_background", Value::Bool(false))
-                    .var("item_text_background_alpha", Value::from(0.0)),
-            ],
+        item_text.push(item_request(ITEM_NAME_CLOCK));
+    }
+    if let Some(popup) = &model.jukebox_popup {
+        data.set_global("#jukebox_text", Scalar::Text(popup.text.clone()));
+        item_text.push(
+            FactoryItem::new("jukebox_text", 0.0)
+                .clocked(JUKEBOX_CLOCK)
+                .named(JUKEBOX_CLOCK)
+                .var("destroy_id", Value::from(JUKEBOX_CLOCK))
+                .var("localize", Value::Bool(false))
+                .var("show_survival_padding", Value::Bool(model.survival_ui)),
         );
+    }
+    if !item_text.is_empty() {
+        data.set_factory("item_text_factory", item_text);
     }
 }
 
@@ -588,6 +621,7 @@ fn titles(data: &mut DataSource, model: &HudModel) {
             "hud_actionbar_text_factory",
             vec![
                 FactoryItem::new("hud_actionbar_text", 0.0)
+                    .identified(model.actionbar_creation_id.unwrap_or(bar.born.to_bits()))
                     .clocked(ACTIONBAR_CLOCK)
                     .named("hud_actionbar_text")
                     .var("actionbar_text", Value::from(bar.text.clone()))

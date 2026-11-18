@@ -3,6 +3,7 @@ package @APPLICATION_ID@;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.res.AssetManager;
+import android.os.Build;
 import android.os.Bundle;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -38,6 +39,12 @@ public final class BootstrapActivity extends Activity {
     /** Stays out of immersive mode, whose first-use system notice would cover the setup prompts. */
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        if (Build.VERSION.SDK_INT >= 28) {
+            android.view.WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode =
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attributes);
+        }
         screen = new SetupScreen(this, this::finish);
         setContentView(screen);
         if (!StartupDiagnostics.showPreviousFailure(this, this::start)) start();

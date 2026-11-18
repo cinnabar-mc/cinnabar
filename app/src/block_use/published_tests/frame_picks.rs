@@ -109,6 +109,66 @@ fn all_frame_picks_reach_the_build_action() {
     );
 }
 
+/// A frame whose ticks wait for a dismount, as block use decides at the frame's start, keeps
+/// its buffered pick for the tick that runs.
+#[test]
+fn a_dismount_wait_keeps_buffered_picks_for_the_next_tick() {
+    let eye = [4.5, 2.620_01, 8.32];
+    let good = Quat::from_rotation_x(-0.9601);
+    let (mut world, mut captured) = bridge_fixture(eye, good);
+    warm_physics(&mut world);
+    hold_use(&mut world);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    retain(&mut world, eye, good);
+    {
+        // A seated tick produced but not yet sent holds the frame's ticks.
+        let mut movement = world.resource_mut::<MovementTicker>();
+        let mut seated = gameplay::test_support::survival_mining::completed(movement.next_tick());
+        seated.position = [4.5, 2.620_01, 8.32];
+        movement.enqueue_completed_physics(seated).unwrap();
+        let session = movement.session_generation();
+        world
+            .resource_mut::<client_interaction::movement::LocomotionState>()
+            .testing_request_dismount(session, 9);
+    }
+    assert!(
+        world.resource::<MovementTicker>().pending_count() > 0,
+        "seated movement is still going out"
+    );
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::from_millis(50));
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(
+        world
+            .resource::<client_interaction::movement::LocomotionState>()
+            .holds_ticks(),
+        "block use decides the frame's hold"
+    );
+    assert!(
+        captured
+            .drain()
+            .iter()
+            .all(|packet| successful_placement(packet).is_none()),
+        "a held tick must not place"
+    );
+    // The rider got off: the next frame runs its tick.
+    world
+        .resource_mut::<client_interaction::movement::LocomotionState>()
+        .reset();
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::from_millis(50));
+    world.run_system_cached(produce_block_use).unwrap();
+    let placements: Vec<_> = captured
+        .drain()
+        .iter()
+        .filter_map(successful_placement)
+        .collect();
+    assert_eq!(placements.len(), 1, "the pick waits for the tick that runs");
+    assert_eq!(placements[0].position, [4, 0, 7]);
+}
+
 /// Observes the production target without committing packets or modifying the placement line.
 fn target(world: &mut World) -> Option<FrozenBlockObservation> {
     target_for_mode(world, PlayerInputMode::Mouse, true)

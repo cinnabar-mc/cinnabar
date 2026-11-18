@@ -21,7 +21,7 @@ fn masked_multitexture_ignores_unused_samplers_and_draws_a_lone_texture() {
         }
         compiled.sources = sources.into();
         compiled.render.layers[0].material_state = Some(EntityRenderMaterialState {
-            masked_multitexture: true,
+            texture_mask: true,
             ..Default::default()
         });
         compiled.render.layers[0].slot_count = count;

@@ -270,6 +270,26 @@ fn every_expression_budget_boundary_and_parallel_reservation_matches_serial() {
 }
 
 #[test]
+fn large_script_frames_match_serial_at_world_budget_tails() {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    pool.install(|| {
+        let ids: Vec<_> = (1..=16).collect();
+        for budget in [0, MAX_MOLANG_OPS_PER_RENDER_FRAME, usize::MAX / 4] {
+            let (serial, actors) = crowd(16, 6_000);
+            let (parallel, _) = crowd(16, 6_000);
+            compare(&serial, &parallel, &actors, &ids, 0.37, budget);
+            if budget == usize::MAX / 4 {
+                assert_eq!(serial.frame_fallbacks(), 0);
+                assert_eq!(parallel.frame_fallbacks(), 0);
+            }
+        }
+    });
+}
+
+#[test]
 fn reset_removal_respawn_duplicates_and_missing_actors_match_serial() {
     let (mut serial, mut actors) = crowd(32, 0);
     let (mut parallel, _) = crowd(32, 0);

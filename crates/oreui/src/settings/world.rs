@@ -15,6 +15,9 @@ use ui_engine::engine::screen::PaintError;
 
 /// Shown under settings the server reads only when the world starts.
 const NEXT_START: &str = "Applies the next time the world starts.";
+/// Explains the separate player and world effects of a game mode change.
+const GAME_MODE_NOTE: &str =
+    "Your game mode changes now. The world default applies next time the world starts.";
 /// Shown once the running server failed to take a change this session.
 const MISSED: &str =
     "The running world didn't take a change. It applies the next time the world starts.";
@@ -54,7 +57,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                     })
                     .collect();
                 let note = if GAME_MODE_TIMING == Timing::NextStart {
-                    NEXT_START
+                    GAME_MODE_NOTE
                 } else {
                     ""
                 };

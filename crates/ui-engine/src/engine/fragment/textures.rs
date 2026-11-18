@@ -193,6 +193,7 @@ mod tests {
             anim: None,
             gates: vec![],
             draw: json_ui::Draw::Sprite {
+                slice: None,
                 texture: "textures/a".into(),
                 uv: json_ui::UvRect::full(),
                 repeat: None,

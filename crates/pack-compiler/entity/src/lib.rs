@@ -16,6 +16,16 @@ pub use block_entity::{
     BlockEntityCompileReport, BlockEntityTexture, CompiledBlockEntityCarrier,
     compile_block_entity_assets, overlay_block_entity_assets,
 };
+pub use entity::materials::extension::{
+    BlockMaskPaths, MATERIAL_BINDINGS_PATH, ResolvedBlockBinding,
+    block_bindings as block_material_bindings, entity_targets as entity_material_binding_targets,
+    validate as validate_material_bindings,
+};
+pub use entity::materials::list::{
+    ENTITY_MATERIAL_LIST_PATH, MAX_MATERIAL_LIST_PATH_BYTES, MaterialListEntry,
+    SIMPLE_ENTITY_MATERIAL_LIST_PATH, entity_material_list_source, material_list_document,
+    resolve_material_lists,
+};
 pub use entity::{
     BlockMolang, BlockStateValue, CompileReferenceOutcome, EntityAssetCompilation,
     EntityPackCompilation, EntityPackSkips, EquipmentBindingDependencies, EquipmentRasterDrops,
@@ -27,7 +37,8 @@ pub use entity::{
     compile_equipment_textures_for_assets_with_priorities, compile_equipment_textures_with,
     compile_item_attack_timings, compile_item_foods, compile_item_use_durations,
     compile_item_use_profiles, compile_molang_expression, compile_vanilla_entity_refs,
-    decode_equipment_raster, missing_equipment_bindings, select_entity_geometry,
+    decode_equipment_raster, has_entity_animation_roots, load_vanilla_entity_definitions,
+    missing_equipment_bindings, select_entity_geometry,
 };
 pub use icon::{
     CompiledIconCarrier, IconCompileReport, compile_icon_assets, compile_icon_assets_with_blocks,

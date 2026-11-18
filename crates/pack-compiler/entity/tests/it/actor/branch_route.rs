@@ -84,3 +84,83 @@ fn a_missing_adult_texture_never_falls_back_to_the_baby_branch() {
         "{routes:?}"
     );
 }
+
+/// Whether a compiled condition is absent or folds to a nonzero constant.
+fn holds(compiled: &assets::CompiledEntityAssets, condition: Option<u32>) -> bool {
+    let Some(condition) = condition else {
+        return true;
+    };
+    let expression = compiled.molang_expressions[condition as usize];
+    match &compiled.molang_ops[expression.first_op as usize
+        ..expression.first_op as usize + usize::from(expression.op_count)]
+    {
+        [assets::MolangOp::Push(value)] => value.get() != 0.0,
+        other => panic!("condition must fold to a constant: {other:?}"),
+    }
+}
+
+/// The branch pack with a render controller whose selectors read a query that does not exist.
+fn unknown_query_pack() -> assets::CompiledEntityAssets {
+    let pack = branch_pack(Some(Rgba([90, 200, 90, 255])));
+    write(pack.path(), "render_controllers/example.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.example":{"geometry":"query.not_a_query ? Geometry.baby : Geometry.default","materials":[{"*":"Material.default"}],"textures":["query.not_a_query ? Texture.baby : Texture.default"]}}}"#);
+    compile_entity_assets(pack.path(), MANIFEST).unwrap()
+}
+
+#[test]
+fn a_geometry_condition_that_does_not_compile_reads_zero_and_takes_the_else_branch() {
+    let compiled = unknown_query_pack();
+    let layer = &compiled.render.layers[0];
+    let geometry = compiled.render.geometries[layer.first_geometry as usize..]
+        [..usize::from(layer.geometry_count)]
+        .iter()
+        .find(|choice| holds(&compiled, choice.condition))
+        .expect("the else geometry draws");
+    assert_eq!(
+        compiled.geometries[geometry.geometry as usize]
+            .identifier
+            .as_ref(),
+        "geometry.example"
+    );
+}
+
+#[test]
+fn a_texture_condition_that_does_not_compile_reads_zero_and_takes_the_else_branch() {
+    let compiled = unknown_query_pack();
+    let layer = &compiled.render.layers[0];
+    let slot = compiled
+        .render
+        .slots
+        .get(layer.first_slot as usize)
+        .filter(|_| layer.slot_count > 0)
+        .expect("the texture slot is kept");
+    let texture = compiled.render.candidates[slot.first_candidate as usize..]
+        [..usize::from(slot.candidate_count)]
+        .iter()
+        .find(|candidate| holds(&compiled, candidate.condition))
+        .expect("the else texture draws");
+    assert_eq!(
+        compiled.sources[texture.source as usize].path.as_ref(),
+        format!("{ADULT}.png")
+    );
+}
+
+#[test]
+fn a_rig_geometry_condition_that_does_not_compile_reads_zero_and_selects_the_else_geometry() {
+    let compiled = unknown_query_pack();
+    let binding = &compiled.rig_bindings[0];
+    let selected: Vec<_> = compiled.rig_geometries[binding.first_geometry as usize..]
+        [..usize::from(binding.geometry_count)]
+        .iter()
+        .filter(|candidate| candidate.condition.is_some() && holds(&compiled, candidate.condition))
+        .map(|candidate| {
+            compiled.geometries[candidate.geometry as usize]
+                .identifier
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        selected,
+        ["geometry.example"],
+        "the rig selects the else geometry"
+    );
+}

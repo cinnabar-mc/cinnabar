@@ -1,13 +1,14 @@
-//! The ordered sky pass owns colour initialization before any world geometry.
+//! The sky is the first draw on scene colour, in the first pass that opens it.
 
 use super::{AtmosphereGpu, AtmospherePipelineKey};
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
-    prelude::{Msaa, Resource, World},
+    prelude::{Entity, Msaa, Resource, World},
     render::{
         camera::ExtractedCamera,
+        render_phase::TrackedRenderPass,
         render_resource::{PipelineCache, RenderPassDescriptor, StoreOp},
         renderer::{RenderContext, ViewQuery},
         view::{ViewDepthStencilTexture, ViewTarget, ViewUniformOffset},
@@ -17,7 +18,7 @@ use bevy::{
 #[derive(Resource)]
 struct SkyPassInstalled;
 
-/// Places all sky layers after prepasses and before ordinary or direct terrain.
+/// Places the sky's own pass, when it needs one, after prepasses and before any terrain.
 pub(super) fn install(world: &mut World) {
     if world.contains_resource::<SkyPassInstalled>() {
         return;
@@ -45,48 +46,42 @@ type AtmosphereQuery = (
     &'static ViewTarget,
     Option<&'static crate::scene_target::SceneTarget>,
     &'static ViewDepthStencilTexture,
-    &'static ViewUniformOffset,
-    &'static Msaa,
     Option<&'static MainPassResolutionOverride>,
 );
 
-/// Draws the stock sky, stars and finite pack cube before world geometry can cover them,
-/// except under a shader pack that draws the view's sky and world itself.
+/// The render pass that draws a view's sky layers this frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SkyHost {
+    /// The sky opens its own pass, ahead of world geometry.
+    Own,
+    /// The direct terrain pass, which opens the scene colour before the opaque pass.
+    Terrain,
+    /// The ordinary opaque scene pass.
+    Opaque,
+}
+
+/// Picks the first pass that opens `view`'s scene colour, so the sky stays the first draw
+/// on that attachment without paying for a render pass of its own. Opaque-category GPU
+/// profiling splits the opaque pass and keeps the sky's own timed pass.
+pub(crate) fn host(world: &World, view: Entity) -> SkyHost {
+    if crate::chunk::terrain_pass_draws_color(world, view) {
+        SkyHost::Terrain
+    } else if crate::scene_target::opaque_pass_installed(world)
+        && !crate::gpu_timing::splits_opaque_pass(world)
+    {
+        SkyHost::Opaque
+    } else {
+        SkyHost::Own
+    }
+}
+
+/// Opens the sky's own pass only for views whose sky no scene pass hosts.
 fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: RenderContext) {
     let view = query.entity();
-    if crate::scene_target::unavailable(world, query.entity()) {
+    if host(world, view) != SkyHost::Own || !drawn(world, view) {
         return;
     }
-    let (camera, target, scene, depth, offset, msaa, resolution) = query.into_inner();
-    if world
-        .get_resource::<render_scene::PanoramaScene>()
-        .is_some_and(|scene| !scene.game_visible())
-    {
-        return;
-    }
-    if crate::shaderpack::plugin::draws_world(world, view) {
-        return;
-    }
-    let Some(gpu) = world.get_resource::<AtmosphereGpu>() else {
-        return;
-    };
-    let Some(bind_group) = gpu.bind_group.as_ref() else {
-        return;
-    };
-    let cache = world.resource::<PipelineCache>();
-    let key = AtmospherePipelineKey {
-        msaa: *msaa,
-        hdr: camera.hdr,
-        stars: false,
-        skybox: false,
-    };
-    let Some(stock) = gpu
-        .pipelines
-        .get(&key)
-        .and_then(|id| cache.get_render_pipeline(*id))
-    else {
-        return;
-    };
+    let (camera, target, scene, depth, resolution) = query.into_inner();
     let colour = scene.map_or_else(
         || target.get_color_attachment(),
         |scene| scene.color_attachment(target, false),
@@ -110,6 +105,52 @@ fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: Ren
         Some(None) => return,
         None => {}
     }
+    draw(world, view, &mut pass);
+}
+
+/// Whether `view` shows a sky this frame: not while the panorama hides the game, nor under a
+/// shader pack that draws the view's sky and world itself.
+fn drawn(world: &World, view: Entity) -> bool {
+    !crate::scene_target::unavailable(world, view)
+        && !world
+            .get_resource::<render_scene::PanoramaScene>()
+            .is_some_and(|scene| !scene.game_visible())
+        && !crate::shaderpack::plugin::draws_world(world, view)
+}
+
+/// Draws the stock sky, stars and finite pack cube into `pass`, which targets `view`'s scene
+/// colour and depth with its viewport set, before any world geometry can cover them.
+pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderPass<'w>) {
+    if !drawn(world, view) {
+        return;
+    }
+    let (Some(camera), Some(msaa), Some(offset)) = (
+        world.get::<ExtractedCamera>(view),
+        world.get::<Msaa>(view),
+        world.get::<ViewUniformOffset>(view),
+    ) else {
+        return;
+    };
+    let Some(gpu) = world.get_resource::<AtmosphereGpu>() else {
+        return;
+    };
+    let Some(bind_group) = gpu.bind_group.as_ref() else {
+        return;
+    };
+    let cache = world.resource::<PipelineCache>();
+    let key = AtmospherePipelineKey {
+        msaa: *msaa,
+        hdr: camera.hdr,
+        stars: false,
+        skybox: false,
+    };
+    let Some(stock) = gpu
+        .pipelines
+        .get(&key)
+        .and_then(|id| cache.get_render_pipeline(*id))
+    else {
+        return;
+    };
     pass.set_render_pipeline(stock);
     pass.set_bind_group(0, bind_group, &[offset.offset]);
     pass.draw(0..3, 0..1);

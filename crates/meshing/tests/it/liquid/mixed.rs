@@ -158,6 +158,7 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
         let mesh = mesh_mixed(&chunks);
         liquid_contacts::assert_thin_primary_contacts(&chunks, &mesh);
         assert!(!mesh.cube_quads().is_empty() && !mesh.liquid_quads().is_empty());
+        assert!(mesh.terrain_markers().is_empty());
         format!("{mesh:?}")
             .bytes()
             .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
@@ -167,10 +168,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            12_126_709_224_666_265_908,
-            985_666_959_304_608_936,
-            15_418_509_414_702_196_572,
-            14_508_846_418_541_417_581
+            14_055_973_985_584_777_181,
+            9_018_060_029_936_378_841,
+            14_557_602_683_077_973_733,
+            16_438_802_922_970_839_978
         ]
     );
 }
@@ -220,5 +221,6 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 15_669_327_629_649_414_563);
+    assert!(mesh.terrain_markers().is_empty());
+    assert_eq!(digest, 8_943_500_272_432_524_628);
 }

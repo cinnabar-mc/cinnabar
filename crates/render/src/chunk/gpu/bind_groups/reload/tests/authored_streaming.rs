@@ -14,7 +14,7 @@ fn begin_upload(app: &mut App) -> ChunkTextureBindingIdentity {
                 }
             })
             .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .into(),
     };
     let maps = Arc::new(
         EnhancedTextureAssets::new(

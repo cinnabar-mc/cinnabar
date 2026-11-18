@@ -25,6 +25,8 @@ use ui_engine::engine::screen::PaintError;
 
 /// Standard height in rem of the fixed route tab row.
 pub(super) const TAB_HEIGHT: f32 = 4.8;
+/// How far a focused row's outline sits outside the row, in rem.
+pub(super) const FOCUS_RING: f32 = 0.4;
 
 /// How a control is being interacted with this frame.
 #[derive(Clone, Copy, Default)]
@@ -338,7 +340,7 @@ pub(super) fn row(
     };
     bevelled(canvas, b, &bevel, false)?;
     if motion.focus > 0.0 {
-        let ring = canvas.r(0.4);
+        let ring = canvas.r(FOCUS_RING);
         canvas.frame(
             [b[0] - ring, b[1] - ring, b[2] + ring, b[3] + ring],
             EDGE,

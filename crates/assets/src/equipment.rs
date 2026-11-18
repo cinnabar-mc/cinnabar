@@ -163,13 +163,26 @@ pub enum EquipmentCategory {
     Body,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArmorSlot {
     Helmet,
     Chestplate,
     Leggings,
     Boots,
+}
+
+impl ArmorSlot {
+    /// The armor slot a `minecraft:wearable` slot name wears in; `None` for other slots.
+    pub fn from_wearable_slot(slot: &str) -> Option<Self> {
+        Some(match slot {
+            "slot.armor.head" => Self::Helmet,
+            "slot.armor.chest" => Self::Chestplate,
+            "slot.armor.legs" => Self::Leggings,
+            "slot.armor.feet" => Self::Boots,
+            _ => return None,
+        })
+    }
 }
 
 /// A geometry or texture identifier plus whether the entity catalog retains it.
@@ -706,6 +719,19 @@ fn invalid(detail: &str) -> AssetError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wearable_slots_map_to_armor_slots_and_others_to_none() {
+        assert_eq!(
+            ArmorSlot::from_wearable_slot("slot.armor.head"),
+            Some(ArmorSlot::Helmet)
+        );
+        assert_eq!(
+            ArmorSlot::from_wearable_slot("slot.armor.feet"),
+            Some(ArmorSlot::Boots)
+        );
+        assert_eq!(ArmorSlot::from_wearable_slot("slot.weapon.offhand"), None);
+    }
 
     fn transform(translation: [f32; 3], rotation: [f32; 3]) -> ItemDisplayTransform {
         let scalar = |value: f32| ItemDisplayScalar::new(value).unwrap();

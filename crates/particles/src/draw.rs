@@ -107,7 +107,8 @@ fn basis_for(
     };
     match facing {
         Facing::RotateXyz => (view.right, view.up),
-        Facing::LookatXyz => facing_axes(view.up),
+        // Faces the camera with its up kept toward world Y.
+        Facing::LookatXyz => facing_axes(world_up),
         Facing::RotateY => {
             let right = unit([view.right[0], 0.0, view.right[2]]).unwrap_or([1.0, 0.0, 0.0]);
             (right, world_up)
@@ -369,7 +370,13 @@ fn emit_emitter(
             rng,
             &queries,
         );
-        color[3] = color[3].clamp(0.0, 1.0);
+        // Cutout coverage comes from the sprite, not tint alpha. Native dust and
+        // explosion definitions deliberately author zero-alpha RGB gradients.
+        color[3] = if def.material == Material::Alpha {
+            1.0
+        } else {
+            color[3].clamp(0.0, 1.0)
+        };
         if color[3] <= 0.0 {
             continue;
         }
@@ -582,7 +589,7 @@ mod tests {
         let instance = lists.opaque[0];
         assert_eq!(instance.axis_x[0], 0.5);
         assert_eq!(instance.axis_y[1], 0.25);
-        assert_eq!(instance.color[3], 0.5);
+        assert_eq!(instance.color[3], 1.0);
         assert_eq!(instance.color[..3], [1.0, 0.5, 0.0]);
         assert_eq!(
             instance.axis_y[3], 0.0,
@@ -590,6 +597,109 @@ mod tests {
         );
         // Missing texture falls back to the 1x1 white texel: u origin is half of a 1px placement.
         assert!(instance.uv[2] > 0.0);
+    }
+
+    #[test]
+    fn cutout_particles_ignore_tint_alpha_while_blended_particles_keep_it() {
+        for material in ["particles_alpha", "particles_blend", "particles_add"] {
+            for alpha in [0.0, 0.5, 1.0] {
+                for gradient in [false, true] {
+                    let mut definition: serde_json::Value = serde_json::from_str(EFFECT).unwrap();
+                    let effect = &mut definition["particle_effect"];
+                    effect["description"]["basic_render_parameters"]["material"] = material.into();
+                    let color = serde_json::json!([1.0, 0.5, 0.0, alpha]);
+                    effect["components"]["minecraft:particle_appearance_tinting"]["color"] =
+                        if gradient {
+                            serde_json::json!({"gradient": {"0.0": color}, "interpolant": 0})
+                        } else {
+                            color
+                        };
+                    // Immediate expression expiry still emits its initial burst, as in dust.
+                    if gradient {
+                        effect["components"]
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("minecraft:emitter_lifetime_once");
+                        effect["components"]["minecraft:emitter_lifetime_expression"] =
+                            serde_json::json!({"expiration_expression": 1});
+                    }
+                    let mut system = ParticleSystem::default();
+                    assert!(system.register_effect(&serde_json::to_vec(&definition).unwrap()));
+                    system.spawn(&SpawnRequest {
+                        effect: "minecraft:quad".into(),
+                        position: [0.0, 0.0, -5.0],
+                        ..SpawnRequest::default()
+                    });
+                    system.tick(0.02, &EmptyWorld);
+                    assert_eq!(system.live_particles(), 1);
+                    let lists = system.build_draw(&view(), &EmptyWorld);
+                    let instances = match material {
+                        "particles_alpha" => &lists.opaque,
+                        "particles_blend" => &lists.blend,
+                        _ => &lists.add,
+                    };
+                    let cutout = material == "particles_alpha";
+                    assert_eq!(
+                        instances.len(),
+                        usize::from(cutout || alpha > 0.0),
+                        "{material}, alpha={alpha}, gradient={gradient}"
+                    );
+                    if let Some(instance) = instances.first() {
+                        assert_eq!(
+                            instance.color,
+                            [1.0, 0.5, 0.0, if cutout { 1.0 } else { alpha }]
+                        );
+                        assert_eq!(
+                            instance.axis_x[3],
+                            f32::from(cutout),
+                            "cutout texture coverage must still be tested by the shader"
+                        );
+                    }
+                    for _ in 0..41 {
+                        system.tick(0.05, &EmptyWorld);
+                    }
+                    assert_eq!((system.emitter_count(), system.live_particles()), (0, 0));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn captured_cutout_effect_reaches_the_draw_list() {
+        let Some(path) = std::env::var_os("CINNABAR_CUTOUT_PARTICLE_FIXTURE") else {
+            eprintln!("SKIP cutout particle fixture: CINNABAR_CUTOUT_PARTICLE_FIXTURE is unset");
+            return;
+        };
+        let Ok(bytes) = std::fs::read(&path) else {
+            eprintln!(
+                "SKIP cutout particle fixture: missing {}",
+                std::path::Path::new(&path).display()
+            );
+            return;
+        };
+        let def = crate::def::parse_effect(&bytes).unwrap();
+        assert_eq!(def.material, Material::Alpha);
+        let mut system = ParticleSystem::default();
+        assert!(system.register_effect(&bytes));
+        system.spawn(&crate::named_request(
+            &def.identifier,
+            [0.0, 0.0, -5.0],
+            None,
+        ));
+        system.tick(0.02, &EmptyWorld);
+        assert!(system.live_particles() > 0, "fixture must emit its burst");
+        let lists = system.build_draw(&view(), &EmptyWorld);
+        assert!(
+            !lists.opaque.is_empty(),
+            "{} must reach the renderer",
+            def.identifier
+        );
+        assert!(
+            lists
+                .opaque
+                .iter()
+                .all(|instance| instance.color[3] == 1.0 && instance.axis_x[3] == 1.0)
+        );
     }
 
     #[test]
@@ -831,6 +941,26 @@ mod tests {
         );
         assert!(dot(right, up).abs() < 1e-5);
         assert!((dot(right, right) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn lookat_quads_stay_upright_under_a_pitched_camera() {
+        use std::f32::consts::FRAC_1_SQRT_2;
+
+        let pitched = ParticleView {
+            up: [0.0, FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+            forward: [0.0, -FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+            ..view()
+        };
+        let (right, up) = basis_for(
+            Facing::LookatXyz,
+            &pitched,
+            &[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [4.0, -5.0, -3.0],
+            None,
+        );
+        assert!(right[1].abs() < 1e-5, "{right:?}");
+        assert!(up[1] > 0.0, "{up:?}");
     }
 }
 

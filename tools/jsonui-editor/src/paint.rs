@@ -417,6 +417,7 @@ mod tests {
                 [0.0, 0.0, 4.0, 4.0],
                 screen,
                 Draw::Sprite {
+                    slice: None,
                     texture: "textures/ui/none".into(),
                     uv: UvRect::full(),
                     color: [255; 4],

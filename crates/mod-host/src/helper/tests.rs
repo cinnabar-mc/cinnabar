@@ -41,7 +41,7 @@ fn delayed_helper(executable: &Path) -> (Helper, mpsc::Sender<()>) {
     let (release, gate) = mpsc::channel();
     let (entered, started) = mpsc::channel();
     let since = Instant::now();
-    let helper = Helper::spawn_pending(executable, move || {
+    let helper = Helper::spawn_pending(executable, supervisor::Launch::Developer, move || {
         entered.send(())?;
         gate.recv_timeout(Duration::from_secs(5))?;
         Ok(startup())

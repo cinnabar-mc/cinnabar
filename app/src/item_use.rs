@@ -63,6 +63,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     weather: Option<Res<'w, render_scene::AtmosphereViewInputs>>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
+    locomotion: Res<'w, client_interaction::movement::LocomotionState>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     camera: Res<'w, client_presentation::camera::ServerCameraView>,
 }
@@ -108,7 +109,12 @@ pub(crate) fn adopt_server_item_use(
     }
     take_server_item_use(&mut runtime, context.physics.as_deref_mut());
     let ticks = context.physics.as_deref().is_some_and(|physics| {
-        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+        gameplay::movement::frame_simulates_tick(
+            physics,
+            &movement,
+            &context.locomotion,
+            context.time.delta(),
+        )
     });
     if !ticks {
         return;

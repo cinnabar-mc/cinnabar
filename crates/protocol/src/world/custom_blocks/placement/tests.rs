@@ -11,33 +11,44 @@ fn compound<const N: usize>(fields: [(&str, Nbt); N]) -> Nbt {
     )
 }
 
+/// Each server placing handler disables local state prediction.
 #[test]
-fn custom_placing_handlers_and_legacy_triggers_disable_prediction() {
-    for placing in [0, 1] {
-        let components = compound([(
+fn placing_handlers_disable_local_state_prediction() {
+    for components in [
+        compound([(
             "minecraft:custom_components",
-            compound([
-                ("hasPlayerPlacing", Nbt::Byte(placing)),
-                ("hasPlayerInteract", Nbt::Byte(1)),
-            ]),
-        )]);
+            compound([("hasPlayerPlacing", Nbt::Byte(1))]),
+        )]),
+        compound([(
+            "minecraft:custom_components",
+            compound([("isV1Component", Nbt::Byte(1))]),
+        )]),
+        compound([("minecraft:on_player_placing", compound([]))]),
+    ] {
         let definition = parse_definition(compound([("components", components)]).view()).unwrap();
-        assert_eq!(definition.visual.placement.server_placing, placing != 0);
-        assert!(definition.player_interact);
+        assert!(definition.visual.placement.server_placing);
+        assert!(!definition.visual.placement.has_placement_filter);
     }
     let definition = parse_definition(
         compound([(
             "components",
-            compound([("minecraft:on_player_placing", compound([]))]),
+            compound([(
+                "minecraft:custom_components",
+                compound([
+                    ("hasPlayerPlacing", Nbt::Byte(0)),
+                    ("isV1Component", Nbt::Byte(0)),
+                ]),
+            )]),
         )])
         .view(),
     )
     .unwrap();
-    assert!(definition.visual.placement.server_placing);
+    assert!(!definition.visual.placement.server_placing);
 }
 
+/// A placing handler on any permutation disables prediction for the whole type.
 #[test]
-fn permutation_placing_overrides_apply_to_the_block_type() {
+fn permutation_placing_handlers_disable_local_state_prediction() {
     let definition = parse_definition(
         compound([(
             "permutations",
@@ -56,6 +67,25 @@ fn permutation_placing_overrides_apply_to_the_block_type() {
     )
     .unwrap();
     assert!(definition.visual.placement.server_placing);
+}
+
+#[test]
+fn permutation_placement_filters_apply_to_the_block_type() {
+    let definition = parse_definition(
+        compound([(
+            "permutations",
+            Nbt::List(vec![compound([
+                ("condition", Nbt::String("q.block_state('test:on')".into())),
+                (
+                    "components",
+                    compound([("minecraft:placement_filter", compound([]))]),
+                ),
+            ])]),
+        )])
+        .view(),
+    )
+    .unwrap();
+    assert!(definition.visual.placement.has_placement_filter);
 }
 
 // Using a crafting table or a block whose permutation handles interaction must not place against it.
@@ -107,7 +137,6 @@ fn version_one_custom_components_declare_every_handler() {
     )
     .unwrap();
     assert!(definition.player_interact);
-    assert!(definition.visual.placement.server_placing);
 }
 
 #[test]

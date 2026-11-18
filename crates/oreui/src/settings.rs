@@ -256,10 +256,14 @@ fn header(
         [0.0, height, width, height + canvas.r(0.4)],
         theme::HEADER_STRIP,
     )?;
-    let title = translate("hbui.Settings.title")
-        .or_else(|| translate("menu.settings.caps"))
-        .or_else(|| translate("menu.settings"))
-        .map_or_else(|| "Settings".to_owned(), |text| text.to_string());
+    let title = localization::locale_text("hbui.Settings.title", view.settings_options.language())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            translate("hbui.Settings.title")
+                .or_else(|| translate("menu.settings.caps"))
+                .or_else(|| translate("menu.settings"))
+                .map_or_else(|| "Settings".to_owned(), |text| text.to_string())
+        });
     canvas.text_centred(
         &title.to_uppercase(),
         [canvas.r(4.4), 0.0, width - canvas.r(4.4), height],
@@ -557,7 +561,7 @@ impl Content<'_, '_> {
                 let [left, right] = self.inset();
                 let shown = match id {
                     SettingId::FieldOfView => format!("{value}°"),
-                    SettingId::RenderDistance => self
+                    SettingId::RenderDistance | SettingId::CloudDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
                     SettingId::MaxFramerate => {

@@ -57,6 +57,7 @@ fn reference(key: &Key) -> UiMesh {
             let mut color = key.color;
             color[3] = (f32::from(color[3]) * coverage.at(point)).round() as u8;
             vertices.push(UiMeshVertex {
+                terrain_mips: false,
                 position: [point[0] / size[0], point[1] / size[1]],
                 clip_z: 0.0,
                 clip_w: 1.0,

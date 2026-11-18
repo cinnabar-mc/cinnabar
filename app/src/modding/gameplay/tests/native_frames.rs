@@ -57,3 +57,45 @@ fn active_and_suspended_frames_share_the_world_identity() {
         assert_eq!(frame.session, actor, "suspension changed world scope");
     }
 }
+
+/// Native frames list only protocol-classified remote players, never the local player or an
+/// entity that merely uses the player identifier.
+#[test]
+fn native_frames_list_remote_protocol_players_only() {
+    let mut app = app();
+    {
+        let mut world = app.world_mut().resource_mut::<ClientWorld>();
+        let stream = world.stream.as_mut().unwrap();
+        stream.submit(1, player(1, [0.0; 3])).unwrap();
+        stream.submit(2, player(2, [2.0, 0.0, 0.0])).unwrap();
+        let impostor = ActorKind::Entity {
+            identifier: "minecraft:player".into(),
+        };
+        stream.submit(3, spawn(3, impostor, [0.0; 3])).unwrap();
+    }
+    let session = app
+        .world()
+        .resource::<ClientWorld>()
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .actor_session_id();
+    let mut clock = client_presentation::environment::WorldClock::default();
+    client_presentation::environment::bind_session_generation(
+        &mut clock,
+        &mut client_presentation::environment::WeatherState::default(),
+        session,
+    );
+    app.insert_resource(clock)
+        .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(
+            session,
+        )))
+        .init_resource::<Frames>()
+        .add_systems(Update, capture_native);
+    app.update();
+    let frame = &app.world().resource::<Frames>().0[0];
+    assert!(!frame.suspended);
+    let players: Vec<_> = frame.players.iter().map(|p| p.runtime_id).collect();
+    assert_eq!(players, [2]);
+}

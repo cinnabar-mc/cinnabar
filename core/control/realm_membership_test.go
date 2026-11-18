@@ -87,3 +87,45 @@ func TestRealmMembershipClosedStreamCancelsPreview(t *testing.T) {
 	<-s.cancelled
 	<-done
 }
+
+// leaveStub records the Realm ids the leave service was asked to remove the account from.
+type leaveStub struct {
+	stubServices
+	left []int
+}
+
+// LeaveRealm records the request without an account service.
+func (s *leaveStub) LeaveRealm(_ context.Context, realmID int) error {
+	s.left = append(s.left, realmID)
+	return nil
+}
+
+// Only a positive Realm id reaches the leave service; anything else is rejected without a request.
+func TestRealmLeaveValidatesTheRealmID(t *testing.T) {
+	s := &leaveStub{}
+	dir := startServices(t, NewStore(), s)
+	if response := rpc(t, dir, "realm_leave.v1", `{"realm_id":7}`); response.Error != nil {
+		t.Fatalf("leave failed: %+v", response.Error)
+	}
+	for _, params := range []string{`{"realm_id":0}`, `{"realm_id":-3}`} {
+		if response := rpc(t, dir, "realm_leave.v1", params); response.Error == nil || response.Error.Code != codeInvalidTarget {
+			t.Fatalf("%s: %+v", params, response.Error)
+		}
+	}
+	for _, params := range []string{`{}`, `{"realm_id":"7"}`, `{"realm_id":7,"extra":1}`} {
+		if response := rpc(t, dir, "realm_leave.v1", params); response.Error == nil {
+			t.Fatalf("%s was accepted", params)
+		}
+	}
+	if len(s.left) != 1 || s.left[0] != 7 {
+		t.Fatalf("left = %v", s.left)
+	}
+}
+
+// Services without Realm membership report the method as unavailable rather than failing silently.
+func TestRealmLeaveWithoutMembershipServicesIsUnavailable(t *testing.T) {
+	dir := startServices(t, NewStore(), &stubServices{})
+	if response := rpc(t, dir, "realm_leave.v1", `{"realm_id":7}`); response.Error == nil || response.Error.Code != codeServicesDisabled {
+		t.Fatalf("response: %+v", response.Error)
+	}
+}

@@ -53,6 +53,11 @@ const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
 
+/// Whether server popups may show: spectators never see them, and a mode not yet known allows them.
+fn popups_allowed(mode: Option<protocol::PlayerGameMode>) -> bool {
+    mode != Some(protocol::PlayerGameMode::Spectator)
+}
+
 /// Resolves the HUD screens of `catalog` under every HUD placement on the calling thread, and
 /// returns the textures their controls name.
 pub(in crate::ui_runtime::presentation) fn prepare(catalog: &Arc<Catalog>) -> BTreeSet<String> {
@@ -101,7 +106,8 @@ impl UiPresentationRuntime {
             renderer.context(),
             ui_screens::hud_placement::HudPlacement::from_settings(
                 self.screens.chat.settings.options(),
-            ),
+            )
+            .with_touch_hotbar(self.screens.touch.enabled()),
         );
         let reference = if crosshair {
             Reference::HudCrosshairHudCrosshairScreen.as_str()
@@ -120,6 +126,7 @@ impl UiPresentationRuntime {
         let catalog = self.mod_hud_bindings.catalog(renderer.catalog());
         let options = self.screens.chat.settings.options();
         let mut sidebar_shown = false;
+        let mut position_shown = false;
         let model = if crosshair {
             None
         } else {
@@ -141,9 +148,10 @@ impl UiPresentationRuntime {
                 sidebar_key,
                 options,
                 hidden.contains(VanillaElement::StatusEffects),
-                hidden.hides_position(),
+                hidden.contains(VanillaElement::Position),
                 renderer.catalog(),
             );
+            position_shown = self.hud_cache.position_shown();
             let touch_inventory = self.screens.touch.enabled();
             if self.hud_cache.model.touch_inventory != touch_inventory {
                 self.hud_cache.model.touch_inventory = touch_inventory;
@@ -172,10 +180,10 @@ impl UiPresentationRuntime {
         // Packs may replace the native cursor renderer with ordinary image controls.
         // Gate the whole overlay so these controls obey the same camera and HUD settings.
         if crosshair && paint.crosshair.is_none() {
-            self.hud_elements.observe_crosshair(&[], false);
+            self.hud_elements.observe_crosshair(&[], false, [0., 0.]);
             return Ok(true);
         }
-        let drawn_elements = Drawn::of(&paint, sidebar_shown);
+        let drawn_elements = Drawn::of(&paint, sidebar_shown, position_shown);
         if !crosshair {
             // Legacy HUDs embed this renderer; the separate overlay already draws it.
             // Inverting the same pixels twice restores the world behind the cursor.
@@ -237,8 +245,13 @@ impl UiPresentationRuntime {
             *next = rollback.1;
         }
         if crosshair {
-            self.hud_elements
-                .observe_crosshair(self.screens.hud.crosshair.nodes(), true);
+            let px = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+            let hud_origin = [self.safe_area.left(), self.safe_area.top()].map(|inset| inset / px);
+            self.hud_elements.observe_crosshair(
+                self.screens.hud.crosshair.nodes(),
+                true,
+                hud_origin,
+            );
         } else {
             self.hud_elements
                 .observe_hud(self.screens.hud.hud.nodes(), &drawn_elements);

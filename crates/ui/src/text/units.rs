@@ -7,7 +7,7 @@ use super::TextError;
 const HALF_PIXEL_PER_TEXEL: i64 = 1024 * 65_536 / 2;
 
 /// How a layout scales font texel values into the 1/64 pixels it measures in.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Units {
     /// Output 1/64 pixels, scaling texel values by `scale_1024 / 1024`.
     Output { scale_1024: i64 },

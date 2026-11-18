@@ -201,6 +201,7 @@ impl<'a> Resolver<'a> {
         control: &RawControl,
     ) {
         properties.remove(anim::GRAPH_KEY);
+        properties.remove(anim::GEOMETRY_KEY);
         let catalog = self.catalog;
         let owner_ns = &control.owner_ns;
         let mut load = |target: &ControlRef| {
@@ -602,6 +603,9 @@ fn build_properties(
         properties.remove(crate::transform::TRANSFORM_PROPERTY);
         properties.remove(crate::position::PROPERTY);
         properties.remove(crate::filter::FILTER_PROPERTY);
+        for property in crate::scrollbar::PROPERTIES {
+            properties.remove(property);
+        }
     }
     properties
 }

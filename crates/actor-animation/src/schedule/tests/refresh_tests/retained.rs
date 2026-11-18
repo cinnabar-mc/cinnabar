@@ -206,8 +206,10 @@ fn changing_geometry(compiled: &mut CompiledEntityAssets) {
     compiled.molang_ops[first + 1] = MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap());
 }
 
+/// A player's skin replaces its default model, so a controller selecting another geometry
+/// draws that geometry as its own layer while the player's rig and UI pose keep the default.
 #[test]
-fn local_refresh_changed_geometry_seeds_ui_from_original_authored_inputs() {
+fn local_refresh_keeps_the_player_model_when_a_controller_selects_another() {
     let (mut actors, mut store) = local_fixture_with(true, true, changing_geometry);
     actors.get_mut(&LOCAL).unwrap().metadata.insert(
         0,
@@ -216,7 +218,7 @@ fn local_refresh_changed_geometry_seeds_ui_from_original_authored_inputs() {
     refresh_swing(&actors, &mut store);
     for _ in 0..2 {
         let state = store.rigs.values().next().unwrap();
-        assert_eq!(state.geometry_binding, 1);
+        assert_eq!(state.geometry_binding, 0);
         assert_eq!(state.current[0].translation_scale[2], 3.0);
         assert_eq!(state.ui_pose.as_ref().unwrap()[0].translation_scale[2], 3.0);
         refresh_again(&actors, &mut store);

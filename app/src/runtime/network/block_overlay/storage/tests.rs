@@ -57,6 +57,9 @@ fn builder<'a>(
         terrain_materials: Default::default(),
         vanilla_carried: Vec::new(),
         materials: Default::default(),
+        state_masks: Default::default(),
+        unresolved_masks: Default::default(),
+        pbr: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     }
@@ -68,6 +71,71 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     let mut bytes = std::io::Cursor::new(Vec::new());
     image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
     bytes.into_inner()
+}
+
+#[test]
+fn shared_colour_images_keep_each_texture_sets_surfaces_in_either_load_order() {
+    let raster = png(16, 16);
+    let view = view(&[
+        ("textures/shared.png", &raster),
+        ("textures/normal.png", &raster),
+        (
+            "textures/first.texture_set.json",
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{
+                "color":"shared","normal":"normal","metalness_emissive_roughness":[0,64,128]
+            }}"#,
+        ),
+        (
+            "textures/second.texture_set.json",
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{
+                "color":"shared","metalness_emissive_roughness":[0,192,128]
+            }}"#,
+        ),
+    ]);
+    let keys = assets::material_keys::MaterialKeys::from_entries([
+        (1, "plain"),
+        (2, "first"),
+        (3, "second"),
+        (4, "alias"),
+    ])
+    .with_aliases([
+        ("plain", "textures/shared"),
+        ("first", "textures/first"),
+        ("second", "textures/second"),
+        ("alias", "textures/first"),
+    ]);
+    for order in [
+        ["plain", "first", "second", "alias"],
+        ["second", "first", "plain", "alias"],
+    ] {
+        let mut builder = builder(&view, &keys);
+        let textures = order.map(|key| {
+            let slot = builder.texture_slot_for(key, (0, 0)).unwrap();
+            (key, TextureRef::new(slot.page, slot.layer).unwrap())
+        });
+        builder.build_server_surfaces(&view);
+        let maps = builder
+            .overlay
+            .enhanced
+            .as_ref()
+            .expect("both sets retain surfaces");
+        let reference = |key| {
+            let (_, texture) = textures.iter().find(|(name, _)| *name == key).unwrap();
+            maps.material_reference(0, *texture)
+        };
+        assert_eq!(reference("plain"), u32::MAX);
+        assert_eq!(reference("alias"), reference("first"));
+        assert_ne!(reference("first"), reference("second"));
+        for (key, emission, has_normal) in [("first", 64, true), ("second", 192, false)] {
+            let authored = reference(key);
+            assert_ne!(authored, u32::MAX, "{key} retains its own surfaces");
+            assert_eq!(authored & assets::texture::PBR_REF_NORMAL != 0, has_normal);
+            let mip = &maps.mer_pages[(authored >> 31) as usize].mips[0];
+            let layer = authored & (assets::texture::PBR_REF_COLOR - 1);
+            let offset = (layer * mip.size * mip.size * 4) as usize;
+            assert_eq!(mip.rgba8[offset + 1], emission);
+        }
+    }
 }
 
 #[test]

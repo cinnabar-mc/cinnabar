@@ -39,6 +39,7 @@ mod resolve;
 pub mod rounded;
 mod scene;
 mod screens;
+pub mod scrollbar;
 mod sidecar;
 mod sprite;
 mod state;
@@ -55,7 +56,7 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 pub use anim::{
     AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, AnimationRecord, Animator, ControlAnims,
-    Easing, FlipWrite, NodeAnim, Written,
+    Easing, FlipWrite, GeometryLayout, NodeAnim, Written,
 };
 pub use bind::{
     BindState, CUSTOM_CONTROL_INSTANCE_KEY, CollectionItem, ControlLibrary, DataSource,

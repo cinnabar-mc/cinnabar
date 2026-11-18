@@ -142,10 +142,11 @@ fn authored_updates_preserve_resident_and_retired_terrain_and_resume_uploads() {
     let authored = || {
         let array = TextureArray {
             layers: 1,
-            mips: Box::new([assets::texture::TextureMip {
+            mips: [assets::texture::TextureMip {
                 size: 1,
                 rgba8: Box::new([128; 4]),
-            }]),
+            }]
+            .into(),
         };
         Arc::new(
             EnhancedTextureAssets::new(

@@ -194,11 +194,4 @@ mod tests {
         assert_eq!(shown.fraction, Some(0.75));
         assert_eq!(shown.detail, "3 of 4 layers");
     }
-
-    /// A dragonfly world never shows the dedicated server's download, even while one is reported.
-    #[test]
-    fn a_dragonfly_open_ignores_bds_setup() {
-        let flat = status(Backend::Dragonfly, Some(setup(SetupState::Downloading)));
-        assert_eq!(progress(Some(&flat), "Flat").stage, Stage::StartingServer);
-    }
 }

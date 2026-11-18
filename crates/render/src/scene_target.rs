@@ -416,6 +416,11 @@ pub(crate) enum ScenePass {
 #[derive(Resource)]
 struct PassesInstalled;
 
+/// Whether [`nodes::scene_opaque`] replaces the stock opaque pass in this render world.
+pub(crate) fn opaque_pass_installed(world: &World) -> bool {
+    world.contains_resource::<PassesInstalled>()
+}
+
 /// Orders GPU submissions even when their systems only read ECS components.
 pub(crate) fn order_camera_stages(schedule: &mut bevy::ecs::schedule::Schedule) {
     use Core3dSystems::*;

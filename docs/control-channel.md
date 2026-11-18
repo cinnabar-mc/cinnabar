@@ -12,6 +12,7 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `local_world.v1` | the launcher's open world, see `docs/local-worlds.md` | empty |
 | `world_invite.v1` | `xuid` | empty; invites a friend to the hosted local world |
 | `realms_list.v1` | none | `realms: [{name, state, target, address?}]` |
+| `realm_leave.v1` | `realm_id` (positive) | empty; removes the account from a Realm it joined |
 | `friends_list.v1` | none | `friends: [{gamertag, xuid, world_name, members, max_members, handle_id?, address?}]` |
 | `connect.v1` | `kind` = `raknet` (`host:port`), `realm` (id), `friend` (xuid); `value` | empty; next client connection dials it |
 | `account_status.v1` | none | `account` |
@@ -28,6 +29,8 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 Artwork fields are `{url, path?}`: an HTTPS URL the client downloads and caches; `path` is set only
 for persona art the core renders. Realms also
 carry `owner`, `motd`, `world_type`, `online_players`, `max_players`, `days_left`, `expired`, `member`.
+The service never reports `member`; the core sets it for a Realm whose `ownerUUID` is another
+XUID than the signed-in account's, and leaves every Realm owned when that XUID is unavailable.
 Feed sources: `docs/menus-services.md`.
 
 `account` / `auth`: `state` is `offline | signed_out | awaiting_code | signed_in | failed`, with

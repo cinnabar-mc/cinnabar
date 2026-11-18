@@ -213,6 +213,26 @@ fn updates_controls_belong_to_their_own_settings_tab() {
     }));
 }
 
+/// Flatpak keeps mod preferences available while delegating app updates to its package manager.
+#[test]
+fn flatpak_updates_keep_mod_preferences_without_app_update_actions() {
+    let mut view = MenuView::new(true, "Player".into());
+    view.settings.section = SettingSection::Updates.definition().index;
+    view.updates.managed = true;
+    let expected = [SettingId::ModUpdateChecks, SettingId::ModAutoUpdate]
+        .map(|setting| MenuAction::SettingsOption(setting.index() as u16, 0));
+    for active in [false, true] {
+        view.updates.active = active;
+        for width in [320.0, 800.0] {
+            let (actions, text) = render(&view, width);
+            assert_eq!(actions.len(), expected.len());
+            assert!(expected.iter().all(|action| actions.contains(action)));
+            assert!(text.contains("UpdatesaremanagedbyFlatpak"));
+            assert!(text.contains(&installed_version(&view.updates.running).replace(' ', "")));
+        }
+    }
+}
+
 /// The download bar sits inside its own row's padding instead of on the next row's edge.
 #[test]
 fn download_bar_stays_inside_its_row() {

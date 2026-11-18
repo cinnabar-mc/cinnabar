@@ -17,6 +17,19 @@ pub(super) fn prepare(
     app: &mut App,
     view: Option<ResourceView>,
 ) -> Option<(TransparentSortRuntime, TransparentModelSortRuntime)> {
+    let device = app.world().resource::<RenderDevice>().clone();
+    crate::gpu_allocation::terrain_write(&device, "terrain resource sorts upload", 0, || {
+        prepare_generation(app, view)
+    })
+    .ok()
+    .flatten()
+}
+
+/// Prepares all transparent streams within the candidate's checked write boundary.
+fn prepare_generation(
+    app: &mut App,
+    view: Option<ResourceView>,
+) -> Option<(TransparentSortRuntime, TransparentModelSortRuntime)> {
     let mut liquids = TransparentSortRuntime::default();
     let mut models = TransparentModelSortRuntime::default();
     let Some(view) = view else {
@@ -59,6 +72,9 @@ pub(super) fn prepare(
         &liquids.state,
     );
     let arena = world.resource::<ChunkGpuArena>();
+    if liquid_refs > arena.transparent_slot_refs {
+        return None;
+    }
     let assets = world.resource::<ChunkTextureAssets>();
     let tints = world.resource::<ChunkBiomeTints>();
     let (mut model_candidates, mut model_manifest) = (Vec::new(), Vec::new());
@@ -186,7 +202,8 @@ pub(super) fn prepare(
             },
             u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
             bytemuck::cast_slice(&batch.words),
-        );
+        )
+        .ok()?;
         models.draw_orders.publish(&model_address, batch);
     }
     models.committed = Some(TransparentModelSortKey {

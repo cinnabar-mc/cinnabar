@@ -23,8 +23,7 @@ fn world(device: &RenderDevice, queue: &RenderQueue) -> World {
     render.insert_resource(device.clone());
     render.insert_resource(queue.clone());
     render.insert_resource(PipelineCache::new(device.clone(), true));
-    render.init_resource::<render_scene::WorldLighting>();
-    render.init_resource::<render_scene::WorldFullbright>();
+    crate::lighting::init_inputs(render.world_mut());
     crate::lighting::install(&mut app);
     let render = app.sub_app_mut(RenderApp);
     render.world_mut().run_schedule(Render);
@@ -96,6 +95,7 @@ fn covered_pixel(device: &RenderDevice, queue: &RenderQueue, range: Range<f32>) 
                 hdr: false,
                 enhanced: false,
                 material: assets::EntityRenderMaterial::Default as u32,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             },
             &mut descriptor,
         )
@@ -170,6 +170,7 @@ fn covered_pixel(device: &RenderDevice, queue: &RenderQueue, range: Range<f32>) 
     motion.draws.push((
         crate::actor::gpu::ActorDrawSpan {
             material: 0,
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             page: 0,
             first: 0,
             count: 1,

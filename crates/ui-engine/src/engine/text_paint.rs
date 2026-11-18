@@ -4,7 +4,7 @@
 
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
-use assets::RuntimeFontCatalog;
+use assets::{FontLineMetrics, RuntimeFontCatalog};
 use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow,
@@ -40,6 +40,23 @@ pub(super) struct LabelMetrics<'a> {
     frame_scale: UiScale,
     authored_factor: f32,
     shadow_factor: f32,
+}
+
+/// Line metrics for a fallback face of default-font texel glyphs, such as private-use sheet
+/// glyphs, behind a label face with `face` metrics. [`label_metrics`] then draws each fallback
+/// texel at the same size as in a default-font label, or `None` when the face has no height.
+pub fn default_texel_fallback_metrics(face: FontLineMetrics) -> Option<FontLineMetrics> {
+    let height = u64::from(face.ascent_64) + u64::from(face.descent_64);
+    if height == 0 {
+        return None;
+    }
+    let label_64 = u64::from(FONT_DESIGN_PIXEL_TEXELS) * OUTLINE_LABEL_HEIGHT_GUI as u64 * 64;
+    let scale = |value: u32| u32::try_from(u64::from(value) * label_64 / height).ok();
+    Some(FontLineMetrics {
+        em_64: scale(face.em_64)?,
+        ascent_64: scale(face.ascent_64)?,
+        descent_64: scale(face.descent_64)?,
+    })
 }
 
 /// Keeps bitmap spacing and resolves native sizes and effects in the selected face's units.
@@ -153,6 +170,7 @@ impl<'a> LabelMetrics<'a> {
         let mut request = self.metrics.request(text, width_64(width), self.font);
         request.wrap = TextWrap {
             effect_scale_1024: self.effect_scale_1024(),
+            allow_vertical_overflow: true,
             line_padding_64: (shape.line_padding * f64::from(px) * 64.0).round() as i32,
             chop: if shape.hide_hyphen {
                 WordChop::Bare
@@ -377,6 +395,14 @@ impl Canvas<'_> {
                 clip,
             );
         }
+        // The selection highlights the advances of its glyphs where the full layout placed them,
+        // so alignment and wrapping carry over. A single line spans the whole label height so
+        // tall ink stays covered; wrapped lines each span their own line box.
+        let single_line = layout.line_count() == 1;
+        let boxes = style.edit.and_then(|edit| edit.selection).map(|selection| {
+            let [start, end] = selection.map(|byte| crate::caret::caret_byte(&text, byte));
+            layout.range_boxes_64(&text, start..end)
+        });
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -395,29 +421,19 @@ impl Canvas<'_> {
                 shadow,
             }),
         );
-        if let Some(selection) = style.edit.and_then(|edit| edit.selection) {
-            let mut edges = [0.0; 2];
-            for (edge, byte) in edges.iter_mut().zip(selection) {
-                let byte = crate::caret::caret_byte(&text, byte);
-                let prefix = &text[..byte];
-                if !prefix.is_empty() {
-                    *edge = self
-                        .layouts
-                        .layout(TextLayoutRequest {
-                            text: prefix,
-                            ..request
-                        })
-                        .map_err(PaintError::Text)?
-                        .size_64()[0] as f32
-                        / 64.0;
-                }
-            }
+        for area in boxes.into_iter().flatten() {
+            let [from, line_top, to, line_bottom] = area.map(|edge| edge as f32 / 64.0);
+            let [line_top, line_bottom] = if single_line {
+                [top, top + height]
+            } else {
+                [top + line_top, top + line_bottom]
+            };
             self.push(
                 UiVisual::InvertedSprite {
                     texture_page: self.solid_page,
                     uv: [0, 0, 1, 1],
                 },
-                [dest[0] + edges[0], top, dest[0] + edges[1], top + height],
+                [left + from, line_top, left + to, line_bottom],
             )?;
         }
         Ok(())

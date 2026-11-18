@@ -2,6 +2,14 @@
 
 pub mod hover_chat;
 
+/// An original formatted, multiline message with a tail beyond compact-label budgets.
+pub fn long_chat_message() -> String {
+    format!(
+        "§6Synthetic guide\n\n§f{}\n\n§bSecond section\n§aEND OF GUIDE",
+        "Длинное сообщение сохраняет все слова и переносы строк. ".repeat(8)
+    )
+}
+
 /// Measures text at six px per character and nine px tall.
 pub struct FixedText;
 impl json_ui::TextMeasure for FixedText {

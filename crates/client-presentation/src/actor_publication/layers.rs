@@ -124,9 +124,11 @@ pub(super) fn attach(
         artwork,
         layer_poses,
     );
-    for body in &mut batch.submissions {
-        if body.material.glint.texture == render_model::GlintTexture::Item {
-            equipment_layers::animate_glint(body, partial_tick, glint_settings);
+    for submission in &mut batch.submissions {
+        if submission.material.state.is_some_and(|state| state.glint) {
+            equipment_layers::animate_material_glint(submission, partial_tick, glint_settings);
+        } else if submission.material.glint.texture == render_model::GlintTexture::Item {
+            equipment_layers::animate_glint(submission, partial_tick, glint_settings);
         }
     }
     if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {
@@ -195,11 +197,13 @@ pub(super) fn attach(
             skin_rigs,
             |geometry| new_geometries.push(geometry),
             |draw, location| {
-                let slot = match draw.input.identity.layer {
-                    crate::presentation::equipment::LAYER_MAIN_HAND => 0,
-                    crate::presentation::equipment::LAYER_OFF_HAND => 1,
-                    _ => return None,
+                use crate::presentation::equipment::{
+                    LAYER_MAIN_HAND, LAYER_OFF_HAND, armor_slot_index, is_armor_layer,
                 };
+                let layer = draw.input.identity.layer;
+                if layer != LAYER_MAIN_HAND && layer != LAYER_OFF_HAND && !is_armor_layer(layer) {
+                    return None;
+                }
                 let remote;
                 let input = if draw.input.identity.runtime_id == local_runtime_id {
                     poses.local_equipment
@@ -210,18 +214,39 @@ pub(super) fn attach(
                     );
                     &remote
                 };
-                let item = if slot == 0 {
-                    input.main.as_ref()
-                } else {
-                    input.off.as_ref()
+                let item = match layer {
+                    LAYER_MAIN_HAND => input.main.as_ref(),
+                    LAYER_OFF_HAND => input.off.as_ref(),
+                    _ => input
+                        .armor
+                        .get(armor_slot_index(layer)?)
+                        .and_then(Option::as_ref),
                 }?;
-                equipment
-                    .as_deref_mut()?
-                    .shield_raster(item, artwork, location?, draw.input.rig)
+                let equipment = equipment.as_deref_mut()?;
+                let location = location?;
+                if let Some(raster) =
+                    equipment.trim_draw(item, artwork, location, draw, is_armor_layer(layer))
+                {
+                    return Some(raster);
+                }
+                equipment.shield_raster(item, artwork, location, draw.input.rig)
             },
         )
     {
         scene.configure_artwork(pages);
+    }
+}
+
+/// The facts mod presentation rules select `actor` by.
+pub fn mod_actor_facts(
+    authority: &client_world::WorldAuthority,
+    actor: &client_world::ActorSnapshot,
+) -> ui::mod_presentation::ActorFacts {
+    ui::mod_presentation::ActorFacts {
+        runtime_id: actor.runtime_id,
+        player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+        local: actor.runtime_id == authority.local_player_runtime_id(),
+        riding: authority.ridden_unique_id(actor.unique_id).is_some(),
     }
 }
 
@@ -249,22 +274,14 @@ pub(super) fn apply_style_and_visibility(
         };
         if !submission.material.allows_overlay() {
             submission.overlay_rgba8 = 0;
-        } else if let Some(style) = style {
+        } else if let Some(((style, actor), stream)) = style.zip(actor).zip(stream) {
             let armor = (3..=6).contains(&identity.layer);
-            let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
-            let tint = actor.and_then(|actor| {
-                style.presentation.tint(
-                    identity.runtime_id,
-                    matches!(actor.kind, protocol::ActorKind::Player { .. }),
-                )
-            });
-            if let Some(color) = cosmetic_overlay(
-                &style.presentation.hurt_overlay,
-                hurt,
-                armor,
-                submission.overlay_rgba8 != 0,
-                tint,
-            ) {
+            let state = ui::mod_presentation::TintState::of(actor.hurt_overlay_active());
+            if let Some(color) = style
+                .presentation
+                .tint(&mod_actor_facts(stream.authority(), actor), state)
+                .and_then(|tint| tint.overlay(state, armor, submission.overlay_rgba8 != 0))
+            {
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
             }
         }
@@ -278,26 +295,5 @@ pub(super) fn apply_style_and_visibility(
         {
             submission.route = render_model::ActorRigRoute::NoDraw;
         }
-    }
-}
-
-/// Selects the mod overlay colour: its damage colours while the actor is hurt, else its tint.
-pub(super) fn cosmetic_overlay(
-    hurt_overlay: &ui::mod_presentation::HurtOverlay,
-    hurt: bool,
-    armor: bool,
-    native_overlay: bool,
-    tint: Option<[f32; 4]>,
-) -> Option<[f32; 4]> {
-    if hurt {
-        if armor {
-            hurt_overlay.armor
-        } else if native_overlay {
-            hurt_overlay.body
-        } else {
-            None
-        }
-    } else {
-        tint
     }
 }

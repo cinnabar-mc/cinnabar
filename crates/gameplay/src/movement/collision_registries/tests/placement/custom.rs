@@ -1,5 +1,6 @@
 use super::*;
 use protocol::{CustomBlock, CustomBlocks};
+use sim::{Aabb, CollisionWorld, Vec3};
 use std::sync::Arc;
 
 /// Admits a single definition under both encodings and selects its held palette state.
@@ -88,22 +89,156 @@ fn custom_mining_uncertainty_does_not_reject_known_placement_bounds() {
     }
 }
 
+/// Encodes a custom-component flag or a deprecated placing component as network NBT.
+fn placing_handler_block(flag: &str) -> CustomBlock {
+    let named = |tag: u8, name: &str| {
+        let mut bytes = vec![tag, u8::try_from(name.len()).unwrap()];
+        bytes.extend(name.as_bytes());
+        bytes
+    };
+    let mut bytes = named(10, "");
+    bytes.extend(named(10, "components"));
+    if flag == "minecraft:on_player_placing" {
+        bytes.extend(named(10, flag));
+        bytes.extend([0, 0, 0]);
+    } else {
+        bytes.extend(named(10, "minecraft:custom_components"));
+        bytes.extend(named(1, flag));
+        bytes.extend([1, 0, 0, 0]);
+    }
+    let blocks = CustomBlocks::from_definitions([("test:crumbling", bytes.as_slice())]);
+    blocks.blocks[0].clone()
+}
+
+/// Server placing handlers leave collision empty until an authoritative block update.
 #[test]
-fn custom_server_placing_handlers_keep_prediction_disabled() {
+fn custom_server_placing_handlers_wait_for_authoritative_collision() {
+    for flag in [
+        "hasPlayerPlacing",
+        "isV1Component",
+        "minecraft:on_player_placing",
+    ] {
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let (registry, held) = admit(placing_handler_block(flag), mode, 0);
+            let mut scene = store(mode);
+            assert!(
+                custom_predict(&registry, held, mode, &scene, &context(&surroundings())).is_none(),
+                "{flag} must leave the resulting state to the server"
+            );
+            let bounds = Aabb::new(Vec3::new(8.0, 9.0, 8.0), Vec3::new(9.0, 10.0, 9.0));
+            let world =
+                sim::PaletteWorld::new(&scene, registry.registry(mode), 0, Default::default());
+            assert!(
+                !world
+                    .collision_boxes(bounds)
+                    .unwrap()
+                    .value
+                    .contains(&bounds)
+            );
+            scene
+                .update_block(
+                    SubChunkKey::new(0, 0, 0, 0),
+                    BlockUpdate::new(8, 9, 8, 0, held),
+                    id(record("minecraft:air", &[]), mode),
+                )
+                .unwrap();
+            let world =
+                sim::PaletteWorld::new(&scene, registry.registry(mode), 0, Default::default());
+            assert!(
+                world
+                    .collision_boxes(bounds)
+                    .unwrap()
+                    .value
+                    .contains(&bounds)
+            );
+        }
+    }
+}
+
+/// Full-cube bridge targeting uses placement history independently of collision prediction.
+#[test]
+fn scripted_custom_blocks_continue_bridges_without_predicted_collision() {
+    use crate::block_use::{BuildIntention, LocalUse, PlacementTarget};
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        let mut block = block();
-        Arc::make_mut(&mut block.visual).placement.server_placing = true;
-        let (registry, held) = admit(block, mode, 0);
-        assert!(
-            custom_predict(
-                &registry,
-                held,
-                mode,
-                &store(mode),
-                &context(&surroundings())
-            )
-            .is_none()
+        let (registry, held) = admit(placing_handler_block("hasPlayerPlacing"), mode, 0);
+        let scene = store(mode);
+        assert!(custom_predict(&registry, held, mode, &scene, &context(&surroundings())).is_none());
+        let mut intention = BuildIntention::default();
+        let continues = registry.block_has_build_intention(mode, held);
+        intention.record(
+            false,
+            [8, 9, 8],
+            LocalUse::Place,
+            continues,
+            false,
+            [8.5, 9.0, 8.5],
         );
+        let target = intention
+            .target(
+                Some(PlacementTarget {
+                    position: [8, 9, 8],
+                    face: 1,
+                }),
+                [9.5, 11.0, 8.5],
+                [9.5, 7.0, 8.5],
+                [0.22, 0.0, 0.0],
+                false,
+            )
+            .unwrap();
+        assert_eq!(
+            target,
+            PlacementTarget {
+                position: [8, 9, 8],
+                face: 5
+            }
+        );
+        let destination = crate::block_use::placement_cell(target.position, target.face);
+        intention.record(
+            true,
+            destination,
+            LocalUse::Place,
+            continues,
+            false,
+            [9.5, 9.0, 8.5],
+        );
+        assert_eq!(
+            intention.target(
+                None,
+                [10.5, 11.0, 8.5],
+                [10.5, 7.0, 8.5],
+                [0.22, 0.0, 0.0],
+                false
+            ),
+            Some(PlacementTarget {
+                position: destination,
+                face: 5
+            })
+        );
+        let world = sim::PaletteWorld::new(&scene, registry.registry(mode), 0, Default::default());
+        assert_eq!(
+            world.primary_runtime_id(destination).unwrap(),
+            id(record("minecraft:air", &[]), mode)
+        );
+    }
+}
+
+// Held bridging with a full-cube custom block, such as Hive's Crumbling Cobblestone, must
+// extend the bridge along the walk like cobblestone instead of stacking on its top faces.
+#[test]
+fn full_cube_custom_blocks_continue_held_bridges() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let (registry, held) = admit(block(), mode, 0);
+        assert!(registry.block_has_build_intention(mode, held));
+        let mut half = block();
+        half.collision_boxes = Some(
+            [protocol::CustomBox {
+                min: [0.0; 3],
+                max: [1.0, 0.5, 1.0],
+            }]
+            .into(),
+        );
+        let (registry, held) = admit(half, mode, 0);
+        assert!(!registry.block_has_build_intention(mode, held));
     }
 }
 

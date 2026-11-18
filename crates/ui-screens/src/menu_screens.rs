@@ -65,7 +65,7 @@ pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
     }
 }
 
-use launcher::menu::menu_reference;
+use launcher::menu::flow::menu_reference;
 
 /// The in-session screen for `view`, or `None` for states without one (the
 /// programmatic launcher then draws them). `now_unix` is the wall-clock time in seconds.
@@ -624,6 +624,9 @@ pub fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
         "button.description_read_toggle" => MenuAction::ToggleReadMore(0),
         "button.news_read_toggle" => MenuAction::ToggleReadMore(1),
         "button.menu_start_realms_world" => return play_screen::realm_action(view, region),
+        "button.menu_realms_world_item_remove" => {
+            return play_screen::realm_leave_action(view, region);
+        }
         "button.menu_start_local_world" => MenuAction::PlayLocalWorld(index?),
         _ => return None,
     })

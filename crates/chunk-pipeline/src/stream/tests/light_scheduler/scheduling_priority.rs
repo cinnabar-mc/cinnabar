@@ -321,18 +321,36 @@ fn retained_column_batch_does_not_requeue_accepted_members() {
 #[test]
 fn equivalent_block_light_properties_skip_relighting() {
     let mut stream = lit_stream(0);
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    // Sets one cell of `previous` and reports whether the stream would relight the section.
+    let relights = |previous: Option<&SubChunk>, runtime_id| {
+        let mutation = world::ChunkStore::prepare_sub_chunk_blocks(
+            key,
+            previous,
+            &[world::BlockUpdate::new(5, 6, 7, 0, runtime_id)],
+            0,
+        )
+        .unwrap();
+        stream.block_mutation_changes_light(previous, &mutation)
+    };
     let opaque = super::uniform_sub_chunk(2);
-    let equivalent_opaque = super::uniform_sub_chunk(4);
     let air = super::uniform_sub_chunk(0);
     let zero_light_transparent = super::uniform_sub_chunk(3);
-    assert!(!stream.block_light_semantics_changed(Some(&opaque), Some(&equivalent_opaque),));
-    assert!(stream.block_light_semantics_changed(Some(&air), Some(&opaque)));
-    assert!(stream.block_light_semantics_changed(Some(&air), Some(&zero_light_transparent),));
-    assert!(stream.block_light_semantics_changed(Some(&zero_light_transparent), Some(&air),));
-    assert!(stream.block_light_semantics_changed(None, Some(&air)));
-    assert!(stream.block_light_semantics_changed(Some(&air), None));
+    assert!(!relights(Some(&opaque), 4));
+    assert!(relights(Some(&air), 2));
+    assert!(relights(Some(&air), 3));
+    assert!(relights(Some(&zero_light_transparent), 0));
+    assert!(relights(None, 3));
+    let lone_block = world::ChunkStore::prepare_sub_chunk_blocks(
+        key,
+        None,
+        &[world::BlockUpdate::new(5, 6, 7, 0, 3)],
+        0,
+    )
+    .unwrap();
+    let lone_block = lone_block.replacement().cloned();
+    assert!(relights(lone_block.as_ref(), 0));
 
-    let key = SubChunkKey::new(0, 0, 0, 0);
     stream.mark_live_mutation_changed(key, Instant::now(), false);
 
     assert!(stream.lighting.jobs.pending.is_empty());

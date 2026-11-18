@@ -33,6 +33,7 @@ pub const MOVEMENT_TERMINAL: &str = "CINNABAR_MOVEMENT_TERMINAL";
 pub const MOVEMENT_VIOLATION: &str = "CINNABAR_MOVEMENT_VIOLATION";
 pub const SOURCE_DIRTY: &str = "CINNABAR_SOURCE_DIRTY";
 pub const SHUTDOWN_COMPLETED: &str = "CINNABAR_SHUTDOWN_COMPLETED";
+pub const SHUTDOWN_PHASE_MARKER: &str = "CINNABAR_SHUTDOWN_PHASE";
 pub const SHUTDOWN_WATCHDOG_ARMED_MARKER: &str = "CINNABAR_SHUTDOWN_WATCHDOG_ARMED";
 pub const SHUTDOWN_WATCHDOG_FIRED_MARKER: &str = "CINNABAR_SHUTDOWN_WATCHDOG_FIRED";
 pub const TARGET_MUTATION_ARMED: &str = "CINNABAR_TARGET_MUTATION_ARMED";
@@ -108,6 +109,7 @@ pub const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (MOVEMENT_TERMINAL, MarkerContract::ParsedEvidence),
     (MOVEMENT_VIOLATION, MarkerContract::ParsedEvidence),
     (SHUTDOWN_COMPLETED, MarkerContract::LogOnlyDiagnostic),
+    (SHUTDOWN_PHASE_MARKER, MarkerContract::LogOnlyDiagnostic),
     (
         SHUTDOWN_WATCHDOG_ARMED_MARKER,
         MarkerContract::LogOnlyDiagnostic,

@@ -93,6 +93,7 @@ fn mesh(key: Key) -> Option<UiMesh> {
     let blur = f32::from_bits(key.blur);
     let padding = shadow_padding(blur, f32::from_bits(key.fringe));
     let vertices = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]].map(|position| UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.0,
         clip_w: 1.0,

@@ -1,6 +1,8 @@
 package core_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"testing"
 
@@ -71,5 +73,37 @@ func TestGophertunnelResourcePackTransportAPI(t *testing.T) {
 	}
 	if minecraft.DefaultResourcePackMaxInFlightChunks <= 0 || minecraft.DefaultResourcePackChunkSize == 0 {
 		t.Fatal("resource-pack transport defaults must remain bounded and non-zero")
+	}
+}
+
+// TestGophertunnelReadsRootPackManifest pins the fork's manifest lookup: a pack whose archive lists an
+// asset folder's manifest.json before its root manifest, as OneBlock's Marketplace pack does, keeps
+// the root manifest's identity so its URL download matches the advertised pack.
+func TestGophertunnelReadsRootPackManifest(t *testing.T) {
+	const root = `{"format_version": 2, "header": {"name": "p", "uuid": "557aceac-4555-4734-90a7-325380966c3c", "version": [1, 8, 71]},
+"modules": [{"type": "resources", "uuid": "557aceac-4555-4734-90a7-325380966c3d", "version": [1, 8, 71]}]}`
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	for _, entry := range [][2]string{
+		{"textures/entity/aquatic_mobs/manifest.json", `{"frames": []}`},
+		{"manifest.json", root},
+	} {
+		w, err := zw.Create(entry[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(entry[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	pack, err := resource.ReadBytes(archive.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pack.UUID() != uuid.MustParse("557aceac-4555-4734-90a7-325380966c3c") || pack.Version() != "1.8.71" {
+		t.Fatalf("pack = %s_%s, want the root manifest's 557aceac-4555-4734-90a7-325380966c3c_1.8.71", pack.UUID(), pack.Version())
 	}
 }

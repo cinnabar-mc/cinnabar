@@ -341,6 +341,7 @@ fn idle_input_relays_pending_animation_end_events() {
         disable_fast_forward: false,
         reset_name: None,
         has_sprite: false,
+        layout_authoritative: true,
     });
     let mut animator = json_ui::Animator::starting_at(0.0);
     animator.sample(&anims, 0.0, None);
@@ -1042,3 +1043,5 @@ fn menu_cancel_key_dismisses_a_form_without_an_edit_box() {
         assert_eq!(sent.is_empty(), menu_cancel.is_none(), "{menu_cancel:?}");
     }
 }
+
+mod hover_focus;

@@ -473,3 +473,66 @@ fn sparse_mesh_packing_avoids_retaining_the_full_grid() {
     assert!(mesh.vertices().len() < 2_000);
     assert!(mesh.indices().len() <= MAX_MESH_INDICES);
 }
+
+/// A ring as an open stroke polyline that returns to its first point, `segments` chords long.
+fn ring(center: [f32; 2], radius: f32, segments: usize) -> Value {
+    json!(
+        (0..=segments)
+            .map(|step| {
+                let angle = step as f32 * std::f32::consts::TAU / segments as f32;
+                [
+                    center[0] + radius * angle.cos(),
+                    center[1] + radius * angle.sin(),
+                ]
+            })
+            .collect::<Vec<_>>()
+    )
+}
+
+/// The crosshair once drawn by a fixed host icon renderer: a ring and four open arms with one
+/// 1.4-unit stroke on a 16-unit box. Authored as a vector path, it keeps solid continuous strokes
+/// and a clear center at small physical sizes, with antialiased edges and a cached mesh.
+#[test]
+fn ring_and_arm_icons_stay_crisp_and_cached_at_small_sizes() {
+    let icon = || {
+        json!([
+            ring([8., 8.], 4.5, 48),
+            [[8, 1], [8, 5]],
+            [[8, 11], [8, 15]],
+            [[1, 8], [5, 8]],
+            [[11, 8], [15, 8]],
+        ])
+    };
+    for size in [12., 16., 24., 32.] {
+        for dpi in [1., 2.] {
+            let key = key(icon(), Some(1.4), size, dpi);
+            let coverage = Coverage::new(&key).unwrap();
+            let at = |x: f32, y: f32| coverage.at([x * size / 16., y * size / 16.]);
+            for step in 0..=24 {
+                let along = 1.5 + 3. * step as f32 / 24.;
+                assert_eq!(at(8., along), 1., "arm at {size}px, {dpi}x");
+                let angle = step as f32 * std::f32::consts::TAU / 24.;
+                assert!(
+                    at(8. + 4.5 * angle.cos(), 8. + 4.5 * angle.sin()) > 0.99,
+                    "ring at {size}px, {dpi}x"
+                );
+            }
+            assert_eq!(at(8., 8.), 0., "center at {size}px, {dpi}x");
+            let mesh = mesh(&key).unwrap();
+            assert!(
+                mesh.vertices()
+                    .iter()
+                    .any(|vertex| vertex.color[3] > 0 && vertex.color[3] < 128),
+                "antialiased edges at {size}px, {dpi}x"
+            );
+        }
+    }
+    let mut cache = Cache::default();
+    let first = cache
+        .get_or_create(key(icon(), Some(1.4), 16., 2.))
+        .unwrap();
+    let second = cache
+        .get_or_create(key(icon(), Some(1.4), 16., 2.))
+        .unwrap();
+    assert!(Arc::ptr_eq(&first, &second), "repeat draws reuse the mesh");
+}

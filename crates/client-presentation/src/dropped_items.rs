@@ -42,7 +42,9 @@ mod source_cost;
 use crate::actor_publication::carried_blocks::CarriedBlockId;
 use crate::session_artwork::ItemArtwork;
 mod special;
+mod trims;
 use preparation::DropPreparation;
+use trims::{placed_trim_model, trimmed_model};
 
 // Provisional world sizes and colours; each needs independent measurement.
 const TNT_FLASH_OVERLAY: [f32; 4] = [1.0, 1.0, 1.0, 0.8];
@@ -393,31 +395,6 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
-    /// The model an actor draws a carried block with. Cubes use their composed carried faces
-    /// (a grass block's tinted side overlay over dirt) unless a session pack retextured them;
-    /// other shapes, such as crossed plants, and retextured cubes use their world model. A
-    /// retextured cube whose world model cannot be built keeps its startup faces.
-    fn actor_carried_block_model(
-        cache: &mut ModelCache,
-        icons: &UiPresentationRuntime,
-        assets: &RuntimeAssets,
-        mode: NetworkIdMode,
-        id: u32,
-    ) -> Option<u32> {
-        let startup_art = match mode {
-            NetworkIdMode::Sequential => Some(id),
-            NetworkIdMode::Hashed => assets.sequential_id_for_hash(id),
-        }
-        .is_some_and(|visual| !assets.is_retextured(assets::BlockVisualId(visual)));
-        if startup_art {
-            Self::carried_block_model(cache, icons, assets, mode, id)
-                .or_else(|| Self::block_model(cache, assets, mode, id))
-        } else {
-            Self::block_model(cache, assets, mode, id)
-                .or_else(|| Self::carried_block_model(cache, icons, assets, mode, id))
-        }
-    }
-
     /// Shares a session block's admitted geometry and artwork across static and dropped items.
     fn session_block_model(
         cache: &mut ModelCache,
@@ -466,13 +443,17 @@ impl DroppedItemPublisher<'_, '_> {
             }
             ItemArtwork::SessionSprite => {
                 icons.session_item_icon(&placement.identifier, placement.metadata)?;
-                Self::icon_model(
-                    cache,
-                    icons,
-                    &placement.identifier,
-                    placement.metadata,
-                    false,
-                )
+                let icon = icons.item_icon(&placement.identifier, placement.metadata);
+                icon.and_then(|icon| placed_trim_model(cache, icons, placement, icon))
+                    .or_else(|| {
+                        Self::icon_model(
+                            cache,
+                            icons,
+                            &placement.identifier,
+                            placement.metadata,
+                            false,
+                        )
+                    })
             }
             ItemArtwork::StartupCube if placement.allow_block_models => Self::carried_block_model(
                 cache,
@@ -484,8 +465,10 @@ impl DroppedItemPublisher<'_, '_> {
             ItemArtwork::StartupCube => None,
             ItemArtwork::StartupSprite => {
                 let icon = startup_icon?;
-                Self::resolved_icon_model(cache, icons, icon, false, || {
-                    resolved_icon_sprite(icons, icon, false)
+                placed_trim_model(cache, icons, placement, icon).or_else(|| {
+                    Self::resolved_icon_model(cache, icons, icon, false, || {
+                        resolved_icon_sprite(icons, icon, false)
+                    })
                 })
             }
         })
@@ -501,7 +484,8 @@ impl DroppedItemPublisher<'_, '_> {
         preparation: &DropPreparation<'_>,
     ) -> Option<preparation::PreparedDrop> {
         let view = preparation.view;
-        let identifier = view.item.identifier.as_deref()?;
+        let retained = view.item.identifier.as_ref()?;
+        let identifier: &str = retained;
         if identifier == assets::gui_item::SHIELD_IDENTIFIER
             && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
             && let Some((key, model)) = cache.shield_model(artwork)
@@ -534,6 +518,18 @@ impl DroppedItemPublisher<'_, '_> {
                     ItemArtwork::SessionSprite => icons.session_item_icon(icon_identifier, variant),
                     _ => icons.startup_item_icon(icon_identifier, variant),
                 }?;
+                if let Some(artwork) =
+                    icons.world_trim_artwork(retained, icon, view.item.trim.as_ref(), true)
+                {
+                    let key = ModelKey::Trim(artwork.clone());
+                    if let Some(prepared) =
+                        preparation.model(cache, &key, DroppedItemShape::Sprite, |cache| {
+                            trimmed_model(cache, icons, artwork)
+                        })
+                    {
+                        return Some(prepared);
+                    }
+                }
                 preparation.model(
                     cache,
                     &ModelKey::icon(icon, true),
@@ -817,7 +813,8 @@ impl DroppedItemPublisher<'_, '_> {
                         }
                         CarriedBlockId::Pinned(state) => (NetworkIdMode::Sequential, state),
                     };
-                    let model = Self::actor_carried_block_model(cache, icons, assets, mode, id);
+                    let model =
+                        special::carried_block_model(cache, icons, assets, held_models, mode, id);
                     let Some(model) = cache.count_item(model) else {
                         continue;
                     };
@@ -902,6 +899,13 @@ impl DroppedItemPublisher<'_, '_> {
     }
 }
 
+/// The longest side of an extruded item sprite on this device.
+fn item_sprite_side() -> u32 {
+    assets::texture::policy::device_policy()
+        .max_side()
+        .min(MAX_ITEM_SPRITE_SIDE)
+}
+
 /// Builds icon pixels lazily; unavailable sprites are retried on the next frame.
 fn icon_sprite(
     icons: &UiPresentationRuntime,
@@ -918,12 +922,7 @@ fn resolved_icon_sprite(
     icon: ui::IconRef,
     native_drop: bool,
 ) -> Option<DroppedItemModel> {
-    let pixels = icons.resolved_item_sprite(
-        icon,
-        assets::texture::policy::device_policy()
-            .max_side()
-            .min(MAX_ITEM_SPRITE_SIDE),
-    )?;
+    let pixels = icons.resolved_item_sprite(icon, item_sprite_side())?;
     let sprite = DroppedItemSprite {
         width: pixels.width,
         height: pixels.height,

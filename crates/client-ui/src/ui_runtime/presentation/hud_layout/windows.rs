@@ -369,9 +369,9 @@ impl HudLayout<'_> {
         self.held_item(player_runtime, runtime, frame)
     }
 
-    /// Draws a search or anvil field's `text`. A focused field, which has a `caret`, shows its
+    /// Draws a one-line field's `text`. A focused field, which has a `caret`, shows its
     /// selection highlighted behind the text, or else the caret glyph at the edit point.
-    fn field_text(
+    pub(super) fn field_text(
         &mut self,
         text: &str,
         caret: Option<FieldCaret>,

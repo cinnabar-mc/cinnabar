@@ -1,26 +1,19 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// Complete module clients can publish independent widgets beyond the legacy sixteen.
+    /// A draft holds many independent widgets beyond the legacy sixteen.
     #[test]
-    fn module_huds_accept_many_small_cards_and_preserve_legacy_shadows() {
+    fn huds_accept_many_small_cards() {
         let cards: Vec<_> = (0..24)
-            .map(|index| serde_json::json!({"id":format!("module_{index}"),"rows":[]}))
+            .map(|index| serde_json::json!({"id":format!("module_{index}")}))
             .collect();
         let hud: Hud = serde_json::from_value(serde_json::json!({"cards":cards})).unwrap();
         assert!(hud.validate().is_ok());
-        assert!(hud.cards.iter().all(|c| c.shadow));
-        let card: Card = serde_json::from_value(
-            serde_json::json!({"id":"inventory","rows":[],"row_layout":"grid","shadow":false}),
-        )
-        .unwrap();
-        assert!(!card.shadow);
-        assert_eq!(card.row_layout, RowLayout::Grid);
     }
     #[test]
     fn larger_card_catalog_keeps_explicit_bounds() {
         let mut hud: Hud = serde_json::from_value(serde_json::json!({"cards":(0..MAX_HUD_CARDS)
-            .map(|index|serde_json::json!({"id":format!("card_{index}"),"rows":[]})).collect::<Vec<_>>()}))
+            .map(|index|serde_json::json!({"id":format!("card_{index}")})).collect::<Vec<_>>()}))
         .unwrap();
         assert!(hud.validate().is_ok());
         let mut excess = hud.cards[0].clone();
@@ -30,16 +23,11 @@ mod tests {
     }
     #[test]
     fn card_defaults_preserve_legacy_background_and_validate_new_presentation_fields() {
-        let mut hud: Hud =
-            serde_json::from_str(r#"{"cards":[{"id":"supplies","rows":[]}]}"#).unwrap();
+        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"supplies"}]}"#).unwrap();
         assert!(hud.cards[0].title.is_empty());
         assert_eq!(hud.cards[0].position, None);
         assert_eq!(hud.cards[0].background_opacity, 0.82);
-        assert_eq!(hud.cards[0].row_layout, RowLayout::Standard);
         assert_eq!(hud.cards[0].width, DEFAULT_CARD_WIDTH);
-        assert_eq!(hud.cards[0].row_height, DEFAULT_ROW_HEIGHT);
-        assert_eq!(hud.cards[0].icon_size, DEFAULT_ICON_SIZE);
-        assert_eq!(hud.cards[0].text_scale, DEFAULT_TEXT_SCALE);
         assert!(hud.validate().is_ok());
         for opacity in [0., 0.35, 1.] {
             hud.cards[0].background_opacity = opacity;
@@ -62,61 +50,16 @@ mod tests {
         assert!(hud.validate().is_err());
     }
     #[test]
-    fn row_layout_dimensions_are_bounded_and_icons_fit_their_rows() {
-        for layout in ["standard", "stacked_text", "icon_right"] {
-            let mut hud: Hud = serde_json::from_value(serde_json::json!({"cards":[{
-                "id":"fixture","row_layout":layout,"width":64.,
-                "row_height":32.,"icon_size":24.,"rows":[]
-            }]}))
-            .unwrap();
-            assert!(hud.validate().is_ok());
-            for dimensions in [
-                [f32::NAN, 32., 24.],
-                [47., 32., 24.],
-                [513., 32., 24.],
-                [64., f32::INFINITY, 24.],
-                [64., 11., 4.],
-                [64., 65., 24.],
-                [64., 32., f32::NAN],
-                [64., 32., 3.],
-                [64., 64., 49.],
-                [64., 20., 24.],
-                [48., 48., 40.],
-            ] {
-                hud.cards[0].width = dimensions[0];
-                hud.cards[0].row_height = dimensions[1];
-                hud.cards[0].icon_size = dimensions[2];
-                assert!(
-                    hud.validate().is_err(),
-                    "layout={layout}, dimensions={dimensions:?}"
-                );
-            }
+    fn card_width_is_bounded() {
+        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"fixture"}]}"#).unwrap();
+        for width in [1., 64., MAX_CARD_WIDTH] {
+            hud.cards[0].width = width;
+            assert!(hud.validate().is_ok(), "width={width}");
         }
-        assert!(
-            serde_json::from_str::<Hud>(
-                r#"{"cards":[{"id":"fixture","row_layout":"unknown","rows":[]}]}"#
-            )
-            .is_err()
-        );
-    }
-    #[test]
-    fn row_text_scale_is_optional_and_bounded_independently_of_geometry() {
-        let mut hud: Hud =
-            serde_json::from_str(r#"{"cards":[{"id":"fixture","rows":[]}]}"#).unwrap();
-        assert_eq!(hud.cards[0].text_scale, 1.);
-        for scale in [0.5, 1., 1.75, 2.] {
-            hud.cards[0].text_scale = scale;
-            assert!(hud.validate().is_ok());
+        for width in [f32::NAN, f32::INFINITY, 0.99, MAX_CARD_WIDTH + 1.] {
+            hud.cards[0].width = width;
+            assert!(hud.validate().is_err(), "width={width}");
         }
-        for scale in [f32::NAN, f32::INFINITY, 0.49, 2.01] {
-            hud.cards[0].text_scale = scale;
-            assert!(hud.validate().is_err(), "text_scale={scale}");
-        }
-        let explicit: Hud =
-            serde_json::from_str(r#"{"cards":[{"id":"fixture","text_scale":1.75,"rows":[]}]}"#)
-                .unwrap();
-        assert_eq!(explicit.cards[0].text_scale, 1.75);
-        assert!(explicit.validate().is_ok());
     }
     #[test]
     fn editor_results_are_bounded_and_cancellation_carries_no_changes() {
@@ -191,59 +134,13 @@ mod tests {
         }
     }
     #[test]
-    fn crosshair_rejects_invisible_nonfinite_and_excessive_geometry() {
-        for value in [f32::NAN, f32::INFINITY, 0., 17.] {
-            assert!(
-                Crosshair {
-                    size: value,
-                    ..Default::default()
-                }
-                .validate()
-                .is_err()
-            );
-        }
-        for alpha in [0., 0.0001, 0.49 / 255.] {
-            assert!(
-                Crosshair {
-                    color: [1., 1., 1., alpha],
-                    outline: 0.,
-                    ..Default::default()
-                }
-                .validate()
-                .is_err(),
-                "foreground alpha must remain visible after 8-bit conversion"
-            );
-        }
-        assert!(
-            Crosshair {
-                color: [1., 1., 1., 1. / 255.],
-                ..Default::default()
-            }
-            .validate()
-            .is_ok()
-        );
-        assert!(Crosshair::default().validate().is_ok());
-    }
-    #[test]
-    fn hud_rejects_ambiguous_ids_formatting_and_invalid_progress() {
-        let row = Row {
-            localized: false,
-            formatted: false,
-            label: "Helmet".into(),
-            value: "34 / 363".into(),
-            item: Some("minecraft:diamond_helmet".into()),
-            effect_id: None,
-            metadata: 0,
-            progress: Some(0.1),
-            color: white(),
-        };
+    fn hud_rejects_ambiguous_ids_and_formatted_titles() {
         let card = Card {
             id: "armor".into(),
             title: "Armor".into(),
             anchor: Anchor::TopRight,
             offset: [-6., 6.],
             scale: 1.,
-            rows: vec![row],
             ..Default::default()
         };
         let mut hud = Hud {
@@ -254,116 +151,7 @@ mod tests {
         hud.cards.push(hud.cards[0].clone());
         assert!(hud.validate().is_err());
         hud.cards.pop();
-        hud.cards[0].rows[0].progress = Some(1.1);
-        assert!(hud.validate().is_err());
-        hud.cards[0].rows[0].progress = None;
         hud.cards[0].title = "§khidden".into();
-        assert!(hud.validate().is_err());
-    }
-}
-
-#[cfg(test)]
-mod cell_tests {
-    use super::*;
-
-    #[test]
-    fn rectangular_cells_are_optional_and_bounded() {
-        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"input","width":56,"rows":[],"cells":[{"rect":[19,0,18,18],"label":"W"}]}]}"#).unwrap();
-        assert!(hud.validate().is_ok());
-        hud.cards[0].width = 32.;
-        hud.cards[0].cells[0].rect = [11., 0., 10., 10.];
-        assert!(hud.validate().is_ok());
-        hud.cards[0].width = 56.;
-        for rect in [
-            [40., 0., 18., 18.],
-            [0., 1010., 18., 18.],
-            [0., 0., 0., 18.],
-            [-1., 0., 18., 18.],
-            [0., 0., f32::NAN, 18.],
-        ] {
-            hud.cards[0].cells[0].rect = rect;
-            assert!(hud.validate().is_err(), "accepted {rect:?}");
-        }
-        hud.cards[0].cells[0].rect = [0., 0., 18., 18.];
-        hud.cards[0].cells[0].background = [0., 0., 0., 2.];
-        assert!(hud.validate().is_err());
-        hud.cards[0].cells[0].background = [0.; 4];
-        hud.cards[0].cells = vec![Cell::default(); MAX_CARD_CELLS];
-        assert!(hud.validate().is_ok());
-        hud.cards[0].cells.push(Cell::default());
-        assert!(hud.validate().is_err());
-    }
-    #[test]
-    fn rows_and_cells_retain_independent_card_and_total_limits() {
-        let row: Row = serde_json::from_str(r#"{"label":"Observed","value":"1"}"#).unwrap();
-        let row_card = Card {
-            id: "rows".into(),
-            rows: vec![row.clone(); MAX_CARD_ROWS],
-            ..Default::default()
-        };
-        let mut single = Hud {
-            cards: vec![row_card.clone()],
-            ..Default::default()
-        };
-        assert!(single.validate().is_ok());
-        single.cards[0].rows.push(row.clone());
-        assert!(
-            single.validate().is_err(),
-            "the text-row limit stays unchanged"
-        );
-        single.cards[0].rows.pop();
-        single.cards[0].cells.push(Cell::default());
-        assert!(
-            single.validate().is_err(),
-            "rows and cells cannot share one card"
-        );
-
-        let mut hud = Hud::default();
-        for index in 0..MAX_HUD_ROWS / MAX_CARD_ROWS {
-            hud.cards.push(Card {
-                id: format!("rows_{index}"),
-                ..row_card.clone()
-            });
-        }
-        for index in 0..MAX_HUD_CELLS / MAX_CARD_CELLS {
-            hud.cards.push(Card {
-                id: format!("cells_{index}"),
-                cells: vec![Cell::default(); MAX_CARD_CELLS],
-                ..Default::default()
-            });
-        }
-        assert!(
-            hud.validate().is_ok(),
-            "full cell budgets must coexist with the existing full row budget"
-        );
-        hud.cards.push(Card {
-            id: "extra_cell".into(),
-            cells: vec![Cell::default()],
-            ..Default::default()
-        });
-        assert!(
-            hud.validate().is_err(),
-            "the total cell limit remains bounded"
-        );
-        hud.cards.pop();
-        hud.cards.push(Card {
-            id: "extra_row".into(),
-            rows: vec![row],
-            ..Default::default()
-        });
-        assert!(
-            hud.validate().is_err(),
-            "the total row limit stays unchanged"
-        );
-    }
-    #[test]
-    fn formatted_cells_are_explicit_bounded_and_accept_native_style_codes() {
-        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"sidebar","rows":[],"cells":[{"label":"§aServer §lScore","formatted":true}]}]}"#).unwrap();
-        assert!(hud.validate().is_ok());
-        hud.cards[0].cells[0].formatted = false;
-        assert!(hud.validate().is_err());
-        hud.cards[0].cells[0].formatted = true;
-        hud.cards[0].cells[0].label.push('\n');
         assert!(hud.validate().is_err());
     }
 }
@@ -371,7 +159,7 @@ use super::*;
 
 /// Native cards, factory resets and editor results accept the full published HUD scale range.
 #[test]
-fn uniform_card_scale_supports_quarter_to_five_without_widening_text_scale() {
+fn uniform_card_scale_supports_quarter_to_five() {
     for scale in [super::MIN_CARD_SCALE, super::MAX_CARD_SCALE] {
         let hud = super::Hud {
             cards: vec![super::Card {
@@ -459,14 +247,14 @@ fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
 #[test]
 fn amendment_visibility_and_inspector_fields_are_additive_and_validated() {
     let legacy: super::Hud = serde_json::from_value(serde_json::json!({
-        "cards":[{"id":"fps","rows":[]}]
+        "cards":[{"id":"fps"}]
     }))
     .unwrap();
     assert!(legacy.cards[0].visible);
     assert!(super::Card::default().visible);
     assert_eq!(legacy.inspector_size, None);
     let mut hud: super::Hud = serde_json::from_value(serde_json::json!({
-        "cards":[{"id":"fps","visible":false,"rows":[]}],
+        "cards":[{"id":"fps","visible":false}],
         "inspector_size":[180,240]
     }))
     .unwrap();
@@ -498,7 +286,7 @@ fn amendment_visibility_and_inspector_fields_are_additive_and_validated() {
     }
     assert!(
         serde_json::from_value::<super::Hud>(
-            serde_json::json!({"cards":[{"id":"fps","rows":[],"visible":0}]})
+            serde_json::json!({"cards":[{"id":"fps","visible":0}]})
         )
         .is_err()
     );
@@ -541,7 +329,7 @@ fn studio_cancellation_cannot_replace_pending_reset_intent() {
 #[test]
 fn background_radii_default_to_the_original_look_and_are_bounded() {
     let mut hud: super::Hud = serde_json::from_value(serde_json::json!({
-        "cards":[{"id":"fps","rows":[{"label":"","value":"60"}]}]
+        "cards":[{"id":"fps"}]
     }))
     .unwrap();
     assert_eq!(
@@ -565,36 +353,13 @@ fn background_radii_default_to_the_original_look_and_are_bounded() {
     }
 }
 
-/// Crosshair artwork requires a separate preview card without row content.
-#[test]
-fn crosshairs_require_preview_isolation() {
-    use super::{Crosshair, Hud};
-    let mut hud: Hud =
-        serde_json::from_str(r#"{"cards":[{"id":"crosshair","preview_only":true,"rows":[]}] }"#)
-            .unwrap();
-    hud.validate().unwrap();
-    hud.cards[0].crosshair = Some(Crosshair::default());
-    hud.validate().unwrap();
-    hud.cards[0].preview_only = false;
-    assert!(hud.validate().is_err());
-    hud.cards[0].preview_only = true;
-    hud.cards[0]
-        .rows
-        .push(serde_json::from_value(serde_json::json!({"label":"","value":"1"})).unwrap());
-    assert!(hud.validate().is_err());
-}
-
-/// Trusted host previews can exceed cell-content bounds without widening JSON admission.
+/// Trusted host preview sizes are validated but never cross JSON.
 #[test]
 fn host_preview_size_is_validated_and_not_serialized() {
     let mut hud = Hud {
         cards: vec![Card {
             id: "touch".into(),
             width: 1.,
-            cells: vec![Cell {
-                rect: [0., 0., 1., 1.],
-                ..Default::default()
-            }],
             editor_size: Some([2048., 1600.]),
             ..Default::default()
         }],

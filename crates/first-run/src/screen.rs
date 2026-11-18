@@ -2,13 +2,28 @@
 
 use std::time::{Duration, Instant};
 
+use launcher::ownership::Sources;
+
 use super::{
     CONSENT_BODY,
+    ownership::{self, Refusal},
     status::{Phase, Status},
 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Screen {
+    /// The ownership gate is checking its sources.
+    Verifying,
+    /// A license account sign-in waits on the player's browser.
+    SignIn {
+        uri: String,
+        code: String,
+    },
+    /// The ownership gate stayed closed.
+    Refused {
+        refusal: Refusal,
+        sources: Sources,
+    },
     Consent,
     /// Accepted or retried; no report has arrived yet.
     Starting,
@@ -33,6 +48,9 @@ pub(super) enum Action {
     Accept,
     ViewEula,
     Retry,
+    SignIn,
+    OpenLink,
+    GetMinecraft,
     Quit,
 }
 
@@ -41,6 +59,12 @@ pub(super) enum Effect {
     None,
     StartWorker,
     OpenEula,
+    /// Runs the ownership gate again, through a new license sign-in when `sign_in`.
+    Verify {
+        sign_in: bool,
+    },
+    OpenSignInLink,
+    GetMinecraft,
     Quit,
 }
 
@@ -49,6 +73,9 @@ impl Screen {
     pub(super) const fn actions(&self) -> &'static [Action] {
         match self {
             Self::Consent => &[Action::Accept, Action::ViewEula, Action::Quit],
+            Self::Verifying => &[Action::Quit],
+            Self::SignIn { .. } => &[Action::OpenLink, Action::Quit],
+            Self::Refused { refusal, sources } => refused_actions(*refusal, *sources),
             Self::Failed { .. } => &[Action::Retry, Action::Quit],
             Self::Done => &[],
             Self::Starting | Self::Downloading { .. } | Self::Preparing { .. } => &[Action::Quit],
@@ -68,7 +95,13 @@ impl Screen {
             return (None, Effect::None);
         }
         match action {
+            Action::Retry if matches!(self, Self::Refused { .. }) => {
+                (Some(Self::Verifying), Effect::Verify { sign_in: false })
+            }
             Action::Accept | Action::Retry => (Some(Self::Starting), Effect::StartWorker),
+            Action::SignIn => (Some(Self::Verifying), Effect::Verify { sign_in: true }),
+            Action::OpenLink => (None, Effect::OpenSignInLink),
+            Action::GetMinecraft => (None, Effect::GetMinecraft),
             Action::ViewEula => (None, Effect::OpenEula),
             Action::Quit => (None, Effect::Quit),
         }
@@ -78,7 +111,18 @@ impl Screen {
         match (action, self) {
             (Action::Accept, _) => "Accept and continue",
             (Action::ViewEula, _) => "View EULA",
+            (Action::Retry, Self::Refused { .. }) => "Try again",
             (Action::Retry, _) => "Retry",
+            (
+                Action::SignIn,
+                Self::Refused {
+                    refusal: Refusal::NotOwned | Refusal::Unverifiable,
+                    ..
+                },
+            ) => "Use another account",
+            (Action::SignIn, _) => "Sign in",
+            (Action::OpenLink, _) => "Open link",
+            (Action::GetMinecraft, _) => "Get Minecraft",
             (Action::Quit, Self::Starting | Self::Downloading { .. } | Self::Preparing { .. }) => {
                 "Cancel"
             }
@@ -89,6 +133,9 @@ impl Screen {
     /// The heading; `updating` swaps first-time wording for update wording.
     pub(super) const fn title(&self, updating: bool) -> &'static str {
         match (self, updating) {
+            (Self::Verifying, _) => "Checking that you own Minecraft…",
+            (Self::SignIn { .. }, _) => "Sign in with Microsoft",
+            (Self::Refused { refusal, .. }, _) => ownership::title(*refusal),
             (Self::Consent, false) => "First-time setup",
             (Self::Consent, true) => "Cinnabar needs updated resources",
             (Self::Starting | Self::Downloading { .. } | Self::Preparing { .. }, true) => {
@@ -107,6 +154,8 @@ impl Screen {
     pub(super) fn body(&self) -> String {
         match self {
             Self::Consent => CONSENT_BODY.to_owned(),
+            Self::SignIn { uri, code } => ownership::code_prompt(uri, code),
+            Self::Refused { refusal, sources } => ownership::body(*refusal, *sources),
             Self::Downloading {
                 received,
                 total,
@@ -114,7 +163,7 @@ impl Screen {
             } => download_detail(*received, *total, *bytes_per_second),
             Self::Preparing { step, total, label } => format!("Step {step} of {total}: {label}"),
             Self::Failed { message } => message.clone(),
-            Self::Starting | Self::Done => String::new(),
+            Self::Verifying | Self::Starting | Self::Done => String::new(),
         }
     }
 
@@ -136,10 +185,25 @@ impl Screen {
     }
 }
 
+/// A refusal's buttons; "Get Minecraft" appears only when the game is missing or not owned.
+pub(super) const fn refused_actions(refusal: Refusal, sources: Sources) -> &'static [Action] {
+    match (refusal, sources.local_install, sources.account) {
+        (Refusal::NotInstalled, ..) => &[Action::GetMinecraft, Action::Retry, Action::Quit],
+        // Closing the window quits, so the row stays within three buttons.
+        (Refusal::NotOwned, true, _) => &[Action::SignIn, Action::GetMinecraft, Action::Retry],
+        (Refusal::NotOwned, false, _) => &[Action::SignIn, Action::GetMinecraft, Action::Quit],
+        (Refusal::SignInRequired, true, _) => &[Action::SignIn, Action::Retry, Action::Quit],
+        (Refusal::SignInRequired, false, _) => &[Action::SignIn, Action::Quit],
+        (Refusal::Unverifiable, _, true) => &[Action::Retry, Action::SignIn, Action::Quit],
+        (Refusal::Unverifiable, _, false) => &[Action::Retry, Action::Quit],
+    }
+}
+
 /// Maps a worker report onto the screen; `meter` turns byte counts into a speed.
 pub(super) fn from_status(status: &Status, meter: &mut Meter, now: Instant) -> Screen {
     match status.phase {
         Phase::AwaitingConsent => Screen::Consent,
+        Phase::AwaitingOwnership => Screen::Verifying,
         Phase::Downloading => {
             let received = status.downloaded.unwrap_or(0);
             Screen::Downloading {
@@ -215,6 +279,32 @@ fn megabytes(bytes: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Four buttons overflow the setup panel's action row.
+    #[test]
+    fn refusals_fit_the_action_row() {
+        let refusals = [
+            Refusal::NotInstalled,
+            Refusal::NotOwned,
+            Refusal::SignInRequired,
+            Refusal::Unverifiable,
+        ];
+        for refusal in refusals {
+            for (local_install, account) in
+                [(false, false), (false, true), (true, false), (true, true)]
+            {
+                let sources = Sources {
+                    local_install,
+                    account,
+                };
+                let actions = refused_actions(refusal, sources);
+                assert!(
+                    (1..=3).contains(&actions.len()),
+                    "{refusal:?} {sources:?}: {actions:?}"
+                );
+            }
+        }
+    }
 
     fn status(phase: Phase) -> Status {
         Status::new(phase, 3, 19, "Compiling entity assets")

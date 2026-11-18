@@ -194,6 +194,130 @@ fn first_reload_still_prepares_biomes_and_environment() {
     }));
 }
 
+#[test]
+fn graphics_mode_reload_preserves_biome_colors_and_dependencies() {
+    let diagnostic = assets::RuntimeAssets::diagnostic();
+    let biomes = assets::CompiledBiomeAssets {
+        rules: vec![assets::BiomeRule {
+            id: 0,
+            name: "test:biome".into(),
+            flags: 0,
+            grass: assets::TintSource::map(assets::TintMapId::Grass),
+            foliage: assets::TintSource::map(assets::TintMapId::Foliage),
+            dry_foliage: assets::TintSource::map(assets::TintMapId::DryFoliage),
+            water: assets::TintSource::direct(0xffffff),
+            temperature_bits: 0.5_f32.to_bits(),
+            downfall_bits: 0.5_f32.to_bits(),
+        }]
+        .into(),
+        ..diagnostic.biome_assets().clone()
+    };
+    let base = Arc::new(
+        diagnostic
+            .with_block_overlay(
+                diagnostic.visual_count() as u32,
+                &assets::BlockOverlay {
+                    biomes: Some(biomes),
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+    );
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(
+        assets::TINT_MAP_SIZE,
+        assets::TINT_MAP_SIZE,
+        image::Rgb([12, 34, 56]),
+    )
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    let path = format!(
+        "textures/colormap/{}.png",
+        assets::TintMapId::Grass.source_name()
+    );
+    let biome = serde_json::to_vec(&serde_json::json!({"minecraft:client_biome": {
+        "description": {"identifier": base.biome_assets().rules[0].name.as_ref()},
+        "components": {"minecraft:water_appearance": {"surface_color": "#123456"}}
+    }}))
+    .unwrap();
+    let stack = super::super::pack_reload_tests::stack(&[
+        (&path, png.get_ref()),
+        ("biomes/test.json", &biome),
+    ]);
+    let joined = resource_packs::prepare_validated_application(stack, Arc::default());
+    let mut reload = PackReload::default();
+    reload.begin_session(1, &joined);
+    let first = prepare_reload(&mut reload, &base);
+    assert_eq!(
+        &first.assets.biome_assets().tint_maps_rgb8[..3],
+        &[12, 34, 56]
+    );
+    assert_eq!(
+        first.assets.biome_assets().rules[0].water,
+        assets::TintSource::direct(0x123456)
+    );
+
+    for graphics_changed in [false, true] {
+        let mut previous = first.application.clone();
+        if graphics_changed {
+            previous.fancy_graphics = !previous.fancy_graphics;
+        }
+        reload.previous = Some(previous);
+        reload.previous_assets = Some(first.assets.clone());
+        reload.request_globals(super::super::pack_reload_tests::stack(&[(
+            "texts/en_US.lang",
+            b"global=value",
+        )]));
+        let composed = ValidatedPackStack::compose(&reload.globals, &reload.server).unwrap();
+        let changes = Changes::between(
+            &composed,
+            Some((
+                &first.application.admission,
+                first.application.dependencies.as_ref(),
+            )),
+        );
+        assert!(changes.language);
+        assert!(!changes.blocks, "the reload changes only language inputs");
+
+        let next = prepare_reload(&mut reload, &base);
+        assert_eq!(next.assets.biome_assets(), first.assets.biome_assets());
+        assert_eq!(
+            next.application.dependencies[&Subscriber::Blocks],
+            first.application.dependencies[&Subscriber::Blocks]
+        );
+        assert_eq!(
+            next.application.terrain_identity,
+            first.application.terrain_identity
+        );
+        assert_eq!(
+            next.application
+                .server_lang
+                .as_ref()
+                .unwrap()
+                .lookup("global"),
+            Some("value")
+        );
+        if !graphics_changed {
+            assert!(Arc::ptr_eq(&next.assets, &first.assets));
+        }
+    }
+}
+
+/// Runs one reload worker to completion without publishing its result to a frame.
+fn prepare_reload(reload: &mut PackReload, base: &Arc<assets::RuntimeAssets>) -> Prepared {
+    reload.start(base.clone(), None, None, None, None);
+    reload
+        .pending
+        .take()
+        .unwrap()
+        .result
+        .into_inner()
+        .unwrap()
+        .recv()
+        .unwrap()
+        .unwrap()
+}
+
 /// Frame publication keeps dependency evidence shared instead of cloning every recorded read.
 #[test]
 fn pack_application_clones_do_no_dependency_sized_work() {

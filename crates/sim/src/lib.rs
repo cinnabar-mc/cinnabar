@@ -3,6 +3,7 @@
 mod aabb;
 mod conformance;
 mod destroy;
+mod dismount;
 mod fluid;
 mod math;
 mod prediction;
@@ -18,6 +19,7 @@ pub use conformance::{
 pub use destroy::{
     BlockDestroyInfo, ComponentDigger, DestroyConditions, HeldTool, destroy_progress_per_tick,
 };
+pub use dismount::Dismount;
 pub use fluid::sample_actor_liquids;
 pub use math::{Vec3, minecraft_cos, minecraft_sin, normalize_direction, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};

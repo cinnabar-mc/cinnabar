@@ -18,37 +18,6 @@ fn attaching_never_requests_a_saved_world_start() {
 }
 
 #[test]
-fn focus_only_pauses_while_playing_and_detached_is_inert() {
-    let mut worlds = LocalWorlds::default();
-    worlds.focus_changed(false);
-    worlds.pump();
-    assert!(!worlds.paused, "not in a world");
-    worlds.set_playing(true);
-    assert!(worlds.paused, "joined while unfocused");
-    worlds.focus_changed(true);
-    assert!(!worlds.paused);
-    worlds.leave_world();
-    assert!(!worlds.playing);
-}
-
-/// The pause menu pauses a single-player world and closing it resumes, as in vanilla.
-#[test]
-fn the_pause_menu_pauses_and_resumes_the_world() {
-    let mut worlds = LocalWorlds::default();
-    worlds.set_pause_menu(true);
-    assert!(!worlds.paused, "online play never pauses");
-    worlds.set_pause_menu(false);
-    worlds.set_playing(true);
-    worlds.set_pause_menu(true);
-    assert!(worlds.paused);
-    worlds.focus_changed(false);
-    worlds.set_pause_menu(false);
-    assert!(worlds.paused, "still unfocused");
-    worlds.focus_changed(true);
-    assert!(!worlds.paused);
-}
-
-#[test]
 fn input_without_a_client_still_advances_the_model() {
     let mut worlds = LocalWorlds::default();
     worlds.input(Input::BeginCreate);
@@ -83,18 +52,4 @@ fn a_detach_mid_import_ends_the_import_modal() {
     worlds.detach();
     assert_eq!(worlds.menu().screen(), Screen::Error);
     assert!(!worlds.menu().busy());
-}
-
-/// Disabling focus pause preserves explicit pause-menu control.
-#[test]
-fn focus_preference_does_not_disable_explicit_pause() {
-    let mut worlds = LocalWorlds::default();
-    worlds.set_playing(true);
-    worlds.focus_changed(false);
-    assert!(worlds.paused);
-    worlds.pause_on_unfocus = false;
-    worlds.sync_pause();
-    assert!(!worlds.paused);
-    worlds.set_pause_menu(true);
-    assert!(worlds.paused);
 }

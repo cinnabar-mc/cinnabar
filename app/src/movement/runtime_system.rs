@@ -41,12 +41,21 @@ pub(crate) struct MovementSettings<'w> {
     movement_override: Option<Res<'w, crate::modding::ModMovementInputActive>>,
 }
 
+/// Reads the interaction owners whose item use shapes movement and whose waiting work keeps a
+/// player getting off its mount seated.
+#[derive(SystemParam)]
+pub(crate) struct InteractionOwners<'w> {
+    item_use: Option<Res<'w, client_interaction::item_use::ItemUseRuntime>>,
+    melee: Option<Res<'w, client_interaction::melee::MeleeRuntime>>,
+    block_use: Option<Res<'w, client_interaction::block_use::BlockUseRuntime>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
     time: Res<Time<Real>>,
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     acceptance: Res<AcceptanceRun>,
     mut physics: ResMut<LocalPhysicsController>,
@@ -56,7 +65,7 @@ pub(crate) fn advance_local_physics(
     mut view: ResMut<LocalViewPose>,
     settings: MovementSettings<'_>,
     player: Option<Res<PlayerRuntime>>,
-    item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
+    interaction: InteractionOwners<'_>,
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
@@ -68,6 +77,7 @@ pub(crate) fn advance_local_physics(
         locals.reset();
         return;
     }
+    settle_passed_through_vehicle(&mut client_world, &physics);
     let Some(stream) = client_world.stream.as_ref() else {
         return;
     };
@@ -88,7 +98,8 @@ pub(crate) fn advance_local_physics(
     let facts = gameplay::movement::local_facts::read(
         player.as_deref().map(|player| &**player),
         &client_interaction::movement::world_view::GameplayWorldView(stream),
-        item_use
+        interaction
+            .item_use
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),
     );
@@ -137,7 +148,8 @@ pub(crate) fn advance_local_physics(
         always_sprint: gameplay.always_sprint && input_mode == PlayerInputMode::Mouse,
         toggle_sneak: gameplay.toggle_sneak,
         facts,
-        item_use_modifier: item_use
+        item_use_modifier: interaction
+            .item_use
             .as_deref()
             .and_then(|item_use| item_use.movement_modifier()),
         hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held()).then(
@@ -164,9 +176,11 @@ pub(crate) fn advance_local_physics(
         frame.toggle_sneak = false;
     }
 
-    if !movement_ticker.can_advance_physics_frame() {
+    // Transport pausing simulation, or a dismount waiting for seated movement already
+    // produced (decided for the whole frame by `decide_frame_ticks`), runs no ticks.
+    if !movement_ticker.can_advance_physics_frame() || locals.holds_ticks() {
+        // Retain presses and publish the pose while no tick runs.
         locals.observe_dismount(&frame, movement_ticker.session_generation());
-        // Retain presses and publish the pose while transport pauses simulation.
         publish_physics_view(&mut physics, &mut view);
         return;
     }
@@ -175,6 +189,43 @@ pub(crate) fn advance_local_physics(
         collisions.registry(stream.network_id_mode()),
         &client_world.movement_colliders,
     );
+    // The client gets the player off a mount it places them beside before the frame's ticks;
+    // the server moves riders off any other mount once it has the request.
+    let server_places_dismount = !frame.facts.client_places_dismount();
+    let interactions = gameplay::movement::SeatedInteractions {
+        attack_pressed: input.phase(Action::Attack).pressed,
+        attack_queued: interaction
+            .melee
+            .as_deref()
+            .is_some_and(|melee| melee.press_pending() || melee.has_queued_work(&movement_ticker)),
+        item_release: interaction
+            .item_use
+            .as_deref()
+            .is_some_and(|item_use| item_use.has_pending_release()),
+        block_use: interaction
+            .block_use
+            .as_deref()
+            .is_some_and(|block_use| block_use.press_pending()),
+    };
+    let got_off = network.as_deref().is_some_and(|network| {
+        locals.leave_mount(
+            &mut frame,
+            &mut physics,
+            &movement_ticker,
+            &world,
+            interactions,
+            |packet| network.send_inventory_packets(vec![packet]),
+        )
+    });
+    let world = if got_off {
+        drop(world);
+        let Some(world) = leave_local_mount(&mut client_world, &collisions, &physics) else {
+            return;
+        };
+        world
+    } else {
+        world
+    };
     let advanced = locals.advance(
         frame,
         &mut physics,
@@ -186,12 +237,72 @@ pub(crate) fn advance_local_physics(
     if !advanced {
         return;
     }
-    if let (Some(position), Some(network)) = (physics.network_position(), network) {
+    if server_places_dismount
+        && let (Some(position), Some(network)) = (physics.network_position(), network)
+    {
         locals.flush_dismount(position, |packet| {
             network.send_inventory_packets(vec![packet])
         });
     }
     publish_physics_view(&mut physics, &mut view);
+}
+
+/// Decides once per frame whether a requested dismount holds the frame's ticks;
+/// [`gameplay::movement::frame_simulates_tick`] and the movement system both read that
+/// decision. The caller runs it before anything consumes tick-bound pick or item-use state.
+pub(crate) fn decide_frame_ticks(world: &mut bevy::prelude::World) {
+    if !world.contains_resource::<LocomotionState>() {
+        return;
+    }
+    world.resource_scope(|world, mut locals: bevy::prelude::Mut<LocomotionState>| {
+        if let Some(movement_ticker) = world.get_resource::<MovementTicker>() {
+            locals.decide_frame_ticks(movement_ticker);
+        }
+    });
+}
+
+/// Takes the local player off its mount in the client world, whose mount state then keeps it
+/// off until the server's links for it change: its body, animation, view and picking stop
+/// following the seat at once. Returns the collision view for the rest of the frame's ticks,
+/// which collides with the mount just left unless the player, placed by `physics`, still
+/// overlaps it.
+pub(super) fn leave_local_mount<'a>(
+    client_world: &'a mut ClientWorld,
+    collisions: &'a PhysicsCollisionRegistries,
+    physics: &LocalPhysicsController,
+) -> Option<sim::PaletteWorld<'a>> {
+    client_world.stream.as_mut()?.leave_local_mount();
+    settle_passed_through_vehicle(client_world, physics);
+    let client_world: &'a ClientWorld = client_world;
+    let stream = client_world.stream.as_ref()?;
+    Some(super::collision_world(
+        stream,
+        collisions.registry(stream.network_id_mode()),
+        &client_world.movement_colliders,
+    ))
+}
+
+/// Makes movement collide again with the vehicle the player got off once the player's box no
+/// longer overlaps it, past face contact; until then a player left at its seat is not lifted
+/// out on top of it.
+pub(super) fn settle_passed_through_vehicle(
+    client_world: &mut ClientWorld,
+    physics: &LocalPhysicsController,
+) {
+    let Some(stream) = client_world.stream.as_mut() else {
+        return;
+    };
+    let Some((min, max)) = stream.authority().local_passed_through_vehicle_bounds() else {
+        return;
+    };
+    let vector = |[x, y, z]: [f32; 3]| sim::Vec3::new(x.into(), y.into(), z.into());
+    let vehicle = sim::Aabb::new(vector(min), vector(max));
+    if !physics
+        .body_box()
+        .is_some_and(|body| body.overlap_minimal_translation(vehicle).is_some())
+    {
+        stream.release_local_passed_through_vehicle();
+    }
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.
