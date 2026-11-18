@@ -638,7 +638,7 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
         &Default::default(),
     );
     let (_, _, filled) = paint.mount_jump.expect("jump bar");
-    assert_eq!(filled, 91.0);
+    assert_eq!(filled, 91.0 / 182.0);
     presentation.hud_frame_mut().mount_jump = Some(0.0);
     assert_eq!(
         build(&player_runtime, &mut presentation, &runtime, 0)

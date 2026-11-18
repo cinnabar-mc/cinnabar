@@ -94,6 +94,52 @@ pub(crate) fn normalize_npc_dialogue(packet: NpcDialogue) -> Result<UiEvent, UiP
     }))
 }
 
+/// The NPC actor's synced dialogue data: its name tag, `InteractText` and
+/// `Actions` list. Vanilla servers keep an NPC's dialogue there and open the
+/// screen with an `NpcDialogue` packet that names no scene.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NpcActorDialogue<'a> {
+    pub name: Option<&'a str>,
+    pub interact_text: Option<&'a str>,
+    pub actions_json: Option<&'a str>,
+}
+
+impl FormRequestEvent {
+    /// Chooses an opening NPC dialogue's source as the vanilla client does: with
+    /// an empty scene name the name, text and action list all come from `actor`
+    /// and the packet's own fields are ignored; with a scene name the packet's
+    /// fields stay. Oversized actor text leaves that field empty, and an
+    /// oversized or malformed action list leaves no buttons.
+    pub fn use_npc_actor_dialogue(&mut self, actor: NpcActorDialogue<'_>) {
+        let ServerFormModel::NpcDialogue(npc) = &mut self.model else {
+            return;
+        };
+        if !npc.open || !npc.scene_name.is_empty() {
+            return;
+        }
+        let text = |value: Option<&str>| {
+            Arc::from(
+                value
+                    .filter(|text| text.len() <= MAX_UI_TEXT_BYTES)
+                    .unwrap_or(""),
+            )
+        };
+        npc.npc_name = text(actor.name);
+        self.title = Some(Arc::clone(&npc.npc_name));
+        npc.dialogue = text(actor.interact_text);
+        let json = actor
+            .actions_json
+            .filter(|json| json.len() <= MAX_FORM_JSON_BYTES)
+            .unwrap_or("");
+        let (json, buttons) = match buttons(json) {
+            Ok(buttons) => (json, buttons),
+            Err(_) => ("", Vec::new()),
+        };
+        npc.buttons = buttons.into();
+        self.json = Arc::from(json);
+    }
+}
+
 /// Button-mode actions from the action list; an empty list is no buttons.
 fn buttons(json: &str) -> Result<Vec<NpcButton>, UnsupportedForm> {
     if json.trim().is_empty() {
@@ -175,6 +221,111 @@ pub fn server_settings_request_packet() -> crate::Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn opened(packet: NpcDialogue) -> FormRequestEvent {
+        match normalize_npc_dialogue(packet).unwrap() {
+            UiEvent::Form(form) => form,
+            other => panic!("expected a form, got {other:?}"),
+        }
+    }
+
+    fn npc(form: &FormRequestEvent) -> &NpcDialogueForm {
+        match &form.model {
+            ServerFormModel::NpcDialogue(npc) => npc,
+            other => panic!("expected an NPC dialogue, got {other:?}"),
+        }
+    }
+
+    const ACTOR: NpcActorDialogue<'static> = NpcActorDialogue {
+        name: Some("NPC"),
+        interact_text: Some("Welcome!"),
+        actions_json: Some(r#"[{"button_name":"Shop","mode":0,"type":1}]"#),
+    };
+
+    #[test]
+    fn sceneless_dialogue_shows_actor_data() {
+        // BDS and Realms open a talked-to NPC with every text field empty.
+        let mut form = opened(NpcDialogue::default());
+        form.use_npc_actor_dialogue(ACTOR);
+        let npc = npc(&form);
+        assert_eq!(npc.npc_name.as_ref(), "NPC");
+        assert_eq!(form.title.as_deref(), Some("NPC"));
+        assert_eq!(npc.dialogue.as_ref(), "Welcome!");
+        assert_eq!(npc.buttons.len(), 1);
+        assert_eq!(npc.buttons[0].text.as_ref(), "Shop");
+        assert_eq!(npc.buttons[0].action_index, 0);
+        assert_eq!(Some(form.json.as_ref()), ACTOR.actions_json);
+    }
+
+    #[test]
+    fn sceneless_dialogue_replaces_packet_fields_with_actor_data() {
+        let mut form = opened(NpcDialogue {
+            npc_name: "Guide".into(),
+            dialogue: "Packet text".into(),
+            action_json: r#"[{"button_name":"Quest"},{"button_name":"Trade"}]"#.into(),
+            ..NpcDialogue::default()
+        });
+        form.use_npc_actor_dialogue(NpcActorDialogue {
+            interact_text: None,
+            ..ACTOR
+        });
+        let npc = npc(&form);
+        assert_eq!(npc.npc_name.as_ref(), "NPC");
+        assert!(npc.dialogue.is_empty());
+        assert_eq!(npc.buttons.len(), 1);
+        assert_eq!(npc.buttons[0].text.as_ref(), "Shop");
+    }
+
+    #[test]
+    fn scene_dialogue_keeps_packet_fields() {
+        let mut form = opened(NpcDialogue {
+            scene_name: "intro".into(),
+            npc_name: "Guide".into(),
+            dialogue: "Packet text".into(),
+            action_json: r#"[{"button_name":"Quest"}]"#.into(),
+            ..NpcDialogue::default()
+        });
+        form.use_npc_actor_dialogue(ACTOR);
+        let npc = npc(&form);
+        assert_eq!(npc.npc_name.as_ref(), "Guide");
+        assert_eq!(npc.dialogue.as_ref(), "Packet text");
+        assert_eq!(npc.buttons[0].text.as_ref(), "Quest");
+    }
+
+    #[test]
+    fn scene_dialogue_with_empty_fields_ignores_actor_data() {
+        let mut form = opened(NpcDialogue {
+            scene_name: "intro".into(),
+            ..NpcDialogue::default()
+        });
+        form.use_npc_actor_dialogue(ACTOR);
+        let npc = npc(&form);
+        assert!(npc.npc_name.is_empty());
+        assert!(npc.dialogue.is_empty());
+        assert!(npc.buttons.is_empty());
+    }
+
+    #[test]
+    fn malformed_actor_actions_leave_the_dialogue_without_buttons() {
+        let mut form = opened(NpcDialogue::default());
+        form.use_npc_actor_dialogue(NpcActorDialogue {
+            actions_json: Some("{}"),
+            ..ACTOR
+        });
+        assert!(npc(&form).buttons.is_empty());
+        assert!(form.json.is_empty());
+        assert_eq!(npc(&form).dialogue.as_ref(), "Welcome!");
+    }
+
+    #[test]
+    fn closing_dialogue_ignores_actor_data() {
+        let mut form = opened(NpcDialogue {
+            npc_dialogue_action_type: NpcDialogueActionType::Close,
+            ..NpcDialogue::default()
+        });
+        form.use_npc_actor_dialogue(ACTOR);
+        assert!(npc(&form).dialogue.is_empty());
+    }
 
     #[test]
     fn action_buttons_preserve_their_label_kind() {

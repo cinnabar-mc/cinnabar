@@ -9,21 +9,20 @@ impl WorldStream {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
         self.stats.normalization_reasons.record(reason);
     }
-    /// Commits prepared block mutations and invalidates what they changed.
+    /// Commits block mutations prepared from the current terrain and invalidates what they changed.
     pub(super) fn commit_block_mutations(
         &mut self,
         prepared: Vec<PreparedSubChunkMutation>,
     ) -> bool {
         let relight = prepared
             .iter()
-            .filter(|mutation| mutation.changed())
             .filter_map(|mutation| {
-                self.block_light_semantics_changed(
+                self.block_mutation_changes_light(
                     self.authority
                         .terrain()
                         .sub_chunk(mutation.key())
                         .as_deref(),
-                    mutation.replacement(),
+                    mutation,
                 )
                 .then_some(mutation.key())
             })

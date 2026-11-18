@@ -169,9 +169,6 @@ fn paint(
     dpi: f32,
     scale: u8,
 ) -> Vec<UiNode> {
-    let font = fixture_font();
-    let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
-    let metrics = TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), Some(scale));
     let role = assets::HudTextureRole::Crosshair;
     let [width, height] = role.expected_size();
     let hud = HudPaint {
@@ -182,6 +179,22 @@ fn paint(
         crosshair_blend: blend,
         ..Default::default()
     };
+    paint_hud(engine, screens, crosshair, &hud, physical, dpi, scale)
+}
+
+/// Paints `hud` through the production HUD entry point or the same image screen as a menu.
+fn paint_hud(
+    engine: &FormEngine,
+    screens: Option<&mut HudScreens>,
+    crosshair: bool,
+    hud: &HudPaint,
+    physical: [u32; 2],
+    dpi: f32,
+    scale: u8,
+) -> Vec<UiNode> {
+    let font = fixture_font();
+    let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
+    let metrics = TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), Some(scale));
     let context = Context::desktop();
     let mut nodes = Vec::new();
     let mut next = 1;
@@ -210,7 +223,7 @@ fn paint(
                         catalog: engine.catalog(),
                         context: &context,
                         data: Arc::new(DataSource::default()),
-                        paint: &hud,
+                        paint: hud,
                         icons: &[],
                     },
                     &mut frame,
@@ -416,5 +429,35 @@ fn combined_hotbar_renderer_paints_every_slot_from_its_anchor() {
             ],
             [left, 10.0, left + 20.0, 32.0]
         );
+    }
+}
+
+/// The jump fill spans the bar's own width, so a bar widened for the touch hotbar's inventory
+/// button still fills completely at full charge.
+#[test]
+fn mount_jump_fill_spans_a_widened_bar() {
+    let engine = engine_with_hud(
+        r#"{"namespace":"hud","hud_screen":{"type":"screen","controls":[
+        {"jump":{"type":"custom","renderer":"horse_jump_renderer","size":[202,5],
+            "anchor_from":"top_left","anchor_to":"top_left","offset":[10,20]}}
+    ]}}"#,
+    );
+    let sprite = SheetSprite {
+        page: 0,
+        uv: [0, 0, 182, 5],
+    };
+    for (filled, right) in [(1.0, 212.0), (0.5, 111.0)] {
+        let hud = HudPaint {
+            mount_jump: Some((sprite, sprite, filled)),
+            ..Default::default()
+        };
+        let mut screens = HudScreens::default();
+        let nodes = paint_hud(&engine, Some(&mut screens), false, &hud, [320, 200], 1.0, 1);
+        let spans = nodes
+            .iter()
+            .filter(|node| !matches!(node.visual(), UiVisual::None))
+            .map(|node| [node.bounds().min().x(), node.bounds().max().x()])
+            .collect::<Vec<_>>();
+        assert_eq!(spans, [[10.0, 212.0], [10.0, right]], "fill {filled}");
     }
 }

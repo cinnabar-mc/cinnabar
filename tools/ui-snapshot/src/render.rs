@@ -190,8 +190,8 @@ fn png_fixture(
         return touch_utilities::png(state, dir, *view);
     }
     #[cfg(feature = "test-support")]
-    if let Fixture::BedrockHotbar { raised } = &fixture {
-        return bedrock_hotbar::png(state, dir, *raised);
+    if let Fixture::BedrockHotbar { raised, touch } = &fixture {
+        return bedrock_hotbar::png(state, dir, *raised, *touch);
     }
     let menu = matches!(
         &fixture,

@@ -58,6 +58,37 @@ fn sub_chunk_wire(y: i8, mixed: bool) -> Vec<u8> {
     bytes
 }
 
+/// Palette entries in [`partial_palette_wire`], fewer than its four index bits can address.
+const PARTIAL_PALETTE_LEN: u32 = 9;
+
+/// A four-bit section whose palette leaves index values unused, as most terrain sections do,
+/// so decoding has to check every index against the palette length.
+fn partial_palette_wire(y: i8) -> Vec<u8> {
+    let mut bytes = vec![9, 1, y as u8, (4 << 1) | 1];
+    for word in 0..BLOCKS_PER_SUB_CHUNK as u32 / 8 {
+        let packed = (0..8).fold(0_u32, |packed, slot| {
+            packed | (((word * 8 + slot) % PARTIAL_PALETTE_LEN) << (slot * 4))
+        });
+        bytes.extend_from_slice(&packed.to_le_bytes());
+    }
+    push_var_i32(&mut bytes, PARTIAL_PALETTE_LEN as i32);
+    for entry in 0..PARTIAL_PALETTE_LEN {
+        push_var_i32(&mut bytes, 20 + entry as i32);
+    }
+    bytes
+}
+
+fn check_partial_palette(decoded: &SubChunk) {
+    let storage = &decoded.storages()[0];
+    assert_eq!(storage.bits_per_index(), 4);
+    assert_eq!(storage.palette().len(), PARTIAL_PALETTE_LEN as usize);
+    for linear in 0..BLOCKS_PER_SUB_CHUNK as u32 {
+        let [x, z, y] = [linear >> 8, (linear >> 4) & 15, linear & 15].map(|axis| axis as u8);
+        let expected = 20 + linear % PARTIAL_PALETTE_LEN;
+        assert_eq!(decoded.runtime_id(0, x, y, z), Some(expected));
+    }
+}
+
 fn check_sub_chunk(decoded: &SubChunk, y: i8, mixed: bool) {
     assert_eq!(decoded.version(), 9);
     assert_eq!(decoded.y_index(), Some(y));
@@ -78,11 +109,21 @@ fn check_sub_chunk(decoded: &SubChunk, y: i8, mixed: bool) {
 
 fn decode_benches(c: &mut Criterion) {
     let mut group = c.benchmark_group("world/sub_chunk_decode");
-    for (name, mixed) in [("uniform_0bit", false), ("mixed_1bit", true)] {
-        let payload = sub_chunk_wire(-4, mixed);
+    for (name, mixed) in [
+        ("uniform_0bit", Some(false)),
+        ("mixed_1bit", Some(true)),
+        ("partial_4bit", None),
+    ] {
+        let payload = mixed.map_or_else(
+            || partial_palette_wire(-4),
+            |mixed| sub_chunk_wire(-4, mixed),
+        );
         let (decoded, consumed) = SubChunk::decode_prefix(&payload, &IDS);
         assert_eq!(consumed, payload.len());
-        check_sub_chunk(&decoded, -4, mixed);
+        match mixed {
+            Some(mixed) => check_sub_chunk(&decoded, -4, mixed),
+            None => check_partial_palette(&decoded),
+        }
         group.throughput(Throughput::Bytes(payload.len() as u64));
         group.bench_with_input(
             BenchmarkId::new(name, "4096_blocks"),

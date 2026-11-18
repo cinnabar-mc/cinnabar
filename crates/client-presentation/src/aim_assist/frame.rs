@@ -201,7 +201,7 @@ impl AimAssistFrame {
             local_actor,
             ActorDataKey::AimAssistPriorityCategoryID.wire_value(),
         );
-        for actor in world.remote_actors() {
+        for actor in world.pick_candidates() {
             // The threshold admits whole actors, including all of their custom boxes.
             if self.entities.len() >= MAX_ENTITY_CANDIDATES {
                 break;

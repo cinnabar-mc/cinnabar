@@ -134,7 +134,11 @@ pub(in super::super) fn capture(
     }
     paint.bubbles = bubbles(runtime);
     if let (Some(charge), Some(sheet)) = (frame.mount_jump, sheet) {
-        let filled = (charge.clamp(0.0, 1.0) * 183.0).floor().clamp(0.0, 182.0);
+        let steps = JUMP_BAR_STEPS;
+        let filled = (charge.clamp(0.0, 1.0) * (steps + 1.0))
+            .floor()
+            .clamp(0.0, steps)
+            / steps;
         paint.mount_jump = Some((
             sheet_sprite(sheet, HudTextureRole::MountJumpBackground),
             sheet_sprite(sheet, HudTextureRole::MountJumpProgress),
@@ -143,6 +147,10 @@ pub(in super::super) fn capture(
     }
     paint
 }
+
+/// Fill steps of the mount jump bar, one per GUI pixel of its 182-pixel artwork; the charge
+/// fills `floor(charge * 183)` of them.
+const JUMP_BAR_STEPS: f32 = 182.0;
 
 fn sheet_sprite(sheet: &HudTexturePages, role: HudTextureRole) -> SheetSprite {
     SheetSprite {

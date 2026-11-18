@@ -254,6 +254,63 @@ fn ui_index_loads_custom_paths_and_extensions() {
     assert!(catalog.lookup("custom", "inventory").is_some());
 }
 
+/// Indexed definition documents totalling `sizes` MiB of padding, named so they
+/// load in order, with each namespace's `card` control.
+fn padded_definitions(sizes: &[usize]) -> Vec<(String, String)> {
+    sizes
+        .iter()
+        .enumerate()
+        .map(|(i, mib)| {
+            (
+                format!("ui/doc_{i:02}.json"),
+                format!(
+                    r##"{{"namespace":"doc{i}","card":{{"type":"panel","property_bag":{{"#padding":"{}"}}}}}}"##,
+                    "x".repeat(mib * 1024 * 1024)
+                ),
+            )
+        })
+        .collect()
+}
+
+/// The namespaces of `docs` whose `card` reaches the catalog.
+fn loaded_namespaces(docs: &[(String, String)]) -> Vec<usize> {
+    let index = format!(
+        r#"{{"ui_defs":{}}}"#,
+        serde_json::to_string(&docs.iter().map(|(path, _)| path).collect::<Vec<_>>()).unwrap()
+    );
+    let mut files = vec![("ui/_ui_defs.json", index.as_bytes())];
+    files.extend(
+        docs.iter()
+            .map(|(path, text)| (path.as_str(), text.as_bytes())),
+    );
+    let pack = super::collect_server_ui(&files_pack(&files)).unwrap();
+    let mut catalog = json_ui::Catalog::default();
+    catalog.apply_pack(
+        pack.ui_layers[0]
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+    );
+    (0..docs.len())
+        .filter(|i| catalog.lookup(&format!("doc{i}"), "card").is_some())
+        .collect()
+}
+
+/// Generated HUD packs ship more than 16 MiB of definitions, and all of it loads.
+#[test]
+fn ui_definitions_past_sixteen_mib_all_load() {
+    let docs = padded_definitions(&[9, 9, 0]);
+    assert_eq!(loaded_namespaces(&docs), [0, 1, 2]);
+}
+
+/// The stack's definitions stay bounded: a document past the allowance is skipped,
+/// and a later one that still fits loads.
+#[test]
+fn ui_definitions_stop_at_the_stack_allowance() {
+    let mib = super::ui::MAX_SERVER_UI_BYTES / (1024 * 1024);
+    let docs = padded_definitions(&[mib / 2, mib / 2, 0]);
+    assert_eq!(loaded_namespaces(&docs), [0, 2]);
+}
+
 #[test]
 fn ui_index_in_higher_pack_selects_lower_at_prefixed_document() {
     let path = "@behub/components/label.json";
