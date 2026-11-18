@@ -663,6 +663,10 @@ authority through the same ordered controls. Synthetic creation keeps that lifet
 and its already accepted updates and effects. Replacement retires cached flags, pose
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
 actor and controller writes independently of the replaced actor state.
+The local player's direct passengers do not take its picks and aim assistance, as vanilla's
+actor picking skips them; riders of those passengers stay pickable. They also do not block
+its predicted movement, which is provisional because the native collision rule for a
+player's own passengers is unverified (incomplete).
 Passenger order follows vanilla's `Actor::addPassenger` and `ActorLinkSystem::_tick`: links
 apply in arrival order, a player boarding behind a non-player takes the front seat, and a
 rider whose actor is missing never holds back later riders. A rider spawning in its link's

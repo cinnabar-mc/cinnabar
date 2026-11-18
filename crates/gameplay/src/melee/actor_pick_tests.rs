@@ -144,3 +144,41 @@ fn mob_pick_resolves_the_unique_id_instead_of_the_backing_block() {
         }
     }
 }
+
+/// An actor riding the local player is never its pick target, so a carried passenger does not
+/// take the rays meant for blocks, items and other actors.
+#[test]
+fn actors_riding_the_local_player_are_not_pick_candidates() {
+    let mut world = world();
+    let event = protocol::test_support::packets::add_painting_event(
+        -73,
+        91,
+        "backyard",
+        2,
+        [0.0, 70.5, 3.5],
+    )
+    .unwrap()
+    .unwrap();
+    world.apply_ordered_event(event, Some(1)).unwrap();
+    let link = |link_type| {
+        protocol::WorldEvent::ActorLink(protocol::ActorLinkEvent {
+            dimension: 0,
+            ridden_unique_id: 999,
+            rider_unique_id: -73,
+            link_type,
+            immediate: false,
+            rider_initiated: false,
+        })
+    };
+    assert_eq!(world.pick_candidates().count(), 1);
+    world
+        .apply_ordered_event(link(protocol::ActorLinkType::Passenger), Some(2))
+        .unwrap();
+    assert!(world.rides_local_player(-73));
+    assert_eq!(world.pick_candidates().count(), 0);
+    assert_eq!(world.remote_actors().count(), 1);
+    world
+        .apply_ordered_event(link(protocol::ActorLinkType::Remove), Some(3))
+        .unwrap();
+    assert_eq!(world.pick_candidates().count(), 1);
+}

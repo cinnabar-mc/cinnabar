@@ -665,7 +665,8 @@ impl WorldAuthority {
             .filter(|actor| actor.runtime_id != self.local_player_runtime_id)
     }
 
-    /// Shares solid bounds for prediction, excluding the local actor and its current mount.
+    /// Shares solid bounds for prediction, excluding the local actor, its current mount and
+    /// its own riders.
     pub fn movement_actor_colliders(&self) -> std::sync::Arc<[crate::ActorCollisionBounds]> {
         self.actors
             .movement_collider_snapshot(self.local_player_runtime_id, self.local_player_unique_id)
@@ -677,6 +678,16 @@ impl WorldAuthority {
         self.actors
             .actors()
             .filter(move |actor| actor.runtime_id != local)
+    }
+    /// Actors the local player's rays may pick: every remote actor except its direct
+    /// passengers. Its own mount is excluded by id.
+    pub fn pick_candidates(&self) -> impl Iterator<Item = &ActorSnapshot> {
+        self.remote_actors()
+            .filter(|actor| !self.rides_local_player(actor.unique_id))
+    }
+    /// Whether the actor is a direct passenger of the local player.
+    pub fn rides_local_player(&self, unique_id: i64) -> bool {
+        self.actors.rides(unique_id, self.local_player_unique_id)
     }
     /// Interaction boxes at the completed simulation pose, before any pending actor ticks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {

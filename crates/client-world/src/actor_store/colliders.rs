@@ -29,7 +29,8 @@ impl PartialEq for Collider {
 #[derive(Debug)]
 struct Snapshot {
     mover: u64,
-    mount: Option<i64>,
+    /// Actors the mover never collides with, in the order they were supplied.
+    skipped: Vec<i64>,
     bounds: Arc<[ActorCollisionBounds]>,
 }
 
@@ -78,7 +79,7 @@ impl ActorColliders {
             let visible = |collider: Option<Collider>| {
                 collider
                     .filter(|collider| {
-                        runtime != snapshot.mover && Some(collider.unique_id) != snapshot.mount
+                        runtime != snapshot.mover && !snapshot.skipped.contains(&collider.unique_id)
                     })
                     .and_then(|collider| collider.bounds)
                     .map(|(min, max)| (min.map(f32::to_bits), max.map(f32::to_bits)))
@@ -89,15 +90,21 @@ impl ActorColliders {
         }
     }
 
-    /// Shares stable runtime-ordered bounds, refreshing both mover and mount filters on demand.
-    pub(super) fn snapshot(&self, mover: u64, mount: Option<i64>) -> Arc<[ActorCollisionBounds]> {
+    /// Shares stable runtime-ordered bounds, refreshing the mover and the `skipped` actors it
+    /// never collides with on demand. Supplying the same actors in another order only rebuilds.
+    pub(super) fn snapshot(
+        &self,
+        mover: u64,
+        skipped: impl Iterator<Item = i64> + Clone,
+    ) -> Arc<[ActorCollisionBounds]> {
         let mut cached = self.snapshot.lock().expect("collider snapshot lock");
         if let Some(snapshot) = cached.as_ref()
             && snapshot.mover == mover
-            && snapshot.mount == mount
+            && snapshot.skipped.iter().copied().eq(skipped.clone())
         {
             return Arc::clone(&snapshot.bounds);
         }
+        let skipped: Vec<i64> = skipped.collect();
         let bounds = self
             .members
             .iter()
@@ -106,12 +113,14 @@ impl ActorColliders {
                 self.snapshot_visits
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             })
-            .filter(|(runtime, collider)| **runtime != mover && Some(collider.unique_id) != mount)
+            .filter(|(runtime, collider)| {
+                **runtime != mover && !skipped.contains(&collider.unique_id)
+            })
             .filter_map(|(_, collider)| collider.bounds)
             .collect();
         *cached = Some(Snapshot {
             mover,
-            mount,
+            skipped,
             bounds,
         });
         Arc::clone(&cached.as_ref().expect("installed collider snapshot").bounds)

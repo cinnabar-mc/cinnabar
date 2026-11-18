@@ -84,7 +84,10 @@ fn current(store: &ActorStore, mover: u64, rider: i64) -> Arc<[ActorCollisionBou
     let expected: Vec<_> = actors
         .into_iter()
         .filter(|actor| {
-            actor.is_collidable() && actor.runtime_id != mover && Some(actor.unique_id) != mount
+            actor.is_collidable()
+                && actor.runtime_id != mover
+                && Some(actor.unique_id) != mount
+                && !store.rides(actor.unique_id, rider)
         })
         .filter_map(ActorSnapshot::movement_collision_bounds)
         .collect();
@@ -536,4 +539,22 @@ fn falling_block_offset_and_dedicated_painting_bounds_follow_the_live_actor() {
         assert_eq!(boxes.len(), 2);
         assert_eq!(boxes[1], store.get(91).unwrap().bounding_box().unwrap());
     }
+}
+
+/// A direct passenger of the mover never blocks it: a solid passenger a server seats on the
+/// player would otherwise hold the player inside its box. A rider of that passenger still does.
+#[test]
+fn the_movers_own_riders_never_collide_with_it() {
+    let mut store = ActorStore::new(1, 0);
+    for runtime in [2, 3, 4] {
+        spawn(&mut store, runtime, 10 + runtime as i64, true);
+    }
+    assert_eq!(current(&store, 1, 100).len(), 3);
+    link(&mut store, 12, 100, protocol::ActorLinkType::Passenger);
+    assert_eq!(current(&store, 1, 100).len(), 2);
+    link(&mut store, 13, 12, protocol::ActorLinkType::Passenger);
+    assert!(store.rides(12, 100) && !store.rides(13, 100) && !store.rides(100, 12));
+    assert_eq!(current(&store, 1, 100).len(), 2);
+    link(&mut store, 12, 100, protocol::ActorLinkType::Remove);
+    assert_eq!(current(&store, 1, 100).len(), 3);
 }

@@ -131,7 +131,7 @@ fn target(
         .ray(vector(ray.origin()), vector(ray.direction()), reach)
         .ok()?;
     let actor = pick_actor(
-        stream.authority().remote_actors(),
+        stream.authority().pick_candidates(),
         stream.authority().local_mount_unique_id(),
         ray.origin().to_array(),
         ray.direction().to_array(),

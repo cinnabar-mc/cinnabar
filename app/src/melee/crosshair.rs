@@ -341,6 +341,7 @@ fn resolve_frame(
                 && !actor.status.dead
                 && identity.runtime_id != stream.local_player_runtime_id()
                 && Some(actor.unique_id) != mount
+                && !world.rides_local_player(actor.unique_id)
                 && gameplay::melee::actor_is_pickable(actor)
         })
     };
