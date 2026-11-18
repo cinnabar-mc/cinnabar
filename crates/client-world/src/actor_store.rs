@@ -172,8 +172,8 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
-    /// The synced name tag, `InteractText` and `Actions` an NPC dialogue falls
-    /// back to; a missing or non-string entry reads as `None`.
+    /// The synced name tag, `InteractText` and `Actions` a scene-less NPC
+    /// dialogue shows; a missing or non-string entry reads as `None`.
     #[must_use]
     pub fn npc_dialogue(&self) -> protocol::NpcActorDialogue<'_> {
         let text = |key: ActorDataKey| match self.metadata.get(&key.wire_value()) {

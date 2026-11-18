@@ -127,8 +127,8 @@ pub(crate) fn drain_committed_ui_before_authority(
                     let actor = authority
                         .actor_lifetime(snapshot.runtime_id)
                         .filter(|actor| actor.spawn_revision <= sequence)?;
-                    // Vanilla servers leave the packet's text to the NPC's synced data.
-                    event.fill_npc_dialogue_from_actor(snapshot.npc_dialogue());
+                    // A dialogue without a scene shows the NPC's synced data.
+                    event.use_npc_actor_dialogue(snapshot.npc_dialogue());
                     Some(actor)
                 });
                 ui_runtime

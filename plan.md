@@ -1667,8 +1667,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   settings close. Embedding their controls within the settings panel instead of a
   separate form remains incomplete.
   NPC dialogue actions expose command/URL labels and pointer hit targets through
-  their JSON-UI collection. Actor portraits, matched acceptance for larger action
-  lists and touch/console behavior remain incomplete.
+  their JSON-UI collection. A dialogue without a scene name shows the NPC actor's
+  synced name tag, `InteractText` and `Actions` instead of the packet's fields.
+  That text is read once when the screen opens rather than following later actor
+  data updates, and a dialogue for an unknown or non-NPC actor still opens instead
+  of being ignored. Actor portraits, matched acceptance for larger action lists
+  and touch/console behavior remain incomplete.
   A command block opens vanilla's JSON-UI editor from the server's `ContainerOpen`, loaded from
   its block and actor, and reports a `CommandBlockUpdate` when a changed screen closes. The
   minecart command block editor, command autocomplete (`IntellisenseHandler`), the paste

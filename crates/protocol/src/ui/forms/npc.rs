@@ -95,8 +95,8 @@ pub(crate) fn normalize_npc_dialogue(packet: NpcDialogue) -> Result<UiEvent, UiP
 }
 
 /// The NPC actor's synced dialogue data: its name tag, `InteractText` and
-/// `Actions` list. Vanilla servers keep an NPC's dialogue there and may open the
-/// screen with an `NpcDialogue` packet whose own fields are empty.
+/// `Actions` list. Vanilla servers keep an NPC's dialogue there and open the
+/// screen with an `NpcDialogue` packet that names no scene.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NpcActorDialogue<'a> {
     pub name: Option<&'a str>,
@@ -105,37 +105,38 @@ pub struct NpcActorDialogue<'a> {
 }
 
 impl FormRequestEvent {
-    /// Fills an opening NPC dialogue's empty name, text and action list from
-    /// `actor`, as the vanilla screen does; fields the packet supplied win.
-    /// Oversized or malformed actor data leaves that field empty.
-    pub fn fill_npc_dialogue_from_actor(&mut self, actor: NpcActorDialogue<'_>) {
+    /// Chooses an opening NPC dialogue's source as the vanilla client does: with
+    /// an empty scene name the name, text and action list all come from `actor`
+    /// and the packet's own fields are ignored; with a scene name the packet's
+    /// fields stay. Oversized actor text leaves that field empty, and an
+    /// oversized or malformed action list leaves no buttons.
+    pub fn use_npc_actor_dialogue(&mut self, actor: NpcActorDialogue<'_>) {
         let ServerFormModel::NpcDialogue(npc) = &mut self.model else {
             return;
         };
-        if !npc.open {
+        if !npc.open || !npc.scene_name.is_empty() {
             return;
         }
-        let usable = |text: &&str| !text.trim().is_empty() && text.len() <= MAX_UI_TEXT_BYTES;
-        if npc.npc_name.trim().is_empty()
-            && let Some(name) = actor.name.filter(usable)
-        {
-            npc.npc_name = Arc::from(name);
-            self.title = Some(Arc::clone(&npc.npc_name));
-        }
-        if npc.dialogue.trim().is_empty()
-            && let Some(text) = actor.interact_text.filter(usable)
-        {
-            npc.dialogue = Arc::from(text);
-        }
-        if self.json.trim().is_empty()
-            && let Some(json) = actor
-                .actions_json
-                .filter(|json| !json.trim().is_empty() && json.len() <= MAX_FORM_JSON_BYTES)
-            && let Ok(buttons) = buttons(json)
-        {
-            npc.buttons = buttons.into();
-            self.json = Arc::from(json);
-        }
+        let text = |value: Option<&str>| {
+            Arc::from(
+                value
+                    .filter(|text| text.len() <= MAX_UI_TEXT_BYTES)
+                    .unwrap_or(""),
+            )
+        };
+        npc.npc_name = text(actor.name);
+        self.title = Some(Arc::clone(&npc.npc_name));
+        npc.dialogue = text(actor.interact_text);
+        let json = actor
+            .actions_json
+            .filter(|json| json.len() <= MAX_FORM_JSON_BYTES)
+            .unwrap_or("");
+        let (json, buttons) = match buttons(json) {
+            Ok(buttons) => (json, buttons),
+            Err(_) => ("", Vec::new()),
+        };
+        npc.buttons = buttons.into();
+        self.json = Arc::from(json);
     }
 }
 
@@ -242,10 +243,10 @@ mod tests {
     };
 
     #[test]
-    fn empty_dialogue_packet_falls_back_to_actor_data() {
+    fn sceneless_dialogue_shows_actor_data() {
         // BDS and Realms open a talked-to NPC with every text field empty.
         let mut form = opened(NpcDialogue::default());
-        form.fill_npc_dialogue_from_actor(ACTOR);
+        form.use_npc_actor_dialogue(ACTOR);
         let npc = npc(&form);
         assert_eq!(npc.npc_name.as_ref(), "NPC");
         assert_eq!(form.title.as_deref(), Some("NPC"));
@@ -257,14 +258,34 @@ mod tests {
     }
 
     #[test]
-    fn packet_dialogue_fields_win_over_actor_data() {
+    fn sceneless_dialogue_replaces_packet_fields_with_actor_data() {
         let mut form = opened(NpcDialogue {
+            npc_name: "Guide".into(),
+            dialogue: "Packet text".into(),
+            action_json: r#"[{"button_name":"Quest"},{"button_name":"Trade"}]"#.into(),
+            ..NpcDialogue::default()
+        });
+        form.use_npc_actor_dialogue(NpcActorDialogue {
+            interact_text: None,
+            ..ACTOR
+        });
+        let npc = npc(&form);
+        assert_eq!(npc.npc_name.as_ref(), "NPC");
+        assert!(npc.dialogue.is_empty());
+        assert_eq!(npc.buttons.len(), 1);
+        assert_eq!(npc.buttons[0].text.as_ref(), "Shop");
+    }
+
+    #[test]
+    fn scene_dialogue_keeps_packet_fields() {
+        let mut form = opened(NpcDialogue {
+            scene_name: "intro".into(),
             npc_name: "Guide".into(),
             dialogue: "Packet text".into(),
             action_json: r#"[{"button_name":"Quest"}]"#.into(),
             ..NpcDialogue::default()
         });
-        form.fill_npc_dialogue_from_actor(ACTOR);
+        form.use_npc_actor_dialogue(ACTOR);
         let npc = npc(&form);
         assert_eq!(npc.npc_name.as_ref(), "Guide");
         assert_eq!(npc.dialogue.as_ref(), "Packet text");
@@ -272,9 +293,22 @@ mod tests {
     }
 
     #[test]
+    fn scene_dialogue_with_empty_fields_ignores_actor_data() {
+        let mut form = opened(NpcDialogue {
+            scene_name: "intro".into(),
+            ..NpcDialogue::default()
+        });
+        form.use_npc_actor_dialogue(ACTOR);
+        let npc = npc(&form);
+        assert!(npc.npc_name.is_empty());
+        assert!(npc.dialogue.is_empty());
+        assert!(npc.buttons.is_empty());
+    }
+
+    #[test]
     fn malformed_actor_actions_leave_the_dialogue_without_buttons() {
         let mut form = opened(NpcDialogue::default());
-        form.fill_npc_dialogue_from_actor(NpcActorDialogue {
+        form.use_npc_actor_dialogue(NpcActorDialogue {
             actions_json: Some("{}"),
             ..ACTOR
         });
@@ -289,7 +323,7 @@ mod tests {
             npc_dialogue_action_type: NpcDialogueActionType::Close,
             ..NpcDialogue::default()
         });
-        form.fill_npc_dialogue_from_actor(ACTOR);
+        form.use_npc_actor_dialogue(ACTOR);
         assert!(npc(&form).dialogue.is_empty());
     }
 
