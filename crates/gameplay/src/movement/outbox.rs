@@ -390,6 +390,9 @@ impl MovementTicker {
 
     /// Unsent ticks newer than `after`, oldest first, with the distance each moved and
     /// its ground contact before moving.
+    ///
+    /// The distance is the tick's resolved displacement, not the reported velocity: a
+    /// grounded player keeps a downward velocity while standing still.
     pub fn unstepped_interaction_ticks(
         &self,
         after: Option<u64>,
@@ -399,8 +402,7 @@ impl MovementTicker {
             .filter(|sample| after.is_none_or(|after| sample.snapshot.tick > after))
             .map(|sample| {
                 let moved = sample
-                    .snapshot
-                    .delta
+                    .displacement
                     .iter()
                     .map(|axis| axis * axis)
                     .sum::<f32>();
