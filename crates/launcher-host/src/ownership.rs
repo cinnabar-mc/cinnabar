@@ -69,16 +69,51 @@ pub fn probe_local() -> LocalProbe {
         )
     };
     let found = matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0;
-    LocalProbe {
-        // The Microsoft Store is part of Windows.
-        store_usable: true,
-        install: if found {
-            policy::LocalInstall::Found
-        } else {
-            policy::LocalInstall::NotFound
-        },
-        store_app: None,
-    }
+    LocalProbe::windows(found, !found && atlas_os())
+}
+
+/// Whether this Windows carries the markers AtlasOS's playbook writes.
+#[cfg(windows)]
+fn atlas_os() -> bool {
+    use windows_sys::Win32::{
+        Foundation::ERROR_SUCCESS,
+        System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW},
+    };
+    let wide = |text: &str| text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    [
+        (
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation",
+            "Model",
+        ),
+        (
+            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            "RegisteredOrganization",
+        ),
+    ]
+    .into_iter()
+    .any(|(key, name)| {
+        let (key, name) = (wide(key), wide(name));
+        let mut value = [0u16; 128];
+        let mut bytes = std::mem::size_of_val(&value) as u32;
+        // SAFETY: key and name are NUL-terminated, and `bytes` is `value`'s size in bytes.
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                key.as_ptr(),
+                name.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                value.as_mut_ptr().cast(),
+                &mut bytes,
+            )
+        };
+        let len = value
+            .iter()
+            .position(|&unit| unit == 0)
+            .unwrap_or(value.len());
+        status == ERROR_SUCCESS
+            && policy::is_atlas_os_marker(&String::from_utf16_lossy(&value[..len]))
+    })
 }
 
 /// One look at this device's Google Play and, where Play keeps the source, its Minecraft install.

@@ -91,11 +91,37 @@ pub enum LocalInstall {
 }
 
 impl LocalProbe {
+    /// A Windows probe. AtlasOS strips Store components the game's install needs, so there a
+    /// missing game means the Store can't vouch, which leaves only the account source.
+    #[must_use]
+    pub const fn windows(found: bool, atlas_os: bool) -> Self {
+        Self {
+            store_usable: found || !atlas_os,
+            install: if found {
+                LocalInstall::Found
+            } else {
+                LocalInstall::NotFound
+            },
+            store_app: None,
+        }
+    }
+
     /// This build's sources on this device, after the probe.
     #[must_use]
     pub const fn sources(self) -> Sources {
         sources(self.store_usable)
     }
+}
+
+/// The prefix AtlasOS's playbook writes to Windows' OEM `Model` and `RegisteredOrganization`.
+const ATLAS_OS_MARKER: &str = "Atlas Playbook ";
+
+/// Whether a Windows OEM `Model` or `RegisteredOrganization` value marks an AtlasOS install.
+#[must_use]
+pub fn is_atlas_os_marker(value: &str) -> bool {
+    value
+        .get(..ATLAS_OS_MARKER.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(ATLAS_OS_MARKER))
 }
 
 /// The proof sources this build offers on this platform.
