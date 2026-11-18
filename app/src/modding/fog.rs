@@ -17,6 +17,16 @@ pub(super) fn configure(app: &mut App) {
     );
 }
 
+impl From<mod_host::FogSuppression> for VisualFogSuppression {
+    fn from(fog: mod_host::FogSuppression) -> Self {
+        Self {
+            air: fog.air,
+            water: fog.water,
+            lava: fog.lava,
+        }
+    }
+}
+
 /// Skips fog only while a world is shown and a mod holds the request; any mod may skip it.
 fn publish(
     runtime: Option<Res<super::ModRuntime>>,
@@ -34,7 +44,8 @@ fn publish(
             }),
         _ => mod_host::FogSuppression::default(),
     };
-    if fog.0 != wanted {
-        fog.0 = wanted;
+    let wanted = VisualFogSuppression::from(wanted);
+    if *fog != wanted {
+        *fog = wanted;
     }
 }

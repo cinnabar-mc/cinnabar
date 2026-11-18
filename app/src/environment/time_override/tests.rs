@@ -253,7 +253,7 @@ fn fogged(app: &mut App, medium: meshing::CameraMedium) -> AtmosphereFrame {
 }
 
 fn suppress(air: bool, water: bool, lava: bool) -> environment::VisualFogSuppression {
-    environment::VisualFogSuppression(mod_host::FogSuppression { air, water, lava })
+    environment::VisualFogSuppression { air, water, lava }
 }
 
 /// A suppressed medium loses its distance fog without changing the medium or the weather.
@@ -305,4 +305,37 @@ fn fog_suppression_does_not_undo_blindness() {
         .blindness = 1.0;
     let frame = fogged(&mut app, meshing::CameraMedium::Air);
     assert!(frame.fog_end() < 10.0, "{}", frame.fog_end());
+}
+
+/// Partial blindness and darkness keep exactly the view distance the native fog gives them,
+/// and the view clears again once both effects end.
+#[test]
+fn fog_suppression_keeps_partial_vision_effect_restrictions() {
+    use client_presentation::camera::VisionEffects;
+    use meshing::CameraMedium::Water;
+    let mut app = atmosphere_app(true);
+    app.init_resource::<environment::VisualFogSuppression>();
+    for (blindness, darkness) in [(0.5, 0.0), (0.0, 1.0), (0.25, 0.5)] {
+        let set_effects = |app: &mut App, blindness: f32, darkness: f32| {
+            let mut vision = app.world_mut().resource_mut::<VisionEffects>();
+            vision.blindness = blindness;
+            vision.darkness = darkness;
+        };
+        set_effects(&mut app, blindness, darkness);
+        *app.world_mut()
+            .resource_mut::<environment::VisualFogSuppression>() = suppress(false, false, false);
+        let native = fogged(&mut app, Water);
+        *app.world_mut()
+            .resource_mut::<environment::VisualFogSuppression>() = suppress(true, true, true);
+        let hidden = fogged(&mut app, Water);
+        assert!(native.fog_end() < 60.0, "{blindness} {darkness}");
+        assert_eq!(
+            hidden.fog_start(),
+            native.fog_start(),
+            "{blindness} {darkness}"
+        );
+        assert_eq!(hidden.fog_end(), native.fog_end(), "{blindness} {darkness}");
+        set_effects(&mut app, 0.0, 0.0);
+        assert!(fogged(&mut app, Water).fog_start() >= 1.0e5);
+    }
 }

@@ -14,15 +14,19 @@ pub(crate) struct VisualWeatherOverride(pub(crate) Option<[f32; 2]>);
 
 /// The camera mediums whose distance fog the loaded mods switched off, for the local view only.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct VisualFogSuppression(pub(crate) mod_host::FogSuppression);
+pub(crate) struct VisualFogSuppression {
+    pub(crate) air: bool,
+    pub(crate) water: bool,
+    pub(crate) lava: bool,
+}
 
 impl VisualFogSuppression {
     /// Whether the fog of the medium the camera is in is switched off.
     pub(crate) fn covers(self, medium: CameraMedium) -> bool {
         match medium {
-            CameraMedium::Air => self.0.air,
-            CameraMedium::Water => self.0.water,
-            CameraMedium::Lava => self.0.lava,
+            CameraMedium::Air => self.air,
+            CameraMedium::Water => self.water,
+            CameraMedium::Lava => self.lava,
         }
     }
 }

@@ -280,16 +280,11 @@ impl cinnabar::extension::environment::Host for State {
         &mut self,
         mediums: cinnabar::extension::environment::FogMediums,
     ) -> Result<Result<(), String>> {
-        use cinnabar::extension::environment::FogMediums;
         self.environment.write()?;
         if !self.grants.environment {
             return Ok(Err("environment capability denied".into()));
         }
-        self.environment.pending_fog_suppression = Some(crate::FogSuppression {
-            air: mediums.contains(FogMediums::AIR),
-            water: mediums.contains(FogMediums::WATER),
-            lava: mediums.contains(FogMediums::LAVA),
-        });
+        self.environment.stage_fog_suppression(mediums);
         Ok(Ok(()))
     }
 
@@ -795,11 +790,6 @@ impl Instance {
     }
     pub(super) fn fullbright(&self) -> bool {
         self.store.data().environment.fullbright
-    }
-
-    /// Reads the committed fog suppression without entering the component.
-    pub(super) fn fog_suppression(&self) -> crate::FogSuppression {
-        self.store.data().environment.fog_suppression
     }
 
     /// Reads the committed presentation clock without entering the component.

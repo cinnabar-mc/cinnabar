@@ -12,6 +12,8 @@ use meshing::cloud_viewport::CLOUD_FADE_START;
 
 use crate::AtmosphereViewInputs;
 
+#[path = "atmosphere/fog_suppression.rs"]
+mod fog_suppression;
 #[path = "atmosphere/liquid_distance.rs"]
 mod liquid_distance;
 
@@ -22,9 +24,6 @@ pub const CLOUD_ALPHA: f32 = 0.7;
 const CLOUD_SUNRISE_WEIGHT: f32 = 0.35;
 const RAIN_CLOUD_CHANNEL: f32 = 0.6;
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
-
-/// Fog start and end, in blocks, of a frame with its fog removed: beyond any view distance.
-const NO_FOG_DISTANCE: f32 = 1.0e6;
 
 // Fallbacks mirroring the vanilla default fog profile, used only without a compiled carrier.
 const WATER_FOG_RGB8: u32 = 0x0044_AFF5;
@@ -416,16 +415,6 @@ impl AtmosphereFrame {
         self.fog_color_start.w =
             celestial::lerp(self.fog_color_start.w * end_scale, 0.0, blindness)
                 .min(self.fog_end_time.x);
-        self
-    }
-
-    /// Moves distance fog out of reach so no fragment is fogged, keeping its colour, the camera
-    /// medium and every other channel. Effects applied afterwards, such as blindness, still close
-    /// the fog in.
-    #[must_use]
-    pub fn without_fog(mut self) -> Self {
-        self.fog_color_start.w = NO_FOG_DISTANCE;
-        self.fog_end_time.x = NO_FOG_DISTANCE;
         self
     }
 
@@ -872,31 +861,6 @@ mod tests {
         assert_eq!(lava.fog_end(), 0.64);
         assert_eq!(water.fog_color(), super::rgb8_to_linear(0x0044_AFF5));
         assert_eq!(lava.fog_color(), super::rgb8_to_linear(0x0099_1A00));
-    }
-
-    #[test]
-    fn removed_fog_reaches_no_fragment_and_keeps_every_other_channel() {
-        for medium in [CameraMedium::Air, CameraMedium::Water, CameraMedium::Lava] {
-            let foggy =
-                AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.5).with_camera_medium(medium);
-            let clear = foggy.without_fog();
-            assert!(clear.fog_start() >= 1.0e5 && clear.fog_end() >= clear.fog_start());
-            assert_eq!(clear.camera_medium(), medium);
-            assert_eq!(clear.fog_color(), foggy.fog_color());
-            assert_eq!(clear.sky_horizon(), foggy.sky_horizon());
-            assert_eq!(clear.sun_direction(), foggy.sun_direction());
-            assert_eq!(clear.rain_level(), foggy.rain_level());
-        }
-    }
-
-    #[test]
-    fn blindness_still_closes_in_removed_fog() {
-        let clear = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0)
-            .with_camera_medium(CameraMedium::Water)
-            .without_fog();
-        let blind = clear.with_vision_effects(1.0, 0.0, 0.0);
-        assert!(blind.fog_end() < 10.0, "{}", blind.fog_end());
-        assert!(blind.fog_start() <= blind.fog_end());
     }
 
     #[test]

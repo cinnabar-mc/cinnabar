@@ -94,7 +94,8 @@ set-fog-suppression: func(mediums: fog-mediums) -> result<_, string>;
 ```
 
 Retained local fog suppression: the view skips the distance fog of each listed medium. The
-empty set restores native fog. Blindness and darkness effects and server boss fog still
-apply, and the camera's medium itself is unchanged. Requires the environment grant.
+empty set restores native fog. While blindness or darkness is active the native fog range
+still applies, so the effect keeps limiting the view, and server boss fog still applies. The
+camera's medium itself is unchanged. Requires the environment grant.
 
 Types: [`fog-mediums`](environment.md#type-fog-mediums).

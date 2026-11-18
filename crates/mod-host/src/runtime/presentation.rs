@@ -3,6 +3,13 @@
 use super::*;
 use wasmtime::component::{HasSelf, Linker};
 
+impl Instance {
+    /// Reads the committed fog suppression without entering the component.
+    pub(crate) fn fog_suppression(&self) -> crate::FogSuppression {
+        self.store.data().environment.fog_suppression
+    }
+}
+
 impl State {
     /// Reads committed actor references without copying geometry or waiting for a snapshot.
     pub(crate) fn drawing_entity_keys(

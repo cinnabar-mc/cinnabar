@@ -60,6 +60,19 @@ impl Environment {
         *writes = 0;
     }
 
+    /// Stages the mediums a mod wants without distance fog, replacing its previous request.
+    pub fn stage_fog_suppression(
+        &mut self,
+        mediums: super::cinnabar::extension::environment::FogMediums,
+    ) {
+        use super::cinnabar::extension::environment::FogMediums;
+        self.pending_fog_suppression = Some(crate::FogSuppression {
+            air: mediums.contains(FogMediums::AIR),
+            water: mediums.contains(FogMediums::WATER),
+            lava: mediums.contains(FogMediums::LAVA),
+        });
+    }
+
     /// Charges all environment imports against their shared callback allowance.
     pub fn write(&mut self) -> anyhow::Result<()> {
         self.writes += 1;
