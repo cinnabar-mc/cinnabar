@@ -40,7 +40,7 @@ impl Device {
 
     /// `package`'s signers, or the failure its reads throw.
     fn signers(&self, package: &str) -> Result<Option<&Vec<[u8; 32]>>, ReadFailed> {
-        if self.unreadable.iter().any(|name| *name == Some(package)) {
+        if self.unreadable.contains(&Some(package)) {
             return Err(ReadFailed);
         }
         Ok(self
@@ -93,7 +93,7 @@ impl Packages for Device {
     }
 
     fn enabled(&mut self, package: &str) -> Result<bool, ReadFailed> {
-        Ok(self.installed(package)? && !self.disabled.iter().any(|name| *name == package))
+        Ok(self.installed(package)? && !self.disabled.contains(&package))
     }
 
     fn has_signing_certificate(
@@ -132,13 +132,16 @@ impl Packages for Device {
 
 const API_LEVELS: [u32; 6] = [26, 27, 28, 29, 30, 35];
 
+/// Turns a Play-installed device into one case's device.
+type Setup = fn(Device) -> Device;
+
 /// Every Play state against every game install: only a clean negative about Play turns the gate
 /// off, an unreadable Play keeps it on and is unverifiable whatever the game shows, and only a
 /// genuine Play install of the game passes.
 #[test]
 fn each_play_state_and_game_install_decides_the_gate() {
     use PlayState::*;
-    let plays: [(PlayState, fn(Device) -> Device); 6] = [
+    let plays: [(PlayState, Setup); 6] = [
         (Usable, |device| device),
         (Absent, |device| device.without(STORE)),
         (Disabled, |device| Device {
@@ -157,7 +160,7 @@ fn each_play_state_and_game_install_decides_the_gate() {
             ..device
         }),
     ];
-    let games: [(&str, fn(Device) -> Device); 5] = [
+    let games: [(&str, Setup); 5] = [
         ("genuine", |device| device),
         ("missing", |device| device.without(PACKAGE)),
         ("sideloaded", |device| Device {
