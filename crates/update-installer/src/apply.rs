@@ -107,22 +107,13 @@ pub fn after_exit(
             let destination = platform::windows_destination(target)?;
             let artifact = copy_payload(stage_dir, &selected.artifact, work.path())?;
             touched = true;
-            // Moving never downgrades a per-user install already beside the per-machine one, and
-            // stops when that install's build cannot be read.
-            let existing = destination
-                .join(update_manifest::runtime::executable("CLIENT", os))
-                .is_file();
-            let replace = destination == target || !existing || {
-                let installed = target::installed_build(&destination)
-                    .context("read the per-user install's build")?;
-                update_manifest::select::compare_builds(
+            let replace = destination == target
+                || may_replace(
+                    &destination,
                     &selected.manifest.version,
                     selected.manifest.build_number,
-                    &installed.version,
-                    installed.number,
-                )?
-                .is_gt()
-            };
+                    target::installed_build,
+                )?;
             if replace {
                 platform::install_windows(
                     &artifact,
@@ -276,6 +267,31 @@ impl std::fmt::Display for Untouched {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("installation was not changed")
     }
+}
+
+/// Whether moving a per-machine install may install `version`/`number` into `destination`: only
+/// when no Windows client is there, or the one there reports an older build. A per-user install
+/// that cannot be inspected or queried stops the move rather than risking a downgrade.
+fn may_replace(
+    destination: &Path,
+    version: &str,
+    number: u64,
+    installed: impl FnOnce(&Path) -> Result<update_manifest::build::Build>,
+) -> Result<bool> {
+    let client = destination.join(update_manifest::runtime::executable("CLIENT", "windows"));
+    match fs::metadata(&client) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        Err(error) => return Err(error).context("inspect the per-user install"),
+        Ok(_) => {}
+    }
+    let installed = installed(destination).context("read the per-user install's build")?;
+    Ok(update_manifest::select::compare_builds(
+        version,
+        number,
+        &installed.version,
+        installed.number,
+    )?
+    .is_gt())
 }
 
 /// Keeps the most recently downloaded previous MSI for manual repair, without copying Program Files.
