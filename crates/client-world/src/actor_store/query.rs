@@ -19,32 +19,6 @@ impl ActorStore {
             .filter(|_| self.local_vehicle.left_rider != Some(rider_unique_id))
     }
 
-    /// Whether `rider_unique_id` rides `vehicle_unique_id` as the client shows it, directly or
-    /// through other riders.
-    pub(crate) fn rides(&self, rider_unique_id: i64, vehicle_unique_id: i64) -> bool {
-        let mut current = rider_unique_id;
-        // Bounded by the link count, so a cycle of links ends.
-        for _ in 0..self.rider_to_ridden.len() {
-            match self.ridden_unique_id(current) {
-                Some(next) if next == vehicle_unique_id => return true,
-                Some(next) => current = next,
-                None => return false,
-            }
-        }
-        false
-    }
-
-    /// Every actor riding `vehicle_unique_id`, directly or through other riders.
-    pub(crate) fn riders_of(
-        &self,
-        vehicle_unique_id: i64,
-    ) -> impl Iterator<Item = i64> + Clone + '_ {
-        self.rider_to_ridden
-            .keys()
-            .copied()
-            .filter(move |rider| self.rides(*rider, vehicle_unique_id))
-    }
-
     /// The server's link for `rider_unique_id`, which mount changes are published from.
     pub(crate) fn linked_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
         self.rider_to_ridden.get(&rider_unique_id).copied()

@@ -48,7 +48,7 @@ pub fn actor_pick_unique_id(
     excluded_unique_id: Option<i64>,
 ) -> Option<i64> {
     let actor = pick_actor_by(
-        world.pick_candidates(),
+        world.remote_actors(),
         |actor| world.pick_hit_boxes(actor),
         excluded_unique_id,
         origin,

@@ -188,8 +188,8 @@ impl ActorSnapshot {
 }
 
 impl ActorStore {
-    /// Shares solid bounds in stable runtime order, excluding the mover, its current mount or
-    /// the vehicle it got off while it still passes through it, and every actor riding it.
+    /// Shares solid bounds in stable runtime order, excluding the mover and its current mount,
+    /// or the vehicle it got off while it still passes through it.
     pub(crate) fn movement_collider_snapshot(
         &self,
         mover: u64,
@@ -197,9 +197,7 @@ impl ActorStore {
     ) -> std::sync::Arc<[ActorCollisionBounds]> {
         let skipped = self
             .ridden_unique_id(rider)
-            .or_else(|| self.passed_through_vehicle(rider))
-            .into_iter()
-            .chain(self.riders_of(rider));
+            .or_else(|| self.passed_through_vehicle(rider));
         self.effect_members.collidable.snapshot(mover, skipped)
     }
 }
