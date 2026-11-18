@@ -9,7 +9,12 @@ use super::ServerUiPack;
 use ui_screens::menu_renderers::splashes::{MAX_SPLASH_SOURCE_BYTES, SplashSource};
 
 /// Bound on definition bytes handed to the form engine across the whole stack.
-const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
+///
+/// The game's definition loader applies no stack-wide byte budget, and generated
+/// server HUD packs already ship more than 16 MiB of definitions. Every document
+/// is parsed and kept eagerly, so the stack still needs a bound; it matches the
+/// largest single file admission accepts.
+pub(super) const MAX_SERVER_UI_BYTES: usize = 64 * 1024 * 1024;
 use json_ui::UI_DEFS_PATH as INDEX;
 
 /// Collects indexed definitions and records dependencies for lazily loaded artwork.
