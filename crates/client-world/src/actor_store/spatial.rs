@@ -189,7 +189,7 @@ impl ActorSnapshot {
 
 impl ActorStore {
     /// Shares solid bounds in stable runtime order, excluding the mover, its current mount or
-    /// the vehicle it got off while it still passes through it, and every actor riding it.
+    /// the vehicle it got off while it still passes through it, and its direct passengers.
     pub(crate) fn movement_collider_snapshot(
         &self,
         mover: u64,

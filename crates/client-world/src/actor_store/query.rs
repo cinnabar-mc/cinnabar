@@ -19,22 +19,13 @@ impl ActorStore {
             .filter(|_| self.local_vehicle.left_rider != Some(rider_unique_id))
     }
 
-    /// Whether `rider_unique_id` rides `vehicle_unique_id` as the client shows it, directly or
-    /// through other riders.
+    /// Whether `rider_unique_id` is a direct passenger of `vehicle_unique_id` as the client shows
+    /// it. A rider of that passenger does not count.
     pub(crate) fn rides(&self, rider_unique_id: i64, vehicle_unique_id: i64) -> bool {
-        let mut current = rider_unique_id;
-        // Bounded by the link count, so a cycle of links ends.
-        for _ in 0..self.rider_to_ridden.len() {
-            match self.ridden_unique_id(current) {
-                Some(next) if next == vehicle_unique_id => return true,
-                Some(next) => current = next,
-                None => return false,
-            }
-        }
-        false
+        self.ridden_unique_id(rider_unique_id) == Some(vehicle_unique_id)
     }
 
-    /// Every actor riding `vehicle_unique_id`, directly or through other riders.
+    /// Every direct passenger of `vehicle_unique_id`.
     pub(crate) fn riders_of(
         &self,
         vehicle_unique_id: i64,

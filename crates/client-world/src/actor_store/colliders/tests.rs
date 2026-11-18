@@ -541,8 +541,8 @@ fn falling_block_offset_and_dedicated_painting_bounds_follow_the_live_actor() {
     }
 }
 
-/// An actor riding the mover never blocks it: a solid passenger a server seats on the player
-/// would otherwise hold the player inside its box. Riders of that rider are skipped too.
+/// A direct passenger of the mover never blocks it: a solid passenger a server seats on the
+/// player would otherwise hold the player inside its box. A rider of that passenger still does.
 #[test]
 fn the_movers_own_riders_never_collide_with_it() {
     let mut store = ActorStore::new(1, 0);
@@ -553,8 +553,8 @@ fn the_movers_own_riders_never_collide_with_it() {
     link(&mut store, 12, 100, protocol::ActorLinkType::Passenger);
     assert_eq!(current(&store, 1, 100).len(), 2);
     link(&mut store, 13, 12, protocol::ActorLinkType::Passenger);
-    assert!(store.rides(13, 100) && !store.rides(14, 100) && !store.rides(100, 12));
-    assert_eq!(current(&store, 1, 100).len(), 1);
+    assert!(store.rides(12, 100) && !store.rides(13, 100) && !store.rides(100, 12));
+    assert_eq!(current(&store, 1, 100).len(), 2);
     link(&mut store, 12, 100, protocol::ActorLinkType::Remove);
     assert_eq!(current(&store, 1, 100).len(), 3);
 }

@@ -679,13 +679,13 @@ impl WorldAuthority {
             .actors()
             .filter(move |actor| actor.runtime_id != local)
     }
-    /// Actors the local player's rays may pick: every remote actor except those riding the
-    /// local player, directly or through other riders. Its own mount is excluded by id.
+    /// Actors the local player's rays may pick: every remote actor except its direct
+    /// passengers. Its own mount is excluded by id.
     pub fn pick_candidates(&self) -> impl Iterator<Item = &ActorSnapshot> {
         self.remote_actors()
             .filter(|actor| !self.rides_local_player(actor.unique_id))
     }
-    /// Whether the actor rides the local player, directly or through other riders.
+    /// Whether the actor is a direct passenger of the local player.
     pub fn rides_local_player(&self, unique_id: i64) -> bool {
         self.actors.rides(unique_id, self.local_player_unique_id)
     }
