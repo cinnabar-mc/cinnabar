@@ -209,6 +209,23 @@ fn select_lowest_by_key<T>(
     }
 }
 
+/// The controls in `pressed` that report a press, each once. A press needs a routed contact on
+/// its control. Like vanilla's touch buttons, which follow one finger at a time, a control in
+/// `holding` (held by a finger that was already down before this frame) ignores a new finger; a
+/// finger that just lifted and only routes as a pulse no longer holds it.
+fn routed_touch_presses(pressed: &[u16], holding: &[u16], routed: &[TouchContact]) -> Vec<u16> {
+    let mut presses = Vec::new();
+    for hit_id in pressed {
+        if !presses.contains(hit_id)
+            && !holding.contains(hit_id)
+            && routed.iter().any(|contact| contact.hit_id == Some(*hit_id))
+        {
+            presses.push(*hit_id);
+        }
+    }
+    presses
+}
+
 #[derive(Debug)]
 struct TranslatedDeviceFrame {
     frame: DeviceFrame,
@@ -329,6 +346,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             },
         });
     }
+    let mut holding = Vec::new();
     let (touches, ignored_touches) = if mode == Some(semantic_input::InputMode::KeyboardMouse) {
         touch_targets.release_all();
         (Vec::new(), 0)
@@ -353,7 +371,10 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
                     .unwrap_or([touch.delta().x / width, touch.delta().y / height]),
                 hit_id: touch_targets.target(touch.id()),
             };
-            if contact.hit_id.is_some() {
+            if let Some(hit_id) = contact.hit_id {
+                if !touches.just_pressed(contact.contact_id) {
+                    holding.push(hit_id);
+                }
                 contacts.push(contact);
             }
         }
@@ -365,11 +386,13 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             bounded_touches.ignored + bounded_contacts.ignored,
         )
     };
+    let touch_presses = routed_touch_presses(touch_targets.pressed_controls(), &holding, &touches);
     TranslatedDeviceFrame {
         frame: DeviceFrame {
             keyboard_mouse,
             controllers,
             touches,
+            touch_presses,
             ..DeviceFrame::default()
         },
         ignored_controllers: bounded_gamepads.ignored,

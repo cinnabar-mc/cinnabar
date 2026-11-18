@@ -58,6 +58,7 @@ fn assert_global_activity_contract(seed: DeviceFrame, source: fn(u64) -> DeviceF
 
 include!("router/core_and_sampling.rs");
 include!("router/player_list.rs");
+include!("router/touch_presses.rs");
 include!("router/bindings_and_activity.rs");
 include!("router/authority_and_neutrality.rs");
 include!("router/controller_arbitration.rs");

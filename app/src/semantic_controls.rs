@@ -323,6 +323,12 @@ impl SemanticTouchTargets {
         self.2.contains(&hit_id)
     }
 
+    /// Every control a finger pressed this frame, in press order; a control pressed twice
+    /// appears twice.
+    pub(crate) fn pressed_controls(&self) -> &[u16] {
+        &self.2
+    }
+
     pub fn clear(&mut self, contact_id: u64) {
         self.0.remove(&contact_id);
     }
