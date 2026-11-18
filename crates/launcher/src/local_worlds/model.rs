@@ -103,8 +103,9 @@ pub enum Effect {
     },
     /// Reads the packs of a saved world.
     LoadPacks(String),
-    /// Asks for a pack file and checks it for the world being created.
-    StagePack(PackKind),
+    /// Asks for a pack file and checks it for the world being created, as the Create form of the
+    /// given generation.
+    StagePack(PackKind, u64),
     /// Asks for a pack file and adds it to the front of the world's list of this kind.
     AddPack {
         id: String,
@@ -178,10 +179,11 @@ pub enum Event {
         id: String,
         message: String,
     },
-    /// The pack file chosen for the new world, or `None` when the dialog was cancelled.
-    PackStaged(Option<StagedPack>),
-    /// A pack file chosen for the new world was refused.
-    PackStageFailed(String),
+    /// The pack file chosen for the new world, or `None` when the dialog was cancelled, for the
+    /// Create form of the given generation.
+    PackStaged(u64, Option<StagedPack>),
+    /// A pack file chosen for the new world of the given Create form was refused.
+    PackStageFailed(u64, String),
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
     EulaRequired,
@@ -863,8 +865,8 @@ impl WorldsMenu {
             }
             Event::Packs { .. }
             | Event::PackFailed { .. }
-            | Event::PackStaged(_)
-            | Event::PackStageFailed(_) => {
+            | Event::PackStaged(..)
+            | Event::PackStageFailed(..) => {
                 self.busy = self.mutation_pending;
                 self.packs.apply(event);
                 Vec::new()

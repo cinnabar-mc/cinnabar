@@ -82,6 +82,9 @@ pub(super) struct PackState {
     creating: bool,
     /// Chosen archives, the first of each kind having the highest priority.
     staged: Vec<StagedPack>,
+    /// Counts every reset of this state, so an answer to a request made before a reset (a pack
+    /// chosen on an earlier Create form) is told apart from one for the form that is open now.
+    form: u64,
 }
 
 impl PackState {
@@ -99,7 +102,16 @@ impl PackState {
     }
 
     pub(super) fn clear(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            form: self.form + 1,
+            ..Self::default()
+        };
+    }
+
+    /// The generation a pack request made now belongs to.
+    #[cfg(test)]
+    pub(super) fn form(&self) -> u64 {
+        self.form
     }
 
     /// The packs the tabs list: the staged ones while creating, else the edited world's once read.
@@ -139,16 +151,16 @@ impl PackState {
         match event {
             Event::Packs { id, packs } => self.loaded(&id, packs),
             Event::PackFailed { id, message } => self.failed(&id, message),
-            Event::PackStaged(staged) => self.staged(staged),
-            Event::PackStageFailed(message) => self.stage_failed(message),
+            Event::PackStaged(form, staged) => self.staged(form, staged),
+            Event::PackStageFailed(form, message) => self.stage_failed(form, message),
             _ => {}
         }
     }
 
-    /// Takes the archive the worker read, replacing a staged pack with the same id; `None` is a
-    /// cancelled dialog.
-    fn staged(&mut self, staged: Option<StagedPack>) {
-        let Some(staged) = staged.filter(|_| self.creating) else {
+    /// Takes the archive the worker read for the form `form`, replacing a staged pack with the
+    /// same id; `None` is a cancelled dialog. An answer for another form is ignored.
+    fn staged(&mut self, form: u64, staged: Option<StagedPack>) {
+        let Some(staged) = staged.filter(|_| self.creating && form == self.form) else {
             return;
         };
         self.staged
@@ -222,7 +234,7 @@ impl PackState {
     pub(super) fn add(&mut self, kind: PackKind) -> Option<Effect> {
         if self.creating {
             self.error = None;
-            return Some(Effect::StagePack(kind));
+            return Some(Effect::StagePack(kind, self.form));
         }
         let (id, _) = self.ready()?;
         let effect = Effect::AddPack {
@@ -292,8 +304,8 @@ impl PackState {
     }
 
     /// Records why choosing a pack for the new world failed.
-    fn stage_failed(&mut self, message: String) {
-        if self.creating {
+    fn stage_failed(&mut self, form: u64, message: String) {
+        if self.creating && form == self.form {
             self.error = Some(message);
         }
     }

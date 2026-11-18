@@ -58,6 +58,10 @@ pub(super) fn draw(
         })?;
     }
     let Some(packs) = &local_view.packs else {
+        // A failed read has said why above; "Loading" would never end.
+        if local_view.pack_error.is_some() {
+            return Ok(y);
+        }
         return sections::row(canvas, area, y, |canvas, inner| {
             caption(canvas, "Loading packs…", inner, inner[1])
         });

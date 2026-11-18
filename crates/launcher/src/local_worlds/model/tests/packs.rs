@@ -162,14 +162,17 @@ fn packs_chosen_while_creating_ride_with_the_new_world() {
 
     assert_eq!(
         menu.update(Input::AddPack(Resource)),
-        vec![Effect::StagePack(Resource)]
+        vec![Effect::StagePack(Resource, menu.packs.form())]
     );
     assert!(menu.busy(), "the form waits for the file to be read");
-    menu.apply(Event::PackStaged(None));
+    menu.apply(Event::PackStaged(menu.packs.form(), None));
     assert!(!menu.busy(), "a cancelled dialog changes nothing");
     assert!(ids(&menu, Resource).is_empty());
 
-    menu.apply(Event::PackStageFailed("Not a pack".to_owned()));
+    menu.apply(Event::PackStageFailed(
+        menu.packs.form(),
+        "Not a pack".to_owned(),
+    ));
     assert_eq!(menu.view().pack_error.as_deref(), Some("Not a pack"));
 
     for (kind, file, id) in [
@@ -178,7 +181,10 @@ fn packs_chosen_while_creating_ride_with_the_new_world() {
         (Behaviour, "c.mcpack", "c"),
     ] {
         menu.update(Input::AddPack(kind));
-        menu.apply(Event::PackStaged(Some(staged(kind, file, id))));
+        menu.apply(Event::PackStaged(
+            menu.packs.form(),
+            Some(staged(kind, file, id)),
+        ));
     }
     assert!(menu.view().pack_error.is_none());
     assert_eq!(
@@ -186,7 +192,10 @@ fn packs_chosen_while_creating_ride_with_the_new_world() {
         ["b", "a"],
         "a new pack leads its list"
     );
-    menu.apply(Event::PackStaged(Some(staged(Resource, "a2.mcpack", "a"))));
+    menu.apply(Event::PackStaged(
+        menu.packs.form(),
+        Some(staged(Resource, "a2.mcpack", "a")),
+    ));
     assert_eq!(
         ids(&menu, Resource),
         ["a", "b"],
@@ -223,10 +232,44 @@ fn staged_packs_are_dropped_with_the_screen() {
     let mut menu = loaded(&["a"]);
     menu.update(Input::BeginCreate);
     menu.update(Input::AddPack(Resource));
-    menu.apply(Event::PackStaged(Some(staged(Resource, "a.mcpack", "a"))));
+    menu.apply(Event::PackStaged(
+        menu.packs.form(),
+        Some(staged(Resource, "a.mcpack", "a")),
+    ));
     menu.update(Input::Back);
     menu.update(Input::BeginCreate);
     assert!(ids(&menu, Resource).is_empty(), "a new world starts empty");
+}
+
+/// Leaving Create while a pack is being read and starting Create again must not let the first
+/// form's answer into the second: it would be installed into a world the user never gave it to.
+#[test]
+fn a_pack_read_for_an_earlier_create_form_does_not_reach_the_next_one() {
+    use PackKind::Resource;
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::BeginCreate);
+    let effects = menu.update(Input::AddPack(Resource));
+    let [Effect::StagePack(_, earlier)] = effects.as_slice() else {
+        panic!("expected one stage effect, got {effects:?}");
+    };
+    let earlier = *earlier;
+    menu.update(Input::Back);
+    menu.update(Input::BeginCreate);
+    assert_ne!(menu.packs.form(), earlier);
+
+    menu.apply(Event::PackStaged(
+        earlier,
+        Some(staged(Resource, "old.mcpack", "a")),
+    ));
+    assert!(ids(&menu, Resource).is_empty());
+    menu.apply(Event::PackStageFailed(earlier, "Not a pack".to_owned()));
+    assert!(menu.view().pack_error.is_none());
+
+    menu.apply(Event::PackStaged(
+        menu.packs.form(),
+        Some(staged(Resource, "new.mcpack", "a")),
+    ));
+    assert_eq!(ids(&menu, Resource), ["a"]);
 }
 
 #[test]

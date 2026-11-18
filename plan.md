@@ -1916,8 +1916,7 @@ settings, while unrelated save failures remain visible. Live edits remain pendin
 server exit. Changing the default game mode also sends a targeted console command for the connected
 host; the world default and default player permission still take effect on the next start. Console
 write success does not confirm the server applied the player mode; live acceptance and native
-settings parity remain incomplete. Pack and experiment
-server exit. Default game mode and default player permission changes still wait for the next
+settings parity remain incomplete. Default game mode and default player permission changes still wait for the next
 start; live application of these settings remains an incomplete parity gap. Experiment
 configuration, hardcore, flat presets, Education Edition, operator status for a signed-out or
 offline-fallback host, the in-game Personal Game Mode and Multiplayer section, and live acceptance

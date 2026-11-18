@@ -42,7 +42,7 @@ const fn pack_files(kind: PackKind) -> Filter {
             PackKind::Behaviour => "Behaviour packs",
         },
         extensions: &resource_pack::PACK_IMPORT_EXTENSIONS,
-        unavailable_hint: "Packs can also be copied into the world's folder.",
+        unavailable_hint: "Packs can also be copied into the world's folder and added to its pack list file.",
         max_bytes: Some(MAX_PACK_ARCHIVE_BYTES),
     }
 }
@@ -287,25 +287,29 @@ fn execute(
         Effect::LoadPacks(id) => packs_event(id.clone(), manager.packs(&id)),
         // Android's picked file is a private copy removed once this request ends, before the world
         // is created.
-        Effect::StagePack(_) if cfg!(target_os = "android") => Event::PackStageFailed(
+        Effect::StagePack(_, form) if cfg!(target_os = "android") => Event::PackStageFailed(
+            form,
             "Add packs from Edit world once the world is created.".to_owned(),
         ),
-        Effect::StagePack(kind) => match picker::pick(&pack_files(kind)) {
+        Effect::StagePack(kind, form) => match picker::pick(&pack_files(kind)) {
             Ok(Some(file)) => {
                 let path = file.as_ref().to_path_buf();
                 match manager.preview_pack(kind, &path, cancelled) {
-                    Ok(pack) => Event::PackStaged(Some(StagedPack {
-                        file: PackFile { kind, path },
-                        pack,
-                    })),
+                    Ok(pack) => Event::PackStaged(
+                        form,
+                        Some(StagedPack {
+                            file: PackFile { kind, path },
+                            pack,
+                        }),
+                    ),
                     Err(error) => {
                         bevy::log::warn!(%error, "could not read a pack for a new world");
-                        Event::PackStageFailed(capitalized(error.public_message()))
+                        Event::PackStageFailed(form, capitalized(error.public_message()))
                     }
                 }
             }
-            Ok(None) => Event::PackStaged(None),
-            Err(message) => Event::PackStageFailed(message),
+            Ok(None) => Event::PackStaged(form, None),
+            Err(message) => Event::PackStageFailed(form, message),
         },
         Effect::AddPack { id, kind } => match picker::pick(&pack_files(kind)) {
             Ok(Some(file)) => {

@@ -73,7 +73,7 @@ pub(super) fn read(level: &Path) -> Result<WorldPacks, WorldError> {
 
 /// Lists one kind in server order. Entries the world holds no copy of are marked external.
 fn list(level: &Path, kind: PackKind) -> Result<Vec<WorldPack>, WorldError> {
-    let installed = installed(level, kind);
+    let installed = installed(level, kind)?;
     Ok(read_entries(level, kind)?
         .iter()
         .filter_map(|entry| {
@@ -127,7 +127,9 @@ pub(super) fn preview(
 }
 
 /// Adds the packs of `kind` found in the archive at `source` to the front of the world's list,
-/// replacing any pack with the same id. A refused file changes nothing.
+/// replacing any pack with the same id and keeping the other fields of its old entry. A refused
+/// file changes nothing. If one pack of a bundle fails to install, the packs installed before it
+/// are still listed, so the list never names a version whose folder was replaced.
 pub(super) fn add(
     level: &Path,
     kind: PackKind,
@@ -138,17 +140,29 @@ pub(super) fn add(
     let mut entries = read_entries(level, kind)?;
     let matching = unpack(kind, source, staging, cancelled)?;
     let mut ids = Vec::new();
+    let mut outcome = Ok(());
     for pack in matching {
         if ids.contains(&pack.summary.id) {
             continue;
         }
-        ids.push(pack.summary.id);
         let id = pack.summary.id.to_string();
-        install(level, kind, &pack)?;
-        entries.retain(|entry| !identity(entry).is_some_and(|(held, _)| held == id));
-        entries.insert(0, json!({ "pack_id": id, "version": pack.summary.version }));
+        if let Err(error) = install(level, kind, &pack) {
+            outcome = Err(error);
+            break;
+        }
+        ids.push(pack.summary.id);
+        let mut entry = entries
+            .iter()
+            .position(|entry| identity(entry).is_some_and(|(held, _)| held == id))
+            .map_or_else(|| json!({}), |at| entries.remove(at));
+        entry["pack_id"] = json!(id);
+        entry["version"] = json!(pack.summary.version);
+        entries.insert(0, entry);
     }
-    write_entries(level, kind, &entries)
+    if !ids.is_empty() {
+        write_entries(level, kind, &entries)?;
+    }
+    outcome
 }
 
 /// Moves the unpacked `pack` into the world's folder for `kind`, named by its id and replacing any
@@ -157,7 +171,7 @@ fn install(level: &Path, kind: PackKind, pack: &Installed) -> Result<(), WorldEr
     let folder = level.join(files(kind).folder);
     fs::create_dir_all(&folder).map_err(|error| failed(format!("create pack folder: {error}")))?;
     // A same-id copy under any folder name would load twice.
-    for old in installed(level, kind)
+    for old in installed(level, kind)?
         .into_iter()
         .filter(|old| old.summary.id == pack.summary.id)
     {
@@ -216,7 +230,7 @@ fn game_packs(roots: &[PathBuf], kind: PackKind, id: &str) -> Vec<Installed> {
                 root.join(folder),
             ]
         })
-        .flat_map(|folder| pack_dirs(&folder))
+        .flat_map(|folder| pack_dirs(&folder).unwrap_or_default())
         .filter_map(|dir| {
             let summary = read_summary(&dir)?;
             let wanted = match kind {
@@ -319,20 +333,36 @@ fn unpack(
     Ok(matching)
 }
 
-/// Removes pack `id` from the world's list of `kind`, deleting the copy the world holds.
+/// Removes pack `id` from the world's list of `kind`, deleting the copy the world holds. If a
+/// copy cannot be deleted the pack stays listed, so the removal can be retried.
 pub(super) fn remove(level: &Path, kind: PackKind, id: &str) -> Result<(), WorldError> {
-    let mut entries = read_entries(level, kind)?;
-    let before = entries.len();
+    remove_with(level, kind, id, &remove_dir)
+}
+
+fn remove_with(
+    level: &Path,
+    kind: PackKind,
+    id: &str,
+    delete: &dyn Fn(&Path) -> Result<(), WorldError>,
+) -> Result<(), WorldError> {
+    let original = read_entries(level, kind)?;
+    let mut entries = original.clone();
     entries.retain(|entry| !identity(entry).is_some_and(|(held, _)| held == id));
-    if entries.len() == before {
+    if entries.len() == original.len() {
         return Err(WorldError::NotFound);
     }
-    write_entries(level, kind, &entries)?;
-    for old in installed(level, kind)
+    let held: Vec<_> = installed(level, kind)?
         .into_iter()
         .filter(|old| old.summary.id.to_string() == id)
-    {
-        remove_dir(&old.dir)?;
+        .collect();
+    write_entries(level, kind, &entries)?;
+    for old in held {
+        if let Err(error) = delete(&old.dir) {
+            // The pack is still on disk, so it stays listed; a failed restore is no worse than
+            // the list the failed removal already published.
+            let _ = write_entries(level, kind, &original);
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -378,6 +408,12 @@ fn write_entries(level: &Path, kind: PackKind, entries: &[Value]) -> Result<(), 
     let temporary = path.with_extension("json.cinnabar");
     let bytes = serde_json::to_vec_pretty(entries)
         .map_err(|error| failed(format!("write pack list: {error}")))?;
+    // A list `read_entries` would refuse must never be published: every later read would fail.
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(WorldError::Rejected(
+            "the world's pack list is too long to save".to_owned(),
+        ));
+    }
     write_private(&temporary, &bytes)
         .and_then(|()| fs::rename(&temporary, &path))
         .map_err(|error| failed(format!("write pack list: {error}")))
@@ -397,9 +433,11 @@ fn identity(entry: &Value) -> Option<(String, [u32; 3])> {
     Some((id, version))
 }
 
-/// The packs of `kind` the world folder holds, at most [`MAX_PACKS`] of them.
-fn installed(level: &Path, kind: PackKind) -> Vec<Installed> {
-    pack_dirs(&level.join(files(kind).folder))
+/// The packs of `kind` the world folder holds. A folder that cannot be scanned is an error, not
+/// an empty inventory, so a pack is never reported absent or installed twice.
+fn installed(level: &Path, kind: PackKind) -> Result<Vec<Installed>, WorldError> {
+    Ok(pack_dirs(&level.join(files(kind).folder))
+        .map_err(|error| failed(format!("read pack folder: {error}")))?
         .into_iter()
         .filter_map(|dir| {
             let summary = read_summary(&dir)?;
@@ -409,20 +447,25 @@ fn installed(level: &Path, kind: PackKind) -> Vec<Installed> {
             };
             wanted.then_some(Installed { dir, summary })
         })
-        .collect()
+        .collect())
 }
 
-/// The pack folders directly under `folder`, never following links.
-fn pack_dirs(folder: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(folder) else {
-        return Vec::new();
+/// The pack folders directly under `folder`, never following links. A missing `folder` holds none;
+/// any other failure to read it or one of its entries is reported.
+fn pack_dirs(folder: &Path) -> io::Result<Vec<PathBuf>> {
+    let entries = match fs::read_dir(folder) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
     };
-    entries
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| entry.path())
-        .take(MAX_PACKS * 4)
-        .collect()
+    let mut dirs = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            dirs.push(entry.path());
+        }
+    }
+    Ok(dirs)
 }
 
 fn read_summary(dir: &Path) -> Option<PackSummary> {
@@ -443,14 +486,20 @@ fn find_packs(root: &Path) -> Result<Vec<Installed>, WorldError> {
     if root.join(MANIFEST).is_file() {
         candidates.push(root.to_path_buf());
     } else {
-        candidates.extend(pack_dirs(root));
+        candidates
+            .extend(pack_dirs(root).map_err(|error| failed(format!("read pack file: {error}")))?);
         // One wrapper folder around a bundle or a single pack.
         if let [wrapper] = candidates.as_slice()
             && !wrapper.join(MANIFEST).is_file()
         {
             let wrapper = wrapper.clone();
-            candidates = pack_dirs(&wrapper);
+            candidates =
+                pack_dirs(&wrapper).map_err(|error| failed(format!("read pack file: {error}")))?;
         }
+    }
+    let too_many = || WorldError::Rejected(format!("the file holds more than {MAX_PACKS} packs"));
+    if candidates.len() > MAX_PACKS * 4 {
+        return Err(too_many());
     }
     let mut found: Vec<Installed> = candidates
         .into_iter()
@@ -459,7 +508,9 @@ fn find_packs(root: &Path) -> Result<Vec<Installed>, WorldError> {
             Some(Installed { dir, summary })
         })
         .collect();
-    found.truncate(MAX_PACKS);
+    if found.len() > MAX_PACKS {
+        return Err(too_many());
+    }
     if found.is_empty() {
         return Err(WorldError::Rejected(
             "the file holds no pack manifest".to_owned(),

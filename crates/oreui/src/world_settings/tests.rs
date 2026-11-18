@@ -241,3 +241,55 @@ fn world_options_edit_shows_the_saved_seed_without_generation_inputs() {
     assert!(text.contains("-42"));
     assert!(text.contains(launcher::local_worlds::NORMAL_WORLD_LABEL));
 }
+
+#[test]
+fn a_failed_pack_read_replaces_the_loading_text_with_its_error() {
+    use launcher::local_worlds::{Event, Input, WorldsMenu, world::World};
+    let world = World {
+        id: "fixture".into(),
+        name: "Fixture".into(),
+        game_mode: GameMode::Survival,
+        generator: Generator::Normal,
+        difficulty: Difficulty::Normal,
+        backend: bridge::Backend::Bds,
+        seed: 1,
+        options: Default::default(),
+        created_unix: 0,
+        last_played_unix: 0,
+        options_unavailable: false,
+        size_bytes: 0,
+    };
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![world]));
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SelectTab(Tab::ResourcePacks));
+    let shown = |menu: &WorldsMenu| {
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.local = menu.view();
+        let (_, _, nodes) = paint(Default::default(), |canvas| {
+            draw(canvas, &view, [1280.0, 900.0], Screen::Edit).unwrap();
+        });
+        nodes
+            .iter()
+            .filter_map(|node| match node.visual() {
+                ui::UiVisual::Text { layout, .. } => Some(
+                    layout
+                        .glyphs()
+                        .iter()
+                        .map(|glyph| glyph.codepoint)
+                        .collect::<String>(),
+                ),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    };
+    assert!(shown(&menu).contains("Loading packs"));
+    menu.apply(Event::PackFailed {
+        id: "fixture".into(),
+        message: "Disk unreadable".into(),
+    });
+    let text = shown(&menu);
+    assert!(text.contains("Disk unreadable"), "{text}");
+    assert!(!text.contains("Loading packs"), "{text}");
+}

@@ -262,7 +262,14 @@ fn a_listed_pack_is_found_in_the_game_folders_and_copied_into_the_world() {
     assert!(list(&level, PackKind::Behaviour).unwrap()[1].external);
 
     let staging = fixture.store.staging().unwrap();
-    find(&level, PackKind::Behaviour, A, &[game.clone()], &staging).unwrap();
+    find(
+        &level,
+        PackKind::Behaviour,
+        A,
+        std::slice::from_ref(&game),
+        &staging,
+    )
+    .unwrap();
 
     assert_eq!(
         entries(&level, "world_behavior_packs.json"),
@@ -334,4 +341,129 @@ fn the_copy_matching_the_listed_version_wins_and_a_missing_one_changes_nothing()
         find(&level, PackKind::Resource, A, &[], &staging),
         Err(WorldError::NotFound)
     ));
+}
+
+#[test]
+fn replacing_a_pack_keeps_the_other_fields_of_its_entry() {
+    let fixture = Fixture::new();
+    let level = fixture.level();
+    let list = json!([{ "pack_id": A, "version": [1, 0, 0], "subpack": "high" }]);
+    fs::write(level.join("world_resource_packs.json"), list.to_string()).unwrap();
+    let newer = manifest(A, [1, 0, 1], "resources", "Newer");
+    fixture
+        .add(PackKind::Resource, &[("manifest.json", newer.as_bytes())])
+        .unwrap();
+    assert_eq!(
+        entries(&level, "world_resource_packs.json"),
+        vec![json!({ "pack_id": A, "version": [1, 0, 1], "subpack": "high" })]
+    );
+}
+
+#[test]
+fn a_list_too_long_to_read_back_is_never_written() {
+    let fixture = Fixture::new();
+    let level = fixture.level();
+    let path = level.join("world_resource_packs.json");
+    let original = json!([{ "pack_id": A, "version": [1, 0, 0] }]).to_string();
+    fs::write(&path, &original).unwrap();
+    let bloated = [json!({ "pack_id": "x".repeat(MAX_MANIFEST_BYTES) })];
+    assert!(matches!(
+        write_entries(&level, PackKind::Resource, &bloated),
+        Err(WorldError::Rejected(_))
+    ));
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert!(read_entries(&level, PackKind::Resource).is_ok());
+}
+
+#[test]
+fn a_removal_that_cannot_delete_the_pack_leaves_it_listed_and_retryable() {
+    let fixture = Fixture::new();
+    let level = fixture.level();
+    let first = manifest(A, [1, 0, 0], "resources", "First");
+    fixture
+        .add(PackKind::Resource, &[("manifest.json", first.as_bytes())])
+        .unwrap();
+    let denied = |_: &Path| Err(failed("access denied".to_owned()));
+    assert!(remove_with(&level, PackKind::Resource, A, &denied).is_err());
+    assert_eq!(fixture.ids(PackKind::Resource), [A]);
+    assert!(level.join("resource_packs").join(A).is_dir());
+
+    remove(&level, PackKind::Resource, A).unwrap();
+    assert!(fixture.ids(PackKind::Resource).is_empty());
+    assert!(!level.join("resource_packs").join(A).exists());
+}
+
+/// Whichever pack of the bundle installs first, the list names exactly the folders that exist.
+#[test]
+fn a_bundle_that_fails_midway_leaves_the_list_and_folders_agreeing() {
+    let fixture = Fixture::new();
+    let level = fixture.level();
+    let folder = level.join("resource_packs");
+    fs::create_dir_all(&folder).unwrap();
+    // A folder that is not empty and not a pack where the second pack must go makes only that
+    // install fail, on every platform.
+    fs::create_dir_all(folder.join(B).join("in the way")).unwrap();
+    fs::write(folder.join(B).join("in the way").join("file"), b"x").unwrap();
+    let (first, second) = (
+        manifest(A, [1, 0, 0], "resources", "First"),
+        manifest(B, [1, 0, 0], "resources", "Second"),
+    );
+    let result = fixture.add(
+        PackKind::Resource,
+        &[
+            ("First/manifest.json", first.as_bytes()),
+            ("Second/manifest.json", second.as_bytes()),
+        ],
+    );
+    assert!(result.is_err());
+    let listed = list(&level, PackKind::Resource).unwrap();
+    assert!(listed.iter().all(|pack| !pack.external), "{listed:?}");
+    let mut held: Vec<_> = installed(&level, PackKind::Resource)
+        .unwrap()
+        .iter()
+        .map(|pack| pack.summary.id.to_string())
+        .collect();
+    let mut named: Vec<_> = listed.into_iter().map(|pack| pack.id).collect();
+    held.sort();
+    named.sort();
+    assert_eq!(held, named);
+}
+
+#[test]
+fn an_unreadable_pack_folder_is_an_error_and_not_an_empty_inventory() {
+    let fixture = Fixture::new();
+    let level = fixture.level();
+    let list_file = json!([{ "pack_id": A, "version": [1, 0, 0] }]);
+    fs::write(
+        level.join("world_resource_packs.json"),
+        list_file.to_string(),
+    )
+    .unwrap();
+    fs::write(level.join("resource_packs"), b"a file, not a folder").unwrap();
+    assert!(list(&level, PackKind::Resource).is_err());
+    assert!(remove(&level, PackKind::Resource, A).is_err());
+    assert_eq!(entries(&level, "world_resource_packs.json").len(), 1);
+}
+
+#[test]
+fn a_bundle_over_the_pack_limit_is_refused_whole() {
+    let fixture = Fixture::new();
+    let files: Vec<(String, String)> = (0..=MAX_PACKS)
+        .map(|n| {
+            let id = format!("{n:08x}-1111-4111-8111-111111111111");
+            (
+                format!("P{n}/manifest.json"),
+                manifest(&id, [1, 0, 0], "resources", "Pack"),
+            )
+        })
+        .collect();
+    let archive: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(path, manifest)| (path.as_str(), manifest.as_bytes()))
+        .collect();
+    assert!(matches!(
+        fixture.add(PackKind::Resource, &archive),
+        Err(WorldError::Rejected(_))
+    ));
+    assert!(fixture.ids(PackKind::Resource).is_empty());
 }
