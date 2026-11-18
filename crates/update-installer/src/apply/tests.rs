@@ -508,3 +508,45 @@ fn a_prepared_candidate_installs_without_the_staged_payload() {
         .count();
     assert_eq!(leftovers, 0);
 }
+
+/// A move installs over an existing per-user client only when it is older, and stops when unknown.
+#[test]
+fn moving_into_a_per_user_install_never_downgrades_or_guesses() {
+    let root = tempfile::tempdir().unwrap();
+    let absent =
+        |_: &Path| -> Result<update_manifest::build::Build> { panic!("no client to query") };
+    assert!(may_replace(&root.path().join("missing"), "2.0.0", 5, absent).unwrap());
+    let client = root
+        .path()
+        .join(update_manifest::runtime::executable("CLIENT", "windows"));
+    fs::write(&client, "per-user client").unwrap();
+    let build = |version: &str, number| update_manifest::build::Build {
+        version: version.into(),
+        number,
+        channel: None,
+    };
+    for (installed, replaces) in [
+        (build("1.9.0", 9), true),
+        (build("2.0.0", 4), true),
+        (build("2.0.0", 5), false),
+        (build("2.1.0", 1), false),
+    ] {
+        let replace = may_replace(root.path(), "2.0.0", 5, |_| Ok(installed.clone())).unwrap();
+        assert_eq!(replace, replaces, "{installed:?}");
+    }
+    assert!(may_replace(root.path(), "2.0.0", 5, |_| anyhow::bail!("query failed")).is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let locked = root.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // Root can still read the directory, so only an unprivileged run exercises the error.
+        if fs::metadata(locked.join("x"))
+            .is_err_and(|error| error.kind() != std::io::ErrorKind::NotFound)
+        {
+            assert!(may_replace(&locked, "2.0.0", 5, absent).is_err());
+        }
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}

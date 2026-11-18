@@ -4,7 +4,7 @@ pub mod apply;
 pub mod helper;
 pub mod lease;
 pub mod parent;
-mod platform;
+pub mod platform;
 pub mod recovery;
 pub mod stage;
 pub mod startup;

@@ -7,9 +7,11 @@ struct ReleaseAssets {
     repository: String,
     assets: BTreeMap<String, BTreeMap<String, String>>,
     update_assets: BTreeMap<String, BTreeMap<String, String>>,
+    update_platforms: BTreeMap<String, String>,
     update_channels: BTreeMap<String, ChannelRelease>,
     update_payload_prefix: String,
     linux_install: LinuxInstall,
+    windows_install: WindowsInstall,
 }
 
 /// The per-user Linux installation pointer shared by the installer and client.
@@ -22,6 +24,25 @@ pub struct LinuxInstall {
 /// Locates the installer's managed AppDir without depending on the running image's path.
 pub fn linux_install() -> &'static LinuxInstall {
     &RELEASE.linux_install
+}
+
+/// Where per-user Windows packages install, and the per-machine product they replace.
+#[derive(Deserialize)]
+pub struct WindowsInstall {
+    /// Directory under the user's local application data that holds `folder`.
+    pub parent: String,
+    pub folder: String,
+    /// HKCU key and string value where the per-user MSI records its install folder.
+    pub user_key: String,
+    pub user_folder_value: String,
+    /// Upgrade codes of the per-machine MSI and setup bundle, without braces.
+    pub machine_upgrade_code: String,
+    pub machine_bundle_upgrade_code: String,
+}
+
+/// The per-user Windows install location and the per-machine identities it migrates from.
+pub fn windows_install() -> &'static WindowsInstall {
+    &RELEASE.windows_install
 }
 
 /// Where the release pipeline publishes one channel's signed manifest.
@@ -45,14 +66,16 @@ static RELEASE: LazyLock<ReleaseAssets> = LazyLock::new(|| {
         .expect("release asset manifest must be valid")
 });
 
-/// Returns a key only for an architecture actually published by the release pipeline.
+/// Returns a key only for an architecture actually published by the release pipeline. An OS
+/// renamed in `update_platforms` leaves its original key to clients from before the rename.
 pub fn platform_key(os: &str, arch: &str) -> Option<String> {
     let arch = if arch == "aarch64" { "arm64" } else { arch };
+    let key = RELEASE.update_platforms.get(os).map_or(os, String::as_str);
     RELEASE
         .assets
         .get(os)?
         .contains_key(arch)
-        .then(|| format!("{os}-{arch}"))
+        .then(|| format!("{key}-{arch}"))
 }
 
 /// The native package filename selected by a manifest publisher for this platform.
@@ -89,7 +112,8 @@ mod tests {
     fn every_published_platform_has_one_native_update_artifact() {
         for (os, arches) in &RELEASE.assets {
             for arch in arches.keys() {
-                assert_eq!(platform_key(os, arch), Some(format!("{os}-{arch}")));
+                let key = RELEASE.update_platforms.get(os).unwrap_or(os);
+                assert_eq!(platform_key(os, arch), Some(format!("{key}-{arch}")));
                 let name = artifact_name(os, arch).unwrap();
                 let extension = match os.as_str() {
                     "windows" => ".msi",
@@ -106,6 +130,8 @@ mod tests {
             }
         }
         assert!(platform_key("windows", "aarch64").is_none());
+        // Clients from before per-user packages read this key and must keep getting per-machine MSIs.
+        assert_ne!(platform_key("windows", "x86_64").unwrap(), "windows-x86_64");
         assert!(platform_key("freebsd", "x86_64").is_none());
     }
 

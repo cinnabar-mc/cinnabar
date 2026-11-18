@@ -84,10 +84,19 @@ macOS runners; other errors remain fatal.
 
 Windows publishes `Cinnabar-x64-setup.exe` and `Cinnabar-x64.msi`. Setup is a self-contained
 WiX Burn wizard embedding the same MSI; CI checks its embedded MSI hash against the separately
-verified package. Both install to Program Files and retain the existing machine-wide MSI upgrade
-identity, so Windows may request administrator approval. Setup, the installed executable, uninstall
-entry, Start menu and desktop shortcuts use the original `packaging/icons/cinnabar.svg` logo.
-The update manifest points to the MSI. No Mojang artwork is embedded. Local packaging requires
+verified package. Both install per user under `%LOCALAPPDATA%\Programs` (`windows_install` in
+`release-assets.json`), so installing and updating never need administrator approval. Setup, the
+installed executable, uninstall entry, Start menu and desktop shortcuts use the original
+`packaging/icons/cinnabar.svg` logo. No Mojang artwork is embedded.
+
+The update manifest lists the per-user MSI under the `update_platforms` key (`windows-user-x86_64`).
+Clients installed before per-user packages read `windows-x86_64`, which keeps serving
+`Cinnabar-x64-machine.msi`: the same payload as a per-machine package with the original upgrade code,
+so those installs still update in place. The next update after that moves them to the per-user folder
+without elevation, starts the client there, then asks once for administrator approval to remove the
+per-machine setup and MSI. Declining keeps the old copy installed. Packaging a source branch whose
+`release-assets.json` has no `update_platforms` entry keeps both packages per-machine, because that
+branch's updater still reads the per-machine key. Local packaging requires
 ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
 `wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
 
@@ -101,8 +110,8 @@ DXC's output, and `WGPU_DX12_COMPILER=fxc` also select FXC.
 
 The game, core, crash monitor and update helper do not request administrator rights or reject
 an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,
-so they inherit the launching process's permissions. Installation may still require administrator
-approval. Setup never launches the game, and Windows Installer's Restart Manager relaunch is
+so they inherit the launching process's permissions. Only removing a per-machine install from before
+per-user packages asks for administrator approval. Setup never launches the game, and Windows Installer's Restart Manager relaunch is
 disabled; the update helper owns the client relaunch. Windows SDK `mt.exe` is required to embed
 and verify these manifests during packaging.
 

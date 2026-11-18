@@ -333,6 +333,7 @@ jobs:
           make package-binaries PACKAGE_CARGO_FLAGS=--timings
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/release-tools/packaging/windows/build-installer.ps1" -Root "$CINNABAR_SOURCE_ROOT"
           mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
+          mv .local/dist/windows-release/Cinnabar-*-x64-machine.msi "$RUNNER_TEMP/$MACHINE_ASSET"
           mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Collect release symbols
         id: symbols
@@ -341,14 +342,19 @@ jobs:
           python "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect windows x86_64 \
             --version "${{ needs.prepare.outputs.version }}" --commit "${{ needs.prepare.outputs.commit }}" \
             --binaries target/release --out "$RUNNER_TEMP/$SYMBOLS_ASSET"
-      - name: Extract the MSI
+      - name: Extract the MSIs
         shell: pwsh
         run: |
-          $image = Join-Path $env:RUNNER_TEMP "msi-image"
-          $msi = Join-Path $env:RUNNER_TEMP $env:AUXILIARY_ASSET
-          & "$env:GITHUB_WORKSPACE/release-tools/packaging/windows/extract-msi.ps1" -Msi $msi -Out $image
-      - name: Check the MSI against the payload allowlist
-        run: bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" windows "$(cygpath -u "$RUNNER_TEMP")/msi-image"
+          foreach ($package in @(@{ Msi = $env:AUXILIARY_ASSET; Image = "msi-image" },
+                                 @{ Msi = $env:MACHINE_ASSET; Image = "machine-msi-image" })) {
+            & "$env:GITHUB_WORKSPACE/release-tools/packaging/windows/extract-msi.ps1" `
+              -Msi (Join-Path $env:RUNNER_TEMP $package.Msi) -Out (Join-Path $env:RUNNER_TEMP $package.Image)
+          }
+      - name: Check the MSIs against the payload allowlist
+        run: |
+          for image in msi-image machine-msi-image; do
+            bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" windows "$(cygpath -u "$RUNNER_TEMP")/$image"
+          done
       - name: Check the setup embeds the verified MSI
         shell: pwsh
         run: |
@@ -397,6 +403,7 @@ jobs:
           name: windows-x64
           path: |
             ${{ runner.temp }}/${{ env.AUXILIARY_ASSET }}
+            ${{ runner.temp }}/${{ env.MACHINE_ASSET }}
             ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
       - if: steps.symbols.outputs.archived == 'true'
@@ -747,7 +754,7 @@ jobs:
           while IFS= read -r spec; do
             args+=(-artifact "$spec")
           done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-payloads \
-            "$base" "$GITHUB_WORKSPACE/source/dist" "$RUNNER_TEMP/update-payloads")
+            --source "$GITHUB_WORKSPACE/source" "$base" "$GITHUB_WORKSPACE/source/dist" "$RUNNER_TEMP/update-payloads")
           # The signer comes from the workflow revision, so older source branches still sign.
           # Packaged clients bake in this run number, which orders successive builds of one version.
           (cd "$GITHUB_WORKSPACE/release-tools" && cargo run --quiet --locked -p release-manifest -- \
