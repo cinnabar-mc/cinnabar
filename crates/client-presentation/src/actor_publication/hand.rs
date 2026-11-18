@@ -198,6 +198,13 @@ pub(super) fn local_consume(
     Some(((input.use_elapsed_ticks? as f32 + alpha).min(ticks), ticks))
 }
 
+/// Records the selected path before atlas admission and authored visibility are applied.
+#[cfg(feature = "developer-control")]
+pub(super) struct HandSelectionInspection {
+    pub(super) item: Arc<str>,
+    pub(super) branch: &'static str,
+}
+
 /// What the first-person pass draws: arm-masked body pose and/or a held item with its atlas page
 /// and whether its bone is in camera space.
 pub(super) struct HandSource {
@@ -209,6 +216,8 @@ pub(super) struct HandSource {
         Option<render_model::ActorArtworkLocation>,
     )>,
     pub(super) items: [Option<(FirstPersonItem, HandItemAtlas)>; 2],
+    #[cfg(feature = "developer-control")]
+    pub(super) item_selection: [Option<HandSelectionInspection>; 2],
     pub(super) maps: maps::MapLayers,
     /// The held-item glint raster, bound whenever an item draws with the glint material.
     pub(super) item_glint: Option<render_model::EquipmentRaster>,
@@ -406,11 +415,14 @@ pub(super) fn vanilla_hand_source(
     };
     let body_camera =
         bare.then(|| render_model::legacy_combat::legacy_first_person_arm(hand.swing, hand.equip));
+    #[cfg(feature = "developer-control")]
+    let mut item_selection = [None, None];
     let mut items = std::array::from_fn(|index| {
         let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
         if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER {
             return None;
         }
+        let mut admitted = false;
         let mut icon_fallback = false;
         let modern = item_animation.and_then(|mut render_input| {
             render_input.frame_alpha = alpha;
@@ -423,6 +435,7 @@ pub(super) fn vanilla_hand_source(
                 } else {
                     let selected =
                         equipment.select_held_item(item, actor, &rig, render_input, java_mode);
+                    admitted = selected.admitted();
                     icon_fallback = selected.uses_icon_fallback();
                     if icon_fallback {
                         return equipment.first_person_item_icon_with_use(
@@ -446,6 +459,7 @@ pub(super) fn vanilla_hand_source(
             } else {
                 let selected =
                     equipment.select_held_item(item, actor, &rig, render_input, java_mode);
+                admitted = selected.admitted();
                 icon_fallback = selected.uses_icon_fallback();
                 if icon_fallback {
                     return equipment.first_person_offhand_icon(&presentation.submission, item);
@@ -460,6 +474,7 @@ pub(super) fn vanilla_hand_source(
                     None,
                 );
             };
+            admitted = selected.admitted();
             icon_fallback = selected.uses_icon_fallback();
             equipment.first_person_selected_attachable(
                 &presentation.submission,
@@ -471,7 +486,32 @@ pub(super) fn vanilla_hand_source(
                 None,
             )
         });
+        #[cfg(feature = "developer-control")]
+        {
+            let branch = if icon_fallback {
+                "custom_models_disabled"
+            } else if modern.is_some() {
+                "attachable"
+            } else if !java_mode && index == 0 && admitted {
+                "admitted_without_draw"
+            } else if item_animation.is_none() {
+                "ordinary_without_attachable_sample"
+            } else {
+                "ordinary_after_no_attachable_draw"
+            };
+            item_selection[index] = Some(HandSelectionInspection {
+                item: Arc::clone(&item.identifier),
+                branch,
+            });
+        }
         let mut layer = modern.or_else(|| {
+            // An admitted authored definition owns the main hand's draw slot: if it samples but
+            // emits nothing, adding an ordinary sprite would draw the item twice. A geometry-only
+            // startup fallback has no definition to evaluate, so it keeps its ordinary sprite, as
+            // do unbound stacks and an explicit icon fallback. Java/offhand paths are unchanged.
+            if !java_mode && index == 0 && admitted && !icon_fallback {
+                return None;
+            }
             if index == 0 {
                 if icon_fallback {
                     equipment.first_person_item_icon_with_use(
@@ -566,6 +606,8 @@ pub(super) fn vanilla_hand_source(
             body,
             controller_draws: Vec::new(),
             items,
+            #[cfg(feature = "developer-control")]
+            item_selection,
             maps,
             item_glint: artwork.item_glint.clone(),
             motion,
@@ -662,6 +704,8 @@ pub(super) fn source(
                 body: None,
                 controller_draws: Vec::new(),
                 items: [None, None],
+                #[cfg(feature = "developer-control")]
+                item_selection: [None, None],
                 maps: Default::default(),
                 item_glint: None,
                 motion: inputs.motion,

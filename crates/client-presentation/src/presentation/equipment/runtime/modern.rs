@@ -17,9 +17,17 @@ fn should_fallback_to_icon(show_custom_item_models: bool, from_pack: bool) -> bo
 pub(crate) struct HeldSelection {
     source: Option<pack::BindingSource>,
     icon_fallback: bool,
+    owns_definition: bool,
 }
 
 impl HeldSelection {
+    /// Whether the selected binding owns an authored definition that can be evaluated,
+    /// independently of whether that definition drew. A geometry-only startup fallback
+    /// is admitted for missing artwork but has no definition to occupy the hand's draw slot.
+    pub(crate) const fn admitted(&self) -> bool {
+        self.owns_definition
+    }
+
     /// Reports whether this admitted definition supplies its own hand placement.
     pub(crate) fn uses_authored_hand(&self, item: &WornItem) -> bool {
         !self.icon_fallback
@@ -63,10 +71,25 @@ impl EquipmentRuntime {
                 input,
             )
         };
+        let owns_definition = source.as_ref().is_some_and(|source| {
+            let assets = if source.from_pack {
+                self.pack.as_ref().map(|pack| &pack.assets)
+            } else {
+                Some(&self.assets)
+            };
+            assets
+                .and_then(|assets| {
+                    assets.attachable_rig_binding(
+                        source.catalog.bindings()[source.index].attachable_identifier(),
+                    )
+                })
+                .is_some()
+        });
         HeldSelection {
             icon_fallback: source.as_ref().is_some_and(|source| {
                 should_fallback_to_icon(self.show_custom_item_models, source.from_pack)
             }),
+            owns_definition,
             source,
         }
     }

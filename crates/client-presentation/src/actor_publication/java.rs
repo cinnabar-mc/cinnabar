@@ -752,6 +752,8 @@ pub(super) fn hand_source(
         body,
         controller_draws: Vec::new(),
         items: [main_layer, off_layer],
+        #[cfg(feature = "developer-control")]
+        item_selection: [None, None],
         maps: Default::default(),
         item_glint: inputs.artwork.item_glint.clone(),
         motion,

@@ -533,6 +533,15 @@ pub fn prepare_actor_render_frame(
                 .as_ref()
                 .map(|source| format!("{:?}", source.visibility))
         );
+        report["show_custom_item_models"] =
+            serde_json::json!(params.presentation.settings.feel().show_custom_item_models);
+        report["held_selection"] = serde_json::json!(hand_source.as_ref().map(|source| {
+            source.item_selection.each_ref().map(|selection| {
+                selection.as_ref().map(|selection| {
+                    serde_json::json!({"item": selection.item.as_ref(), "branch": selection.branch})
+                })
+            })
+        }));
         report["world_session_entities_ready"] =
             serde_json::json!(state.pack_geometry_ready.entities);
         report["world_session_equipment_ready"] =

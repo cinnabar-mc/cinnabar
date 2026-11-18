@@ -155,6 +155,43 @@ pub(super) fn fixture_with_files(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
+    let ((stream, equipment, artwork, input), entities, _) = fixture_with_catalog(
+        main,
+        clock,
+        animated,
+        bound,
+        turning,
+        hide_body,
+        visibility,
+        edit_files,
+        |_| {},
+    );
+    ((stream, equipment, artwork, input), entities)
+}
+
+/// Also exposes the compiled equipment catalog so tests can add a binding without an authored
+/// definition, the shape the production startup fallback admits for missing external geometry.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn fixture_with_catalog(
+    main: Option<&str>,
+    clock: bool,
+    animated: bool,
+    bound: bool,
+    turning: bool,
+    hide_body: bool,
+    visibility: Option<&str>,
+    edit_files: impl FnOnce(&mut Vec<(Box<str>, Vec<u8>)>),
+    edit_bindings: impl FnOnce(&mut Vec<assets::EquipmentBinding>),
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+    Arc<assets::RuntimeEquipmentCatalog>,
+) {
     let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.player_test","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0]}, {"name":"body","pivot":[0,24,0]},
@@ -270,10 +307,12 @@ pub(super) fn fixture_with_files(
     let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
         .unwrap();
+    let mut bindings = compiled.equipment_bindings;
+    edit_bindings(&mut bindings);
     let catalog = Arc::new(
         assets::RuntimeEquipmentCatalog::from_parts(
             compiled.identity,
-            compiled.equipment_bindings,
+            bindings,
             compiled.equipment_textures,
         )
         .unwrap(),
@@ -313,7 +352,7 @@ pub(super) fn fixture_with_files(
     );
     let (equipment, artwork, _) = EquipmentRuntime::build(
         entities.clone(),
-        Some(catalog),
+        Some(Arc::clone(&catalog)),
         icons,
         None,
         None,
@@ -387,7 +426,7 @@ pub(super) fn fixture_with_files(
         }),
         ..Default::default()
     };
-    ((stream, equipment, artwork, input), entities)
+    ((stream, equipment, artwork, input), entities, catalog)
 }
 
 /// Uses the production selector with independent actor and physics fractions.

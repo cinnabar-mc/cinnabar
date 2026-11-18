@@ -225,3 +225,205 @@ fn assert_controller_hand_publication(alpha: f32) {
         }
     }
 }
+
+/// A held definition that keeps its geometry, controller and texture alias but resolves no base
+/// raster must not add an ordinary item sprite beside its empty attachable draw. Two fixtures
+/// share the item, icon, actor feed and compiled geometry/controller; only the binding differs.
+#[test]
+fn sampled_attachable_without_base_artwork_suppresses_ordinary_sprite() {
+    // M: the shield attachable still binds the held item and keeps its geometry, controller and
+    // `Texture.default` alias, but that alias names a PNG the production pack compiler cannot
+    // resolve. This is a compiled pack route, not an icon-only fallback, so the empty base is
+    // really compiled.
+    let ((stream, mut equipment, artwork, input), matched_entities) =
+        native_tests::fixture_with_files(
+            Some("minecraft:shield"),
+            false,
+            false,
+            true,
+            false,
+            false,
+            None,
+            |files| {
+                edit_json(files, "attachables/shield.json", |value| {
+                    value["minecraft:attachable"]["description"]["textures"]["default"] =
+                        json!("textures/missing_held_artwork");
+                });
+            },
+        );
+    let mut matched_cache = java::HandCache::default();
+    let matched = native_tests::hand_source_for_mode(
+        &stream,
+        &mut equipment,
+        &artwork,
+        &input,
+        &mut matched_cache,
+        1.0,
+        false,
+    );
+
+    // U: identical held shield, icon, feed and compiled geometry/controller, but this attachable
+    // binds a different item, so no definition is admitted for the held shield and the ordinary
+    // sprite is the only valid draw. Rebuilding the fixture keeps the actor feed in sync: the
+    // cache gates the displayed stack on `rig.main_hand_equipped`, so swapping only `input.main`
+    // would drop the displayed item before any sprite could be selected.
+    let (
+        (ordinary_stream, mut ordinary_equipment, _ordinary_artwork, ordinary_input),
+        ordinary_entities,
+    ) = native_tests::fixture_with_files(
+        Some("minecraft:shield"),
+        false,
+        false,
+        true,
+        false,
+        false,
+        None,
+        |files| {
+            edit_json(files, "attachables/shield.json", |value| {
+                value["minecraft:attachable"]["description"]["identifier"] =
+                    json!("minecraft:shield_unbound");
+            });
+        },
+    );
+    let mut ordinary_cache = java::HandCache::default();
+    let ordinary = native_tests::hand_source_for_mode(
+        &ordinary_stream,
+        &mut ordinary_equipment,
+        &_ordinary_artwork,
+        &ordinary_input,
+        &mut ordinary_cache,
+        1.0,
+        false,
+    );
+
+    // Control first: with no attachable admitted for the held item, the ordinary layer exists.
+    assert!(
+        ordinary.items[0].is_some(),
+        "an item with no admitted attachable keeps its ordinary held sprite"
+    );
+
+    // Public preconditions, read from the compiled catalogs without a new production API: the
+    // sampled fixture admits this attachable with valid geometry/controller, and its base alias
+    // stays authored while the PNG is absent from the pack. The control binds another item.
+    fn compiled_symbol<'a>(
+        entities: &'a std::sync::Arc<assets::RuntimeEntityAssets>,
+        identifier: &str,
+    ) -> Option<&'a assets::EntityAssetSymbol> {
+        entities
+            .symbols()
+            .iter()
+            .find(|symbol| symbol.identifier.as_ref() == identifier)
+    }
+    assert!(
+        compiled_symbol(&ordinary_entities, "minecraft:shield").is_none(),
+        "the control must not admit an attachable for the held shield"
+    );
+    let sampled = compiled_symbol(&matched_entities, "minecraft:shield")
+        .expect("the sampled fixture must admit an attachable for the held shield");
+    let resolved = |kind: assets::EntityDependencyKind, identifier: &str| {
+        sampled.dependencies.iter().any(|dependency| {
+            dependency.kind == kind
+                && dependency.identifier.as_ref() == identifier
+                && dependency.resolution == assets::EntityDependencyResolution::Catalog
+        })
+    };
+    assert!(
+        resolved(assets::EntityDependencyKind::Geometry, "geometry.item_test")
+            && resolved(
+                assets::EntityDependencyKind::RenderController,
+                "controller.render.test"
+            ),
+        "the sampled attachable keeps valid geometry and a render controller"
+    );
+    assert!(
+        sampled.dependencies.iter().any(|dependency| {
+            dependency.kind == assets::EntityDependencyKind::Texture
+                && dependency.identifier.as_ref() == "textures/missing_held_artwork"
+                && dependency.resolution == assets::EntityDependencyResolution::External
+        }),
+        "the base alias is authored but its PNG is absent from the compiled pack"
+    );
+
+    // Behavior under test: an admitted attachable with no base raster must not fall back to a
+    // second, ordinary sprite.
+    assert!(
+        matched.items[0].is_none(),
+        "a sampled attachable with missing base artwork must not emit an ordinary sprite"
+    );
+    assert!(
+        matched.body.is_some(),
+        "a missing held-item draw must leave the first-person arm available"
+    );
+}
+
+/// A startup binding admitted only because its geometry is external, with no authored
+/// attachable definition, must leave the ordinary held sprite in place. Same held feed,
+/// inventory and icon path as the production hand fixture; only the catalog binding differs.
+#[test]
+fn geometry_only_startup_fallback_keeps_ordinary_sprite() {
+    const HELD: &str = "minecraft:diamond_sword";
+    const EXTERNAL: &str = "geometry.startup_fallback_external";
+    let ((stream, mut equipment, artwork, input), entities, catalog) =
+        native_tests::fixture_with_catalog(
+            Some(HELD),
+            false,
+            false,
+            true,
+            false,
+            false,
+            None,
+            |_| {},
+            |bindings| {
+                let mut binding = bindings
+                    .iter()
+                    .find(|binding| binding.identifier.as_ref() == "minecraft:shield")
+                    .unwrap()
+                    .clone();
+                binding.identifier = HELD.into();
+                binding.attachable = None;
+                binding.geometry.identifier = EXTERNAL.into();
+                binding.geometry.resolution = assets::EntityDependencyResolution::External;
+                bindings.push(binding);
+                bindings.sort_by(|left, right| left.identifier.cmp(&right.identifier));
+            },
+        );
+
+    // The production catalog admits this binding without a definition that could evaluate.
+    let binding = catalog
+        .bindings_for(HELD)
+        .iter()
+        .find(|binding| {
+            binding.attachable.is_none()
+                && binding.geometry.resolution == assets::EntityDependencyResolution::External
+                && binding.geometry.identifier.as_ref() == EXTERNAL
+        })
+        .expect("the startup catalog must carry the external fallback binding");
+    assert_eq!(binding.identifier.as_ref(), HELD);
+    assert!(
+        entities
+            .attachable_rig_binding(binding.attachable_identifier())
+            .is_none(),
+        "there is no authored attachable definition for the fallback binding"
+    );
+
+    let mut cache = java::HandCache::default();
+    let hand = native_tests::hand_source_for_mode(
+        &stream,
+        &mut equipment,
+        &artwork,
+        &input,
+        &mut cache,
+        1.0,
+        false,
+    );
+    assert!(
+        hand.items[0].is_some(),
+        "an admitted geometry-only startup fallback must keep the ordinary held sprite"
+    );
+    #[cfg(feature = "developer-control")]
+    assert_eq!(
+        hand.item_selection[0].as_ref().unwrap().branch,
+        "ordinary_after_no_attachable_draw",
+        "the fallback has no authored draw to suppress the sprite"
+    );
+}
