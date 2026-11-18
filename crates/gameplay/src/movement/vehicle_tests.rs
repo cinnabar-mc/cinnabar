@@ -243,7 +243,7 @@ fn drive_turning(
                 .unwrap()
                 .unwrap();
             prediction.commit(tick).unwrap();
-            (tick, prediction.session.as_ref().unwrap().state.clone())
+            (tick, prediction.session.as_ref().unwrap().state)
         })
         .collect()
 }
@@ -255,8 +255,8 @@ fn drive_turning(
 fn a_correction_replays_the_inputs_recorded_since_it() {
     let mut predicted = VehiclePrediction::default();
     let ticks = drive_turning(&mut predicted, 1, 30);
-    let (_, reported) = ticks[19].clone();
-    let (_, now) = ticks[29].clone();
+    let (_, reported) = ticks[19];
+    let (_, now) = ticks[29];
     assert!(
         (now.yaw - reported.yaw).abs() > 5.0
             && (now.position[0] - reported.position[0]).abs() > 0.5,
@@ -284,11 +284,11 @@ fn a_correction_replays_the_inputs_recorded_since_it() {
     assert!((feed.yaw - now.yaw).abs() < 1.0e-3, "{feed:?} {now:?}");
     assert!((seat.seat[0] - now.position[0]).abs() < 1.0, "{seat:?}");
     // The rider eases from the seat one tick back, as every ordinary tick does.
-    let (_, before_last) = ticks[28].clone();
+    let (_, before_last) = ticks[28];
     let before = BoatState {
         position: before_last.position,
         yaw: before_last.yaw,
-        ..now.clone()
+        ..now
     };
     let expected = seat_feet(&before, boat().seat);
     for axis in 0..3 {
@@ -298,7 +298,7 @@ fn a_correction_replays_the_inputs_recorded_since_it() {
         );
     }
     // The view eases over the last replayed tick only, not across the whole correction.
-    let (_, before_last) = ticks[28].clone();
+    let (_, before_last) = ticks[28];
     let eased = predicted.feed(0.0).unwrap();
     assert!(
         (eased.render_yaw - before_last.yaw).abs() < 1.0e-3,
@@ -312,8 +312,8 @@ fn a_correction_replays_the_inputs_recorded_since_it() {
 fn a_correction_that_disagrees_moves_the_boat_by_the_difference() {
     let mut predicted = VehiclePrediction::default();
     let ticks = drive_turning(&mut predicted, 1, 30);
-    let (_, reported) = ticks[19].clone();
-    let (_, now) = ticks[29].clone();
+    let (_, reported) = ticks[19];
+    let (_, now) = ticks[29];
     let shifted = [
         reported.position[0] + 2.0,
         reported.position[1],
@@ -354,6 +354,127 @@ fn a_correction_whose_replay_cannot_run_keeps_the_corrected_state() {
     predicted.correct(&correction, &EdgeLake).unwrap();
     let feed = predicted.feed(1.0).unwrap();
     assert_eq!((feed.position[0], feed.yaw), (150.5, 20.0));
+}
+
+/// A correction of a tick whose input has left the history cannot be replayed from the oldest
+/// retained tick, which would skip the ticks between them: the boat stays at the corrected state.
+#[test]
+fn a_correction_older_than_the_history_keeps_the_corrected_state() {
+    let mut predicted = VehiclePrediction::default();
+    let ticks = HISTORY_TICKS as u64 + 10;
+    drive(&mut predicted, boat(), 1, ticks);
+    assert_eq!(predicted.history.front().unwrap().tick, 11);
+    let correction = VehicleCorrection {
+        runtime_id: 7,
+        revision: client_world::VehicleRevision { pose: 0, motion: 0 },
+        tick: 5,
+        position: [30.5, 62.6, 0.5],
+        velocity: [0.0; 3],
+        rotation: [0.0, 0.0],
+        angular_velocity: Some(0.0),
+        on_ground: false,
+    };
+    predicted.correct(&correction, &Lake).unwrap();
+    let feed = predicted.feed(1.0).unwrap();
+    assert_eq!(
+        (feed.position[0], feed.position[2]),
+        (30.5, 0.5),
+        "{feed:?}"
+    );
+    assert!(predicted.history.is_empty());
+}
+
+/// Server motion that arrived between the corrected tick and now is applied again in the
+/// replay, so a correction that agrees with the prediction changes nothing.
+#[test]
+fn a_replay_applies_the_server_motion_that_arrived_after_the_corrected_tick() {
+    let mut predicted = VehiclePrediction::default();
+    drive(&mut predicted, boat(), 1, 8);
+    let pushed = SteeredVehicle {
+        velocity: [0.4, 0.0, 0.0],
+        revision: client_world::VehicleRevision { pose: 0, motion: 1 },
+        ..boat()
+    };
+    drive(&mut predicted, pushed, 9, 6);
+    let reported = predicted
+        .history
+        .iter()
+        .find(|input| input.tick == 8)
+        .unwrap()
+        .after;
+    let before = predicted.session.as_ref().unwrap().state;
+    let correction = VehicleCorrection {
+        runtime_id: 7,
+        revision: client_world::VehicleRevision { pose: 0, motion: 1 },
+        tick: 8,
+        position: reported.position,
+        velocity: reported.velocity,
+        rotation: [0.0, reported.yaw],
+        angular_velocity: Some(reported.angular_velocity),
+        on_ground: reported.on_ground,
+    };
+    predicted.correct(&correction, &Lake).unwrap();
+    let after = predicted.session.as_ref().unwrap().state;
+    for axis in 0..3 {
+        assert!(
+            (after.position[axis] - before.position[axis]).abs() < 1.0e-4,
+            "{axis}: {after:?} {before:?}"
+        );
+    }
+    assert!(
+        before.position[0] > 0.6,
+        "the push moved the boat: {before:?}"
+    );
+}
+
+/// A replay leaves its states as the checkpoints, so a later correction of one of those ticks
+/// rewinds to the replayed boat and not to the prediction the first correction replaced.
+#[test]
+fn overlapping_corrections_rewind_to_the_replayed_state() {
+    let mut predicted = VehiclePrediction::default();
+    let ticks = drive_turning(&mut predicted, 1, 30);
+    let (_, reported) = ticks[19];
+    let first = VehicleCorrection {
+        runtime_id: 7,
+        revision: client_world::VehicleRevision { pose: 0, motion: 0 },
+        tick: 20,
+        position: reported.position,
+        velocity: reported.velocity,
+        rotation: [0.0, reported.yaw],
+        angular_velocity: Some(reported.angular_velocity + 3.0),
+        on_ground: reported.on_ground,
+    };
+    predicted.correct(&first, &Lake).unwrap();
+    let replayed = predicted
+        .history
+        .iter()
+        .find(|input| input.tick == 25)
+        .unwrap()
+        .after;
+    assert!(
+        (replayed.yaw - ticks[24].1.yaw).abs() > 1.0e-3,
+        "the replay left the old prediction: {replayed:?}"
+    );
+    let before = predicted.session.as_ref().unwrap().state;
+    // The server now reports tick 25 as the replay computed it, without its angular velocity.
+    let second = VehicleCorrection {
+        tick: 25,
+        position: replayed.position,
+        velocity: replayed.velocity,
+        rotation: [0.0, replayed.yaw],
+        angular_velocity: None,
+        ..first
+    };
+    predicted.correct(&second, &Lake).unwrap();
+    let after = predicted.session.as_ref().unwrap().state;
+    assert!(
+        (after.yaw - before.yaw).abs() < 1.0e-3,
+        "{after:?} {before:?}"
+    );
+    assert!(
+        (after.angular_velocity - before.angular_velocity).abs() < 1.0e-3,
+        "{after:?} {before:?}"
+    );
 }
 
 /// Inputs from before a new session started are not replayed onto it.
@@ -551,7 +672,7 @@ fn a_new_session_renders_where_its_rider_is_seated() {
 fn a_correction_eases_the_drawn_boat_into_the_corrected_pose() {
     let mut predicted = VehiclePrediction::default();
     let ticks = drive_turning(&mut predicted, 1, 30);
-    let (_, latest) = ticks[29].clone();
+    let (_, latest) = ticks[29];
     let alpha = 0.4;
     let drawn = predicted.feed(alpha).unwrap();
     let correction = VehicleCorrection {
@@ -626,8 +747,7 @@ fn the_drawn_heading_stays_even_while_the_server_corrects_a_turning_boat() {
                     .iter()
                     .find(|input| input.tick == reported)
                     .unwrap()
-                    .after
-                    .clone();
+                    .after;
                 let off = if tick % 12 == 0 { 3.0 } else { -3.0 };
                 let correction = VehicleCorrection {
                     runtime_id: 7,
@@ -691,7 +811,7 @@ fn the_riders_eye_stays_even_while_the_server_corrects_a_turning_boat() {
         let frame = physics.advance_with_context(
             std::time::Duration::from_micros(3_125),
             input,
-            context.clone(),
+            context,
             &Lake,
         );
         assert!(frame.blocked.is_none());
@@ -701,7 +821,7 @@ fn the_riders_eye_stays_even_while_the_server_corrects_a_turning_boat() {
             ticks_seen += 1;
         }
         // Mid-tick, the server reports the latest tick a few degrees and a tenth of a block off.
-        if ticks_seen > 20 && ticks_seen % 6 == 0 && physics.tick_alpha() > 0.9 {
+        if ticks_seen > 20 && ticks_seen.is_multiple_of(6) && physics.tick_alpha() > 0.9 {
             ticks_seen += 1;
             let feed = physics.predicted_vehicle_feed().unwrap();
             let shown = physics.rider_render().unwrap();

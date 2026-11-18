@@ -155,6 +155,9 @@ struct TickInput {
     tick: u64,
     move_vector: [f32; 2],
     wave_draw: f32,
+    /// Server motion that replaced the boat's velocity just before this tick ran, which a replay
+    /// applies again at the same point.
+    velocity_replacement: Option<[f32; 3]>,
     /// The boat after the tick, including the paddle and wave state a correction does not carry.
     after: BoatState,
 }
@@ -193,8 +196,8 @@ pub(super) struct VehiclePrediction {
     /// The session as the current tick stepped it, installed only when the tick commits, so a
     /// failed tick leaves the committed session as it was.
     pending: Option<Session>,
-    /// The input the pending session's tick stepped with.
-    pending_input: Option<([f32; 2], f32)>,
+    /// The input the pending session's tick stepped with, and the server velocity it started from.
+    pending_input: Option<([f32; 2], f32, Option<[f32; 3]>)>,
     /// Inputs of the session's committed ticks, oldest first.
     history: VecDeque<TickInput>,
     /// Xorshift state for the wave's big-wave draws.
@@ -231,6 +234,7 @@ impl VehiclePrediction {
         if !continued {
             self.history.clear();
         }
+        let mut velocity_replacement = None;
         let mut session = match &self.session {
             Some(session) if session.owner == owner => {
                 let mut session = session.clone();
@@ -238,6 +242,7 @@ impl VehiclePrediction {
                 if session.motion_revision != vehicle.revision.motion {
                     session.motion_revision = vehicle.revision.motion;
                     session.state.velocity = vehicle.velocity;
+                    velocity_replacement = Some(vehicle.velocity);
                 }
                 session
             }
@@ -277,7 +282,7 @@ impl VehiclePrediction {
         session.state = tick.state;
         let seat = seat_feet(&session.state, session.seat);
         self.pending = Some(session);
-        self.pending_input = Some((move_vector, wave_draw));
+        self.pending_input = Some((move_vector, wave_draw, velocity_replacement));
         Ok(Some(seat))
     }
 
@@ -286,7 +291,7 @@ impl VehiclePrediction {
         let mut session = self.pending.take()?;
         session.stale_through.get_or_insert(tick.saturating_sub(1));
         let sample = predicted_sample(session.owner.unique_id, &session.state);
-        if let Some((move_vector, wave_draw)) = self.pending_input.take() {
+        if let Some((move_vector, wave_draw, velocity_replacement)) = self.pending_input.take() {
             if self.history.len() == HISTORY_TICKS {
                 self.history.pop_front();
             }
@@ -294,7 +299,8 @@ impl VehiclePrediction {
                 tick,
                 move_vector,
                 wave_draw,
-                after: session.state.clone(),
+                velocity_replacement,
+                after: session.state,
             });
         }
         self.session = Some(session);
@@ -391,9 +397,12 @@ impl VehiclePrediction {
     }
 
     /// Continues the session from a server correction's vehicle state, replays the inputs of
-    /// the ticks committed since it, and returns the rider's seat feet on the result. If the
-    /// terrain a replayed tick needs is unavailable, the session stays at the corrected state. A correction of another vehicle, from before this session or its
-    /// revision, no newer than one already applied, or with non-finite state is ignored.
+    /// the ticks committed since it, and returns the rider's seat feet on the result. Replayed
+    /// ticks apply the server motion that replaced the velocity before them, and leave their
+    /// replayed state as the checkpoint a later correction rewinds to. If the corrected tick
+    /// is no longer retained, or the terrain a replayed tick needs is unavailable, the session
+    /// stays at the corrected state. A correction of another vehicle, from before this session
+    /// or its revision, no newer than one already applied, or with non-finite state is ignored.
     pub(super) fn correct(
         &mut self,
         correction: &VehicleCorrection,
@@ -423,7 +432,7 @@ impl VehiclePrediction {
             let pose = BoatState {
                 position,
                 yaw,
-                ..session.state.clone()
+                ..session.state
             };
             seat_feet(&pose, session.seat)
         };
@@ -448,12 +457,15 @@ impl VehiclePrediction {
             });
         (session.previous_position, session.previous_yaw) = (before.0, before.1);
         // The corrected tick's own paddle and wave state, which the correction does not
-        // carry, are what the replay continues from.
-        let rewound = self
+        // carry, are what the replay continues from. Ticks leave the history oldest first, so
+        // while the corrected tick is retained every tick after it is too; without it the
+        // replay would skip the ticks between the correction and the oldest retained one.
+        let checkpoint = self
             .history
             .iter()
             .find(|input| input.tick == correction.tick)
-            .map_or_else(|| session.state.clone(), |input| input.after.clone());
+            .map(|input| input.after);
+        let rewound = checkpoint.unwrap_or(session.state);
         session.state = BoatState {
             position: correction.position,
             velocity: correction.velocity,
@@ -467,24 +479,41 @@ impl VehiclePrediction {
         self.pending = None;
         self.pending_input = None;
         self.history.retain(|input| input.tick > correction.tick);
-        let mut replayed = session.state.clone();
+        let mut replayed = session.state;
         let mut previous = (session.previous_position, session.previous_yaw);
-        let replay = self.history.iter().try_for_each(|input| {
-            previous = (replayed.position, replayed.yaw);
-            replayed = sim::tick_boat(
-                world,
-                &replayed,
-                sim::boat_paddle_power(input.move_vector),
-                BoatBuoyancy::Live {
-                    wave_draw: input.wave_draw,
-                },
-            )?
-            .state;
-            Ok::<(), WorldQueryError>(())
-        });
-        if replay.is_ok() {
+        let mut afters = Vec::with_capacity(self.history.len());
+        let replay_ran = checkpoint.is_some()
+            && self
+                .history
+                .iter()
+                .try_for_each(|input| {
+                    previous = (replayed.position, replayed.yaw);
+                    if let Some(velocity) = input.velocity_replacement {
+                        replayed.velocity = velocity;
+                    }
+                    replayed = sim::tick_boat(
+                        world,
+                        &replayed,
+                        sim::boat_paddle_power(input.move_vector),
+                        BoatBuoyancy::Live {
+                            wave_draw: input.wave_draw,
+                        },
+                    )?
+                    .state;
+                    afters.push(replayed);
+                    Ok::<(), WorldQueryError>(())
+                })
+                .is_ok();
+        if replay_ran {
             session.state = replayed;
             (session.previous_position, session.previous_yaw) = previous;
+            // A later correction of one of these ticks must rewind to the replayed state.
+            for (input, after) in self.history.iter_mut().zip(afters) {
+                input.after = after;
+            }
+        } else {
+            // The retained ticks no longer follow from the session's state.
+            self.history.clear();
         }
         let wrap = |degrees: f32| (degrees + 180.0).rem_euclid(360.0) - 180.0;
         let moved =
