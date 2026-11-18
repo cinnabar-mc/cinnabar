@@ -77,19 +77,25 @@ fn no_trailing_backslash_escapes_the_closing_quote() {
 
 #[test]
 fn only_a_per_machine_install_moves_to_the_per_user_folder() {
-    let install = update_manifest::platforms::windows_install();
-    let local = Path::new("/profile/local");
-    let programs = local.join(&install.parent);
-    let per_user = programs.join(&install.folder);
+    let default = PathBuf::from("/profile/local/Programs/Cinnabar");
     let machine = Path::new("/program-files/Cinnabar");
+    let custom = Path::new("/games/Cinnabar");
     // Per-user packages cannot write a machine-wide folder, so it moves on its next update.
-    assert_eq!(destination(machine, local, true), per_user);
-    assert_eq!(destination(&per_user, local, true), per_user);
-    let custom = programs.join("Games/Cinnabar");
-    assert_eq!(destination(&custom, local, true), custom);
-    // Without a per-machine product, a custom per-user folder updates in place.
+    assert_eq!(destination(machine, None, default.clone(), true), default);
     assert_eq!(
-        destination(Path::new("/games/Cinnabar"), local, false),
-        Path::new("/games/Cinnabar")
+        destination(machine, Some(custom), default.clone(), true),
+        custom
     );
+    // A recorded per-user folder updates in place beside a per-machine install, in any case.
+    assert_eq!(
+        destination(custom, Some(custom), default.clone(), true),
+        custom
+    );
+    let upper = Path::new("/GAMES/cinnabar");
+    assert_eq!(
+        destination(upper, Some(custom), default.clone(), true),
+        upper
+    );
+    // Without a per-machine product, every install updates in place.
+    assert_eq!(destination(custom, None, default, false), custom);
 }

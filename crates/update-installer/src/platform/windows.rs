@@ -11,9 +11,9 @@ use windows_sys::Win32::{
     System::{
         ApplicationInstallationAndServicing::MsiEnumRelatedProductsW,
         Registry::{
-            HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
-            RRF_RT_REG_MULTI_SZ, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6432KEY, RRF_SUBKEY_WOW6464KEY,
-            RegCloseKey, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW,
+            HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY,
+            KEY_WOW64_64KEY, RRF_RT_REG_MULTI_SZ, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6432KEY,
+            RRF_SUBKEY_WOW6464KEY, RegCloseKey, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW,
         },
         Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject},
     },
@@ -80,6 +80,18 @@ pub(super) fn machine_products() -> Result<Vec<OsString>> {
         }
     }
     Ok(products)
+}
+
+/// The folder the per-user MSI recorded for this user, if one is installed.
+pub(super) fn recorded_user_folder() -> Option<PathBuf> {
+    let install = update_manifest::platforms::windows_install();
+    let folder = value(
+        HKEY_CURRENT_USER,
+        &wide(&install.user_key),
+        &install.user_folder_value,
+        RRF_RT_REG_SZ,
+    )?;
+    Some(PathBuf::from(OsString::from_wide(until_nul(&folder)))).filter(|path| path.is_absolute())
 }
 
 /// Runs this helper elevated in `flag` mode; Windows asks the user, who may decline.

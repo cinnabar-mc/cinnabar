@@ -107,8 +107,26 @@ pub fn after_exit(
             let destination = platform::windows_destination(target)?;
             let artifact = copy_payload(stage_dir, &selected.artifact, work.path())?;
             touched = true;
-            platform::install_windows(&artifact, work.path(), &destination, &selected.artifact)?;
-            remember_installer(root, &artifact)?;
+            // Moving never downgrades a per-user install already beside the per-machine one.
+            let replace = destination == target
+                || target::installed_build(&destination).map_or(Ok(true), |installed| {
+                    update_manifest::select::compare_builds(
+                        &selected.manifest.version,
+                        selected.manifest.build_number,
+                        &installed.version,
+                        installed.number,
+                    )
+                    .map(std::cmp::Ordering::is_gt)
+                })?;
+            if replace {
+                platform::install_windows(
+                    &artifact,
+                    work.path(),
+                    &destination,
+                    &selected.artifact,
+                )?;
+                remember_installer(root, &artifact)?;
+            }
             start(&destination)?;
             started = true;
             if destination != target {

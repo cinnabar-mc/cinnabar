@@ -79,14 +79,24 @@ fn quoted(prefix: &str, path: &Path) -> OsString {
 pub const REMOVE_MACHINE_FLAG: &str = "--remove-machine-install";
 
 /// Where a Windows update of `target` installs. A per-user package cannot write the per-machine
-/// install it replaces, so that one moves to the per-user default; other installs update in place.
+/// install it replaces, so that one moves to the recorded or default per-user folder; any other
+/// install updates in place.
 pub(crate) fn windows_destination(target: &Path) -> Result<PathBuf> {
     #[cfg(windows)]
     {
         use anyhow::Context;
+        let install = update_manifest::platforms::windows_install();
         let local = std::env::var_os("LOCALAPPDATA").context("missing LOCALAPPDATA")?;
+        let default = Path::new(&local)
+            .join(&install.parent)
+            .join(&install.folder);
         let machine = !windows::machine_products()?.is_empty();
-        Ok(destination(target, Path::new(&local), machine))
+        Ok(destination(
+            target,
+            windows::recorded_user_folder().as_deref(),
+            default,
+            machine,
+        ))
     }
     #[cfg(not(windows))]
     {
@@ -95,15 +105,27 @@ pub(crate) fn windows_destination(target: &Path) -> Result<PathBuf> {
     }
 }
 
-/// The per-user install folder for `target`, given whether a per-machine product is installed.
+/// `target` is the per-user install when it is the recorded folder, and otherwise the per-machine
+/// one whenever a per-machine product is installed.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn destination(target: &Path, local_app_data: &Path, machine_installed: bool) -> PathBuf {
-    let install = update_manifest::platforms::windows_install();
-    let programs = local_app_data.join(&install.parent);
-    if machine_installed && !target.starts_with(&programs) {
-        programs.join(&install.folder)
-    } else {
+fn destination(
+    target: &Path,
+    recorded: Option<&Path>,
+    default: PathBuf,
+    machine_installed: bool,
+) -> PathBuf {
+    let same = |folder: &Path| {
+        let key = |path: &Path| {
+            path.components()
+                .map(|part| part.as_os_str().to_string_lossy().to_lowercase())
+                .collect::<Vec<_>>()
+        };
+        key(folder) == key(target)
+    };
+    if !machine_installed || recorded.is_some_and(same) {
         target.to_owned()
+    } else {
+        recorded.map_or(default, Path::to_owned)
     }
 }
 

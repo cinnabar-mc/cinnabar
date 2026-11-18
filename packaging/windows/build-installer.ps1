@@ -1,5 +1,5 @@
-# Builds the Windows payload, per-user and per-machine MSIs and the self-contained setup EXE. Requires WiX v5,
-# WixToolset.BootstrapperApplications.wixext v5, and ImageMagick.
+# Builds the Windows payload, per-user and per-machine MSIs and the self-contained setup EXE.
+# Requires WiX v5, WixToolset.BootstrapperApplications.wixext v5, and ImageMagick.
 # Usage: build-installer.ps1 [-Out <dir>].
 param([string]$Out = ".local/dist/windows-release", [string]$Binaries = "",
       [string]$Root = (Join-Path $PSScriptRoot "../.."))
@@ -58,6 +58,7 @@ $machineMsi = Join-Path $outPath "Cinnabar-$version-x64-machine.msi"
 foreach ($package in @(@{ Scope = "perUser"; Out = $msi }, @{ Scope = "perMachine"; Out = $machineMsi })) {
     wix build -arch x64 -d Version=$version -d Payload=$payload -d Icon=$icon -d "Scope=$($package.Scope)" `
         -d "InstallParent=$($install.parent)" -d "InstallFolder=$($install.folder)" `
+        -d "UserKey=$($install.user_key)" -d "UserFolderValue=$($install.user_folder_value)" `
         -d "UserUpgradeCode=$($install.upgrade_code)" -d "MachineUpgradeCode=$($install.machine_upgrade_code)" `
         -o $package.Out (Join-Path $PSScriptRoot "cinnabar.wxs")
     if ($LASTEXITCODE -ne 0) { throw "wix build failed for $($package.Scope)" }

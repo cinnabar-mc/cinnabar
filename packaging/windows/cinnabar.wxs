@@ -6,7 +6,7 @@
        per-user packages, under their original upgrade code; the updater then moves them per-user. -->
   <?if $(Scope) = "perUser" ?>
     <?define UpgradeCode = $(UserUpgradeCode) ?>
-    <?define ShortcutKey = Software\Cinnabar\User ?>
+    <?define ShortcutKey = $(UserKey) ?>
   <?elseif $(Scope) = "perMachine" ?>
     <?define UpgradeCode = $(MachineUpgradeCode) ?>
     <?define ShortcutKey = Software\Cinnabar ?>
@@ -52,6 +52,10 @@
         <Shortcut Id="AppShortcut" Name="Cinnabar" Target="[INSTALLFOLDER]cinnabar.exe"
                   WorkingDirectory="INSTALLFOLDER" Icon="cinnabar.ico" />
         <RegistryValue Root="HKCU" Key="$(ShortcutKey)" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+        <?if $(Scope) = "perUser" ?>
+          <!-- The updater updates the folder recorded here in place, including a custom INSTALLFOLDER. -->
+          <RegistryValue Root="HKCU" Key="$(ShortcutKey)" Name="$(UserFolderValue)" Type="string" Value="[INSTALLFOLDER]" />
+        <?endif?>
       </Component>
     </StandardDirectory>
 

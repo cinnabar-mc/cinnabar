@@ -32,6 +32,9 @@ pub struct WindowsInstall {
     /// Directory under the user's local application data that holds `folder`.
     pub parent: String,
     pub folder: String,
+    /// HKCU key and string value where the per-user MSI records its install folder.
+    pub user_key: String,
+    pub user_folder_value: String,
     /// Upgrade codes of the per-machine MSI and setup bundle, without braces.
     pub machine_upgrade_code: String,
     pub machine_bundle_upgrade_code: String,
