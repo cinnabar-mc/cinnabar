@@ -754,7 +754,7 @@ jobs:
           while IFS= read -r spec; do
             args+=(-artifact "$spec")
           done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-payloads \
-            "$base" "$GITHUB_WORKSPACE/source/dist" "$RUNNER_TEMP/update-payloads")
+            --source "$GITHUB_WORKSPACE/source" "$base" "$GITHUB_WORKSPACE/source/dist" "$RUNNER_TEMP/update-payloads")
           # The signer comes from the workflow revision, so older source branches still sign.
           # Packaged clients bake in this run number, which orders successive builds of one version.
           (cd "$GITHUB_WORKSPACE/release-tools" && cargo run --quiet --locked -p release-manifest -- \

@@ -263,6 +263,23 @@ class ReleaseDownloadsTests(unittest.TestCase):
         for copy, source in copies:
             self.assertEqual(copy.read_bytes(), source.read_bytes())
 
+    def test_source_without_a_platform_rename_publishes_only_its_original_keys(self):
+        directory = self.root / "dist"
+        self.populate()
+        source = self.root / "older-source"
+        (source / "packaging").mkdir(parents=True)
+        older = {key: value for key, value in self.config.items() if key != "update_platforms"}
+        (source / "packaging/release-assets.json").write_text(json.dumps(older))
+        result = self.run_helper("update-payloads", "https://x.invalid", directory,
+                                 self.root / "payloads", "--source", source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        keys = {line.split("=", 1)[0] for line in result.stdout.splitlines()}
+        for platform, renamed in self.config["update_platforms"].items():
+            for arch in self.config["assets"][platform]:
+                # That source's updater reads only the original key, served its per-machine package.
+                self.assertNotIn(f"{renamed}-{arch}", keys)
+                self.assertIn(f"{platform}-{arch}", keys)
+
     def test_windows_job_retains_the_workflow_source_working_directory(self):
         workflow = (PACKAGING.parent / ".github/workflows/package.yml").read_text()
         global_defaults = re.search(r"(?m)^defaults:\n((?:^  .*\n)+)", workflow)
