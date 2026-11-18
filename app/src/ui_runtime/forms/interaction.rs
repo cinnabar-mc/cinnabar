@@ -533,7 +533,7 @@ mod focus_tests {
         keys.reset_all();
 
         let v = key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v"));
-        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v.clone()]);
+        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, std::slice::from_ref(&v));
         assert_eq!(shortcuts, [true]);
         assert_eq!(held, [KeyboardKey::ControlLeft]);
 
@@ -543,11 +543,28 @@ mod focus_tests {
         assert!(held.is_empty());
     }
 
+    // The reverse order of the release above: V arrives first in the frame, so it was typed
+    // while Ctrl was still held even though the frame also carries the release.
+    #[test]
+    fn v_before_a_same_frame_ctrl_release_is_still_an_edit_shortcut() {
+        let (mut modifiers, mut keys) = (ButtonInput::default(), ButtonInput::default());
+        keys.press(KeyCode::ControlLeft);
+        let ctrl = key_event(KeyCode::ControlLeft, ButtonState::Pressed, None);
+        form_modifiers(&mut modifiers, &keys, &[ctrl]);
+        keys.reset_all();
+
+        let v = key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v"));
+        let release = key_event(KeyCode::ControlLeft, ButtonState::Released, None);
+        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v, release]);
+        assert_eq!(shortcuts, [true]);
+        assert!(held.is_empty());
+    }
+
     #[test]
     fn plain_and_alt_gr_v_stay_typed_text() {
         let (mut modifiers, mut keys) = (ButtonInput::default(), ButtonInput::default());
         let v = key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v"));
-        let (_, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v.clone()]);
+        let (_, shortcuts) = form_modifiers(&mut modifiers, &keys, std::slice::from_ref(&v));
         assert_eq!(shortcuts, [false]);
         // Windows reports AltGr as Ctrl+Alt, which types characters rather than shortcuts.
         keys.press(KeyCode::ControlLeft);
