@@ -57,7 +57,7 @@ fn screens() -> Vec<(&'static str, Screen)> {
             Screen::Refused {
                 refusal: crate::ownership::Refusal::NotInstalled,
                 sources: launcher::ownership::Sources {
-                    local_install: true,
+                    local_install: Some(launcher::ownership::Store::Microsoft),
                     account: false,
                 },
             },
@@ -67,7 +67,7 @@ fn screens() -> Vec<(&'static str, Screen)> {
             Screen::Refused {
                 refusal: crate::ownership::Refusal::NotOwned,
                 sources: launcher::ownership::Sources {
-                    local_install: true,
+                    local_install: Some(launcher::ownership::Store::Microsoft),
                     account: true,
                 },
             },

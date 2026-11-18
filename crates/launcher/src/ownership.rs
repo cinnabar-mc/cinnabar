@@ -9,6 +9,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+pub mod android;
+
 /// Cinnabar's own Microsoft app registration, set at build time from `CINNABAR_MSA_CLIENT_ID`.
 /// Without one the account source is unavailable.
 pub const MSA_CLIENT_ID: Option<&str> = match option_env!("CINNABAR_MSA_CLIENT_ID") {
@@ -34,19 +36,81 @@ pub const REVOKE_AFTER_SECS: u64 = 24 * 60 * 60;
 /// How far the clock may step back (time sync, time zones) before it forces a check.
 const CLOCK_SLACK_SECS: u64 = 10 * 60;
 
+/// A store whose install on this device proves ownership; best-effort, since an install shows
+/// the game is present, not that its license is current.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Store {
+    /// Minecraft for Windows from the Microsoft Store or the Xbox app.
+    Microsoft,
+    /// [`android::PACKAGE`] from Google Play.
+    Android,
+}
+
+impl Store {
+    /// Whether `a` and `b` name the same store, usable in const assertions.
+    #[must_use]
+    pub const fn same(a: Option<Self>, b: Option<Self>) -> bool {
+        matches!(
+            (a, b),
+            (None, None)
+                | (Some(Self::Microsoft), Some(Self::Microsoft))
+                | (Some(Self::Android), Some(Self::Android))
+        )
+    }
+}
+
+/// The store install this platform can look for, where the store can vouch for installs on the
+/// device. The host's probe must match it, which `launcher_host::ownership` asserts at compile
+/// time.
+pub const LOCAL_STORE: Option<Store> = if cfg!(windows) {
+    Some(Store::Microsoft)
+} else if cfg!(target_os = "android") {
+    Some(Store::Android)
+} else {
+    None
+};
+
+/// One look at this device's store install, which every gate decision of that check comes from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalProbe {
+    /// Whether the platform's store can vouch for installs here; only a clean answer that it
+    /// can't clears this.
+    pub store_usable: bool,
+    pub install: LocalInstall,
+    /// The app that opens "Get Minecraft" first, once the probe found it genuine.
+    pub store_app: Option<&'static str>,
+}
+
+/// What a probe found of the game's store install.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalInstall {
+    Found,
+    NotFound,
+    /// A read failed before the check could finish.
+    Unreadable,
+}
+
+impl LocalProbe {
+    /// This build's sources on this device, after the probe.
+    #[must_use]
+    pub const fn sources(self) -> Sources {
+        sources(self.store_usable)
+    }
+}
+
 /// The proof sources this build offers on this platform.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Sources {
-    /// The game installed from its store on this device; best-effort.
-    pub local_install: bool,
+    /// The store install that can prove ownership here.
+    pub local_install: Option<Store>,
     /// A Microsoft account signed in through Cinnabar's app.
     pub account: bool,
 }
 
 impl Sources {
-    /// This build's sources, given whether the platform can look for a local install.
+    /// This build's sources, given the store install the platform can look for.
     #[must_use]
-    pub const fn for_build(local_install: bool) -> Self {
+    pub const fn for_build(local_install: Option<Store>) -> Self {
         Self {
             local_install,
             account: MSA_CLIENT_ID.is_some(),
@@ -56,7 +120,7 @@ impl Sources {
     /// The gate applies only where some proof can pass it.
     #[must_use]
     pub const fn gated(self) -> bool {
-        self.local_install || self.account
+        self.local_install.is_some() || self.account
     }
 
     /// The client ID the account source signs in with, when it is offered.
@@ -64,19 +128,52 @@ impl Sources {
     pub const fn client_id(self) -> Option<&'static str> {
         if self.account { MSA_CLIENT_ID } else { None }
     }
+
+    /// Where "Get Minecraft" sends the player.
+    #[must_use]
+    pub const fn get_minecraft_url(self) -> &'static str {
+        match self.local_install {
+            Some(Store::Android) => android::STORE_LISTING,
+            Some(Store::Microsoft) | None => GET_MINECRAFT_URL,
+        }
+    }
+
+    /// These sources without the store install when `store_usable` says the store cannot vouch
+    /// for installs on this device, which leaves the gate off where nothing else can pass it.
+    #[must_use]
+    pub const fn with_store_usable(self, store_usable: bool) -> Self {
+        Self {
+            local_install: if store_usable {
+                self.local_install
+            } else {
+                None
+            },
+            ..self
+        }
+    }
 }
 
-/// This build's sources on this platform. Android and iOS start without the first-run gate, so
-/// they offer none yet.
+/// This build's sources on this device; `store_usable` is the host's probe of whether
+/// [`LOCAL_STORE`] can vouch for installs here. iOS starts without the first-run gate, so it
+/// offers none yet. Android's game activity can start without its setup activity, as when
+/// restored after the process ends, so it offers no account source until it can ask for a
+/// sign-in there.
 #[must_use]
-pub const fn sources() -> Sources {
-    if cfg!(any(target_os = "android", target_os = "ios")) {
-        return Sources {
-            local_install: false,
+pub const fn sources(store_usable: bool) -> Sources {
+    let platform = if cfg!(target_os = "ios") {
+        Sources {
+            local_install: None,
             account: false,
-        };
-    }
-    Sources::for_build(cfg!(windows))
+        }
+    } else if cfg!(target_os = "android") {
+        Sources {
+            local_install: LOCAL_STORE,
+            account: false,
+        }
+    } else {
+        Sources::for_build(LOCAL_STORE)
+    };
+    platform.with_store_usable(store_usable)
 }
 
 /// One account check's answer.

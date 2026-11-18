@@ -114,6 +114,12 @@ pub fn preload(rewritten: bool) {
     crate::app::startup::preload(&layout, rewritten);
 }
 
+/// Starts client logging and this session's log files, so Android's setup activity records its
+/// ownership check even when the player quits before [`preload`].
+pub fn start_logging() {
+    let _ = start_session();
+}
+
 /// Starts client logging, crash capture and this session's log files on the first call in the
 /// process, then resolves the install layout on every call.
 fn start_session() -> Result<InstallLayout> {

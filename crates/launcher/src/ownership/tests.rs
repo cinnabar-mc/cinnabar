@@ -24,30 +24,57 @@ fn license_files() -> (tempfile::TempDir, PathBuf, PathBuf) {
 fn the_gate_applies_only_where_some_source_exists() {
     let none = Sources::default();
     assert!(!none.gated());
+    for store in [Store::Microsoft, Store::Android] {
+        assert!(
+            Sources {
+                local_install: Some(store),
+                account: false
+            }
+            .gated()
+        );
+    }
     assert!(
         Sources {
-            local_install: true,
-            account: false
-        }
-        .gated()
-    );
-    assert!(
-        Sources {
-            local_install: false,
+            local_install: None,
             account: true
         }
         .gated()
     );
     assert_eq!(
-        sources().local_install,
-        cfg!(windows),
-        "only Windows can find a store install"
-    );
-    assert_eq!(
-        Sources::for_build(false).gated(),
+        Sources::for_build(None).gated(),
         MSA_CLIENT_ID.is_some(),
         "without a local source, only a built-in client ID turns the gate on"
     );
+}
+
+/// A store that can't vouch for installs on the device leaves only the account source.
+#[test]
+fn an_unusable_store_drops_only_the_local_source() {
+    for account in [false, true] {
+        let platform = Sources {
+            local_install: Some(Store::Android),
+            account,
+        };
+        assert_eq!(platform.with_store_usable(true), platform);
+        let unusable = platform.with_store_usable(false);
+        assert_eq!(unusable.local_install, None);
+        assert_eq!(unusable.gated(), account);
+    }
+    assert_eq!(sources(false).local_install, None);
+}
+
+#[test]
+fn get_minecraft_follows_the_local_store() {
+    assert_eq!(
+        Sources::for_build(Some(Store::Android)).get_minecraft_url(),
+        android::STORE_LISTING
+    );
+    for local_install in [Some(Store::Microsoft), None] {
+        assert_eq!(
+            Sources::for_build(local_install).get_minecraft_url(),
+            GET_MINECRAFT_URL
+        );
+    }
 }
 
 #[test]

@@ -2017,21 +2017,36 @@ the lowest priority with bounded parallelism, and its first launch promotes them
 setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
 captures of a game running beside the background build remain incomplete.
 Packaged launches pass an ownership gate before first-run setup, downloads, worlds or joins.
-Proof sources plug in per platform and any one passes: Minecraft for Windows registered for
-the user (Windows package API, best-effort, checked every launch), and a Microsoft account
-signed in through Cinnabar's own app when `CINNABAR_MSA_CLIENT_ID` is built in. The account
-check keeps a 30-day pass, re-checks in the background, survives outages with a prior pass and
-revokes only after two not-owned answers a day apart; the account manager lists that account
-and warns before removing it. The gate is on where a source exists: Windows now; macOS and
-Linux once the client ID is set, which waits on Mojang approving Cinnabar's app; Android after
-its install source lands; iOS needs an in-game gate, since its setup runs no first-run window.
-No release has qualified the account path against real accounts (owned, Game Pass, Java-only,
-child, non-owner) or the Windows source against a current Store or Xbox app install.
+Proof sources plug in per platform and any one passes: a store install, best-effort and checked
+every launch, and a Microsoft account signed in through Cinnabar's own app when
+`CINNABAR_MSA_CLIENT_ID` is built in. On Windows the store install is Minecraft for Windows
+registered for the user (Windows package API); on Android it is `com.mojang.minecraftpe`, never
+the trial, signed by Mojang's certificate and installed by Google Play, itself signed by Google,
+not by `adb` (`PackageManager` metadata only; before API 30 an `adb` install naming Play as its
+installer passes, and a Play install carried over from Android 10 records no initiator, so it
+fails until Play updates or reinstalls it). Amazon Appstore copies are re-signed with a key
+Amazon does not publish, so they cannot pass until that signer is pinned. Android's setup
+activity draws the gate's screens before setup downloads, local worlds and joins, and the game
+activity checks the install again. Android offers no account source yet: its game activity,
+restored after the process ends, starts without the setup activity and cannot ask for a sign-in.
+The Android store source is dropped only where one probe cleanly finds Google Play absent for
+the user, disabled or not signed by Google: such devices have no proof source, so they stay
+ungated until an Android account source exists. A probe that cannot read Play keeps the gate on
+and refuses as unverifiable whatever it found of the game, and Try again probes again. The
+account check keeps a 30-day pass, re-checks in the background, survives outages with a prior
+pass and revokes only after two not-owned answers a day apart; the account manager lists that
+account and warns before removing it. The gate is on where a source exists: Windows, and Android
+devices with a usable Play, now; macOS and Linux once the client ID is set, which waits on
+Mojang approving Cinnabar's app; iOS needs an in-game gate, since its setup runs no first-run
+window. No release has qualified the account path against real accounts (owned, Game Pass,
+Java-only, child, non-owner), the Windows source against a current Store or Xbox app install, or
+the Android source on Play and sideloaded devices across API 26–35, with the setup screens at
+large font scales.
 Bootstrap windows initialize only the platform-preferred graphics API by default, preserving explicit `WGPU_BACKEND` overrides, so unused Windows Vulkan drivers are not loaded before setup can fall back to system dialogs. Affected Intel driver and dual-GPU acceptance remain incomplete.
 Particle atlas updates scope dynamic tile staging as well as base allocation. A failed tile update drops its partial atlas, keeps the generation uncommitted and retries the base plus current patches after retirement. Repeated failures keep exponential backoff until both the base and tiles upload successfully. Low-memory desktop GPU acceptance remains incomplete.
 
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
-Desktop startup feedback starts without waiting for its loading window, which stays hidden when the first menu frame arrives before its show delay, and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Android first-run consent, download and preparation progress and failure retry draw on that startup screen; an emulator fixture with scripted setup reports confirms the flow, and a clean-install run with real downloads on a phone remains pending. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
+Desktop startup feedback starts without waiting for its loading window, which stays hidden when the first menu frame arrives before its show delay, and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Android first-run consent, download and preparation progress and failure retry draw on that startup screen; an emulator fixture with scripted setup reports confirms the flow, and a clean-install run with real downloads on a phone remains pending. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending. Known setup issue: a setup activity waiting on the player at the consent or ownership prompt holds the process-wide setup lock, so a second setup activity opened in another task stays on its startup screen until the first is closed.
 
 The setup and crash windows use Apple's Game Controller framework on macOS for controller
 buttons and hotplugging, including controllers unavailable through HID compatibility.

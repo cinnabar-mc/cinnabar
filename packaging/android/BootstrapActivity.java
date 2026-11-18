@@ -15,9 +15,13 @@ import java.nio.file.Files;
 import java.security.GeneralSecurityException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Unpacks the prep kit and prepares game assets on the startup screen, then starts the game. */
+/**
+ * Checks that the player owns Minecraft, unpacks the prep kit and prepares game assets on the
+ * startup screen, then starts the game.
+ */
 public final class BootstrapActivity extends Activity {
     static { System.loadLibrary("@CLIENT_LIBRARY@"); }
 
@@ -34,7 +38,8 @@ public final class BootstrapActivity extends Activity {
 
     private volatile long attempt;
     private SetupScreen screen;
-    private volatile CountDownLatch consentAnswer;
+    /** The answer a native call waits on, released when the activity closes. */
+    private volatile CountDownLatch pendingAnswer;
 
     /** Stays out of immersive mode, whose first-use system notice would cover the setup prompts. */
     @Override protected void onCreate(Bundle state) {
@@ -119,7 +124,7 @@ public final class BootstrapActivity extends Activity {
     public boolean requestConsent(String title, String body) throws InterruptedException {
         CountDownLatch answer = new CountDownLatch(1);
         AtomicBoolean accepted = new AtomicBoolean();
-        consentAnswer = answer;
+        pendingAnswer = answer;
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) { answer.countDown(); return; }
             screen.prompt(title, body, "Accept and download", () -> {
@@ -129,6 +134,32 @@ public final class BootstrapActivity extends Activity {
         });
         answer.await();
         return accepted.get();
+    }
+
+    /** Called by the native gate on its worker thread: shows a screen while a check runs. */
+    public void showGate(String prompt) {
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed()) screen.gate(prompt, null);
+        });
+    }
+
+    /**
+     * Called by the native gate on its worker thread; blocks until an answering button is pressed
+     * and returns its index, or -1 once the activity closes.
+     */
+    public int chooseGate(String prompt) throws InterruptedException {
+        CountDownLatch answer = new CountDownLatch(1);
+        AtomicInteger chosen = new AtomicInteger(-1);
+        pendingAnswer = answer;
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) { answer.countDown(); return; }
+            screen.gate(prompt, index -> {
+                chosen.set(index);
+                answer.countDown();
+            });
+        });
+        answer.await();
+        return chosen.get();
     }
 
     /**
@@ -160,7 +191,7 @@ public final class BootstrapActivity extends Activity {
 
     @Override protected void onDestroy() {
         cancel(attempt);
-        CountDownLatch answer = consentAnswer;
+        CountDownLatch answer = pendingAnswer;
         if (answer != null) answer.countDown();
         super.onDestroy();
     }

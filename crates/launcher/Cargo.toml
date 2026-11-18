@@ -16,6 +16,7 @@ reads = [
     "core/authcache/testdata/pending_prompt.json",
     "core/catalog/artwork_limit.txt",
     "core/catalog/profile_overview_limit.txt",
+    "packaging/android/AndroidManifest.xml",
 ]
 
 [features]

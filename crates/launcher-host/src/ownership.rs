@@ -1,5 +1,8 @@
-//! The ownership gate's proof sources: Minecraft installed from the Windows store, and the license
-//! account, checked by a one-shot `bedrock-core -auth-events -ownership` helper.
+//! The ownership gate's proof sources: Minecraft installed from this platform's store, and the
+//! license account, checked by a one-shot `bedrock-core -auth-events -ownership` helper.
+
+#[cfg(target_os = "android")]
+pub mod android;
 
 use std::{
     process::Command,
@@ -11,7 +14,7 @@ use std::{
 use crossbeam_channel::{RecvTimeoutError, bounded};
 use launcher::{
     install_layout::InstallLayout,
-    ownership::{self as policy, Check, Verdict},
+    ownership::{self as policy, Check, LocalProbe, Store, Verdict},
 };
 
 use crate::{
@@ -28,11 +31,24 @@ pub const MINECRAFT_PACKAGE_FAMILY: &str = "Microsoft.MinecraftUWP_8wekyb3d8bbwe
 /// How often a running check looks for cancellation.
 const CANCEL_POLL: Duration = Duration::from_millis(100);
 
-/// Whether Minecraft for Windows is registered for the current user. Best-effort: package
-/// registration shows the game is installed, not that its license is current.
+/// The store [`probe_local`] looks for on this platform.
+#[cfg(windows)]
+const PROBED_STORE: Option<Store> = Some(Store::Microsoft);
+#[cfg(target_os = "android")]
+const PROBED_STORE: Option<Store> = Some(Store::Android);
+#[cfg(not(any(windows, target_os = "android")))]
+const PROBED_STORE: Option<Store> = None;
+
+const _: () = assert!(
+    Store::same(PROBED_STORE, policy::LOCAL_STORE),
+    "every local store needs a probe here, and every probe needs its store in the policy"
+);
+
+/// One look at this device's store install, uncached; every gate decision of a check comes from
+/// it. Best-effort: package metadata shows the game is installed, not that its license is current.
 #[cfg(windows)]
 #[must_use]
-pub fn local_install_found() -> bool {
+pub fn probe_local() -> LocalProbe {
     use windows_sys::Win32::{
         Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS},
         Storage::Packaging::Appx::GetPackagesByPackageFamily,
@@ -52,14 +68,35 @@ pub fn local_install_found() -> bool {
             std::ptr::null_mut(),
         )
     };
-    matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0
+    let found = matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0;
+    LocalProbe {
+        // The Microsoft Store is part of Windows.
+        store_usable: true,
+        install: if found {
+            policy::LocalInstall::Found
+        } else {
+            policy::LocalInstall::NotFound
+        },
+        store_app: None,
+    }
+}
+
+/// One look at this device's Google Play and, where Play keeps the source, its Minecraft install.
+#[cfg(target_os = "android")]
+#[must_use]
+pub fn probe_local() -> LocalProbe {
+    android::probe()
 }
 
 /// No store install can prove ownership on this platform.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 #[must_use]
-pub const fn local_install_found() -> bool {
-    false
+pub const fn probe_local() -> LocalProbe {
+    LocalProbe {
+        store_usable: true,
+        install: policy::LocalInstall::NotFound,
+        store_app: None,
+    }
 }
 
 /// One account check's answer.

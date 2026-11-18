@@ -1,10 +1,13 @@
 package @APPLICATION_ID@;
 
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.text.util.Linkify;
 import android.util.TypedValue;
@@ -18,6 +21,8 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.util.function.IntConsumer;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -37,10 +42,25 @@ final class SetupScreen extends FrameLayout {
     private final StartupScreen startup;
     private final FrameLayout overlay;
     private final Button cancel;
-    private LinearLayout prompt;
+    private final Runnable onCancel;
+    private ScrollView prompt;
+
+    /** One prompt button; a dismissing one closes the prompt before its action runs. */
+    private static final class Choice {
+        final String label;
+        final boolean dismisses;
+        final Runnable action;
+
+        Choice(String label, boolean dismisses, Runnable action) {
+            this.label = label;
+            this.dismisses = dismisses;
+            this.action = action;
+        }
+    }
 
     SetupScreen(Context context, Runnable onCancel) {
         super(context);
+        this.onCancel = onCancel;
         startup = new StartupScreen(context);
         // The window background holds the launcher icon, which must not show behind a prompt.
         setBackgroundColor(startup.color("background"));
@@ -101,21 +121,77 @@ final class SetupScreen extends FrameLayout {
     /** Asks a question in place of the progress display; either answer dismisses the prompt. */
     void prompt(String title, String body, String acceptLabel, Runnable accept,
             String declineLabel, Runnable decline) {
+        show(title, body, new Choice[] {
+            new Choice(acceptLabel, true, accept), new Choice(declineLabel, true, decline)});
+    }
+
+    /**
+     * Shows one ownership gate screen from native setup's JSON. Buttons open their link in place,
+     * quit setup, or dismiss the screen and pass their index to {@code answer}, which is null while
+     * a check runs. An unreadable screen answers -1.
+     */
+    void gate(String message, IntConsumer answer) {
+        try {
+            JSONObject value = new JSONObject(message);
+            JSONArray buttons = value.getJSONArray("buttons");
+            Choice[] choices = new Choice[buttons.length()];
+            for (int index = 0; index < choices.length; index++) {
+                JSONObject button = buttons.getJSONObject(index);
+                String link = button.optString("open", null);
+                String app = button.optString("app", null);
+                int chosen = index;
+                if (link != null) {
+                    choices[index] = new Choice(button.getString("label"), false, () -> open(link, app));
+                } else if (button.optBoolean("quit")) {
+                    choices[index] = new Choice(button.getString("label"), false, onCancel);
+                } else {
+                    choices[index] = new Choice(button.getString("label"), answer != null,
+                            () -> { if (answer != null) answer.accept(chosen); });
+                }
+            }
+            // Native paragraphs end at single line breaks; a blank line separates them here.
+            show(value.getString("title"), value.getString("body").replace("\n", "\n\n"), choices);
+        } catch (JSONException error) {
+            android.util.Log.w("SetupScreen", "Cannot read gate screen", error);
+            if (answer != null) answer.accept(-1);
+        }
+    }
+
+    /** Opens {@code link} in {@code app} when given and able, otherwise in whichever app handles it. */
+    private void open(String link, String app) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(link));
+        if (app != null) {
+            try {
+                getContext().startActivity(new Intent(intent).setPackage(app));
+                return;
+            } catch (ActivityNotFoundException error) {
+                // Any app that handles the link is the fallback.
+            }
+        }
+        try {
+            getContext().startActivity(intent);
+        } catch (ActivityNotFoundException error) {
+            android.util.Log.w("SetupScreen", "No app opens " + link, error);
+        }
+    }
+
+    /** Shows a prompt in place of the progress display; the first choice is highlighted. */
+    private void show(String title, String body, Choice[] choices) {
         dismissPrompt();
         Context context = getContext();
         cancel.setVisibility(GONE);
         startup.setVisibility(GONE);
         // Limits line length on wide landscape screens.
-        prompt = new LinearLayout(context) {
+        LinearLayout column = new LinearLayout(context) {
             @Override protected void onMeasure(int width, int height) {
                 int limit = Math.min(MeasureSpec.getSize(width), dp(PROMPT_MAX_WIDTH_DP));
                 super.onMeasure(MeasureSpec.makeMeasureSpec(limit, MeasureSpec.EXACTLY), height);
             }
         };
-        prompt.setOrientation(LinearLayout.VERTICAL);
-        prompt.setGravity(Gravity.CENTER_HORIZONTAL);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.CENTER_HORIZONTAL);
         int margin = dp(BUTTON_GAP_DP);
-        prompt.setPadding(margin, margin, margin, margin);
+        column.setPadding(margin, margin, margin, margin);
 
         Bitmap logo = startup.logo();
         if (logo != null) {
@@ -123,7 +199,7 @@ final class SetupScreen extends FrameLayout {
             image.setImageBitmap(logo);
             image.setAdjustViewBounds(true);
             image.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-            prompt.addView(image, new LinearLayout.LayoutParams(
+            column.addView(image, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(LOGO_HEIGHT_DP)));
         }
         TextView heading = text(title, TITLE_SP);
@@ -131,7 +207,7 @@ final class SetupScreen extends FrameLayout {
         LinearLayout.LayoutParams headingPosition = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         headingPosition.topMargin = margin;
-        prompt.addView(heading, headingPosition);
+        column.addView(heading, headingPosition);
 
         TextView message = text("", BODY_SP);
         message.setTextColor(startup.color("foreground") & 0x00ffffff | BODY_ALPHA << 24);
@@ -139,31 +215,62 @@ final class SetupScreen extends FrameLayout {
         message.setLineSpacing(0, BODY_LINE_SPACING);
         message.setAutoLinkMask(Linkify.WEB_URLS);
         message.setText(body);
-        ScrollView scroll = new ScrollView(context);
-        scroll.setScrollbarFadingEnabled(false);
-        scroll.addView(message);
-        LinearLayout.LayoutParams scrollPosition = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1);
-        scrollPosition.topMargin = margin;
-        scrollPosition.bottomMargin = margin;
-        prompt.addView(scroll, scrollPosition);
+        // Takes the column's spare height, so the buttons sit at the bottom when everything fits.
+        LinearLayout.LayoutParams messagePosition = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        messagePosition.topMargin = margin;
+        messagePosition.bottomMargin = margin;
+        column.addView(message, messagePosition);
 
-        LinearLayout actions = new LinearLayout(context);
+        // A row while the buttons fit, otherwise a column, so large font scales keep every action.
+        LinearLayout actions = new LinearLayout(context) {
+            @Override protected void onMeasure(int width, int height) {
+                arrange(this, HORIZONTAL);
+                super.onMeasure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), height);
+                if (getMeasuredWidth() > MeasureSpec.getSize(width)) arrange(this, VERTICAL);
+                super.onMeasure(width, height);
+            }
+        };
         actions.setGravity(Gravity.CENTER);
-        Button primary = button(acceptLabel, true, () -> { dismissPrompt(); accept.run(); });
-        actions.addView(primary, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP)));
-        LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(BUTTON_HEIGHT_DP));
-        second.leftMargin = margin;
-        actions.addView(button(declineLabel, false, () -> { dismissPrompt(); decline.run(); }), second);
-        prompt.addView(actions, new LinearLayout.LayoutParams(
+        boolean first = true;
+        for (Choice choice : choices) {
+            Button view = button(choice.label, first, () -> {
+                if (choice.dismisses) dismissPrompt();
+                choice.action.run();
+            });
+            first = false;
+            // Grows past the usual height when a large font scale wraps the label.
+            view.setMinHeight(dp(BUTTON_HEIGHT_DP));
+            actions.addView(view, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        column.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT,
+        // The whole prompt scrolls when stacked buttons or a large font scale outgrow the screen.
+        prompt = new ScrollView(context);
+        prompt.setFillViewport(true);
+        prompt.setScrollbarFadingEnabled(false);
+        prompt.addView(column, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER_HORIZONTAL));
-        primary.requestFocus();
+        overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+        // The prompt takes focus itself, so it opens at the top and no off-screen button is focused;
+        // keys scroll it and move on to the buttons.
+        prompt.setFocusable(true);
+        prompt.setDescendantFocusability(FOCUS_BEFORE_DESCENDANTS);
+        prompt.requestFocus();
         announceForAccessibility(title);
+    }
+
+    /** Lays out {@code actions} in {@code orientation}, spacing every button after the first. */
+    private void arrange(LinearLayout actions, int orientation) {
+        actions.setOrientation(orientation);
+        for (int index = 1; index < actions.getChildCount(); index++) {
+            LinearLayout.LayoutParams position =
+                    (LinearLayout.LayoutParams) actions.getChildAt(index).getLayoutParams();
+            position.leftMargin = orientation == LinearLayout.HORIZONTAL ? dp(BUTTON_GAP_DP) : 0;
+            position.topMargin = orientation == LinearLayout.VERTICAL ? dp(BUTTON_GAP_DP) : 0;
+        }
     }
 
     private void dismissPrompt() {

@@ -21,7 +21,7 @@ use winit::{
 use super::{
     super::{
         EULA_URL,
-        ownership::{self, Answer},
+        ownership::{self, Answer, Checked},
         prepare, record_consent, reporter,
         screen::{self, Action, Effect, Meter, Screen},
         status::Status,
@@ -60,7 +60,7 @@ impl Worker {
 /// What the ownership gate's worker reports.
 enum GateEvent {
     Code { uri: String, code: String },
-    Answer(Answer),
+    Answer(Checked),
 }
 
 pub(super) struct SetupApp {
@@ -234,14 +234,18 @@ impl SetupApp {
                 launcher_host::desktop::open_url(&uri);
                 Screen::SignIn { uri, code }
             }
-            GateEvent::Answer(Answer::Allowed) => match self.after_gate() {
+            GateEvent::Answer(Checked {
+                answer: Answer::Allowed,
+                ..
+            }) => match self.after_gate() {
                 Some(next) => next,
                 None => return self.finish(EXIT_VERIFIED, event_loop),
             },
-            GateEvent::Answer(Answer::Denied(refusal)) => Screen::Refused {
-                refusal,
-                sources: launcher::ownership::sources(),
-            },
+            GateEvent::Answer(Checked {
+                answer: Answer::Denied(refusal),
+                sources,
+                ..
+            }) => Screen::Refused { refusal, sources },
         };
         if matches!(next, Screen::SignIn { .. } | Screen::Refused { .. }) {
             reporter(&self.layout, |_| {})(Status::awaiting_ownership());
@@ -272,7 +276,9 @@ impl SetupApp {
                 }
             }
             Effect::GetMinecraft => {
-                launcher_host::desktop::open_url(launcher::ownership::GET_MINECRAFT_URL);
+                if let Screen::Refused { sources, .. } = &self.screen {
+                    launcher_host::desktop::open_url(sources.get_minecraft_url());
+                }
             }
             Effect::OpenEula => launcher_host::desktop::open_url(EULA_URL),
             Effect::Quit => self.finish(EXIT_QUIT, event_loop),

@@ -3,7 +3,8 @@
 //! Runs before the game window: the ownership gate on every launch, then, when needed, consent,
 //! a download of the pinned public pack and one `assetc prepare`. Android also tries to prepare
 //! local worlds before starting the game. A setup window in a child process shows desktop setup;
-//! without one, native dialogs do. Android's setup activity draws setup on its startup screen.
+//! without one, native dialogs do. Android's setup activity draws setup, gate included, on its
+//! startup screen.
 //! Progress is mirrored to `logs/first-run-status.json`.
 
 mod download;
@@ -27,6 +28,7 @@ use sha2::{Digest, Sha256};
 
 pub use headless::prepare_headless;
 pub use next::prepare_next_release;
+pub use ownership::{Button, GateHost, Prompt, verify_with_host};
 use prepare::prepare;
 pub use progress::Progress;
 use status::Status;
@@ -65,7 +67,9 @@ pub fn ensure_owned(layout: &InstallLayout) -> Result<Outcome> {
 }
 
 fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
-    let verify = layout.is_installed() && !ownership::open_without_asking(layout);
+    // This launch's one probe of the device decides whether to ask.
+    let local = launcher_host::ownership::probe_local();
+    let verify = layout.is_installed() && !ownership::open_without_asking(layout, local);
     let promoted = prepare && next::promote(layout);
     let plan = window::Plan {
         verify,
@@ -79,7 +83,14 @@ fn ensure(layout: &InstallLayout, prepare: bool) -> Result<Outcome> {
         });
     }
     if cfg!(target_os = "android") {
-        // Android's setup activity runs `prepare_headless` before the game activity starts.
+        // Android's setup activity runs the gate and `prepare_headless` before the game activity
+        // starts; a game restored after the process ended can only point back to it.
+        if plan.verify {
+            bail!(
+                "{}",
+                ownership::restored_refusal(ownership::local_refusal(local), local.sources())
+            );
+        }
         bail!("setup is incomplete; close and reopen the app to finish setup");
     }
     // An earlier run's report must not describe this one.
@@ -121,14 +132,9 @@ fn after_window(
         );
         // The prompts wait on the player, which an update helper must not take for a hang.
         reporter(layout, |_| {})(Status::awaiting_ownership());
-        let owned = ownership::with_dialogs(
-            launcher::ownership::sources(),
-            prompter,
-            &title,
-            &mut |sign_in, on_code| {
-                ownership::verify(layout, sign_in, &AtomicBool::new(false), on_code)
-            },
-        );
+        let owned = ownership::with_dialogs(prompter, &title, &mut |sign_in, on_code| {
+            ownership::verify(layout, sign_in, &AtomicBool::new(false), on_code)
+        });
         if !owned {
             return Ok(Outcome::Quit);
         }
