@@ -118,8 +118,7 @@ fn experience_level_glyphs_leave_a_gap_above_the_bar() {
                 br#"{
                 "namespace": "hud", "java_level_number": {"offset": [0, -35]}
             }"#
-                .to_vec()
-                .into(),
+                .to_vec(),
             )]],
             ..Default::default()
         });

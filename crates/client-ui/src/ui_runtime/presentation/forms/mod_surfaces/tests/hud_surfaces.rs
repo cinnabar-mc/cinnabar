@@ -140,7 +140,7 @@ fn crosshair_bounds_follow_the_safe_hud_root_even_when_hidden() {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/crosshair_test.json"]}"#.to_vec().into(),
+                br#"{"ui_defs":["ui/crosshair_test.json"]}"#.to_vec(),
             ),
             (
                 "ui/crosshair_test.json".into(),
@@ -148,8 +148,7 @@ fn crosshair_bounds_follow_the_safe_hud_root_even_when_hidden() {
                     (name):{"type":"screen","controls":[{"cursor":{"type":"custom",
                         "renderer":CURSOR_RENDERER,"size":[CROSSHAIR_SIDE,CROSSHAIR_SIDE],
                         "anchor_from":"center","anchor_to":"center"}}]}}))
-                .unwrap()
-                .into(),
+                .unwrap(),
             ),
         ]],
         ..Default::default()
@@ -240,7 +239,7 @@ fn skipped_crosshair_scene_clears_visibility_and_recovers_after_panel_close() {
         })).unwrap()));
     }
     p.set_server_ui_pack(&ServerUiPack {
-        ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(layer)],
+        ui_layers: vec![layer],
         ..Default::default()
     });
     let player = player_state::PlayerState::new(1);

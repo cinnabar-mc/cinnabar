@@ -249,139 +249,66 @@ fn ui_index_loads_custom_paths_and_extensions() {
     catalog.apply_pack(
         pack.ui_layers[0]
             .iter()
-            .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
     );
     assert!(catalog.lookup("custom", "inventory").is_some());
 }
 
-/// Definitions totalling more than sixteen MiB all load: the definition loader
-/// applies no stack-wide byte budget, so large generated documents never push a
-/// later one out of the catalog.
+/// Indexed definition documents totalling `sizes` MiB of padding, named so they
+/// load in order, with each namespace's `card` control.
+fn padded_definitions(sizes: &[usize]) -> Vec<(String, String)> {
+    sizes
+        .iter()
+        .enumerate()
+        .map(|(i, mib)| {
+            (
+                format!("ui/doc_{i:02}.json"),
+                format!(
+                    r##"{{"namespace":"doc{i}","card":{{"type":"panel","property_bag":{{"#padding":"{}"}}}}}}"##,
+                    "x".repeat(mib * 1024 * 1024)
+                ),
+            )
+        })
+        .collect()
+}
+
+/// The namespaces of `docs` whose `card` reaches the catalog.
+fn loaded_namespaces(docs: &[(String, String)]) -> Vec<usize> {
+    let index = format!(
+        r#"{{"ui_defs":{}}}"#,
+        serde_json::to_string(&docs.iter().map(|(path, _)| path).collect::<Vec<_>>()).unwrap()
+    );
+    let mut files = vec![("ui/_ui_defs.json", index.as_bytes())];
+    files.extend(
+        docs.iter()
+            .map(|(path, text)| (path.as_str(), text.as_bytes())),
+    );
+    let pack = super::collect_server_ui(&files_pack(&files)).unwrap();
+    let mut catalog = json_ui::Catalog::default();
+    catalog.apply_pack(
+        pack.ui_layers[0]
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+    );
+    (0..docs.len())
+        .filter(|i| catalog.lookup(&format!("doc{i}"), "card").is_some())
+        .collect()
+}
+
+/// Generated HUD packs ship more than 16 MiB of definitions, and all of it loads.
 #[test]
 fn ui_definitions_past_sixteen_mib_all_load() {
-    let document = |namespace: &str| {
-        format!(
-            r##"{{"namespace":"{namespace}","card":{{"type":"panel","property_bag":{{"#padding":"{}"}}}}}}"##,
-            "x".repeat(9 * 1024 * 1024)
-        )
-    };
-    let (first, second) = (document("first"), document("second"));
-    let view = files_pack(&[
-        (
-            "ui/_ui_defs.json",
-            br#"{"ui_defs":["ui/a_first.json","ui/b_second.json","ui/z_small.json"]}"#,
-        ),
-        ("ui/a_first.json", first.as_bytes()),
-        ("ui/b_second.json", second.as_bytes()),
-        (
-            "ui/z_small.json",
-            br#"{"namespace":"small","card":{"type":"panel"}}"#,
-        ),
-    ]);
-    let pack = super::collect_server_ui(&view).unwrap();
-    let mut catalog = json_ui::Catalog::default();
-    catalog.apply_pack(
-        pack.ui_layers[0]
-            .iter()
-            .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
-    );
-    for namespace in ["first", "second", "small"] {
-        assert!(catalog.lookup(namespace, "card").is_some(), "{namespace}");
-    }
+    let docs = padded_definitions(&[9, 9, 0]);
+    assert_eq!(loaded_namespaces(&docs), [0, 1, 2]);
 }
 
-/// An index listing many spellings of one stored document reads it once: each
-/// spelling keeps its own catalog path, but all of them share one copy of the
-/// bytes, so retained definition bytes stay within the pack's admitted entries.
+/// The stack's definitions stay bounded: a document past the allowance is skipped,
+/// and a later one that still fits loads.
 #[test]
-fn ui_index_spellings_of_one_document_share_one_read() {
-    let spellings = [
-        "ui/card.json",
-        "ui/CARD.json",
-        "ui/Card.json",
-        "ui/cArD.json",
-    ];
-    let index = format!(
-        r#"{{"ui_defs":{}}}"#,
-        serde_json::to_string(&spellings[1..]).unwrap()
-    );
-    let view = files_pack(&[
-        ("ui/_ui_defs.json", index.as_bytes()),
-        (
-            "ui/card.json",
-            br#"{"namespace":"spelled","card":{"type":"panel"}}"#,
-        ),
-    ]);
-    let pack = super::collect_server_ui(&view).unwrap();
-    let copies: Vec<_> = pack.ui_layers[0]
-        .iter()
-        .filter(|(name, _)| name.eq_ignore_ascii_case(spellings[0]))
-        .collect();
-    let mut names: Vec<_> = copies.iter().map(|(name, _)| name.as_str()).collect();
-    names.sort_unstable();
-    let mut expected = spellings.to_vec();
-    expected.sort_unstable();
-    assert_eq!(names, expected, "every spelling keeps its catalog path");
-    assert!(
-        copies
-            .iter()
-            .all(|(_, bytes)| std::sync::Arc::ptr_eq(bytes, &copies[0].1)),
-        "spellings of one entry must share one read"
-    );
-    let mut catalog = json_ui::Catalog::default();
-    catalog.apply_pack(
-        pack.ui_layers[0]
-            .iter()
-            .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
-    );
-    assert!(catalog.lookup("spelled", "card").is_some());
-}
-
-/// Repeated spellings of a loaded document are each parsed again, so they share a
-/// bounded allowance; the document itself always loads under its stored name.
-#[test]
-fn ui_index_spellings_of_a_loaded_document_share_a_bounded_allowance() {
-    let stored = "ui/cardpanel.json";
-    let mut document = br#"{"namespace":"spelled","card":{"type":"panel"},"pad":""#.to_vec();
-    document.resize(document.len() + 1024 * 1024, b'x');
-    document.extend_from_slice(br#""}"#);
-    let spellings: Vec<String> = (0..64u32)
-        .map(|mask| {
-            let name: String = "cardpanel"
-                .chars()
-                .enumerate()
-                .map(|(i, c)| {
-                    if mask & (1 << i) == 0 {
-                        c
-                    } else {
-                        c.to_ascii_uppercase()
-                    }
-                })
-                .collect();
-            format!("ui/{name}.json")
-        })
-        .collect();
-    assert_eq!(spellings[0], stored);
-    let index = format!(
-        r#"{{"ui_defs":{}}}"#,
-        serde_json::to_string(&spellings).unwrap()
-    );
-    let view = files_pack(&[
-        ("ui/_ui_defs.json", index.as_bytes()),
-        (stored, document.as_slice()),
-    ]);
-    let pack = super::collect_server_ui(&view).unwrap();
-    let kept: Vec<_> = pack.ui_layers[0]
-        .iter()
-        .filter(|(name, _)| name.eq_ignore_ascii_case(stored))
-        .map(|(name, _)| name.as_str())
-        .collect();
-    assert!(kept.contains(&stored), "the stored name always loads");
-    assert_eq!(
-        kept.len(),
-        1 + super::ui::MAX_SPELLING_BYTES / document.len(),
-        "repeated spellings stop at the allowance"
-    );
+fn ui_definitions_stop_at_the_stack_allowance() {
+    let mib = super::ui::MAX_SERVER_UI_BYTES / (1024 * 1024);
+    let docs = padded_definitions(&[mib / 2, mib / 2, 0]);
+    assert_eq!(loaded_namespaces(&docs), [0, 2]);
 }
 
 #[test]
@@ -474,7 +401,7 @@ fn ui_custom_definition_overrides_across_layers_without_relisting() {
         catalog.apply_pack(
             files
                 .iter()
-                .map(|(name, bytes)| (name.as_str(), bytes.as_ref())),
+                .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
         );
     }
     assert_eq!(

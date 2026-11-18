@@ -6,7 +6,7 @@ use json_ui::{Catalog, RawControl};
 pub type CatalogPatch = fn(&mut Catalog);
 
 /// Whether a server layer's files author a definition the carrier restores.
-pub type AuthoredBy = fn(&Catalog, &[json_ui::PackUiFile]) -> bool;
+pub type AuthoredBy = fn(&Catalog, &[(String, Vec<u8>)]) -> bool;
 
 /// A carrier definition restored before the first server layer that authors it, so that
 /// layer patches the carrier's definition rather than a built-in pack's.
@@ -25,13 +25,11 @@ mod tests {
         let layers = vec![
             vec![(
                 "@behub/label.json".into(),
-                br#"{"namespace":"custom","label":{"type":"label","text":"Lower file"}}"#
-                    .as_slice()
-                    .into(),
+                br#"{"namespace":"custom","label":{"type":"label","text":"Lower file"}}"#.to_vec(),
             )],
             vec![(
                 json_ui::UI_DEFS_PATH.into(),
-                br#"{"ui_defs":["@behub/label.json"]}"#.as_slice().into(),
+                br#"{"ui_defs":["@behub/label.json"]}"#.to_vec(),
             )],
         ];
         let layered = CatalogPolicy::default().layer(&Catalog::default(), &layers);
@@ -72,13 +70,11 @@ mod tests {
         let layers = vec![vec![
             (
                 json_ui::UI_DEFS_PATH.to_owned(),
-                br#"{"ui_defs":["ui/screen.json"]}"#.as_slice().into(),
+                br#"{"ui_defs":["ui/screen.json"]}"#.to_vec(),
             ),
             (
                 "ui/screen.json".to_owned(),
-                br#"{"namespace":"screen","panel_3":{"text":"server"}}"#
-                    .as_slice()
-                    .into(),
+                br#"{"namespace":"screen","panel_3":{"text":"server"}}"#.to_vec(),
             ),
         ]];
         let (layered, allocated) = test_alloc::measure(|| policy.layer(&carrier, &layers));
@@ -162,7 +158,7 @@ impl CatalogPolicy {
 
     /// Server `layers`, bottom first, over the built-in catalog; bootstrap and reload workers
     /// build the same catalog.
-    pub fn layer(&self, carrier: &Catalog, layers: &[Vec<json_ui::PackUiFile>]) -> LayeredCatalogs {
+    pub fn layer(&self, carrier: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> LayeredCatalogs {
         let builtin = self.builtin(carrier);
         let mut catalog = builtin.clone();
         // A higher layer's index may select a document in a lower layer.
@@ -187,7 +183,7 @@ impl CatalogPolicy {
             catalog.apply_pack(
                 files
                     .iter()
-                    .map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
+                    .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
             );
         }
         let mut screen_controls = Vec::new();

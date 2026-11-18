@@ -788,9 +788,9 @@ fn pack_hud_visibility_controls_diagnostic_eligibility_without_allocations() {
             ui_layers: vec![vec![
                 (
                     "ui/_ui_defs.json".into(),
-                    br#"{"ui_defs":["ui/f3_policy.json"]}"#.to_vec().into(),
+                    br#"{"ui_defs":["ui/f3_policy.json"]}"#.to_vec(),
                 ),
-                ("ui/f3_policy.json".into(), definition.into()),
+                ("ui/f3_policy.json".into(), definition),
             ]],
             ..Default::default()
         }

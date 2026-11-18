@@ -61,20 +61,16 @@ fn runtime(cursor: Cursor) -> UiRuntime {
                     "ui/menu_test_chat.json"
                 ]})
                 .to_string()
-                .into_bytes()
-                .into(),
+                .into_bytes(),
             ),
             (
                 "ui/menu_test_crosshair.json".into(),
-                crosshair.to_string().into_bytes().into(),
+                crosshair.to_string().into_bytes(),
             ),
-            (
-                "ui/menu_test_hud.json".into(),
-                hud.to_string().into_bytes().into(),
-            ),
+            ("ui/menu_test_hud.json".into(), hud.to_string().into_bytes()),
             (
                 "ui/menu_test_chat.json".into(),
-                chat.to_string().into_bytes().into(),
+                chat.to_string().into_bytes(),
             ),
         ]],
         textures: vec![("textures/ui/menu_test_cursor.png".into(), png)],

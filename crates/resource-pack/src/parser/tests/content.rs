@@ -199,30 +199,3 @@ fn server_content_shared_paths_survive_local_import() {
         b"complete"
     );
 }
-
-#[test]
-fn resolving_a_path_records_the_caller_read_allowance() {
-    let pack = validate_fixture(stored_archive("ui/card.json", b"{}"), "").unwrap();
-    let view = LayeredPackView::tracked(Arc::new(ValidatedPackStack {
-        packs: vec![pack].into_boxed_slice(),
-        rejections: Box::default(),
-        fingerprint: Default::default(),
-    }));
-    let layer = view.layers().next().unwrap();
-    assert_eq!(layer.resolved_path("ui/CARD.json", 8), Some("ui/card.json"));
-    let recorded: Vec<_> = view
-        .dependencies()
-        .unwrap()
-        .snapshot()
-        .into_iter()
-        .filter_map(|dependency| match dependency {
-            crate::PackDependency::File { path, limit } if path == "ui/CARD.json" => Some(limit),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        recorded,
-        [8],
-        "a replay must not read past the caller's allowance"
-    );
-}

@@ -85,7 +85,7 @@ fn real_pack_hud_consumes_globals_while_the_menu_is_closed_and_reuses_native_sem
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec().into(),
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
             ),
             (
                 "ui/hud_screen.json".into(),
@@ -99,8 +99,7 @@ fn real_pack_hud_consumes_globals_while_the_menu_is_closed_and_reuses_native_sem
                         ]
                     }}]}
                 }))
-                .unwrap()
-                .into(),
+                .unwrap(),
             ),
         ]],
         ..Default::default()

@@ -51,14 +51,13 @@ fn furnace_presentation(runtime: &mut UiRuntime) -> UiPresentationRuntime {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/furnace.json"]}"#.to_vec().into(),
+                br#"{"ui_defs":["ui/furnace.json"]}"#.to_vec(),
             ),
             (
                 "ui/furnace.json".into(),
                 serde_json::Value::Object(definitions)
                     .to_string()
-                    .into_bytes()
-                    .into(),
+                    .into_bytes(),
             ),
         ]],
         textures: vec![("textures/ui/original_slot.png".into(), png.into_inner())],

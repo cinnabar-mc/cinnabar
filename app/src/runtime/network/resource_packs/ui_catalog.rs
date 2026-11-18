@@ -89,13 +89,11 @@ mod tests {
             ui_layers: vec![vec![
                 (
                     "ui/_ui_defs.json".into(),
-                    br#"{"ui_defs":["ui/server.json"]}"#.to_vec().into(),
+                    br#"{"ui_defs":["ui/server.json"]}"#.to_vec(),
                 ),
                 (
                     "ui/server.json".into(),
-                    format!(r#"{{"namespace":"server","{name}":{{"type":"label"}}}}"#)
-                        .into_bytes()
-                        .into(),
+                    format!(r#"{{"namespace":"server","{name}":{{"type":"label"}}}}"#).into_bytes(),
                 ),
             ]],
             ..Default::default()

@@ -350,8 +350,7 @@ fn server_chat_screen_keeps_the_java_layout_and_input_policy() {
             br#"{"namespace":"chat","chat_screen":{"render_game_behind":false},
                 "chat_screen_content":{"controls":[{"server_marker":{"type":"label",
                     "text":"Server chat","offset":[0,40]}}]}}"#
-                .to_vec()
-                .into(),
+                .to_vec(),
         )]],
         ..Default::default()
     });

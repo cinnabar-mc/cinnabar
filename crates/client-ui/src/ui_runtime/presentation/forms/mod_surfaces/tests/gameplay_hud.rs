@@ -86,7 +86,7 @@ fn authored_panels_opt_into_gameplay_hud_but_never_crosshair() {
         })).unwrap()));
     }
     p.set_server_ui_pack(&ServerUiPack {
-        ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(layer)],
+        ui_layers: vec![layer],
         ..Default::default()
     });
     let runtime = UiRuntime::new(1);

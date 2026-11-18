@@ -1011,7 +1011,7 @@ fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
     let catalog = json_ui::Catalog::from_files(
         ui_screens::test_support::hover_chat::files()
             .iter()
-            .map(|(path, data)| (path.as_str(), data.as_ref())),
+            .map(|(path, data)| (path.as_str(), data.as_slice())),
     )
     .unwrap();
     let context = json_ui::Context::empty();

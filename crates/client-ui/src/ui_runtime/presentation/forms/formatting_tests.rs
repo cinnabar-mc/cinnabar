@@ -9,7 +9,7 @@ fn server_pack_formatting_colors_reach_text_vertices() {
     presentation.set_server_ui_pack(&super::ServerUiPack {
         ui_layers: vec![vec![(
             "ui/_global_variables.json".into(),
-            br#"{"$2_color_format":[0.976,0.859,0.427]}"#.to_vec().into(),
+            br#"{"$2_color_format":[0.976,0.859,0.427]}"#.to_vec(),
         )]],
         ..Default::default()
     });
@@ -40,7 +40,7 @@ fn formatting_palette_follows_pack_replacement_and_removal() {
         presentation.set_server_ui_pack(&super::ServerUiPack {
             ui_layers: vec![vec![(
                 "ui/_global_variables.json".into(),
-                text.as_bytes().to_vec().into(),
+                text.as_bytes().to_vec(),
             )]],
             ..Default::default()
         });

@@ -13,7 +13,7 @@ pub use prepared_settings::PreparedScreenSettings;
 /// image files read from.
 #[derive(Clone, Debug, Default)]
 pub struct ServerUiPack {
-    pub ui_layers: Vec<Vec<json_ui::PackUiFile>>,
+    pub ui_layers: Vec<Vec<(String, Vec<u8>)>>,
     /// Parsed title resources in ascending pack priority, prepared by the reload worker.
     pub splashes: Arc<[ui_screens::menu_renderers::splashes::SplashSource]>,
     /// Winning texture files read up front (fixture packs).

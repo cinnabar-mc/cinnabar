@@ -108,7 +108,7 @@ fn pack_image_crosshair_obeys_camera_mode_and_hud_visibility() {
     runtime.set_server_ui(Some(Arc::new(super::super::super::forms::ServerUiPack {
         ui_layers: vec![vec![(
             "ui/hud_crosshair_overlay.json".into(),
-            overlay.to_string().into_bytes().into(),
+            overlay.to_string().into_bytes(),
         )]],
         textures: vec![("textures/ui/pack_cursor.png".into(), png)],
         ..Default::default()
@@ -182,7 +182,7 @@ fn legacy_hud_cursor_does_not_invert_the_crosshair_twice() {
     runtime.set_server_ui(Some(Arc::new(super::super::super::forms::ServerUiPack {
         ui_layers: vec![vec![(
             "ui/hud_screen.json".into(),
-            overlay.to_string().into_bytes().into(),
+            overlay.to_string().into_bytes(),
         )]],
         ..Default::default()
     })));

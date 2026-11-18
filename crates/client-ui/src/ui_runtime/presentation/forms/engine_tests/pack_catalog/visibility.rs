@@ -102,9 +102,7 @@ fn published_chat(pack: &[(String, Vec<u8>)]) -> Vec<String> {
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let mut runtime = UiRuntime::new(1);
     runtime.set_server_ui(Some(Arc::new(ServerUiPack {
-        ui_layers: vec![
-            crate::ui_runtime::presentation::forms::pack_harness::ui_files(pack.to_vec()),
-        ],
+        ui_layers: vec![pack.to_vec()],
         ..Default::default()
     })));
     for text in ["Ordinary message", "fx.flash"] {
@@ -259,7 +257,7 @@ fn admitted_chat_pack_filters_open_chat_without_losing_translated_glyphs() {
         crate::ui_runtime::presentation::SessionGlyphSheets::new(cells),
     )));
     runtime.set_server_ui(Some(Arc::new(ServerUiPack {
-        ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(files)],
+        ui_layers: vec![files],
         view: Some(view),
         ..Default::default()
     })));

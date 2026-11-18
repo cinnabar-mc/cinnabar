@@ -153,20 +153,10 @@ impl ValidatedPack {
     }
 
     pub(crate) fn entry(&self, path: &str) -> Option<&EntryIndex> {
-        self.files.get(self.resolved_path(path)?)
-    }
-
-    /// The stored name a read of `path` resolves to: the exact name, else the one
-    /// matching it case-insensitively. Spellings that resolve alike read one entry.
-    #[must_use]
-    pub fn resolved_path(&self, path: &str) -> Option<&str> {
-        if let Some((name, _)) = self.files.get_key_value(path) {
-            return Some(name);
-        }
-        let exact = self.folded.get(path.to_ascii_lowercase().as_str())?;
-        self.files
-            .get_key_value(exact.as_ref())
-            .map(|(name, _)| name.as_ref())
+        self.files.get(path).or_else(|| {
+            let exact = self.folded.get(path.to_ascii_lowercase().as_str())?;
+            self.files.get(exact)
+        })
     }
 
     /// Reads one layer with a subscriber-specific uncompressed byte limit.

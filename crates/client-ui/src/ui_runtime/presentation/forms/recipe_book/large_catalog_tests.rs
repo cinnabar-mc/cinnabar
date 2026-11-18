@@ -39,9 +39,7 @@ fn inventory_pack_replacement_preserves_pixels_and_rechecks_virtualization() {
         };
         runtime.set_server_ui(Some(
             ServerUiPack {
-                ui_layers: vec![
-                    crate::ui_runtime::presentation::forms::pack_harness::ui_files(files),
-                ],
+                ui_layers: vec![files],
                 ..Default::default()
             }
             .prepare_catalog(&presentation.pack_catalog_base().unwrap()),
@@ -103,7 +101,7 @@ fn unrelated_server_ui_keeps_creative_search_virtualized() {
         .select_tab(ui_screens::container_actions::SEARCH_TAB);
     runtime.set_server_ui(Some(
         ServerUiPack {
-            ui_layers: vec![crate::ui_runtime::presentation::forms::pack_harness::ui_files(files)],
+            ui_layers: vec![files],
             ..Default::default()
         }
         .prepare_catalog(&presentation.pack_catalog_base().unwrap()),

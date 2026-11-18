@@ -63,9 +63,7 @@ fn fixture() -> (player_state::PlayerState, UiRuntime, UiPresentationRuntime) {
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: vec![vec![(
             "ui/server_form.json".into(),
-            include_bytes!("../../../../fixtures/server_shop.json")
-                .to_vec()
-                .into(),
+            include_bytes!("../../../../fixtures/server_shop.json").to_vec(),
         )]],
         ..Default::default()
     });
@@ -147,9 +145,7 @@ fn image_path_item_keys_draw_through_chained_view_bindings() {
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: vec![vec![(
             "ui/server_form.json".into(),
-            include_bytes!("../../../../fixtures/server_shop_image_keys.json")
-                .to_vec()
-                .into(),
+            include_bytes!("../../../../fixtures/server_shop_image_keys.json").to_vec(),
         )]],
         ..Default::default()
     });

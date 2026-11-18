@@ -148,11 +148,11 @@ fn app_pointing_at_the_command_box() -> (App, Entity) {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{ "ui_defs": ["ui/command_block_screen.json"] }"#.to_vec().into(),
+                br#"{ "ui_defs": ["ui/command_block_screen.json"] }"#.to_vec(),
             ),
             (
                 "ui/command_block_screen.json".into(),
-                EDITOR_SCREEN.to_vec().into(),
+                EDITOR_SCREEN.to_vec(),
             ),
         ]],
         ..Default::default()

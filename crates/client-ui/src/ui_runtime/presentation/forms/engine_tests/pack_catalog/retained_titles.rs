@@ -23,7 +23,7 @@ fn admitted_pack() -> Option<ServerUiPack> {
     }
     let ui = pack_harness::pack_files(&root.join("ui"))
         .into_iter()
-        .map(|(path, bytes)| (format!("ui/{path}"), bytes.into()))
+        .map(|(path, bytes)| (format!("ui/{path}"), bytes))
         .collect();
     let textures = pack_harness::pack_files(&root.join("textures"))
         .into_iter()

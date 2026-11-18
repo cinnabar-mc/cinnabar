@@ -6,18 +6,9 @@ use json_ui::{
 
 /// `layers` over `base` under every registered screen family's catalog policy.
 fn layer_pack_catalog(base: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> Catalog {
-    let layers: Vec<Vec<json_ui::PackUiFile>> = layers
-        .iter()
-        .map(|files| {
-            files
-                .iter()
-                .map(|(path, bytes)| (path.clone(), bytes.as_slice().into()))
-                .collect()
-        })
-        .collect();
     super::super::screen_registry::registry()
         .catalog()
-        .layer(base, &layers)
+        .layer(base, layers)
         .pack
 }
 

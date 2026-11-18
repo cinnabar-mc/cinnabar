@@ -119,7 +119,9 @@ fn fixture_pack(paths: &str) -> ServerUiPack {
                 .files_under("ui/")
                 .iter()
                 .filter(|path| path.ends_with(".json"))
-                .filter_map(|path| Some((path.to_string(), layer.read_file(path).ok()??.into())))
+                .filter_map(|path| {
+                    Some((path.to_string(), layer.read_file(path).ok()??.into_vec()))
+                })
                 .collect()
         })
         .collect();

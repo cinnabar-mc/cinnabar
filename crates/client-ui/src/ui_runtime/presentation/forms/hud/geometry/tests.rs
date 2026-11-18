@@ -11,7 +11,7 @@ fn presentation() -> UiPresentationRuntime {
     let panel = |name: &str, visible: bool| json!({name:{"type":"input_panel","size":[20,10],"visible":visible}});
     presentation.set_server_ui_pack(&super::super::super::super::ServerUiPack {
         ui_layers:vec![vec![
-            ("ui/_ui_defs.json".into(),br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec().into()),
+            ("ui/_ui_defs.json".into(),br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec()),
             ("ui/hud_screen.json".into(),serde_json::to_vec(&json!({
                 "namespace":"hud","hud_screen":{"type":"screen","controls":[
                     {"workspace":{"type":"panel","size":[500,300],"offset":[20,10],
@@ -30,7 +30,7 @@ fn presentation() -> UiPresentationRuntime {
                         "from_button_id":"button.menu_select","to_button_id":"example.action","mapping_type":"pressed"
                     }]}}
                 ]}
-            })).unwrap().into())
+            })).unwrap())
         ]],..Default::default()
     });
     presentation

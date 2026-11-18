@@ -23,10 +23,10 @@ fn disabled_frame_pack(inset: u8) -> ServerUiPack {
     .unwrap();
     let mut pack = ServerUiPack {
         ui_layers: vec![vec![
-            ("ui/_global_variables.json".into(), b"{}".to_vec().into()),
+            ("ui/_global_variables.json".into(), b"{}".to_vec()),
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec().into(),
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
             ),
             (
                 "ui/hud_screen.json".into(),
@@ -37,8 +37,7 @@ fn disabled_frame_pack(inset: u8) -> ServerUiPack {
                     "size":[100,30],"anchor_from":"center","anchor_to":"center"}
             }]}
         }"#
-                .to_vec()
-                .into(),
+                .to_vec(),
             ),
         ]],
         textures: vec![
@@ -56,7 +55,7 @@ fn disabled_frame_pack(inset: u8) -> ServerUiPack {
         json_ui::Catalog::from_files(
             pack.ui_layers[0]
                 .iter()
-                .map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
+                .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
         )
         .unwrap(),
     ));

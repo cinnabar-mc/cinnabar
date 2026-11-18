@@ -83,7 +83,7 @@ fn write_at(
             let existing = ui_files
                 .into_iter()
                 .flatten()
-                .find_map(|(name, bytes)| (name == &path).then_some(bytes.as_ref()));
+                .find_map(|(name, bytes)| (name == &path).then_some(bytes.as_slice()));
             let loaded;
             let bytes = match existing {
                 Some(bytes) if bytes.len() as u64 <= remaining => bytes,

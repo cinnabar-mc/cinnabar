@@ -90,14 +90,6 @@ pub fn pack_files(root: &Path) -> Vec<(String, Vec<u8>)> {
     files
 }
 
-/// `files` as server pack UI documents.
-pub fn ui_files(files: impl IntoIterator<Item = (String, Vec<u8>)>) -> Vec<json_ui::PackUiFile> {
-    files
-        .into_iter()
-        .map(|(path, bytes)| (path, bytes.into()))
-        .collect()
-}
-
 /// The packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest first).
 #[expect(
     clippy::print_stderr,
@@ -174,7 +166,7 @@ pub fn dir_pack(dirs: impl IntoIterator<Item = impl AsRef<Path>>) -> ServerUiPac
                 .filter(|(path, _)| {
                     declared.contains(path) || (path.starts_with("ui/") && path.ends_with(".json"))
                 })
-                .map(|(path, bytes)| (path.clone(), bytes.as_slice().into()))
+                .cloned()
                 .collect(),
         );
         all.extend(files);

@@ -57,8 +57,7 @@ fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
                 "namespace":"server_form", "form_button":{"controls":descendants}
             })
             .to_string()
-            .into_bytes()
-            .into(),
+            .into_bytes(),
         )]],
         ..Default::default()
     });
@@ -204,8 +203,7 @@ fn selected_edit_box_rebinds_only_when_its_visible_state_changes() {
                     "handle_select": true, "handle_deselect": false }],
                 "controls": [{ "display": { "type": "label", "text": "A", "size": [200, 30] } }]
             } }"#
-                .to_vec()
-                .into(),
+                .to_vec(),
         )]],
         ..Default::default()
     });
@@ -296,7 +294,7 @@ fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.set_server_ui_pack(&super::ServerUiPack {
         catalog: None,
-        ui_layers: vec![vec![("ui/x.json".to_owned(), b"{}".to_vec().into())]],
+        ui_layers: vec![vec![("ui/x.json".to_owned(), b"{}".to_vec())]],
         ..Default::default()
     });
     presentation
@@ -370,7 +368,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
             br#"{ "namespace": "server_form", "form_button": { "modifications": [
                 { "array_name": "controls", "operation": "insert_back", "value": [
                     { "art": { "type": "image", "texture": "textures/ui/pack_button", "size": [16, 8] } } ] } ] } }"#
-                .to_vec().into(),
+                .to_vec(),
         )]],
         textures: vec![("textures/ui/pack_button.png".to_owned(), png)],
         view: None,

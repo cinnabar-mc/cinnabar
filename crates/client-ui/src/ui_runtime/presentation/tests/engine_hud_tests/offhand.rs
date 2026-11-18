@@ -100,9 +100,7 @@ fn snapshot_offhand_hud() {
         presentation.set_server_ui_pack(&super::super::super::ServerUiPack {
             ui_layers: vec![vec![(
                 "ui/_global_variables.json".into(),
-                format!("{{\"$cinnabar_main_arm_left\":{right}}}")
-                    .into_bytes()
-                    .into(),
+                format!("{{\"$cinnabar_main_arm_left\":{right}}}").into_bytes(),
             )]],
             ..Default::default()
         });

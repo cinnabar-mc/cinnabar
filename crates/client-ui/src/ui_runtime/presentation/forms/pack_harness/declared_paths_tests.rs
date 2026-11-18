@@ -20,11 +20,11 @@ fn dir_pack_keeps_colons_in_directory_names() {
     assert_eq!(pack.ui_layers.len(), 2);
     assert_eq!(
         pack.ui_layers[0],
-        [("ui/test.json".into(), b"lower".as_slice().into())]
+        [("ui/test.json".into(), b"lower".to_vec())]
     );
     assert_eq!(
         pack.ui_layers[1],
-        [("ui/test.json".into(), b"upper".as_slice().into())]
+        [("ui/test.json".into(), b"upper".to_vec())]
     );
 }
 
@@ -74,7 +74,7 @@ fn dir_pack_loads_declared_paths_and_inherits_them_across_layers() {
         catalog.apply_pack(
             layer
                 .iter()
-                .map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
+                .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
         );
     }
     assert_eq!(

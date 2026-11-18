@@ -250,9 +250,7 @@ pub(super) fn published_frame(
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let mut runtime = UiRuntime::new(1);
     runtime.set_server_ui(Some(Arc::new(ServerUiPack {
-        ui_layers: vec![
-            crate::ui_runtime::presentation::forms::pack_harness::ui_files(pack.to_vec()),
-        ],
+        ui_layers: vec![pack.to_vec()],
         ..Default::default()
     })));
     runtime.session.hud.set_title(Arc::from(title), 1, 0);
@@ -321,9 +319,7 @@ fn subtitle_binding_survives_the_native_title_fade_and_waits_for_a_title() {
         let player = player_state::PlayerState::new(1);
         let mut runtime = UiRuntime::new(1);
         runtime.set_server_ui(Some(Arc::new(ServerUiPack {
-            ui_layers: vec![
-                crate::ui_runtime::presentation::forms::pack_harness::ui_files(pack.clone()),
-            ],
+            ui_layers: vec![pack.clone()],
             ..Default::default()
         })));
         if with_title {

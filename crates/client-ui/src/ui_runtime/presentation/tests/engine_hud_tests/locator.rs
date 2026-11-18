@@ -111,7 +111,7 @@ fn locator_bar_paints_server_markers_in_survival_and_creative() {
                         "bindings":[{"binding_name":"#hotbar_with_locator_bar","binding_name_override":"#visible"}]
                     }}]
                 }
-            }"##.to_vec().into())]], ..Default::default()
+            }"##.to_vec())]], ..Default::default()
         });
         let moved = build(&player, &mut presentation, &runtime, deadline + 5);
         let moved_left = moved
