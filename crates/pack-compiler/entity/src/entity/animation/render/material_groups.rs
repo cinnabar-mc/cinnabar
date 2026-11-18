@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{cell::RefCell, collections::BTreeSet, sync::Arc};
 
 use assets::{
     AssetError, EntityGeometry, EntityRenderCandidate, EntityRenderGeometry, EntityRenderLayer,
@@ -392,26 +388,22 @@ pub(super) fn append(
     let hidden_condition = molang.compile("0.0")?;
     let authored_visibility = visibility[base.first_visibility as usize..].to_vec();
     let authored_slots = slots[base.first_slot as usize..].to_vec();
-    let authored_candidates: BTreeMap<_, _> = authored_slots
-        .iter()
-        .map(|slot| {
-            let first = slot.first_candidate as usize;
-            (
-                slot.first_candidate,
-                candidates[first..first + usize::from(slot.candidate_count)].to_vec(),
-            )
-        })
-        .collect();
+    let first_candidate = authored_slots
+        .first()
+        .map_or(candidates.len(), |slot| slot.first_candidate as usize);
+    let authored_candidates = candidates[first_candidate..].to_vec();
     let authored_geometries = geometries[base.first_geometry as usize..].to_vec();
     for (index, group) in groups.into_iter().enumerate() {
         let mut layer = base;
         if index != 0 {
             layer.first_slot = slots.len() as u32;
+            let candidate_base = candidates.len();
+            candidates.extend_from_slice(&authored_candidates);
             for slot in &authored_slots {
-                let first_candidate = candidates.len() as u32;
-                candidates.extend_from_slice(&authored_candidates[&slot.first_candidate]);
                 slots.push(EntityRenderSlot {
-                    first_candidate,
+                    first_candidate: (candidate_base
+                        + (slot.first_candidate as usize - first_candidate))
+                        as u32,
                     ..*slot
                 });
             }

@@ -228,21 +228,20 @@ pub(super) fn compile_render(
                 arrays,
                 resolve: &resolve,
             };
+            let Some(textures) = definition.get("textures").and_then(Value::as_array) else {
+                continue;
+            };
+            if textures.is_empty() {
+                continue;
+            }
             let first_slot = slots.len();
-            for expression in definition
-                .get("textures")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .take(MAX_SLOTS_PER_LAYER)
-            {
-                let Some(leaves) = scope.leaves(expression) else {
-                    continue;
-                };
+            for texture in textures.iter().take(MAX_SLOTS_PER_LAYER) {
                 let first_candidate = candidates.len();
                 let mut default_candidate = None;
-                for (path, source) in leaves {
+                let leaves = texture
+                    .as_str()
+                    .and_then(|expression| scope.leaves(expression));
+                for (path, source) in leaves.into_iter().flatten() {
                     let text = selection_condition(&path);
                     let condition = match &text {
                         None => None,
@@ -262,23 +261,11 @@ pub(super) fn compile_render(
                     candidates.push(EntityRenderCandidate { condition, source });
                 }
                 let count = candidates.len() - first_candidate;
-                if count == 0 {
-                    continue;
-                }
                 slots.push(EntityRenderSlot {
                     first_candidate: first_candidate as u32,
                     candidate_count: count as u16,
                     default_candidate,
                 });
-            }
-            // Retain unresolved references so activation still controls artwork fallback.
-            if slots.len() == first_slot
-                && definition
-                    .get("textures")
-                    .and_then(Value::as_array)
-                    .is_none_or(Vec::is_empty)
-            {
-                continue;
             }
             let first_geometry = layer_geometries.len();
             compile_geometry_choices(
@@ -351,7 +338,7 @@ pub(super) fn compile_render(
                 material_selection: None,
                 first_slot: first_slot as u32,
                 slot_count: (slots.len() - first_slot) as u16,
-                unresolved_textures: slots.len() == first_slot,
+                unresolved_textures: false,
                 first_visibility: first_visibility as u32,
                 visibility_count,
                 color: compile_color(molang, definition.get("color"), "1.0"),

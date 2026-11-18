@@ -136,6 +136,80 @@ fn named_alias_attachables_keep_their_equipment_and_controller_frames() {
 }
 
 #[test]
+fn missing_attachable_base_does_not_promote_the_auxiliary_texture() {
+    let base = Some("textures/items/default.png");
+    let middle = Some("textures/items/pull_0.png");
+    let auxiliary = Some("textures/items/pull_1.png");
+    for (textures, missing_base, expected) in [
+        (
+            json!(["Texture.default", "Texture.pull_1"]),
+            true,
+            vec![None, auxiliary],
+        ),
+        (
+            json!(["Texture.default", "Texture.pull_1"]),
+            false,
+            vec![base, auxiliary],
+        ),
+        (
+            json!(["Texture.default", "Texture.absent", "Texture.pull_1"]),
+            false,
+            vec![base, None, auxiliary],
+        ),
+        (
+            json!(["Texture.default", "Texture.pull_0", "Texture.absent"]),
+            false,
+            vec![base, middle, None],
+        ),
+        (
+            json!(["Texture.absent", null, "Texture.pull_1"]),
+            false,
+            vec![None, None, auxiliary],
+        ),
+        (
+            json!(["Texture.default", "Texture.absent"]),
+            true,
+            vec![None, None],
+        ),
+    ] {
+        let mut files = framed_pack();
+        if missing_base {
+            files.retain(|(path, _)| path.as_ref() != "textures/items/default.png");
+        }
+        let (_, source) = files
+            .iter_mut()
+            .find(|(path, _)| path.as_ref() == "render_controllers/test.json")
+            .unwrap();
+        let mut controller: serde_json::Value = serde_json::from_slice(source).unwrap();
+        controller["render_controllers"]["controller.render.test"]["textures"] = textures.clone();
+        *source = serde_json::to_vec(&controller).unwrap();
+
+        let compiled = pack_entity_compiler::compile_entity_pack(files)
+            .unwrap()
+            .unwrap();
+        let runtime =
+            RuntimeEntityAssets::decode(&encode_entity_blob(&compiled.assets).unwrap()).unwrap();
+        let rig = runtime.attachable_rig_binding(IDENTIFIER).unwrap();
+        let [layer] = runtime.render_layers(rig) else {
+            panic!("the attachable must retain its render controller");
+        };
+        let render = runtime.render_data();
+        let slots = &render.slots[layer.first_slot as usize..][..usize::from(layer.slot_count)];
+        let default_source = |index: usize| -> Option<&str> {
+            let slot = slots.get(index)?;
+            let candidate = &render.candidates
+                [slot.first_candidate as usize + usize::from(slot.default_candidate?)];
+            Some(runtime.sources()[candidate.source as usize].path.as_ref())
+        };
+        let actual: Vec<_> = (0..slots.len()).map(default_source).collect();
+        assert_eq!(
+            actual, expected,
+            "textures={textures}, missing_base={missing_base}"
+        );
+    }
+}
+
+#[test]
 fn explicit_attachable_defaults_keep_their_catalog_resources() {
     let mut files = framed_pack();
     let source = files

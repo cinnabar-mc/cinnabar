@@ -397,6 +397,13 @@ controls remain visible, with unchanged CPU artwork/material context and player 
 This qualifies the reproduced texture symptom only; broader material/raster, matched
 official-client presentation, animation and performance qualification remain open.
 
+The render-controller texture-slot regression preserves empty authored positions
+through compiler and carrier round trips. Matched headless Metal BDS idle frames
+lose the bogus glint extrusion in two cases while retaining the authored models and
+hands; an ordinary bone control is unchanged. One case still shows a duplicate
+held sprite. Intentional no-draw versus fallback, further item coverage and matched
+native presentation remain open.
+
 The owner separately reports a manual GUI test through the refreshed
 `Cinnabar Dev.app`: the ammunition counter and third-person weapon are visible. In a
 later check the owner reports a first-person weapon with aiming and reload animations,

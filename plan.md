@@ -956,6 +956,11 @@ than the body is unverified, and version-matched in-game acceptance remains inco
   composition, rendered coverage and performance qualification remain
   open. Manually populated synthetic publication is a separate pass. The idle
   diagnostic itself did not exercise firing, reload or fresh ammunition HUD delivery.
+  Render-controller texture slots now retain their authored indices across unresolved
+  sources and carrier decode. Focused BDS idle comparisons remove the bogus glint
+  extrusion while keeping the authored hand and held model. A duplicate held sprite
+  remains visible in one case; deliberate no-draw versus ordinary sprite fallback
+  and broader pack coverage remain open.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.
