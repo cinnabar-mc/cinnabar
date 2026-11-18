@@ -102,8 +102,8 @@ fn displaced_full_block_samples_like_the_cube_path() {
     );
 }
 
-/// The pair of world-space X/Z corners each built-in cross plane reaches, ordered by X.
-fn cross_plane(cube: &Cube) -> [[f32; 2]; 2] {
+/// The world-space X/Z corners a built-in cross plane reaches, deduplicated and ordered by X.
+fn cross_plane(cube: &Cube) -> Vec<[f32; 2]> {
     let mut points = cube
         .quads()
         .into_iter()
@@ -112,7 +112,7 @@ fn cross_plane(cube: &Cube) -> [[f32; 2]; 2] {
         .collect::<Vec<_>>();
     points.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
     points.dedup_by(|a, b| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4);
-    [points[0], points[1]]
+    points
 }
 
 #[test]
@@ -133,13 +133,17 @@ fn builtin_cross_is_two_diagonal_planes_using_the_whole_texture() {
         };
         assert_eq!(pivot, [8.0; 3]);
         assert_eq!((angles[0], angles[1].abs(), angles[2]), (0.0, 45.0, 0.0));
-        for [x, z] in cross_plane(cube) {
-            let expected = if (x - near[0]).abs() < 1e-3 {
-                near
-            } else {
-                opposite
-            };
-            assert!((x - expected[0]).abs() < 1e-3 && (z - expected[1]).abs() < 1e-3);
+        let points = cross_plane(cube);
+        assert_eq!(
+            points.len(),
+            2,
+            "one plane reaches two distinct X/Z corners"
+        );
+        for (point, expected) in points.iter().zip([near, opposite]) {
+            assert!(
+                (point[0] - expected[0]).abs() < 1e-3 && (point[1] - expected[1]).abs() < 1e-3,
+                "plane corner {point:?} is not {expected:?}"
+            );
         }
         let quads = cube.quads();
         assert_eq!(quads.len(), 2, "north and south sides of one plane");

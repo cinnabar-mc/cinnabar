@@ -9,6 +9,7 @@ mod condition;
 mod items;
 pub(super) use items::compile_block_item_overlay;
 mod geometry_inputs;
+use pack_compile_input::CROSS_IDENTIFIER as CROSS;
 use pack_compiler::block_geometry as geometry;
 mod legacy;
 mod materials;
@@ -45,7 +46,6 @@ use pack_runtime::pack_textures::DecodedTexture;
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
-const CROSS: &str = geometry::CROSS_IDENTIFIER;
 const MIN_TILE: u32 = assets::TILE_SIZE;
 const MAX_OVERLAY_LAYERS: usize = assets::MAX_TEXTURE_LAYERS;
 /// Maximum shard count when only one base carrier page is reserved.

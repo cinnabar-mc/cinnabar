@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
+use pack_compile_input::CROSS_IDENTIFIER;
 use serde_json::Value;
 
 /// Maximum geometry documents admitted from a layered pack stack.
@@ -19,9 +20,6 @@ const MAX_BONES: usize = 256;
 
 /// Face order matches `assets::BlockFace`: west, east, down, up, north, south.
 pub const FACE_NAMES: [&str; 6] = ["west", "east", "down", "up", "north", "south"];
-
-/// The engine's reserved identifier for the built-in plant cross model.
-pub use pack_compile_input::CROSS_IDENTIFIER;
 
 /// The engine's built-in cross definition, as carried by 1.26.60. It is two 20.4-pixel
 /// planes turned ±45° about the block's vertical axis; projecting them yields the vanilla

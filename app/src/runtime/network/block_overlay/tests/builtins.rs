@@ -57,7 +57,7 @@ fn versioned_builtin_cross_draws_plant_planes_and_a_block_item_icon() {
             1,
             CustomBlockVisuals {
                 base: CustomVisualComponents {
-                    geometry: Some("minecraft:geometry.cross".into()),
+                    geometry: Some(pack_compile_input::CROSS_IDENTIFIER.into()),
                     materials: materials("gen"),
                     ..Default::default()
                 },
