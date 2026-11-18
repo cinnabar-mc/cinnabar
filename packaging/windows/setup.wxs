@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
-  <!-- The embedded per-user MSI remains the single owner of files, shortcuts and upgrades. The
-       standard UI appends " Setup" to the name. The per-machine bundle this replaced has its own
-       upgrade code (machine_bundle_upgrade_code), so Burn never plans an elevated removal of it. -->
+  <!-- The embedded MSI remains the single owner of files, shortcuts and upgrades. The standard UI
+       appends " Setup" to the name. Per-user and per-machine bundles use separate upgrade codes from
+       release-assets.json, so a per-user bundle never plans an elevated removal of a per-machine one. -->
   <Bundle Name="Cinnabar" Manufacturer="Cinnabar" Version="$(Version)"
-          UpgradeCode="42848957-C057-4B56-9906-5D652E55C06D" IconSourceFile="$(Icon)">
+          UpgradeCode="$(BundleUpgradeCode)" IconSourceFile="$(Icon)">
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl=""
                                                LogoFile="$(Logo)" />

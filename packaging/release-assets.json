@@ -50,6 +50,7 @@
     "user_key": "Software\\Cinnabar\\User",
     "user_folder_value": "folder",
     "upgrade_code": "E383614E-D129-4E8E-A558-A5EEFC30643E",
+    "bundle_upgrade_code": "42848957-C057-4B56-9906-5D652E55C06D",
     "machine_upgrade_code": "2A430447-F280-4F32-AFE9-F8A652811A04",
     "machine_bundle_upgrade_code": "3D75803D-B970-4281-A17B-7BCC8CF39F7C"
   }

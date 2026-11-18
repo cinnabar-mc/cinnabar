@@ -94,7 +94,9 @@ Clients installed before per-user packages read `windows-x86_64`, which keeps se
 `Cinnabar-x64-machine.msi`: the same payload as a per-machine package with the original upgrade code,
 so those installs still update in place. The next update after that moves them to the per-user folder
 without elevation, starts the client there, then asks once for administrator approval to remove the
-per-machine setup and MSI. Declining keeps the old copy installed. Local packaging requires
+per-machine setup and MSI. Declining keeps the old copy installed. Packaging a source branch whose
+`release-assets.json` has no `update_platforms` entry keeps both packages per-machine, because that
+branch's updater still reads the per-machine key. Local packaging requires
 ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
 `wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
 

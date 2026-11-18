@@ -52,10 +52,16 @@ $signPaths = @($runtimeNames | ForEach-Object { Join-Path $payload $_ }) + @(Joi
 & (Join-Path $PSScriptRoot "execution-level.ps1") -Executable $signPaths -Embed
 & (Join-Path $PSScriptRoot "sign.ps1") -Path $signPaths
 $install = (Get-Content -Raw (Join-Path $PSScriptRoot "../release-assets.json") | ConvertFrom-Json).windows_install
-# The per-user MSI is the download and update package; the per-machine one only updates older installs.
+# The download and update package is per-user; the per-machine one only updates older installs. A
+# source whose updater predates per-user packages reads the per-machine key, so it stays per-machine.
+$sourceAssets = Get-Content -Raw (Join-Path $root "packaging/release-assets.json") | ConvertFrom-Json
+$perUser = $sourceAssets.PSObject.Properties.Name -contains "update_platforms" -and
+    $sourceAssets.update_platforms.PSObject.Properties.Name -contains "windows"
+$scope = if ($perUser) { "perUser" } else { "perMachine" }
+$bundleCode = if ($perUser) { $install.bundle_upgrade_code } else { $install.machine_bundle_upgrade_code }
 $msi = Join-Path $outPath "Cinnabar-$version-x64.msi"
 $machineMsi = Join-Path $outPath "Cinnabar-$version-x64-machine.msi"
-foreach ($package in @(@{ Scope = "perUser"; Out = $msi }, @{ Scope = "perMachine"; Out = $machineMsi })) {
+foreach ($package in @(@{ Scope = $scope; Out = $msi }, @{ Scope = "perMachine"; Out = $machineMsi })) {
     wix build -arch x64 -d Version=$version -d Payload=$payload -d Icon=$icon -d "Scope=$($package.Scope)" `
         -d "InstallParent=$($install.parent)" -d "InstallFolder=$($install.folder)" `
         -d "UserKey=$($install.user_key)" -d "UserFolderValue=$($install.user_folder_value)" `
@@ -65,7 +71,7 @@ foreach ($package in @(@{ Scope = "perUser"; Out = $msi }, @{ Scope = "perMachin
     & (Join-Path $PSScriptRoot "sign.ps1") -Path $package.Out
 }
 $setup = Join-Path $outPath "Cinnabar-$version-x64-setup.exe"
-wix build -arch x64 -ext WixToolset.BootstrapperApplications.wixext -d Version=$version -d Msi=$msi -d Icon=$icon -d Logo=$logo -o $setup (Join-Path $PSScriptRoot "setup.wxs")
+wix build -arch x64 -ext WixToolset.BootstrapperApplications.wixext -d Version=$version -d Msi=$msi -d Icon=$icon -d Logo=$logo -d "BundleUpgradeCode=$bundleCode" -o $setup (Join-Path $PSScriptRoot "setup.wxs")
 if ($LASTEXITCODE -ne 0) { throw "setup bundle build failed" }
 & (Join-Path $PSScriptRoot "execution-level.ps1") -Executable $setup
 $engine = Join-Path $outPath "setup-engine.exe"
