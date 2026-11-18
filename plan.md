@@ -2249,7 +2249,7 @@ Flathub submission remain incomplete.
   keyboard. Shader packs compile on a background thread on iOS, with cooperative heap and
   time checks; compiler faults can terminate the app. Device acceptance of this path remains open.
   On-device first-run preparation,
-  native crash capture, clipboard, link opening, local worlds and mods (no JIT) remain
+  native crash capture, clipboard, local worlds and mods (no JIT) remain
   unavailable.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared

@@ -74,4 +74,4 @@ keyboard and mouse work only as far as winit's UIKit backend delivers their inpu
 - Local worlds, mods and anything that needs JIT or a second process.
 - Preparing assets on the device: inject them with `add-assets.py` before sideloading.
 - The crash monitor and native crash dumps; Rust panics still write crash folders.
-- Clipboard and opening links. Sign in with the device code on another device.
+- Clipboard.
