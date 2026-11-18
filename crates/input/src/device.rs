@@ -184,8 +184,8 @@ pub struct DeviceFrame {
     pub controllers: Vec<ControllerFrame>,
     pub touches: Vec<TouchContact>,
     /// Touch controls a finger newly pressed since the previous frame, each at most once. A
-    /// press counts even when the control never read as released between frames: another
-    /// finger still holds it, or the finger lifted and landed again within a frame.
+    /// press counts even when the control never read as released between frames, as when the
+    /// previous finger's lift still routes or it lifted and landed again within a frame.
     pub touch_presses: Vec<u16>,
     pub disconnected_controllers: Vec<u32>,
     pub window_focus_lost: bool,

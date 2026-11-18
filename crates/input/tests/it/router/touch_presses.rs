@@ -35,9 +35,10 @@ fn touch_taps_without_a_released_frame_between_them_each_press() {
     }
 }
 
-/// A second finger landing on a button another finger still holds is a new press.
+/// A press reported while the button still reads held, as when the previous finger's lift
+/// still routes, is a new press.
 #[test]
-fn a_second_finger_on_a_held_touch_button_presses_it_again() {
+fn a_press_reported_on_a_held_touch_button_presses_it_again() {
     let mut router = SemanticInputRouter::default();
     assert!(attack_phase(&mut router, attack_touch(1, 1, true)).pressed);
     let mut both = attack_touch(1, 1, true);

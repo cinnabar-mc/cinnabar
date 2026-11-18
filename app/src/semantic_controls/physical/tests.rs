@@ -1,7 +1,7 @@
 use super::{
     PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, admits_input_mode, collect_raw_input,
     input_source_gates, keyboard_usage, mouse_button_code, route_semantic_input,
-    select_lowest_by_key,
+    routed_touch_presses, select_lowest_by_key,
 };
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::input::gamepad::GamepadButton;
@@ -971,4 +971,37 @@ fn pressed_touch_controls_reach_the_device_frame_with_their_contact() {
         let attack = runtime.finalize_routed_input().unwrap().phases[Action::Attack as usize];
         assert!(attack.pressed, "tap {tap}");
     }
+}
+
+/// A finger landing on a control that an earlier finger still holds does not press it, while a
+/// finger that just lifted and only routes as a pulse no longer holds it.
+#[test]
+fn a_new_finger_on_a_control_held_by_an_earlier_finger_does_not_press() {
+    use semantic_input::touch;
+
+    let contact = |contact_id, hit_id| TouchContact {
+        contact_id,
+        activity_sequence: 0,
+        position: [0.8, 0.5],
+        delta: [0.0; 2],
+        hit_id: Some(hit_id),
+    };
+    let routed = [
+        contact(1, touch::ATTACK),
+        contact(2, touch::ATTACK),
+        contact(3, touch::USE),
+    ];
+    let pressed = [touch::ATTACK, touch::USE, touch::ATTACK];
+    // Contact 1 lifted and routes as a pulse; contact 2 is the new finger.
+    assert_eq!(
+        routed_touch_presses(&pressed, &[], &routed),
+        [touch::ATTACK, touch::USE]
+    );
+    // Contact 1 was already down and still holds attack.
+    assert_eq!(
+        routed_touch_presses(&pressed, &[touch::ATTACK], &routed),
+        [touch::USE]
+    );
+    // A press needs a routed contact on its control.
+    assert!(routed_touch_presses(&[touch::JUMP], &[], &routed).is_empty());
 }
