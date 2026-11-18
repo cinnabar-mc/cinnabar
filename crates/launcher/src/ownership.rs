@@ -91,12 +91,12 @@ pub enum LocalInstall {
 }
 
 impl LocalProbe {
-    /// A Windows probe. AtlasOS strips Store components the game's install needs, so there a
-    /// missing game means the Store can't vouch, which leaves only the account source.
+    /// A Windows probe. AtlasOS can strip Gaming Services, without which the Store can't install
+    /// the game; there a missing game leaves only the account source.
     #[must_use]
-    pub const fn windows(found: bool, atlas_os: bool) -> Self {
+    pub const fn windows(found: bool, atlas_os: bool, gaming_services: bool) -> Self {
         Self {
-            store_usable: found || !atlas_os,
+            store_usable: found || !atlas_os || gaming_services,
             install: if found {
                 LocalInstall::Found
             } else {

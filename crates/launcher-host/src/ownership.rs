@@ -44,19 +44,31 @@ const _: () = assert!(
     "every local store needs a probe here, and every probe needs its store in the policy"
 );
 
+/// The Windows package family of Gaming Services, which the Store needs to install the game.
+pub const GAMING_SERVICES_PACKAGE_FAMILY: &str = "Microsoft.GamingServices_8wekyb3d8bbwe";
+
 /// One look at this device's store install, uncached; every gate decision of a check comes from
 /// it. Best-effort: package metadata shows the game is installed, not that its license is current.
 #[cfg(windows)]
 #[must_use]
 pub fn probe_local() -> LocalProbe {
+    let found = registered(MINECRAFT_PACKAGE_FAMILY);
+    let atlas_os = !found && atlas_os();
+    LocalProbe::windows(
+        found,
+        atlas_os,
+        atlas_os && registered(GAMING_SERVICES_PACKAGE_FAMILY),
+    )
+}
+
+/// Whether a package of `family` is registered for the current user.
+#[cfg(windows)]
+fn registered(family: &str) -> bool {
     use windows_sys::Win32::{
         Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS},
         Storage::Packaging::Appx::GetPackagesByPackageFamily,
     };
-    let family: Vec<u16> = MINECRAFT_PACKAGE_FAMILY
-        .encode_utf16()
-        .chain(Some(0))
-        .collect();
+    let family: Vec<u16> = family.encode_utf16().chain(Some(0)).collect();
     let (mut count, mut length) = (0u32, 0u32);
     // SAFETY: the family name is NUL-terminated; null buffers with zero lengths ask only for counts.
     let status = unsafe {
@@ -68,8 +80,7 @@ pub fn probe_local() -> LocalProbe {
             std::ptr::null_mut(),
         )
     };
-    let found = matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0;
-    LocalProbe::windows(found, !found && atlas_os())
+    matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0
 }
 
 /// Whether this Windows carries the markers AtlasOS's playbook writes.

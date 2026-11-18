@@ -63,21 +63,25 @@ fn an_unusable_store_drops_only_the_local_source() {
     assert_eq!(sources(false).local_install, None);
 }
 
-/// AtlasOS without the game drops only the store source; an installed game still passes there.
+/// Only AtlasOS missing both the game and Gaming Services drops the store source, and then only it.
 #[test]
-fn atlas_os_without_the_game_leaves_only_the_account_source() {
+fn atlas_os_without_gaming_services_leaves_only_the_account_source() {
     for atlas_os in [false, true] {
-        let found = LocalProbe::windows(true, atlas_os);
-        assert!(found.store_usable);
-        assert_eq!(found.install, LocalInstall::Found);
-        assert_eq!(LocalProbe::windows(false, atlas_os).store_usable, !atlas_os);
+        for gaming_services in [false, true] {
+            let found = LocalProbe::windows(true, atlas_os, gaming_services);
+            assert!(found.store_usable);
+            assert_eq!(found.install, LocalInstall::Found);
+            let missing = LocalProbe::windows(false, atlas_os, gaming_services);
+            assert_eq!(missing.install, LocalInstall::NotFound);
+            assert_eq!(missing.store_usable, !atlas_os || gaming_services);
+        }
     }
     for account in [false, true] {
         let windows = Sources {
             local_install: Some(Store::Microsoft),
             account,
         };
-        let atlas = windows.with_store_usable(LocalProbe::windows(false, true).store_usable);
+        let atlas = windows.with_store_usable(LocalProbe::windows(false, true, false).store_usable);
         assert_eq!(atlas.local_install, None);
         assert_eq!(atlas.gated(), account);
     }
