@@ -44,19 +44,31 @@ const _: () = assert!(
     "every local store needs a probe here, and every probe needs its store in the policy"
 );
 
+/// The Windows package family of Gaming Services, which the Store needs to install the game.
+pub const GAMING_SERVICES_PACKAGE_FAMILY: &str = "Microsoft.GamingServices_8wekyb3d8bbwe";
+
 /// One look at this device's store install, uncached; every gate decision of a check comes from
 /// it. Best-effort: package metadata shows the game is installed, not that its license is current.
 #[cfg(windows)]
 #[must_use]
 pub fn probe_local() -> LocalProbe {
+    let found = registered(MINECRAFT_PACKAGE_FAMILY);
+    let atlas_os = !found && atlas_os();
+    LocalProbe::windows(
+        found,
+        atlas_os,
+        atlas_os && registered(GAMING_SERVICES_PACKAGE_FAMILY),
+    )
+}
+
+/// Whether a package of `family` is registered for the current user.
+#[cfg(windows)]
+fn registered(family: &str) -> bool {
     use windows_sys::Win32::{
         Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS},
         Storage::Packaging::Appx::GetPackagesByPackageFamily,
     };
-    let family: Vec<u16> = MINECRAFT_PACKAGE_FAMILY
-        .encode_utf16()
-        .chain(Some(0))
-        .collect();
+    let family: Vec<u16> = family.encode_utf16().chain(Some(0)).collect();
     let (mut count, mut length) = (0u32, 0u32);
     // SAFETY: the family name is NUL-terminated; null buffers with zero lengths ask only for counts.
     let status = unsafe {
@@ -68,17 +80,51 @@ pub fn probe_local() -> LocalProbe {
             std::ptr::null_mut(),
         )
     };
-    let found = matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0;
-    LocalProbe {
-        // The Microsoft Store is part of Windows.
-        store_usable: true,
-        install: if found {
-            policy::LocalInstall::Found
-        } else {
-            policy::LocalInstall::NotFound
-        },
-        store_app: None,
-    }
+    matches!(status, ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER) && count > 0
+}
+
+/// Whether this Windows carries the markers AtlasOS's playbook writes.
+#[cfg(windows)]
+fn atlas_os() -> bool {
+    use windows_sys::Win32::{
+        Foundation::ERROR_SUCCESS,
+        System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW},
+    };
+    let wide = |text: &str| text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    [
+        (
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation",
+            "Model",
+        ),
+        (
+            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            "RegisteredOrganization",
+        ),
+    ]
+    .into_iter()
+    .any(|(key, name)| {
+        let (key, name) = (wide(key), wide(name));
+        let mut value = [0u16; 128];
+        let mut bytes = std::mem::size_of_val(&value) as u32;
+        // SAFETY: key and name are NUL-terminated, and `bytes` is `value`'s size in bytes.
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                key.as_ptr(),
+                name.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                value.as_mut_ptr().cast(),
+                &mut bytes,
+            )
+        };
+        let len = value
+            .iter()
+            .position(|&unit| unit == 0)
+            .unwrap_or(value.len());
+        status == ERROR_SUCCESS
+            && policy::is_atlas_os_marker(&String::from_utf16_lossy(&value[..len]))
+    })
 }
 
 /// One look at this device's Google Play and, where Play keeps the source, its Minecraft install.

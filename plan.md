@@ -2021,8 +2021,11 @@ Packaged launches pass an ownership gate before first-run setup, downloads, worl
 Proof sources plug in per platform and any one passes: a store install, best-effort and checked
 every launch, and a Microsoft account signed in through Cinnabar's own app when
 `CINNABAR_MSA_CLIENT_ID` is built in. On Windows the store install is Minecraft for Windows
-registered for the user (Windows package API); on Android it is `com.mojang.minecraftpe`, never
-the trial, signed by Mojang's certificate and installed by Google Play, itself signed by Google,
+registered for the user (Windows package API). AtlasOS can strip Gaming Services, without
+which the Store cannot install the game; with both missing it drops that source, so it stays
+ungated until the account source exists. Its marker is a registry value anyone can set. On Android the store
+install is `com.mojang.minecraftpe`, never the trial, signed by Mojang's certificate and
+installed by Google Play, itself signed by Google,
 not by `adb` (`PackageManager` metadata only; before API 30 an `adb` install naming Play as its
 installer passes, and a Play install carried over from Android 10 records no initiator, so it
 fails until Play updates or reinstalls it). Amazon Appstore copies are re-signed with a key
