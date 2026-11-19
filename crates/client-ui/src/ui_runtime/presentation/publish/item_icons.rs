@@ -59,10 +59,12 @@ pub(super) fn stack_icon(
                 .as_deref()
                 .and_then(|pattern| presentation.shield_icon(pattern))
                 .or_else(|| {
-                    runtime
-                        .stack_facts(stack)
-                        .custom_color
-                        .and_then(|rgb| presentation.color_mask_icon(icon_identifier, variant, rgb))
+                    presentation
+                        .dyed_item_icon(
+                            icon_identifier,
+                            variant,
+                            runtime.stack_facts(stack).custom_color,
+                        )
                         .or_else(|| presentation.item_icon(icon_identifier, variant))
                 })
         })?;

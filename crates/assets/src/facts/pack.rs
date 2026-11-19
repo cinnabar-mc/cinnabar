@@ -504,9 +504,15 @@ pub fn leather_sprite(path: &str) -> bool {
     }) else {
         return false;
     };
-    let facts = super::ItemFacts::builtin().expect("valid item facts");
-    facts
-        .by_identifier(&format!("minecraft:{stem}"))
+    leather_item(&format!("minecraft:{stem}"))
+}
+
+/// Whether `identifier` is a dyeable leather item, whose artwork the client tints with the
+/// stack's dye or the default leather colour.
+pub fn leather_item(identifier: &str) -> bool {
+    super::ItemFacts::builtin()
+        .expect("valid item facts")
+        .by_identifier(identifier)
         .is_some_and(|fact| fact.is_leather())
 }
 

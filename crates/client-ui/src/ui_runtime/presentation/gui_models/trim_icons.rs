@@ -197,8 +197,8 @@ impl UiPresentationRuntime {
         trim: &render_api::ItemTrim,
         dye: Option<u32>,
     ) -> Option<IconRef> {
-        let base_icon = dye
-            .and_then(|rgb| self.color_mask_icon(identifier, metadata, rgb))
+        let base_icon = self
+            .dyed_item_icon(identifier, metadata, dye)
             .or_else(|| self.item_icon(identifier, metadata))?;
         // Source pixels come from the selected atlas cell, including session overrides and raw dye masks.
         let page = self.textures.pages().get(usize::from(base_icon.page))?;
