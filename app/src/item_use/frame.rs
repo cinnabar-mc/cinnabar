@@ -23,7 +23,7 @@ pub(super) struct FramePolicy {
 
 /// Observes one proposal without executing a held-use tick or sending a packet.
 pub(super) fn observe(
-    player_runtime: &client_state::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     context: &ItemUseContext,
     runtime: &mut ItemUseRuntime,
     movement: &MovementTicker,
@@ -58,6 +58,31 @@ pub(super) fn observe(
             .predicted_selection(&server, inventory_revision.unwrap_or(0))
             .unwrap_or(server)
     });
+    // The ledger owns armor admission, locks and Curse of Binding; a plan here
+    // means the swap can be shown as soon as the press is admitted. Permissions
+    // come from this frame's facts, not the last command that refreshed them.
+    player_runtime.inventory_commands();
+    let armor_equip = if air_use.is_none() {
+        selection
+            .as_ref()
+            .zip(inventory_revision)
+            .and_then(|(selection, revision)| {
+                let preview = context
+                    .ui
+                    .inventory_ledger(player_runtime)
+                    .armor_equip_preview(selection.slot, &selection.item)?;
+                Some(gameplay::item_use::ArmorEquip {
+                    slot: selection.slot,
+                    revision,
+                    from: selection.item.clone(),
+                    armor_slot: preview.armor_slot,
+                    worn: preview.worn,
+                })
+            })
+    } else {
+        None
+    };
+    runtime.observe_armor_equip(armor_equip);
     let riptide_at = |position| {
         selected_riptide_use(
             player_runtime,
@@ -202,5 +227,10 @@ pub(crate) fn admit(
             .inventory
             .ledger_mut()
             .settle_use_slot_change(slot, revision, &change);
+    }
+    if let Some((revision, change)) = runtime.take_armor_change() {
+        player_runtime
+            .inventory_commands()
+            .settle_armor_equip(revision, &change);
     }
 }

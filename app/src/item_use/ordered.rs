@@ -93,7 +93,7 @@ pub(crate) fn press(
             sample: None,
         };
         if let Some(proposal) =
-            frame::observe(&player, &context, runtime, &movement, &mut view, policy)
+            frame::observe(&mut player, &context, runtime, &movement, &mut view, policy)
         {
             frame::admit(
                 &mut player,
