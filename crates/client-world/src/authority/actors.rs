@@ -349,6 +349,13 @@ impl WorldAuthority {
     pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.actors.rider_seat_pose(self.local_player_unique_id)
     }
+    /// Feet of the local player on its streamed mount's seat as the mount draws `alpha` of the
+    /// way through the actor clock's tick, for drawing the rider alongside it. The sent
+    /// position stays [`Self::local_rider_seat_pose`].
+    pub fn local_rider_render_seat(&self, alpha: f32) -> Option<[f32; 3]> {
+        self.actors
+            .rider_render_seat(self.local_player_unique_id, alpha)
+    }
     /// Feet and body yaw the local player's seat gives it on its vehicle, were the vehicle's
     /// feet at `vehicle_feet` facing `vehicle_yaw`.
     pub fn local_rider_seat_on(

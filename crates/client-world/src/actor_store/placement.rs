@@ -187,6 +187,41 @@ impl ActorStore {
         ))
     }
 
+    /// Feet of `rider_unique_id` on its mount's seat as the mount draws this frame, `alpha`
+    /// of the way through the actor clock's tick: the mount's staged or live previous and
+    /// current poses, eased as its own render eases them. Use it only to draw the rider, since
+    /// the rider's sent position keeps the seat of the tick the mount last completed.
+    /// `None` when the seat is unknown, the mount is itself seated, or the client predicts the
+    /// mount's pose on the rider's own clock, which the rider already follows.
+    pub(crate) fn rider_render_seat(&self, rider_unique_id: i64, alpha: f32) -> Option<[f32; 3]> {
+        let ridden = self.ridden_unique_id(rider_unique_id)?;
+        let mount = self.actors.get(self.unique_to_runtime.get(&ridden)?)?;
+        if self.local_vehicle_renders_on_rider_clock(mount.runtime_id)
+            || self.rider_to_ridden.contains_key(&mount.unique_id)
+        {
+            return None;
+        }
+        let alpha = alpha.clamp(0.0, 1.0);
+        let ease = |from: [f32; 3], to: [f32; 3]| {
+            std::array::from_fn(|axis| from[axis] + (to[axis] - from[axis]) * alpha)
+        };
+        let (feet, previous_yaw, yaw) = match self.pick_ahead(mount.runtime_id) {
+            Some(pick) => (
+                ease(pick.previous_position, pick.state.pose.position),
+                pick.previous_yaw,
+                pick.state.pose.yaw,
+            ),
+            None => (
+                mount.interpolated_position(alpha)?,
+                mount.previous_pose.yaw,
+                mount.yaw,
+            ),
+        };
+        let yaw = previous_yaw + wrap_degrees(yaw - previous_yaw) * alpha;
+        let (seat, _) = self.rider_seat_on(rider_unique_id, feet, yaw)?;
+        seat.iter().all(|axis| axis.is_finite()).then_some(seat)
+    }
+
     /// The view lock of `rider_unique_id`'s seat, with its vehicle's yaw `alpha` of the way
     /// through the current tick; `None` unless the server locks the seat's rotation.
     pub(crate) fn rider_view_lock(&self, rider_unique_id: i64, alpha: f32) -> Option<SeatViewLock> {

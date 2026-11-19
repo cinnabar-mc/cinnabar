@@ -138,7 +138,7 @@ pub fn advance_presentation_state(
                     .is_none_or(|health| health.current > 0.0)
         },
     );
-    bob.advance(view.eye_translation(), on_ground, alive, dt);
+    bob.advance(view.render_eye_translation(), on_ground, alive, dt);
     hand.legacy_effect = None;
     let subject = client_world
         .as_ref()
@@ -289,7 +289,7 @@ pub fn update_screen_overlays(
                 stream.current_dimension(),
                 Default::default(),
             );
-            probe_head_medium(&world, view.eye_translation())
+            probe_head_medium(&world, view.render_eye_translation())
         }
         _ => HeadMedium::Air,
     };
@@ -404,7 +404,7 @@ pub fn apply_camera_presentation(
     let context = ViewContext {
         base,
         subject: Transform {
-            translation: view.eye_translation(),
+            translation: view.render_eye_translation(),
             rotation: view.player_camera_rotation(),
             ..Transform::IDENTITY
         },

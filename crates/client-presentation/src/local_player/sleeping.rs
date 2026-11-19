@@ -43,16 +43,22 @@ impl LocalViewPose {
         }
     }
 
-    /// Overrides actor positions only while sleeping, preserving awake predictions and fallbacks.
+    /// Overrides actor positions while sleeping and draws an awake rider off its ticked seat by
+    /// the streamed mount's offset, preserving fallbacks.
     pub fn actor_positions(
         &self,
         predicted_eye: Option<[f32; 3]>,
         predicted_feet: Option<[f32; 3]>,
     ) -> (Option<[f32; 3]>, Option<[f32; 3]>) {
-        self.sleeping
-            .map_or((predicted_eye, predicted_feet), |pose| {
-                (Some(pose.eye.to_array()), Some(pose.feet.to_array()))
-            })
+        self.sleeping.map_or_else(
+            || {
+                let moved = |position: [f32; 3]| {
+                    (Vec3::from_array(position) + self.ride_render_offset).to_array()
+                };
+                (predicted_eye.map(moved), predicted_feet.map(moved))
+            },
+            |pose| (Some(pose.eye.to_array()), Some(pose.feet.to_array())),
+        )
     }
 
     /// Reanchors on presentation transitions and keeps stable sleeping frames on the same history.

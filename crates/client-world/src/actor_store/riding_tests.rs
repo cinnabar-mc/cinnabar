@@ -784,7 +784,9 @@ fn a_rider_left_inside_its_vehicle_passes_through_it_until_released() {
 fn a_local_rider_leaving_on_the_client_keeps_its_link_until_the_server_unlinks() {
     let mut store = player_on_boat(Some([0.0; 3]), false);
     assert_eq!(shown_on_boat(&store), [true; 3]);
+    assert!(store.rider_render_seat(10, 0.5).is_some());
     leave_beside_boat(&mut store);
+    assert!(store.rider_render_seat(10, 0.5).is_none());
     assert!(store.left_local_vehicle(10));
     assert_eq!(shown_on_boat(&store), [false; 3]);
     assert_eq!(
@@ -842,4 +844,45 @@ fn a_rider_that_left_on_the_client_collides_with_its_vehicle() {
         seated + 1,
         "the boat collides again"
     );
+}
+
+/// A rider drawn from the staged or live mount lands where the same rider seated by the live
+/// tick draws, `alpha` of the way through the frame, so the local rider glides with its mount
+/// instead of holding the seat of the tick the mount last completed.
+#[test]
+fn a_streamed_rider_draws_on_the_mount_s_eased_pose() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.advance_interpolation_ticks(1);
+    let mut movement = super::tests::network_move(20, 12.0, false);
+    let ActorEvent::Move(ref mut event) = movement else {
+        unreachable!()
+    };
+    event.position[0] = Some(22.0);
+    store.apply(1, 4, movement);
+    for (ticks, alpha) in [(1, 0.5), (0, 0.25), (2, 0.75), (0, 0.5)] {
+        store.predict_remote_motion(ticks);
+        let before = store.rider_seat_pose(10).unwrap().0;
+        let staged = store.rider_render_seat(10, alpha).unwrap();
+        store.advance_interpolation_frame(ticks);
+        let drawn = store.get(10).unwrap().interpolated_position(alpha).unwrap();
+        for axis in 0..3 {
+            assert!(
+                (staged[axis] - drawn[axis]).abs() < 0.00001,
+                "{ticks} ticks, alpha {alpha}: {staged:?} against {drawn:?}"
+            );
+        }
+        if ticks > 0 {
+            // The seat of the last completed tick is not where the mount's frame draws it.
+            assert!((before[0] - drawn[0]).abs() > 0.01, "{before:?} {drawn:?}");
+        }
+    }
+}
+
+/// A rider whose mount is itself seated has no mount pose of its own to follow.
+#[test]
+fn a_rider_on_a_seated_mount_has_no_render_seat() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.apply(1, 5, spawn(30, 30));
+    store.apply_link(1, 6, link(20, 30, ActorLinkType::Rider));
+    assert!(store.rider_render_seat(10, 0.5).is_none());
 }
