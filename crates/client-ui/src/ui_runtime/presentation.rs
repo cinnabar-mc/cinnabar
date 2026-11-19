@@ -56,7 +56,7 @@ pub mod session_icons;
 pub use forms::{PreparedJsonUi, ServerUiPack};
 
 pub use session_glyphs::SessionGlyphSheets;
-pub use session_icons::{SessionIcon, SessionIcons};
+pub use session_icons::{SessionIcon, SessionIcons, dye_source_identifier};
 pub mod startup;
 pub mod texture_atlas;
 

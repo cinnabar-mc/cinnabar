@@ -40,6 +40,12 @@ pub(super) fn lookup_icon(
     })
 }
 
+/// The identifier under which a session keeps the untinted source of a leather item's icon: the
+/// icon itself draws in the default leather colour, and a stack's dye masks this source instead.
+pub fn dye_source_identifier(identifier: &str) -> String {
+    format!("{identifier}#dye_source")
+}
+
 /// One server item icon in straight-alpha RGBA8.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SessionIcon {

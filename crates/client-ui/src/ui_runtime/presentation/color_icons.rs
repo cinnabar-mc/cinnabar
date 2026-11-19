@@ -20,6 +20,7 @@ pub(super) fn prepare(
         if assets::facts::pack::rules()
             .default_item_tint(&item.key.identifier)
             .is_none()
+            && !assets::facts::pack::leather_item(&item.key.identifier)
         {
             continue;
         }
@@ -44,6 +45,8 @@ pub(super) fn prepare(
 
 impl UiPresentationRuntime {
     /// Resolves a stack's RGB mask while preserving session icon overrides and zero-variant fallback.
+    /// A pack's leather icon draws baked in the default leather colour, so its dye masks the
+    /// untinted source the session keeps beside it; no other override is masked.
     pub(super) fn color_mask_icon(
         &self,
         identifier: &str,
@@ -51,7 +54,15 @@ impl UiPresentationRuntime {
         rgb: u32,
     ) -> Option<IconRef> {
         if self.session_item_icon(identifier, metadata).is_some() {
-            return None;
+            return self
+                .session_item_icon(
+                    &super::session_icons::dye_source_identifier(identifier),
+                    metadata,
+                )
+                .map(|source| IconRef {
+                    color_mask: Some([(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]),
+                    ..source
+                });
         }
         let variants = self.gui_models.sources.color_masks.get(identifier)?;
         let icon = variants.get(&metadata).or_else(|| variants.get(&0))?;
