@@ -163,6 +163,14 @@ pub enum EquipmentCategory {
     Body,
 }
 
+impl EquipmentCategory {
+    /// Whether a model of this category draws in a hand. Worn-only models (armor, elytra and
+    /// body equipment) leave a held item to its ordinary item rendering.
+    pub fn draws_in_hand(self) -> bool {
+        matches!(self, Self::Held | Self::ArmorAndHeld { .. } | Self::Shield)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArmorSlot {

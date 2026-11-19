@@ -184,3 +184,67 @@ fn failed_live_attachable_falls_back_but_inactive_controller_stays_empty() {
         }
     }
 }
+
+#[test]
+fn held_worn_only_attachable_draws_the_ordinary_held_model() {
+    for (category, live) in [
+        (
+            assets::EquipmentCategory::Armor {
+                slot: assets::ArmorSlot::Helmet,
+            },
+            false,
+        ),
+        (assets::EquipmentCategory::Elytra, false),
+        (assets::EquipmentCategory::Body, false),
+        (
+            assets::EquipmentCategory::ArmorAndHeld {
+                slot: assets::ArmorSlot::Helmet,
+            },
+            true,
+        ),
+        (assets::EquipmentCategory::Held, true),
+    ] {
+        let pack = pack_with_files(false, animated_item());
+        let catalog = pack.equipment.as_ref().unwrap();
+        let mut bindings = catalog.bindings().to_vec();
+        for binding in &mut bindings {
+            binding.category = category;
+        }
+        let equipment = Arc::new(
+            assets::RuntimeEquipmentCatalog::from_parts(
+                [1; 32],
+                bindings,
+                catalog.textures().to_vec(),
+            )
+            .unwrap(),
+        );
+        let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
+        equip(&mut stream, Some("fixture:tool"));
+        let mut ui = presentation(Arc::clone(&pack));
+        let fallback = ui
+            .gui_models
+            .sources
+            .held
+            .remove("minecraft:stone")
+            .unwrap();
+        ui.gui_models
+            .sources
+            .held
+            .insert("fixture:tool".into(), fallback);
+        ui.set_preview_equipment_assets(None, Some(Arc::clone(&pack.assets)));
+        ui.set_preview_pack_equipment(Some(equipment));
+        ui.set_player_preview_gear([None; 4], Some(("fixture:tool", 0)));
+        let (_, vertices) = draw(&mut ui, &stream, PreviewView::default()).unwrap();
+        let layers = &ui.gui_models.live_equipment.hands[0];
+        if live {
+            assert_eq!(layers.as_ref().map(Vec::len), Some(1), "{category:?}");
+            assert_eq!(triangles(&vertices), 24, "{category:?} attachable bones");
+        } else {
+            assert!(
+                layers.is_none(),
+                "{category:?} must not draw its worn model"
+            );
+            assert_eq!(triangles(&vertices), 12, "{category:?} ordinary held cube");
+        }
+    }
+}
