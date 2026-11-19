@@ -25,6 +25,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 	"golang.org/x/oauth2"
 )
 
@@ -353,8 +354,8 @@ func TestRunUnavailableResourcePackCacheStillStartsProxy(t *testing.T) {
 				func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
 				func(_ context.Context, cfg proxy.Config) error {
 					serveCalls++
-					if cfg.ResourcePackCache != nil {
-						t.Fatal("failed cache reached the proxy")
+					if _, err := cfg.ResourcePackCache.Load(context.Background(), minecraft.ResourcePackCacheKey{}); !errors.Is(err, packcache.ErrUnavailable) {
+						t.Fatalf("Load through an unavailable cache = %v, want ErrUnavailable", err)
 					}
 					return nil
 				},
@@ -367,8 +368,64 @@ func TestRunUnavailableResourcePackCacheStillStartsProxy(t *testing.T) {
 			if !strings.Contains(logs.String(), "continuing without persistent cache") || strings.Contains(logs.String(), cacheErr.Error()) {
 				t.Fatal("cache fallback must be visible without exposing the underlying error")
 			}
+			if errors.Is(cacheErr, packcache.ErrInUse) != strings.Contains(logs.String(), "reason=in_use") {
+				t.Fatal("a busy cache must be reported as in_use, and only a busy cache")
+			}
 		})
 	}
+}
+
+// TestRunResourcePackCacheRecoversWhenTheRootFrees keeps the persistent cache usable after the
+// previous client's core, which held its lease at startup, exits.
+func TestRunResourcePackCacheRecoversWhenTheRootFrees(t *testing.T) {
+	var logs strings.Builder
+	cache := &recoveredResourcePackCacheStub{pack: new(resource.Pack)}
+	opens := 0
+	err := runWithResourcePackCacheFactory(context.Background(), []string{
+		"-socket-dir", "run", "-upstream", "localhost:19132", "-resource-pack-cache-dir", "cache",
+	}, io.Discard, &logs,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
+		func(_ context.Context, cfg proxy.Config) error {
+			key := minecraft.ResourcePackCacheKey{}
+			if _, err := cfg.ResourcePackCache.Load(context.Background(), key); !errors.Is(err, packcache.ErrUnavailable) {
+				t.Fatalf("Load while the root is held = %v, want ErrUnavailable", err)
+			}
+			opens = 2 // the previous core exits: later opens succeed
+			if got, err := cfg.ResourcePackCache.Load(context.Background(), key); err != nil || got != cache.pack {
+				t.Fatalf("Load after the root freed = %v, %v; want the cached pack", got, err)
+			}
+			return nil
+		},
+		func(string, ...packcache.Option) (ownedResourcePackCache, error) {
+			if opens == 0 {
+				return nil, packcache.ErrInUse
+			}
+			return cache, nil
+		})
+	if err != nil {
+		t.Fatalf("run = %v", err)
+	}
+	if !cache.closed || !strings.Contains(logs.String(), "resource pack cache available") {
+		t.Fatalf("recovered cache closed = %v, logs = %q; want closed on exit and a recovery line", cache.closed, logs.String())
+	}
+}
+
+type recoveredResourcePackCacheStub struct {
+	pack   *resource.Pack
+	closed bool
+}
+
+func (cache *recoveredResourcePackCacheStub) Load(context.Context, minecraft.ResourcePackCacheKey) (*resource.Pack, error) {
+	return cache.pack, nil
+}
+
+func (cache *recoveredResourcePackCacheStub) Store(context.Context, minecraft.ResourcePackCacheKey, *resource.Pack) error {
+	return nil
+}
+
+func (cache *recoveredResourcePackCacheStub) Close() error {
+	cache.closed = true
+	return nil
 }
 
 func TestRunAuthFailureDoesNotStartProxy(t *testing.T) {
