@@ -234,54 +234,55 @@ fn dyed_vanilla_leather_masks_the_raw_artwork_and_undyed_keeps_the_baked_default
 }
 
 #[test]
-fn pack_leather_artwork_is_dyed_or_tinted_the_default_leather_colour() {
+fn pack_leather_icons_draw_baked_and_a_dye_masks_their_untinted_source() {
     use crate::ui_runtime::presentation::publish::item_icons::test_support::stack_icon;
     let mut presentation = presentation();
-    let session = |identifier: &str| super::super::session_icons::SessionIcon {
+    let session = |identifier: &str, rgba8: [u8; 4]| super::super::session_icons::SessionIcon {
         identifier: identifier.into(),
         metadata: 0,
         width: 1,
         height: 1,
-        rgba8: vec![237, 237, 237, 255].into(),
+        rgba8: rgba8.to_vec().into(),
     };
+    let leather = "minecraft:leather_helmet";
     let icons = Arc::new(super::super::session_icons::SessionIcons {
         icons: vec![
-            session("minecraft:leather_helmet"),
-            session("minecraft:iron_helmet"),
+            session(leather, [160, 101, 64, 255]),
+            session(
+                &super::super::session_icons::dye_source_identifier(leather),
+                [237; 4],
+            ),
+            session("minecraft:iron_helmet", [237; 4]),
         ],
         ..Default::default()
     });
     super::super::session_icons::observe(&mut presentation, Some(&icons));
     let runtime = crate::ui_runtime::UiRuntime::new(1);
-    let leather = crate::test_support::fixture_item("minecraft:leather_helmet");
-    let pack_art = presentation
-        .session_item_icon("minecraft:leather_helmet", 0)
+    let item = crate::test_support::fixture_item(leather);
+    let baked = presentation.session_item_icon(leather, 0).unwrap();
+    let source = presentation
+        .session_item_icon(
+            &super::super::session_icons::dye_source_identifier(leather),
+            0,
+        )
         .unwrap();
+    assert_ne!(baked.uv, source.uv);
+
     let undyed = protocol::NetworkItemStack {
         network_id: 1,
         count: 1,
         ..protocol::NetworkItemStack::empty()
     };
-    let icon = stack_icon(&runtime, &presentation, &undyed, leather.clone(), None).unwrap();
+    let icon = stack_icon(&runtime, &presentation, &undyed, item.clone(), None).unwrap();
     assert_eq!(
-        icon.color_mask,
-        Some(rgb_bytes(assets::DEFAULT_LEATHER_RGB))
+        icon, baked,
+        "undyed pack leather draws its baked default colour"
     );
-    assert_eq!((icon.page, icon.uv), (pack_art.page, pack_art.uv));
-    let icon = stack_icon(
-        &runtime,
-        &presentation,
-        &dyed_stack(0x3366cc),
-        leather,
-        None,
-    )
-    .unwrap();
+    let icon = stack_icon(&runtime, &presentation, &dyed_stack(0x3366cc), item, None).unwrap();
     assert_eq!(icon.color_mask, Some(rgb_bytes(0x3366cc)));
-    assert_eq!((icon.page, icon.uv), (pack_art.page, pack_art.uv));
+    assert_eq!((icon.page, icon.uv), (source.page, source.uv));
 
     let iron = crate::test_support::fixture_item("minecraft:iron_helmet");
-    for stack in [&undyed, &dyed_stack(0x3366cc)] {
-        let icon = stack_icon(&runtime, &presentation, stack, iron.clone(), None).unwrap();
-        assert_eq!(icon.color_mask, None, "only leather artwork takes a dye");
-    }
+    let icon = stack_icon(&runtime, &presentation, &dyed_stack(0x3366cc), iron, None).unwrap();
+    assert_eq!(icon.color_mask, None, "only leather artwork takes a dye");
 }

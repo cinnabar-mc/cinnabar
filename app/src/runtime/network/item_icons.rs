@@ -19,7 +19,7 @@ pub(crate) use vanilla::{install_vanilla_item_assets, vanilla_item_paths_install
 use resource_pack::LayeredPackView;
 
 use assets::texture::policy::MAX_SUBSCRIBER_BYTES;
-use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
+use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons, dye_source_identifier};
 use render_model::equipment::blocks::overlay_item;
 
 /// One icon per registry item, the most a session can name.
@@ -125,6 +125,7 @@ pub(super) fn compile_session_icons(
     append_block_icons(&mut icons, block_icons, &mut retained_bytes);
     dials::append(view, &mut icons, &mut retained_bytes);
     vanilla::append(view, &mut icons, &mut retained_bytes);
+    tint_leather_icons(&mut icons, &mut retained_bytes);
     (!icons.is_empty() || !block_sheets.is_empty() || !misses.is_empty()).then(|| {
         Arc::new(SessionIcons {
             icons,
@@ -141,6 +142,35 @@ pub(super) fn compile_session_icons(
             misses,
         })
     })
+}
+
+/// Leather artwork ships grey and the client tints it. Each leather icon draws in the default
+/// leather colour, so held items, previews and dropped items see the finished colour, and its
+/// untinted pixels stay under [`dye_source_identifier`] for a stack's dye to mask.
+fn tint_leather_icons(icons: &mut Vec<SessionIcon>, retained_bytes: &mut usize) {
+    let default = assets::DEFAULT_LEATHER_RGB;
+    let tint = [(default >> 16) as u8, (default >> 8) as u8, default as u8];
+    let mut sources = Vec::new();
+    for icon in icons
+        .iter_mut()
+        .filter(|icon| assets::facts::pack::leather_item(&icon.identifier))
+    {
+        let source = icon.rgba8.clone();
+        for texel in icon.rgba8.as_chunks_mut::<4>().0 {
+            *texel = assets::color_mask_texel(*texel, tint);
+        }
+        if source.len() <= MAX_SUBSCRIBER_BYTES.saturating_sub(*retained_bytes) {
+            *retained_bytes += source.len();
+            sources.push(SessionIcon {
+                identifier: dye_source_identifier(&icon.identifier).into(),
+                metadata: icon.metadata,
+                width: icon.width,
+                height: icon.height,
+                rgba8: source,
+            });
+        }
+    }
+    icons.extend(sources);
 }
 
 /// Preserves block icon priority without exceeding the shared retained pixel budget.

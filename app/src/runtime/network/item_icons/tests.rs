@@ -153,6 +153,64 @@ fn browser_startup_item_alias_inherits_base_sprite_without_pack_raster() {
     assert_eq!(inherited.rgba8.as_ref(), sprite.rgba8.as_ref());
 }
 
+// A pack's grey leather art draws in the default leather colour everywhere an icon's pixels are
+// read, and keeps its untinted source for a dye to mask; other items keep their pixels.
+#[test]
+fn pack_leather_icons_are_tinted_and_keep_an_untinted_source() {
+    let grey = image::RgbaImage::from_pixel(1, 1, image::Rgba([237, 237, 237, 255]));
+    let mut grey_png = std::io::Cursor::new(Vec::new());
+    grey.write_to(&mut grey_png, image::ImageFormat::Png)
+        .unwrap();
+    let grey_png = grey_png.into_inner();
+    let view = view_with(vec![
+        (
+            "textures/item_texture.json",
+            br#"{"texture_data":{"leather_helmet":{"textures":"textures/items/leather_helmet"},"iron_helmet":{"textures":"textures/items/iron_helmet"}}}"#.to_vec(),
+        ),
+        ("textures/items/leather_helmet.png", grey_png.clone()),
+        ("textures/items/iron_helmet.png", grey_png),
+    ]);
+    let key = |identifier: &str| {
+        (
+            Arc::<str>::from(identifier),
+            Arc::<str>::from(&identifier[10..]),
+        )
+    };
+    let icons = compile_session_icons(
+        &view,
+        &[
+            key("minecraft:leather_helmet"),
+            key("minecraft:iron_helmet"),
+        ],
+        BlockIcons::default(),
+    )
+    .expect("icons");
+    let pixels = |identifier: &str| {
+        icons
+            .icons
+            .iter()
+            .find(|icon| icon.identifier.as_ref() == identifier)
+            .unwrap_or_else(|| panic!("{identifier} icon"))
+            .rgba8
+            .to_vec()
+    };
+    let tint = assets::DEFAULT_LEATHER_RGB;
+    let expected = assets::color_mask_texel(
+        [237, 237, 237, 255],
+        [(tint >> 16) as u8, (tint >> 8) as u8, tint as u8],
+    );
+    assert_ne!(expected, [237, 237, 237, 255]);
+    assert_eq!(pixels("minecraft:leather_helmet"), expected);
+    assert_eq!(
+        pixels(&client_ui::ui_runtime::presentation::dye_source_identifier(
+            "minecraft:leather_helmet"
+        )),
+        [237, 237, 237, 255],
+        "the dye source keeps the pack's pixels"
+    );
+    assert_eq!(pixels("minecraft:iron_helmet"), [237, 237, 237, 255]);
+}
+
 fn stack(packs: &[&[(&str, Vec<u8>)]]) -> LayeredPackView {
     let archives = packs
         .iter()
