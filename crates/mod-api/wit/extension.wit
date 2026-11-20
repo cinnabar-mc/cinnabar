@@ -938,6 +938,11 @@ interface camera {
     /// Requires camera authority. Current focused gameplay frame only; renew while needed.
     /// None, omission, UI focus, unload and failed callbacks restore the player's own view.
     set-perspective: func(view: option<perspective>) -> result<_, string>;
+    /// The player's own perspective, the one their perspective control cycles: before any mod's
+    /// `set-perspective`, freelook, camera rig, scripted view or death view. None without a
+    /// streaming world or during a dimension transfer. Like a tilt, it stays readable while a
+    /// menu owns input. Requires the camera grant.
+    read-perspective: func() -> result<option<perspective>, string>;
     /// Degrees, each at most `MAX_VIEW_TILT_DEGREES`, added to the first-person view where the
     /// native damage shake applies; suppress-hurt-shake removes that shake. Positive pitch turns
     /// the view up. Positive roll turns it the way a native shake without direction does: the

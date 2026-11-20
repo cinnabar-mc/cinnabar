@@ -143,17 +143,33 @@ impl GameplayContext<'_> {
         })
     }
 
+    /// Whether a world streams for the UI's current session, outside a dimension transfer.
+    /// Socket-only sessions qualify even without a destination identity.
+    pub(super) fn live_world(&self, ui: &client_ui::ui_runtime::UiRuntime) -> bool {
+        let Some(world) = self.world.as_ref() else {
+            return false;
+        };
+        let session = self
+            .clock
+            .as_ref()
+            .map_or(0, |clock| clock.session_generation());
+        world.stream.is_some()
+            && session != 0
+            && session == ui.session_id()
+            && !world.dimension_transfer.active()
+    }
+
     /// Read-only current world identity and feet pose, independent of input capture.
     pub(super) fn world_observation(
         &self,
         ui: &client_ui::ui_runtime::UiRuntime,
     ) -> Option<mod_host::WorldObservation> {
+        if !self.live_world(ui) {
+            return None;
+        }
         let world = self.world.as_ref()?;
         let authority = world.stream.as_ref()?.authority();
         let session = self.clock.as_ref()?.session_generation();
-        if session == 0 || session != ui.session_id() || world.dimension_transfer.active() {
-            return None;
-        }
         let position = self.view.as_ref()?.feet_translation();
         if !position.is_finite() {
             return None;
@@ -341,14 +357,15 @@ impl GameplayContext<'_> {
     }
 
     /// Captures the facts gameplay capabilities read: the last presented camera and the use
-    /// control while gameplay owns input, and the relayed feet position and the last presented
-    /// damage shake in a connected world.
+    /// control while gameplay owns input, and the relayed feet position, the last presented
+    /// damage shake and the player's own perspective in a connected world.
     pub(super) fn facts(
         &self,
         input_owned: bool,
         camera: Option<&GlobalTransform>,
         relayed: Option<[f32; 3]>,
         damage_shake: Option<client_presentation::camera::actor_effects::DamageShake>,
+        perspective: Option<semantic_input::PerspectiveMode>,
     ) -> mod_host::GameplayFacts {
         if self
             .world
@@ -398,6 +415,15 @@ impl GameplayContext<'_> {
                     pitch: shake.pitch_degrees,
                 })
                 .filter(|shake| shake.roll.is_finite() && shake.pitch.is_finite()),
+            perspective: perspective.map(|view| {
+                use mod_api::native_camera::Perspective as Mod;
+                use semantic_input::PerspectiveMode as Native;
+                match view {
+                    Native::FirstPerson => Mod::FirstPerson,
+                    Native::ThirdPersonBack => Mod::ThirdPersonBack,
+                    Native::ThirdPersonFront => Mod::ThirdPersonFront,
+                }
+            }),
             relayed_position: relayed
                 .map(Vec3::from_array)
                 .filter(|position| position.is_finite())

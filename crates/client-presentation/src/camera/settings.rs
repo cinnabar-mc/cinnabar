@@ -413,6 +413,13 @@ impl CameraSettingsAuthority {
         Quat::from_rotation_y(self.view_yaw_offset.to_radians()) * rotation
     }
 
+    /// The player's own cycled perspective, before mod, freelook, rig, scripted and death
+    /// overrides.
+    #[must_use]
+    pub const fn player_perspective(&self) -> PerspectiveMode {
+        self.perspective
+    }
+
     /// Selects a temporary ordinary view without changing the player's perspective cycle.
     pub fn set_mod_perspective(&mut self, view: Option<PerspectiveMode>) {
         self.mod_perspective = view;
@@ -499,5 +506,19 @@ mod perspective_tests {
         assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonFront);
         camera.set_mod_perspective(None);
         assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonBack);
+    }
+
+    /// The player's own perspective follows only their cycle, never a temporary override.
+    #[test]
+    fn player_perspective_ignores_overrides() {
+        let mut camera = CameraSettingsAuthority::default();
+        assert_eq!(camera.player_perspective(), PerspectiveMode::FirstPerson);
+        camera.set_mod_perspective(Some(PerspectiveMode::ThirdPersonFront));
+        assert_eq!(camera.player_perspective(), PerspectiveMode::FirstPerson);
+        camera.cycle_perspective();
+        assert_eq!(
+            camera.player_perspective(),
+            PerspectiveMode::ThirdPersonBack
+        );
     }
 }

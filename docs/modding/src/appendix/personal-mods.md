@@ -402,6 +402,8 @@ front for a successful focused gameplay frame under the camera grant. Renew the
 request each frame while needed. Omission, menus, focus loss, callback failure and
 unload restore the player's own perspective; cycling the player's perspective
 while overridden still updates the choice restored afterwards.
+`camera.read-perspective` reports that choice under the camera grant, so a mod can
+notice the player cycling it, by any binding or device, while its override hides it.
 
 `camera.set-view-yaw-offset` adds a world-up heading offset in -180..180 degrees
 to the presented camera for a successful focused gameplay frame. The camera grant

@@ -182,6 +182,51 @@ fn damage_shake_read_needs_the_camera_grant() {
     assert!(validate_facts(&facts).is_ok());
 }
 
+/// The player's own perspective needs the camera grant, stays readable while a menu owns
+/// input and reads none outside a connected world.
+#[test]
+fn perspective_read_needs_the_camera_grant() {
+    use cinnabar::extension::camera::Perspective as Guest;
+    use mod_api::native_camera::Perspective as Native;
+    let facts = GameplayFacts {
+        perspective: Some(Native::ThirdPersonFront),
+        ..Default::default()
+    };
+    let mut denied = state(ModGrants {
+        players: true,
+        terrain: true,
+        ..Default::default()
+    });
+    denied.gameplay_facts = facts;
+    assert_eq!(
+        denied.read_perspective().unwrap(),
+        Err("camera capability denied".into())
+    );
+    let mut granted = state(ModGrants {
+        camera: true,
+        ..Default::default()
+    });
+    for (native, guest) in [
+        (Native::FirstPerson, Guest::FirstPerson),
+        (Native::ThirdPersonBack, Guest::ThirdPersonBack),
+        (Native::ThirdPersonFront, Guest::ThirdPersonFront),
+    ] {
+        granted.gameplay_facts = GameplayFacts {
+            perspective: Some(native),
+            ..Default::default()
+        };
+        assert_eq!(granted.read_perspective().unwrap(), Ok(Some(guest)));
+    }
+    granted.snapshot = None;
+    assert_eq!(
+        granted.read_perspective().unwrap(),
+        Ok(Some(Guest::ThirdPersonFront)),
+        "a menu owning input keeps the perspective readable"
+    );
+    granted.gameplay_facts = GameplayFacts::default();
+    assert_eq!(granted.read_perspective().unwrap(), Ok(None), "no world");
+}
+
 fn vector(x: f32, y: f32, z: f32) -> GameplayVector3 {
     GameplayVector3 { x, y, z }
 }

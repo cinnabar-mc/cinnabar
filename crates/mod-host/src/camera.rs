@@ -139,4 +139,25 @@ impl cinnabar::extension::camera::Host for State {
         }
         Ok(Ok(self.gameplay_facts.damage_shake))
     }
+
+    /// The player's own perspective, with the camera grant; it shares the gameplay read budget
+    /// and stays readable while a menu owns input.
+    fn read_perspective(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::camera::Perspective>, String>> {
+        self.gameplay_reads += 1;
+        if self.gameplay_reads > MAX_IMPORT_WRITES {
+            bail!("gameplay read budget exhausted");
+        }
+        if !self.grants.camera {
+            return Ok(Err("camera capability denied".into()));
+        }
+        use cinnabar::extension::camera::Perspective as Guest;
+        use mod_api::native_camera::Perspective as Native;
+        Ok(Ok(self.gameplay_facts.perspective.map(|view| match view {
+            Native::FirstPerson => Guest::FirstPerson,
+            Native::ThirdPersonBack => Guest::ThirdPersonBack,
+            Native::ThirdPersonFront => Guest::ThirdPersonFront,
+        })))
+    }
 }
