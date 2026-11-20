@@ -120,6 +120,9 @@ pub struct ActorStatus {
     /// The body yaw the client predicts this frame for a vehicle it steers, which the rig
     /// draws instead of easing between its ticks.
     pub predicted_render_yaw: Option<f32>,
+    /// Feet position the frame draws a cart the local player rides at, in place of easing its
+    /// ticks; set by `ActorStore::play_back_mounts`.
+    pub(super) render_position: Option<[f32; 3]>,
     /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
     /// Breathing point below a liquid surface; `None` before the first world sample.

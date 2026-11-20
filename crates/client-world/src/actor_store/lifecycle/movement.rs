@@ -132,6 +132,14 @@ impl ActorStore {
                 movement.teleported,
             );
         }
+        if actor.is_minecart() {
+            let now = self.motion_ticks as f64 + self.motion_partial;
+            let playback = self.mount_playback.entry(movement.runtime_id).or_default();
+            if movement.teleported {
+                playback.clear();
+            }
+            playback.record(now, received.position);
+        }
         actor.movement_revision = sequence;
         actor.teleported = movement.teleported;
         actor.player_mode = movement.player_mode;

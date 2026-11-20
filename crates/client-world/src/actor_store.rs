@@ -239,6 +239,9 @@ impl ActorSnapshot {
     /// or `None` when a component is not finite.
     #[must_use]
     pub fn interpolated_position(&self, alpha: f32) -> Option<[f32; 3]> {
+        if let Some(position) = self.status.render_position {
+            return Some(position);
+        }
         let mut position = std::array::from_fn(|axis| {
             self.previous_pose.position[axis]
                 + (self.position[axis] - self.previous_pose.position[axis]) * alpha
@@ -669,6 +672,14 @@ pub(crate) struct ActorStore {
     /// Staged vehicle and collision motion, sorted by runtime id and reused across frames.
     pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
+    /// Streamed positions of each cart, which the cart the local player rides draws from.
+    mount_playback: std::collections::HashMap<u64, mount_playback::MountPlayback>,
+    /// Actor ticks staged so far and the point of the current frame between ticks: the clock
+    /// the playback stamps arrivals and draws on.
+    motion_ticks: u64,
+    motion_partial: f64,
+    /// The cart whose drawn position the playback currently sets.
+    played_back_mount: Option<u64>,
     local_view_bobbing: bool,
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
@@ -737,6 +748,7 @@ mod unspawned_local;
 pub use movement_flags::MovementFlagUpdate;
 mod lightning;
 mod mount;
+mod mount_playback;
 mod movement_interpolation;
 #[cfg(test)]
 mod painting_tests;

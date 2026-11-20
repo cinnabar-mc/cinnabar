@@ -47,6 +47,7 @@ impl ActorStore {
 
     /// Stages remote motion for vehicle and collision queries without advancing live actors.
     pub(crate) fn predict_remote_motion(&mut self, ticks: u32) {
+        self.motion_ticks += u64::from(ticks);
         self.picks_ahead = ticks > 0;
         if !self.picks_ahead {
             return;

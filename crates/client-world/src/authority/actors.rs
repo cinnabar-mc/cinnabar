@@ -160,6 +160,13 @@ impl WorldAuthority {
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.actors.predict_remote_motion(ticks);
     }
+    /// Draws the cart the local player rides from its jitter-buffered playback, `partial_tick`
+    /// of the way through the actor clock's tick. Call it each frame after
+    /// [`Self::predict_remote_actor_motion`].
+    pub fn play_back_actor_mounts(&mut self, partial_tick: f32) {
+        self.actors
+            .play_back_mounts(partial_tick, self.local_player_unique_id);
+    }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.actors.advance_interpolation_frame(ticks);

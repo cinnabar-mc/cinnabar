@@ -218,6 +218,7 @@ impl ActorStore {
             ),
         };
         let yaw = previous_yaw + wrap_degrees(yaw - previous_yaw) * alpha;
+        let feet = mount.status.render_position.unwrap_or(feet);
         let (seat, _) = self.rider_seat_on(rider_unique_id, feet, yaw)?;
         seat.iter().all(|axis| axis.is_finite()).then_some(seat)
     }
