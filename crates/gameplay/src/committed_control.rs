@@ -220,16 +220,18 @@ impl CommittedGameplayState<'_> {
             ..
         } = control
         {
-            // Prediction restarts from the corrected boat and the rider snaps to its seat at
+            // Prediction continues from the corrected boat and the rider snaps to its seat at
             // the local tick, discarding stale inputs as a teleport does. A snap resets the
-            // local frame and camera history like any other correction.
+            // local frame and camera history like any other correction, but the render clock
+            // resumes where it was so the boat and its rider do not jump back a fraction of a
+            // tick.
             if !self.movement.physics_is_authorized() {
                 return ControlDisposition::Handled;
             }
             let previous = self.physics.network_position();
-            let Some(seat) = self
-                .physics
-                .correct_vehicle(&movement::vehicle::VehicleCorrection {
+            let shown = self.physics.rider_render();
+            let Some(corrected) = self.physics.correct_vehicle(
+                &movement::vehicle::VehicleCorrection {
                     runtime_id: vehicle_runtime_id,
                     revision: vehicle_revision,
                     tick: correction.tick,
@@ -238,10 +240,12 @@ impl CommittedGameplayState<'_> {
                     rotation: [correction.pitch, correction.yaw],
                     angular_velocity: correction.vehicle_angular_velocity,
                     on_ground: correction.on_ground,
-                })
-            else {
+                },
+                world,
+            ) else {
                 return ControlDisposition::Handled;
             };
+            let seat = corrected.seat;
             let position = [seat[0], seat[1] + protocol::PLAYER_NETWORK_OFFSET, seat[2]];
             return match movement::reconcile_physics_anchor(
                 self.movement,
@@ -256,6 +260,12 @@ impl CommittedGameplayState<'_> {
                 world,
             ) {
                 Ok(outcome) => {
+                    if let (PhysicsCorrectionOutcome::Snapped { .. }, Some(shown)) =
+                        (&outcome, shown)
+                    {
+                        self.physics
+                            .resume_vehicle_render(shown, corrected.previous);
+                    }
                     observe(ControlObservation::Correction {
                         outcome,
                         previous: previous.unwrap_or(position),
