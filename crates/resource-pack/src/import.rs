@@ -14,16 +14,17 @@ use crate::{
 };
 use serde_json::Value;
 use std::{
-    collections::HashSet,
-    io::{Cursor, Read},
+    collections::{HashMap, HashSet},
+    io::{Cursor, Read, Write},
     path::Path,
 };
-use zip::{CompressionMethod, ZipArchive, ZipWriter};
+use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 mod cached;
 pub use cached::{CachedPackMetadata, cached_pack_metadata};
 mod directory;
 mod java;
+mod legacy_hud;
 mod selection;
 pub use selection::{
     GlobalSelectionEntry, ParsedGlobalSelection, merge_global_selection, parse_global_selection,
@@ -100,7 +101,7 @@ pub(crate) fn read_import(
         .file_name()
         .unwrap_or(source.as_os_str())
         .to_string_lossy();
-    read_bundle(bytes, &source, 0, &mut report, &mut imported)
+    read_bundle(bytes, &source, 0, false, &mut report, &mut imported)
         .map_err(|error| file_error(&source, error))?;
     if imported.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() > crate::MAX_STACK_ARCHIVE_BYTES
     {
@@ -110,10 +111,12 @@ pub(crate) fn read_import(
 }
 
 /// Splits directory bundles or one level of nested pack archives without filesystem extraction.
+/// `translated` marks the output of a Java pack translation, whose HUD textures are already final.
 fn read_bundle(
     mut bytes: Vec<u8>,
     source: &str,
     depth: usize,
+    translated: bool,
     report: &mut ImportReport,
     imported: &mut ImportedArchives,
 ) -> Result<(), LibraryError> {
@@ -139,7 +142,7 @@ fn read_bundle(
     let java_root = roots.is_empty().then(|| java::root(&paths)).flatten();
     if let Some(root) = &java_root {
         let result = java::translate(&mut archive, &paths, root, source)
-            .and_then(|translated| read_bundle(translated, source, depth + 1, report, imported));
+            .and_then(|bytes| read_bundle(bytes, source, depth + 1, true, report, imported));
         if let Err(error) = result {
             if depth > 0 {
                 return Err(error);
@@ -157,7 +160,7 @@ fn read_bundle(
         if imported.len() >= MAX_PACKS {
             return Err(AdmissionError::TooManyPacks.into());
         }
-        let result = read_candidate(&mut archive, &paths, root, &roots);
+        let result = read_candidate(&mut archive, &paths, root, &roots, !translated);
         match result {
             Ok(Some(pack)) => imported.push(pack),
             Ok(None) => report.skipped_behavior += 1,
@@ -185,7 +188,8 @@ fn read_bundle(
                     return Err(AdmissionError::StackArchiveTooLarge.into());
                 }
                 let nested_source = format!("{source}/{path}");
-                if let Err(error) = read_bundle(bytes, &nested_source, depth + 1, report, imported)
+                if let Err(error) =
+                    read_bundle(bytes, &nested_source, depth + 1, false, report, imported)
                 {
                     report.rejected.push(format!("{nested_source}: {error}"));
                 }
@@ -243,11 +247,14 @@ fn index_archive(
 }
 
 /// Re-roots a candidate archive by copying compressed entries, then reuses server admission.
+/// With `derive_hud`, a pack that draws its HUD from the legacy `gui/icons.png` and `gui/gui.png`
+/// atlases also gets the individual HUD textures they describe.
 fn read_candidate(
     archive: &mut ZipArchive<Cursor<Vec<u8>>>,
     paths: &[(usize, String)],
     root: &str,
     roots: &[String],
+    derive_hud: bool,
 ) -> Result<Option<(InstalledPack, Vec<u8>)>, LibraryError> {
     let (manifest_name, manifest_index) = MANIFEST_NAMES
         .into_iter()
@@ -275,6 +282,7 @@ fn read_candidate(
         result.map_err(|error| file_error(path, error))?;
     }
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let mut kept = HashMap::new();
     for (index, path) in paths {
         let Some(relative) = path.strip_prefix(root) else {
             continue;
@@ -285,12 +293,26 @@ fn read_candidate(
         {
             continue;
         }
+        kept.insert(relative.to_ascii_lowercase(), *index);
         let file = archive
             .by_index_raw(*index)
             .map_err(|_| AdmissionError::MalformedZip)?;
         writer
             .raw_copy_file_rename(file, relative)
             .map_err(|_| AdmissionError::MalformedZip)?;
+    }
+    if derive_hud {
+        for (path, bytes) in legacy_hud::derive(archive, &kept) {
+            writer
+                .start_file(
+                    path,
+                    SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+                )
+                .map_err(|_| AdmissionError::MalformedZip)?;
+            writer
+                .write_all(&bytes)
+                .map_err(|_| AdmissionError::MalformedZip)?;
+        }
     }
     let bytes = writer
         .finish()
