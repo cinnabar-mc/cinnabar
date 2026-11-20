@@ -153,29 +153,24 @@ fn capture_tooltip(
     // The tooltip follows the hovered cell's stack.
     let hovered = super::hovered_stack(player_runtime, runtime);
     if let Some((stack, name)) = hovered {
-        let identifier = items.identifier(&stack);
-        let group_heading = name.is_some()
+        if let Some(name) = name.as_deref()
             && matches!(
                 runtime.screen_state().hover,
                 Some(ui_screens::container_actions::InventoryCellHit::RecipeBook(
                     _
                 ))
-            );
-        window_text.tooltip = if group_heading {
-            presentation::inventory_tooltip::tooltip_lines_plain_name(
-                runtime,
-                &stack,
-                identifier.as_deref(),
-                name.as_deref(),
             )
-        } else {
-            presentation::inventory_tooltip::tooltip_lines(
-                runtime,
-                &stack,
-                identifier.as_deref(),
-                name.as_deref(),
-            )
-        };
+        {
+            window_text.tooltip = vec![presentation::inventory_tooltip::group_heading(name)];
+            return;
+        }
+        let identifier = items.identifier(&stack);
+        window_text.tooltip = presentation::inventory_tooltip::tooltip_lines(
+            runtime,
+            &stack,
+            identifier.as_deref(),
+            name.as_deref(),
+        );
         if let Some(identifier) = identifier.as_deref() {
             window_text.tooltip.extend(
                 presentation
