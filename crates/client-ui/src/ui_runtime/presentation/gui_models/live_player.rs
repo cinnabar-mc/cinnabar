@@ -138,17 +138,8 @@ impl LivePlayer {
 }
 
 impl UiPresentationRuntime {
-    /// Marks the next frame's actor capture as not yet taken and adopts the session's current
-    /// item components, which decide how held items draw; call before capturing.
-    pub fn begin_live_capture(
-        &mut self,
-        session_items: Option<
-            &std::sync::Arc<crate::ui_runtime::item_facts::SessionItemComponents>,
-        >,
-    ) {
-        self.gui_models
-            .trim_icons
-            .observe_session_items(session_items);
+    /// Marks the next frame's actor capture as not yet taken; call before capturing.
+    pub fn begin_live_capture(&mut self) {
         self.gui_models.live_player.fresh = false;
         self.gui_models.player_layers.clear_capture();
     }
