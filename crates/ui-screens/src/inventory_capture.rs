@@ -145,6 +145,9 @@ pub fn crafting_output(
     if let inventory::CraftGridMatch::Shield(recipe) = &matched {
         return Some((recipe.output().clone(), false));
     }
+    if let inventory::CraftGridMatch::Repair(recipe) = &matched {
+        return Some((recipe.output().clone(), false));
+    }
     if let inventory::CraftGridMatch::Unique(recipe) = matched {
         let output = recipe.output();
         let extra_data = output.user_data.bytes();

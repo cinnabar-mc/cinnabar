@@ -79,7 +79,10 @@ mod validation;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
-pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination, ShieldCraft};
+pub use crafting::{
+    CraftGridCell, CraftSink, CraftingGrid, CreativeDestination, RepairCraft, ShieldCraft,
+    merged_damage,
+};
 pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;

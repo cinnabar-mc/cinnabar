@@ -215,6 +215,9 @@ impl InventorySession {
         if let Some(recipe) = ledger.shield_craft(catalog) {
             return crate::CraftGridMatch::Shield(recipe);
         }
+        if let Some(recipe) = ledger.repair_craft(catalog) {
+            return crate::CraftGridMatch::Repair(recipe);
+        }
         let items: Vec<_> = cells
             .iter()
             .map(|cell| {
@@ -253,6 +256,7 @@ impl InventorySession {
                 crate::CraftGridMatch::Ambiguous => "ambiguous",
                 crate::CraftGridMatch::Unique(_) => "unique",
                 crate::CraftGridMatch::Shield(_) => "shield",
+                crate::CraftGridMatch::Repair(_) => "repair",
             }, "manual crafting requested");
         match matched {
             crate::CraftGridMatch::Unique(recipe) => {
@@ -260,6 +264,9 @@ impl InventorySession {
             }
             crate::CraftGridMatch::Shield(recipe) => {
                 self.ledger_mut().begin_shield_craft(&recipe, sink)
+            }
+            crate::CraftGridMatch::Repair(recipe) => {
+                self.ledger_mut().begin_repair_craft(&recipe, sink)
             }
             _ => Err(super::inventory_ledger::InventoryGestureError::InvalidRequest),
         }
@@ -274,6 +281,9 @@ impl InventorySession {
             crate::CraftGridMatch::Shield(recipe) => self
                 .ledger_mut()
                 .begin_shield_craft(&recipe, super::inventory_ledger::CraftSink::Inventory),
+            crate::CraftGridMatch::Repair(recipe) => self
+                .ledger_mut()
+                .begin_repair_craft(&recipe, super::inventory_ledger::CraftSink::Inventory),
             _ => Err(super::inventory_ledger::InventoryGestureError::InvalidRequest),
         }
     }
