@@ -54,6 +54,8 @@ frame-trace = ["bevy/trace", "bevy/debug", "dep:tracing-chrome"]
 tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy", "protocol/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
+# Live-heap attribution by call stack (Linux, glibc); see docs/agents/heap-profile.md.
+heap-profile = ["dep:test-alloc", "test-alloc/heap-profile"]
 # Opt-in allocator for release-profile measurements.
 mimalloc = ["dep:mimalloc"]
 
