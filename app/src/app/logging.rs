@@ -31,11 +31,41 @@ fn base_filter() -> String {
     )
 }
 
+/// The first GPU error the client process logged; see [`first_gpu_error`].
+static FIRST_GPU_ERROR: std::sync::OnceLock<diagnostics::logging::FirstError> =
+    std::sync::OnceLock::new();
+
+/// The module holding Bevy's render error handler. Its error events are wgpu's device-loss and
+/// uncaptured-error callbacks, logged the moment they fire.
+fn gpu_error_target() -> &'static str {
+    let handler = std::any::type_name::<bevy::render::error_handler::RenderErrorHandler>();
+    handler
+        .rsplit_once("::")
+        .map_or(handler, |(module, _)| module)
+}
+
+/// The first device loss or uncaptured GPU error wgpu reported in this client process, as
+/// logged. The render error policy sees an error only at the next extraction, which a
+/// render-thread panic caused by the same error can prevent; this record exists from the
+/// moment the driver reports it.
+pub(crate) fn first_gpu_error() -> Option<String> {
+    FIRST_GPU_ERROR
+        .get()
+        .and_then(|first| first.get().map(str::to_owned))
+}
+
 /// Installs the process `tracing` subscriber before anything logs; `LogPlugin` stays
 /// disabled, so this is the only subscriber.
 pub(crate) fn install(process: Process) {
     let layers = match process {
-        Process::Client => profiler_layers(),
+        Process::Client => {
+            let mut layers = profiler_layers();
+            let (layer, first) = diagnostics::logging::first_error(gpu_error_target());
+            if FIRST_GPU_ERROR.set(first).is_ok() {
+                layers.push(layer);
+            }
+            layers
+        }
         Process::Setup => Vec::new(),
         #[cfg(not(target_os = "ios"))]
         Process::Monitor => Vec::new(),

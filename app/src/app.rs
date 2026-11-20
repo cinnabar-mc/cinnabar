@@ -480,6 +480,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let shader_compiler = layout.shaderpack_worker.clone();
     let renderer_data_root = layout.user_data_root.clone();
     let pipeline_cache_dir = layout.pipeline_cache_dir();
+    #[cfg(target_os = "android")]
+    let log_dir = layout.log_dir();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
     let menu = render_scene::startup_timing::measure("menu_services", || {
         MenuRuntime::new_with_import_snapshot(
@@ -570,6 +572,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         logging::add_default_plugins(&mut app, plugins)
     });
     render_setup::finish(&mut app)?;
+    // The crash dialog reads this record on the next launch.
+    #[cfg(target_os = "android")]
+    app.add_plugins(crate::lifecycle::adapter_record::AdapterRecord { log_dir });
     let (interface, world_preparation) = match direct_interface {
         Some(ready) => ready,
         None => render_setup::finish_prerequisite(

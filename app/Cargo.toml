@@ -24,6 +24,7 @@ reads = [
     "crates/render/src/atmosphere.wesl",
     "crates/render/src/cloud.wesl",
     "examples/mods/screen-probe",
+    "packaging/android/runtime.json",
 ]
 
 # No doctests here; skipping rustdoc's pass over the crate saves a full re-parse.
