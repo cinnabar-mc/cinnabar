@@ -202,16 +202,40 @@ fn form_modifiers(
     (held, press_shortcuts)
 }
 
+/// Modifiers the form saw held, kept only across consecutive runs of its input system.
+#[derive(Default)]
+pub(crate) struct RetainedModifiers {
+    held: ButtonInput<KeyCode>,
+    last_frame: Option<u32>,
+}
+
+impl RetainedModifiers {
+    /// The modifiers still held entering `frame`. They are forgotten when the system did not run
+    /// on the previous frame, such as one a server experience's consent prompt owned, because a
+    /// release on that frame never reached the form. Without a frame count every run counts as
+    /// consecutive.
+    fn for_frame(&mut self, frame: Option<u32>) -> &mut ButtonInput<KeyCode> {
+        if let Some(frame) = frame {
+            if self.last_frame.map(|last| last.wrapping_add(1)) != Some(frame) {
+                self.held.reset_all();
+            }
+            self.last_frame = Some(frame);
+        }
+        &mut self.held
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window, mut focus, driven, pointer_source, owner, mut modifiers): (
+    (player_runtime, window, mut focus, driven, pointer_source, owner, mut retained, frame_count): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_state::CursorFocus>>,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::ui_runtime::touch_pointer::UiPointerSource>>,
         InputOwner,
-        Local<ButtonInput<KeyCode>>,
+        Local<RetainedModifiers>,
+        Option<Res<bevy::diagnostic::FrameCount>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -230,6 +254,7 @@ pub(crate) fn drive_server_form_input(
     mut stick: Local<[bool; 4]>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    let modifiers = retained.for_frame(frame_count.map(|count| count.0));
     let handoff_now_millis = time
         .as_ref()
         .map(|time| u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
@@ -358,7 +383,7 @@ pub(crate) fn drive_server_form_input(
         .cloned();
     if input_available && let Some(frame) = engine_frame {
         let events: Vec<_> = keyboard.read().cloned().collect();
-        let (held, press_shortcuts) = form_modifiers(&mut modifiers, &keys, &events);
+        let (held, press_shortcuts) = form_modifiers(modifiers, &keys, &events);
         let key_presses: Vec<_> = events
             .iter()
             .filter(|input| input.state == ButtonState::Pressed)
