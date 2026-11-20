@@ -637,22 +637,27 @@ pub(crate) fn update_block_entity_scene(
                     font: &font.0,
                     readers: &readers,
                 };
-                let kind = if matches!(template, Template::Beacon) {
-                    beam_top.map(|top| {
-                        let model = scan.beacons.entry(entity.key).or_insert_with(|| {
-                            beacon::model(
-                                runtime,
-                                &collisions,
-                                stream.runtime_assets(),
-                                store,
-                                dimension,
-                                mode,
-                                [x, y, z],
-                                top,
-                            )
-                        });
-                        BlockEntityKind::Beacon(model.clone())
-                    })
+                let kind = if let Template::Beacon { levels_reported } = template {
+                    beam_top
+                        .filter(|_| {
+                            *levels_reported
+                                || beacon::pyramid_is_built(store, dimension, mode, [x, y, z])
+                        })
+                        .map(|top| {
+                            let model = scan.beacons.entry(entity.key).or_insert_with(|| {
+                                beacon::model(
+                                    runtime,
+                                    &collisions,
+                                    stream.runtime_assets(),
+                                    store,
+                                    dimension,
+                                    mode,
+                                    [x, y, z],
+                                    top,
+                                )
+                            });
+                            BlockEntityKind::Beacon(model.clone())
+                        })
                 } else {
                     resolve(
                         template,
@@ -814,7 +819,7 @@ fn resolve(
     };
     match template {
         Template::Static(kind) => (!hidden).then(|| kind.clone()),
-        Template::Beacon => None,
+        Template::Beacon { .. } => None,
         &Template::Chest(mut model) => {
             let open = open_at(position)
                 || matches!(model.pair, render_model::ChestPair::Lead { partner } if open_at(partner));
