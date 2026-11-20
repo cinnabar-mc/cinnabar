@@ -131,7 +131,7 @@ fn seed_opened(key: SubChunkKey, grid: &ConnectivityGrid, scratch: &mut CaveVisi
     };
     let cells = grid.cell_count() as u32;
     if scratch.camera == Some(key) {
-        scratch.reach(cells, node, touched_faces(bits));
+        scratch.reach(cells, key, node, touched_faces(bits));
     }
     for face in Face::ALL {
         let Some(neighbour) = adjacent(key, face) else {
@@ -144,7 +144,7 @@ fn seed_opened(key: SubChunkKey, grid: &ConnectivityGrid, scratch: &mut CaveVisi
         }
         if state & (1 << opposite(face) as u8) != 0 {
             let exits = (bits >> (face as u64 * 6)) & FACE_MASK & scratch.allowed_exits(key);
-            scratch.reach(cells, node, exits);
+            scratch.reach(cells, key, node, exits);
         }
     }
 }
