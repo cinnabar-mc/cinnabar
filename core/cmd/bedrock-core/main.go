@@ -35,7 +35,8 @@ import (
 const (
 	// The core relays one session beside a game client that owns the remaining cores.
 	coreMaxProcs = 2
-	// Soft heap target; GC works harder near it instead of growing past it.
+	// Soft heap target when the client passes no GOMEMLIMIT sized from device memory; GC works
+	// harder near it instead of growing past it.
 	coreMemoryLimit = 512 << 20
 	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
 	shutdownGrace      = 2 * time.Second

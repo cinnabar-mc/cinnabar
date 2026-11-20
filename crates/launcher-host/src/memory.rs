@@ -14,6 +14,25 @@ pub fn physical_bytes() -> u64 {
     })
 }
 
+/// The smallest soft memory limit the client gives one `bedrock-core` process.
+const CORE_MEMORY_LIMIT_FLOOR: u64 = 128 << 20;
+/// The largest soft memory limit the client gives one `bedrock-core` process.
+const CORE_MEMORY_LIMIT_CEILING: u64 = 512 << 20;
+/// The share of physical memory, as a divisor, one `bedrock-core` process may aim to stay under.
+const CORE_MEMORY_SHARE: u64 = 16;
+
+/// The soft memory limit, in bytes, for one `bedrock-core` process on a device with
+/// `physical_bytes` of RAM: a sixteenth of it in whole MiB, kept between 128 and 512 MiB, so a
+/// phone's core collects garbage well before a desktop's would. `None` when RAM is unknown, which
+/// leaves the core its built-in limit.
+pub fn core_memory_limit(physical_bytes: u64) -> Option<u64> {
+    const MIB: u64 = 1 << 20;
+    (physical_bytes != 0).then(|| {
+        (physical_bytes / CORE_MEMORY_SHARE / MIB * MIB)
+            .clamp(CORE_MEMORY_LIMIT_FLOOR, CORE_MEMORY_LIMIT_CEILING)
+    })
+}
+
 /// Reads the kernel's byte-valued `hw.memsize` property, which iOS also provides.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn read_physical_bytes() -> Option<u64> {
@@ -88,6 +107,31 @@ mod tests {
         assert_eq!(meminfo_total_bytes(meminfo), Some(16_318_060 * 1024));
         assert_eq!(meminfo_total_bytes("MemFree: 1 kB\n"), None);
         assert_eq!(meminfo_total_bytes("MemTotal: lots kB\n"), None);
+    }
+
+    #[test]
+    fn the_core_limit_is_a_sixteenth_of_device_memory_within_its_bounds() {
+        const MIB: u64 = 1 << 20;
+        // Reported RAM in MiB (phones report less than their nominal size) and the limit in MiB.
+        for (physical, limit) in [
+            (1_843, 128),
+            (2_048, 128),
+            (2_765, 172),
+            (3_789, 236),
+            (5_365, 335),
+            (7_680, 480),
+            (8_192, 512),
+            (65_536, 512),
+        ] {
+            assert_eq!(
+                core_memory_limit(physical * MIB),
+                Some(limit * MIB),
+                "{physical} MiB"
+            );
+        }
+        assert_eq!(core_memory_limit(5_365 * MIB + 4_096), Some(335 * MIB));
+        assert_eq!(core_memory_limit(1), Some(128 * MIB));
+        assert_eq!(core_memory_limit(0), None, "unknown memory sets no limit");
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
