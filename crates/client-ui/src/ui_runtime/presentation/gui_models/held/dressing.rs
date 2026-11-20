@@ -54,7 +54,15 @@ impl UiPresentationRuntime {
                         .filter(|base| base.texture(&binding.texture.identifier).is_some())
                 })?;
             let hand_pivots = self.gui_models.sources.hand_pivots?;
-            let model = if let Some(previous) = self.gui_models.selected_held[index]
+            // A declared wearable slot makes the binding armor, which draws as the plain item.
+            let wearable = self.gui_models.trim_icons.wearable_slot(&hand.identifier);
+            let model = if !binding
+                .category
+                .with_wearable_slot(wearable)
+                .draws_in_hand()
+            {
+                None
+            } else if let Some(previous) = self.gui_models.selected_held[index]
                 .as_ref()
                 .filter(|previous| previous.matches(binding, &entities, artwork, hand_pivots))
             {

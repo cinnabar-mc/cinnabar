@@ -203,7 +203,7 @@ fn the_live_renderer_turns_the_head_past_the_body_toward_the_pointer() {
 #[test]
 fn the_live_renderer_keeps_the_menu_model_without_a_fresh_capture() {
     let (mut presentation, mut nodes, bounds) = doll(PreviewView::Live { offset: [0.0; 2] });
-    presentation.begin_live_capture();
+    presentation.begin_live_capture(None);
     presentation.apply_gui_models_in(
         &mut nodes,
         bounds,

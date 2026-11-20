@@ -317,7 +317,7 @@ pub(crate) fn prepare_ui_runtime(
                 })
                 .flatten()
         });
-    presentation.begin_live_capture();
+    presentation.begin_live_capture(runtime.session_items());
     // A screen's live renderer draws the same animated actor as the HUD doll.
     if hud_doll
         || (presentation.has_preview_player_layers() && !menu_visible)
