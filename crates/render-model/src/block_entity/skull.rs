@@ -71,11 +71,14 @@ impl SkullKind {
         (0..=u8::MAX).filter_map(|value| Self::from_nbt(i64::from(value)))
     }
 
-    /// The head's packed texture and the size its UVs were authored against.
+    /// The head's packed texture and the size its UVs were authored against. A pack's legacy
+    /// 64x32 replacement of a 64x64 skin keeps the head and hat rows in its top half.
     #[must_use]
     pub fn texture(self, atlas: &BlockEntityAtlas) -> Option<TextureRef> {
         let (name, logical) = skull_texture(self as u8)?;
-        atlas.texture(name, logical)
+        atlas
+            .texture(name, logical)
+            .map(TextureRef::legacy_skin_aware)
     }
 
     /// Whether the head carries a second, slightly larger hat layer.

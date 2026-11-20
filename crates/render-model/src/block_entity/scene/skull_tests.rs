@@ -5,6 +5,11 @@ use crate::{Facing, SkullKind, SkullModel, SkullMount, floor_yaw_degrees, pack_a
 use glam::{Mat4, Vec3};
 
 fn scene() -> BlockEntityScene {
+    scene_with_steve_rows(64)
+}
+
+/// A scene whose `steve` texture occupies the top `steve_rows` rows of a 64-row atlas.
+fn scene_with_steve_rows(steve_rows: u32) -> BlockEntityScene {
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
         MIN_DYNAMIC_ATLAS_WIDTH,
@@ -16,7 +21,7 @@ fn scene() -> BlockEntityScene {
                 x: 0,
                 y: 0,
                 width: 64,
-                height: 64,
+                height: steve_rows,
             },
             assets::BlockEntityPlacement {
                 name: "textures/environment/destroy_stage_0".into(),
@@ -129,4 +134,31 @@ fn retained_skull_levels_invalidate_the_cache_and_do_not_light_later_cracks() {
     let cached = scene.update(SceneClock::default(), &cracks, &[skull(mount, 0, 15)]);
     assert_eq!(cached.revision, second.revision);
     assert_eq!(cached.solid, second.solid);
+}
+
+/// A pack's legacy 64x32 `steve.png` keeps the 64x64 layout's head and hat rows in its top half,
+/// so every texel the head samples matches what the 64x64 texture would give.
+#[test]
+fn player_head_samples_the_same_texels_from_a_legacy_half_height_texture() {
+    let mount = SkullMount::Floor {
+        rotation_degrees: 0.0,
+    };
+    let full = scene()
+        .update(SceneClock::default(), &[], &[skull(mount, 4, 11)])
+        .clone();
+    let legacy = scene_with_steve_rows(32)
+        .update(SceneClock::default(), &[], &[skull(mount, 4, 11)])
+        .clone();
+    assert_eq!(full.solid.len(), legacy.solid.len());
+    assert!(!legacy.solid.is_empty());
+    for (full, legacy) in full.solid.iter().zip(legacy.solid.iter()) {
+        assert_eq!(full.position, legacy.position);
+        assert!(
+            (full.uv[0] - legacy.uv[0]).abs() < 1.0e-6
+                && (full.uv[1] - legacy.uv[1]).abs() < 1.0e-6,
+            "{:?} != {:?}",
+            full.uv,
+            legacy.uv
+        );
+    }
 }
