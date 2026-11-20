@@ -4,6 +4,10 @@ use super::*;
 use assets::facts::entity::{BOAT_RAFT_VARIANT as RAFT_VARIANT, BOAT_WOOD_TEXTURES as WOODS};
 use serde_json::json;
 
+/// The bone the water mask draws, and the material name the entity gives it.
+const WATER_PATCH_BONE: &str = "water_patch";
+const WATER_MASK_MATERIAL: &str = "boat_water_mask";
+
 /// Prefix of the generated controllers; each boat entity gets its own.
 const CONTROLLER: &str = "controller.render.cinnabar";
 
@@ -69,6 +73,15 @@ const HULL: [Part; 5] = [
         cuboids: SIDE,
     },
 ];
+/// The hull's water patch: a depth-only slab across the hull floor, drawn with the water-mask
+/// material so the water outside the boat is not drawn inside it.
+const WATER_PATCH: Part = Part {
+    name: WATER_PATCH_BONE,
+    uv: [0, 0],
+    position: [0.0, -3.0, 1.0],
+    rotation: [90.0, 0.0, 0.0],
+    cuboids: &[cuboid([-14.0, -9.0, -3.0], [28.0, 16.0, 3.0])],
+};
 const RAFT: [Part; 2] = [
     Part {
         name: "bottom_above",
@@ -158,7 +171,7 @@ fn model(chest_boat: bool, raft: bool) -> (Vec<Part>, [u16; 2]) {
     let mut parts: Vec<Part> = if raft {
         RAFT.into_iter().collect()
     } else {
-        HULL.into_iter().collect()
+        HULL.into_iter().chain([WATER_PATCH]).collect()
     };
     parts.extend(if raft {
         paddles([0, 24], [40, 24])
@@ -305,9 +318,14 @@ pub(super) fn complete_bindings(
             "geometry".into(),
             json!({ "default": hull_name, "raft": raft_name }),
         );
-        description
+        let materials = description
             .entry("materials")
             .or_insert_with(|| json!({ "default": "entity" }));
+        if let Some(materials) = materials.as_object_mut() {
+            materials
+                .entry("water_mask")
+                .or_insert_with(|| json!(WATER_MASK_MATERIAL));
+        }
         let controller = format!("{CONTROLLER}.{stem}");
         description.insert("render_controllers".into(), json!([controller]));
         documents.push(encode_document(
@@ -330,7 +348,10 @@ pub(super) fn complete_bindings(
                     "geometry": format!(
                         "query.variant == {RAFT_VARIANT} ? Geometry.raft : Geometry.default"
                     ),
-                    "materials": [{ "*": "Material.default" }],
+                    "materials": [
+                        { "*": "Material.default" },
+                        { (WATER_PATCH_BONE): "Material.water_mask" },
+                    ],
                     "textures": ["Array.woods[query.variant]"],
                 }),
             )
