@@ -1,7 +1,8 @@
 //! Developer VRAM attribution: `CINNABAR_GPU_MEMORY_REPORT=<seconds>` logs the device
 //! allocator's totals and its largest allocations, summed by label, at that interval, then
 //! the memory blocks with the most reserved-but-unused room and what holds each.
-//! Backends without an allocator report (Metal, GL) log nothing.
+//! Backends without an allocator report (Metal, GL) log nothing. The allocator's totals alone
+//! are also sampled whenever the client's memory lines request them.
 
 use bevy::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, SubApp, info};
 use bevy::render::{Render, RenderSystems, renderer::RenderDevice};
@@ -30,6 +31,7 @@ fn requested() -> Option<Duration> {
 }
 
 pub(super) fn install(render_app: &mut SubApp) {
+    render_app.add_systems(Render, sample_totals.in_set(RenderSystems::Cleanup));
     let Some(interval) = requested() else {
         return;
     };
@@ -39,6 +41,18 @@ pub(super) fn install(render_app: &mut SubApp) {
             last: None,
         })
         .add_systems(Render, report.in_set(RenderSystems::Cleanup));
+}
+
+/// Samples the allocator's totals for the client's memory lines when one was requested.
+fn sample_totals(device: Res<RenderDevice>) {
+    if crate::memory_totals::take_request()
+        && let Some(report) = device.wgpu_device().generate_allocator_report()
+    {
+        crate::memory_totals::record_gpu_totals(crate::memory_totals::GpuTotals {
+            allocated: report.total_allocated_bytes,
+            reserved: report.total_reserved_bytes,
+        });
+    }
 }
 
 fn report(mut state: ResMut<MemoryReport>, device: Res<RenderDevice>) {

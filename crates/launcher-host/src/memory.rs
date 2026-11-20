@@ -1,4 +1,11 @@
-//! Physical device memory shared by global and server pack selection.
+//! Physical device memory shared by global and server pack selection, and the memory lines
+//! the client logs about itself, its helper processes and the device.
+
+#[cfg(target_os = "android")]
+mod android;
+mod proc;
+pub mod snapshot;
+pub mod telemetry;
 
 /// Reads physical RAM without using current free memory or process memory pressure.
 pub fn physical_bytes() -> u64 {
@@ -51,14 +58,7 @@ fn read_physical_bytes() -> Option<u64> {
 /// `MemTotal` from `/proc/meminfo`, which the kernel reports in KiB.
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 fn meminfo_total_bytes(meminfo: &str) -> Option<u64> {
-    let line = meminfo
-        .lines()
-        .find_map(|line| line.strip_prefix("MemTotal:"))?;
-    line.split_whitespace()
-        .next()?
-        .parse::<u64>()
-        .ok()?
-        .checked_mul(1024)
+    snapshot::kib_field(meminfo, "MemTotal:")
 }
 
 #[cfg(target_os = "windows")]
