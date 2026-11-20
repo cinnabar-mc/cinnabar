@@ -62,6 +62,23 @@ from the Mojang bitmap font, but geometry and pitch are applied to the selected
 font's measured widths. Touch/gamepad cursor acquisition and touch-only bottom
 reservation are not claimed complete by this mouse-path fix.
 
+## Equipment attributes
+
+Equipment tooltips use the pinned language pack's `attribute.modifier.plus.*` and
+`attribute.name.*` translations. Attack damage is the item's addition to the attack
+value. On Bedrock Dedicated Server 26.60.6, standing melee hits on an unequipped
+iron golem dealt one damage with an empty hand and five with a wooden sword.
+Wooden tools, wooden spear, trident and mace also matched the item damage plus
+that base point. Bedrock added armour and toughness tooltips in
+[1.21.111](https://www.minecraft.net/en-us/article/the-copper-age---minecraft--bedrock-edition-1-21-111-changelog)
+and extended them to animal armour in
+[26.0](https://www.minecraft.net/en-us/article/minecraft-26-0-bedrock-changelog).
+
+Horse and nautilus protection was derived from health deltas after one- and
+ten-point entity attacks against unequipped and armoured mobs on Bedrock Dedicated
+Server 26.60.6. The shared values are 3 leather, 4 copper, 5 iron, 7 gold, 11
+diamond and 19 netherite. Wolf armour absorbed the test hits instead.
+
 ## Verification
 
 Focused tests cover native placement, overflow, integer box sizing, preserving

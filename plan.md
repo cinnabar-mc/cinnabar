@@ -1602,6 +1602,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
+  Equipment tooltips add blue `+N <attribute>` lines below the name from the server's
+  `minecraft:damage` and `minecraft:wearable` values, else from pinned item facts: melee
+  attack damage (the item's own value, without the player's base attack of 1), Mining, Chop
+  and Dig Efficiency on pickaxes, axes and shovels (the material's destroy speed, shared with
+  mining), armour, Toughness (diamond 2, netherite 3) and Knockback Resistance (netherite,
+  `+10%`), including horse and nautilus armour. Horse and nautilus protection was measured
+  against Bedrock Dedicated Server 26.60.6. Lines use the pack's modifier templates and
+  attribute labels. The exact native line order, colour and knockback resistance display
+  unit remain provisional. Native acceptance for each equipment family remains open.
   Actor-backed storage menus keep every cell up to an implementation bound of 1,024, not a
   verified native limit. Stack requests for cells above 255 send the low byte with the stack
   network ID, normal transactions send the full cell, and each response entry means the next cell

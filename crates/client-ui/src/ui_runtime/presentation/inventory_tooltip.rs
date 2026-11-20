@@ -1,4 +1,4 @@
-//! Item tooltip text: name, potion effects, enchantments, firework details and lore.
+//! Item tooltip text: name, potion effects, enchantments, equipment stats, firework details and lore.
 
 use assets::facts::PotionForm;
 use protocol::NetworkItemStack;
@@ -6,6 +6,7 @@ use protocol::NetworkItemStack;
 use super::UiRuntime;
 use super::hud_layout::TooltipLine;
 
+mod equipment;
 mod fireworks;
 
 const NAME_COLOR: [u8; 4] = [255, 255, 255, 255];
@@ -218,6 +219,7 @@ fn tooltip_lines_with_name_style(
         });
     }
     if let Some(identifier) = identifier {
+        lines.extend(equipment::lines(runtime, identifier));
         lines.extend(fireworks::lines(runtime, identifier, &stack.extra_data));
     }
     lines.extend(display.lore.iter().map(|line| TooltipLine {

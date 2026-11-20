@@ -198,6 +198,22 @@ pub enum ItemTier {
     Netherite,
 }
 
+impl ItemTier {
+    /// Destroy speed of a tool of this material, shown as its efficiency and used by mining.
+    #[must_use]
+    pub const fn destroy_speed(self) -> u32 {
+        match self {
+            Self::Wood => 2,
+            Self::Stone => 4,
+            Self::Copper => 5,
+            Self::Iron => 6,
+            Self::Diamond => 8,
+            Self::Netherite => 9,
+            Self::Gold => 12,
+        }
+    }
+}
+
 /// The tooltip naming and duration route for an admitted potion item.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -251,6 +267,18 @@ impl ArmourMaterial {
         })
     }
 
+    /// Horse and nautilus armour points, measured with entity attacks in Bedrock 26.60.6.
+    const fn mount_protection(self) -> u32 {
+        match self {
+            Self::Leather => 3,
+            Self::Copper => 4,
+            Self::Iron => 5,
+            Self::Gold => 7,
+            Self::Diamond => 11,
+            Self::Netherite => 19,
+        }
+    }
+
     /// Gives the native armour arrays one material-to-index mapping.
     const fn texture_index(self) -> u8 {
         match self {
@@ -260,6 +288,25 @@ impl ArmourMaterial {
             Self::Diamond => 4,
             Self::Copper => 5,
             Self::Netherite => 6,
+        }
+    }
+
+    /// Armour toughness each piece of this material adds; the same for player and mount armour.
+    #[must_use]
+    pub const fn toughness(self) -> u32 {
+        match self {
+            Self::Diamond => 2,
+            Self::Netherite => 3,
+            Self::Leather | Self::Iron | Self::Gold | Self::Copper => 0,
+        }
+    }
+
+    /// Knockback resistance each piece adds, in percent of full resistance.
+    #[must_use]
+    pub const fn knockback_resistance_percent(self) -> u32 {
+        match self {
+            Self::Netherite => 10,
+            Self::Leather | Self::Iron | Self::Gold | Self::Diamond | Self::Copper => 0,
         }
     }
 
@@ -365,6 +412,26 @@ impl ItemFact {
             self.armour_material
                 .or_else(|| self.tier.and_then(ArmourMaterial::from_tier))
         }
+    }
+
+    /// The material of an item worn as player armour or an animal's armour, `None` for
+    /// tools and weapons that merely share a tier.
+    pub fn equipment_material(&self) -> Option<ArmourMaterial> {
+        if self.armour_slot.is_some() || self.armour_material.is_some() {
+            self.armor_material()
+        } else {
+            None
+        }
+    }
+
+    /// Armour points for player equipment and the horse and nautilus armour materials.
+    pub fn equipment_protection(&self) -> Option<u32> {
+        if self.armour_slot.is_none()
+            && let Some(material) = self.armour_material
+        {
+            return Some(material.mount_protection());
+        }
+        self.armour.protection()
     }
 
     /// Preserves the native armour texture order; unresolved materials use slot zero.
@@ -506,6 +573,57 @@ mod presentation_tests {
                 record.fact.roles.contains(ContainerRoles::LOOM_BANNER),
                 record.identifier.as_ref() == "minecraft:banner"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod equipment_tests {
+    use super::*;
+
+    fn material(identifier: &str) -> Option<ArmourMaterial> {
+        super::super::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier(identifier)?
+            .equipment_material()
+    }
+
+    #[test]
+    fn toughness_and_knockback_resistance_follow_the_material() {
+        for (material, toughness, knockback) in [
+            (ArmourMaterial::Leather, 0, 0),
+            (ArmourMaterial::Iron, 0, 0),
+            (ArmourMaterial::Gold, 0, 0),
+            (ArmourMaterial::Copper, 0, 0),
+            (ArmourMaterial::Diamond, 2, 0),
+            (ArmourMaterial::Netherite, 3, 10),
+        ] {
+            assert_eq!(material.toughness(), toughness, "{material:?}");
+            assert_eq!(
+                material.knockback_resistance_percent(),
+                knockback,
+                "{material:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn equipment_material_covers_worn_armour_and_mount_armour_but_not_tools() {
+        for (identifier, expected) in [
+            ("minecraft:diamond_helmet", ArmourMaterial::Diamond),
+            ("minecraft:netherite_boots", ArmourMaterial::Netherite),
+            ("minecraft:diamond_horse_armor", ArmourMaterial::Diamond),
+            ("minecraft:netherite_horse_armor", ArmourMaterial::Netherite),
+            ("minecraft:diamond_nautilus_armor", ArmourMaterial::Diamond),
+            (
+                "minecraft:netherite_nautilus_armor",
+                ArmourMaterial::Netherite,
+            ),
+        ] {
+            assert_eq!(material(identifier), Some(expected), "{identifier}");
+        }
+        for identifier in ["minecraft:diamond_sword", "minecraft:netherite_pickaxe"] {
+            assert_eq!(material(identifier), None, "{identifier}");
         }
     }
 }

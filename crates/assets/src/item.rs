@@ -5,11 +5,13 @@ use thiserror::Error;
 use crate::AssetError;
 
 pub mod armour;
+pub mod attack_damage;
 pub mod fuel;
 pub mod glint;
 pub mod grip;
 pub mod names;
 pub mod retail;
+pub mod tool_efficiency;
 pub mod trim;
 use armour::ItemArmour;
 pub mod durability;
