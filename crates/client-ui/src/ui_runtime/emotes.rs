@@ -142,6 +142,18 @@ impl EmoteState {
             self.slots
         }
     }
+    /// The one shown slot whose clip the open wheel previews: the selected slot when it holds
+    /// a clip, otherwise the first that does. The live player preview can show one clip at a
+    /// time, so every other slot names its clip instead.
+    pub fn previewed_slot(&self) -> Option<usize> {
+        if !self.is_open() {
+            return None;
+        }
+        let shown = self.display_slots();
+        self.selected
+            .filter(|&slot| shown.get(slot).copied().flatten().is_some())
+            .or_else(|| shown.iter().position(Option::is_some))
+    }
     pub fn playback(&self) -> Option<EmotePlayback> {
         self.playback
     }

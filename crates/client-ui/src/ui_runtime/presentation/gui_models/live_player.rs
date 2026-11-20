@@ -105,6 +105,97 @@ pub(super) struct LivePlayer {
     pub(super) head_bones: Vec<bool>,
     pub(super) overlay_color: [f32; 4],
     pub(super) fire: super::fire::FirePlayback,
+    /// The space the previewed emote's body covers over its whole clip.
+    pub(super) emote_envelope: Option<EmoteEnvelope>,
+}
+
+/// Evenly spaced phases sampled across a clip when measuring its envelope, besides its keys.
+const EMOTE_ENVELOPE_SAMPLES: u32 = 48;
+
+/// The phases an envelope samples: every authored key time, evenly spaced phases, and the
+/// midpoint between each neighbouring pair, so a brief excursion between even phases and the
+/// interpolated motion between keys are both measured.
+fn envelope_phases(clip: &cosmetics::emotes::Clip) -> Vec<f64> {
+    let mut phases: Vec<f64> = (0..=EMOTE_ENVELOPE_SAMPLES)
+        .map(|step| clip.duration * f64::from(step) / f64::from(EMOTE_ENVELOPE_SAMPLES))
+        .chain(
+            clip.tracks
+                .iter()
+                .flat_map(|track| track.keys.iter().map(|key| key.time)),
+        )
+        .collect();
+    phases.sort_by(f64::total_cmp);
+    phases.dedup();
+    let midpoints: Vec<f64> = phases
+        .windows(2)
+        .map(|pair| (pair[0] + pair[1]) * 0.5)
+        .collect();
+    phases.extend(midpoints);
+    phases
+}
+
+/// Identifies what an envelope was measured for: the clip, the drawn geometry and the HUD
+/// frame it was projected through.
+type EnvelopeKey = (cosmetics::emotes::Item, GeometryIdentity, Affine3A);
+
+/// The preview-raster box a catalog emote's posed body covers at any point of its clip, so
+/// the emote wheel can frame the whole dance without following it frame by frame.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct EmoteEnvelope {
+    key: EnvelopeKey,
+    /// Top-left and bottom-right corners in preview raster pixels.
+    pub(super) raster: [glam::Vec2; 2],
+}
+
+impl EmoteEnvelope {
+    /// Projects every drawn bone's prepared bounds through `frame` and the HUD view at each
+    /// of the clip's [`envelope_phases`], sampled on `rig` as the live capture samples it, and
+    /// keeps the box around them all. Returns `None` when no bone is drawn.
+    fn sample(
+        rig: &actor_animation::ActorRigSnapshot<'_>,
+        key: EnvelopeKey,
+        geometry: &ActorRigGeometry,
+    ) -> Option<Self> {
+        use super::super::player_preview::{PreviewView, Rig};
+        let (emote, _, frame) = key;
+        let view = Rig::new(Default::default(), PreviewView::Hud, 0.0, [false; 2]);
+        let (mut low, mut high) = (glam::Vec2::INFINITY, glam::Vec2::NEG_INFINITY);
+        for phase in envelope_phases(emote.clip()) {
+            let pose = actor_animation::sample_custom_emote(rig, emote, phase, phase)?;
+            for (index, bone) in pose.current.iter().enumerate() {
+                let Some((min, max)) = geometry.bone_bounds(index) else {
+                    continue;
+                };
+                let Some(bone) = render_bone(bone).and_then(|bone| render_matrix(&bone)) else {
+                    continue;
+                };
+                for corner in 0..8 {
+                    let local = Vec3::from_array(std::array::from_fn(|axis| {
+                        if corner & (1 << axis) == 0 {
+                            min[axis]
+                        } else {
+                            max[axis]
+                        }
+                    }));
+                    let screen = glam::Vec2::from_array(
+                        view.project(render_model::ActorVertex {
+                            position: (frame * bone).transform_point3(local).to_array(),
+                            uv: [0.0; 2],
+                            // Past the six standard parts, so the posed frame is used unchanged.
+                            part: 6,
+                        })
+                        .screen,
+                    );
+                    low = low.min(screen);
+                    high = high.max(screen);
+                }
+            }
+        }
+        low.cmple(high).all().then_some(Self {
+            key,
+            raster: [low, high],
+        })
+    }
 }
 
 /// The head bone in model space, kept apart from the model frame so that a frame's
@@ -137,7 +228,40 @@ impl LivePlayer {
     }
 }
 
+/// Fraction of a wheel slot left clear around an emote preview, for skin layers and
+/// attachments that reach past the body's bones.
+const EMOTE_PREVIEW_MARGIN: f32 = 0.1;
+
+/// Places the preview raster so that its `content` box, in raster pixels, fits inside `slot`
+/// with a margin, centred and uniformly scaled. `None` for an empty or degenerate box.
+pub(super) fn fit_preview_raster(slot: ui::UiRect, content: [glam::Vec2; 2]) -> Option<ui::UiRect> {
+    use super::super::player_preview::{PREVIEW_HEIGHT, PREVIEW_WIDTH};
+    let size = content[1] - content[0];
+    if !(size.x > 0.0 && size.y > 0.0) {
+        return None;
+    }
+    let scale = (slot.width() / size.x).min(slot.height() / size.y) * (1.0 - EMOTE_PREVIEW_MARGIN);
+    let centre = glam::Vec2::new(
+        (slot.min().x() + slot.max().x()) * 0.5,
+        (slot.min().y() + slot.max().y()) * 0.5,
+    );
+    let min = centre - (content[0] + content[1]) * 0.5 * scale;
+    let max = min + glam::Vec2::new(PREVIEW_WIDTH as f32, PREVIEW_HEIGHT as f32) * scale;
+    ui::UiRect::new(
+        ui::UiPoint::new(min.x, min.y).ok()?,
+        ui::UiPoint::new(max.x, max.y).ok()?,
+    )
+    .ok()
+}
+
 impl UiPresentationRuntime {
+    /// Where an emote wheel slot draws the live preview so the previewed emote's whole clip
+    /// stays inside `slot`. `None` until an emote preview has been captured.
+    pub(in super::super) fn emote_preview_bounds(&self, slot: ui::UiRect) -> Option<ui::UiRect> {
+        let live = &self.gui_models.live_player;
+        fit_preview_raster(slot, live.emote_envelope.as_ref()?.raster)
+    }
+
     /// Marks the next frame's actor capture as not yet taken; call before capturing.
     pub fn begin_live_capture(&mut self) {
         self.gui_models.live_player.fresh = false;
@@ -268,6 +392,7 @@ impl UiPresentationRuntime {
         let emote_pose = emote.and_then(|(emote, phase)| {
             actor_animation::sample_custom_emote(&rig, emote, phase, phase)
         });
+        let native_rig = rig;
         let rig = emote_pose.as_ref().map_or(rig, |pose| pose.snapshot(rig));
         let Some(pose) = emote_pose
             .as_ref()
@@ -331,6 +456,14 @@ impl UiPresentationRuntime {
         }
         let frame = offset * actor_scale * basis * tilt;
         live.frame = frame;
+        let envelope_key = emote_pose
+            .as_ref()
+            .and(emote)
+            .map(|(item, _)| (item, source, frame));
+        if live.emote_envelope.as_ref().map(|envelope| envelope.key) != envelope_key {
+            live.emote_envelope =
+                envelope_key.and_then(|key| EmoteEnvelope::sample(&native_rig, key, geometry));
+        }
         live.hands = ["rightItem", "leftItem"].map(|name| {
             let index = rig
                 .bone_names
@@ -518,6 +651,8 @@ fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
 
 #[cfg(test)]
 mod cape_tests;
+#[cfg(test)]
+mod emote_preview_tests;
 #[cfg(test)]
 mod hud_doll_tests;
 #[cfg(test)]

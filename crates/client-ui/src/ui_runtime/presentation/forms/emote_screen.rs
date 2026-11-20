@@ -1,7 +1,7 @@
 //! Draws the emote wheel from the runtime's emote state with the live player preview.
 
 use json_ui::InputMode;
-use ui::{UiNode, UiPoint};
+use ui::{UiNode, UiPoint, UiVisual};
 
 use super::super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::UiRuntime;
@@ -44,6 +44,7 @@ impl UiPresentationRuntime {
             renderers: &mut [],
         };
         let slots = state.display_slots();
+        let first = paint_frame.nodes.len();
         self.screens.emote.paint(
             renderer,
             EmoteInput {
@@ -54,10 +55,34 @@ impl UiPresentationRuntime {
                 slots: &slots,
                 catalog_page: state.catalog_page(),
                 preview,
+                previewed_slot: state.previewed_slot(),
             },
             &mut paint_frame,
         )?;
+        if let Some(preview) = preview {
+            self.frame_emote_previews(&mut nodes[first..], preview);
+        }
         Ok(())
+    }
+
+    /// Moves each slot's live preview so the previewed emote's whole clip fits inside the
+    /// slot. The shared preview raster otherwise keeps the HUD doll's standing framing, which
+    /// cuts off poses that lie down, turn upside down or step aside.
+    fn frame_emote_previews(&self, nodes: &mut [UiNode], preview: ui::IconRef) {
+        for node in nodes {
+            let UiVisual::Sprite {
+                texture_page, uv, ..
+            } = node.visual()
+            else {
+                continue;
+            };
+            if (*texture_page, *uv) != (preview.page, preview.uv) {
+                continue;
+            }
+            if let Some(bounds) = self.emote_preview_bounds(node.bounds()) {
+                *node = node.clone().with_bounds(bounds);
+            }
+        }
     }
 
     pub fn hit_test_emote(&self, point: UiPoint) -> Option<EmoteHit> {

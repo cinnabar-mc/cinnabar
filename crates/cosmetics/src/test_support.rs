@@ -7,7 +7,12 @@ pub fn emote(id: &str, name: &str, free: bool) -> emotes::Item {
         "../../../core/cinnabarapi/schema/emote-clips.json"
     ))
     .unwrap();
-    let bytes = serde_json::to_vec(&cases[0]["clip"]).unwrap();
+    clip_emote(id, name, free, &cases[0]["clip"])
+}
+
+/// Admits `clip`, a test's own version 1 clip document, under `id`.
+pub fn clip_emote(id: &str, name: &str, free: bool, clip: &serde_json::Value) -> emotes::Item {
+    let bytes = serde_json::to_vec(clip).unwrap();
     let descriptor = emotes::Descriptor {
         id: id.to_owned(),
         display_name: name.to_owned(),

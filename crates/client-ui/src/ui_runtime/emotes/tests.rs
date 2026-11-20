@@ -191,3 +191,35 @@ fn fresh_defaults_follow_the_owned_catalog_and_refresh_without_fabricating_emote
     state.change_emotes();
     assert!(state.display_slots().iter().all(Option::is_none));
 }
+
+/// Each slot previews only its own clip: the hovered one, or the first filled slot.
+#[test]
+fn the_wheel_previews_the_hovered_slots_own_clip() {
+    let _catalog = cosmetics::test_support::catalog_lock();
+    let first = cosmetics::test_support::emote("fixture:preview_first", "First", true);
+    let second = cosmetics::test_support::emote("fixture:preview_second", "Second", true);
+    cosmetics::emotes::activate(&[first, second]);
+    let mut state = EmoteState::default();
+    assert_eq!(
+        state.previewed_slot(),
+        None,
+        "a closed wheel previews nothing"
+    );
+    state.open();
+    let shown = state.display_slots();
+    let [a, b] =
+        [first, second].map(|emote| shown.iter().position(|slot| *slot == Some(emote)).unwrap());
+    let empty = shown.iter().position(Option::is_none).unwrap();
+    assert_eq!(state.previewed_slot(), Some(a.min(b)));
+    state.hover_slot(Some(b));
+    assert_eq!(state.previewed_slot(), Some(b));
+    assert_eq!(shown[state.previewed_slot().unwrap()], Some(second));
+    state.hover_slot(Some(empty));
+    assert_eq!(
+        state.previewed_slot(),
+        Some(a.min(b)),
+        "an empty slot keeps a filled preview"
+    );
+    state.close();
+    assert_eq!(state.previewed_slot(), None);
+}
