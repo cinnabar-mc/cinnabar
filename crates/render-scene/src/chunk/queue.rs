@@ -3,6 +3,11 @@ use crate::{ChunkUploadPriority, ChunkUploadToken, RenderViewCohort, TargetRende
 pub const DEFAULT_RENDER_QUEUE_ITEMS: usize = 512;
 
 pub const DEFAULT_RENDER_QUEUE_BYTES: u64 = 64 * 1024 * 1024;
+// A permitted payload the queue could never hold would keep its permit forever.
+const _: () = assert!(
+    PublicationServiceConfig::DESKTOP.maximum_payload_bytes <= DEFAULT_RENDER_QUEUE_BYTES
+        && PublicationServiceConfig::MOBILE.maximum_payload_bytes <= DEFAULT_RENDER_QUEUE_BYTES
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkRenderQueueLimits {

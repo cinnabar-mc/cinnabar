@@ -83,6 +83,25 @@ impl FrameBudgets {
     }
 }
 
+/// One completed render-thread frame and the display's hitch threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderFrameSample {
+    /// Completed render frames so far; a new value means a new sample.
+    pub sequence: u64,
+    /// Render-thread time, excluding the drawable-acquisition wait.
+    pub elapsed: Duration,
+    /// [`FrameBudgets::hitch`] for the paced display interval.
+    pub hitch: Duration,
+}
+
+impl RenderFrameSample {
+    /// Whether the render thread alone took longer than a hitch.
+    #[must_use]
+    pub fn over_hitch(self) -> bool {
+        self.elapsed > self.hitch
+    }
+}
+
 /// Cumulative slow-frame events; text is rate-limited, but every event is counted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SlowFrameCounts {
@@ -131,6 +150,8 @@ pub struct SlowFrameRecorder {
     interval_nanos: AtomicU64,
     /// Render budget violations since the last frame boundary.
     violations: AtomicU8,
+    /// Count and duration of completed render frames, read together by frame-time consumers.
+    latest_render_frame: Mutex<(u64, Duration)>,
     frame: Mutex<FrameWindow>,
 }
 
@@ -141,6 +162,7 @@ impl Default for SlowFrameRecorder {
             totals: std::array::from_fn(|_| AtomicU64::new(0)),
             interval_nanos: AtomicU64::new(0),
             violations: AtomicU8::new(0),
+            latest_render_frame: crate::runtime_profile::initialized_mutex((0, Duration::ZERO)),
             frame: crate::runtime_profile::initialized_mutex(FrameWindow::default()),
         }
     }
@@ -184,6 +206,13 @@ impl SlowFrameRecorder {
     pub fn record(&self, stage: RuntimeStage, elapsed: Duration) -> Option<SlowFrameEvent> {
         let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
         self.totals[stage as usize].fetch_add(nanos, Ordering::Relaxed);
+        if stage == RuntimeStage::RenderFrame {
+            let mut latest = self
+                .latest_render_frame
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *latest = (latest.0.wrapping_add(1), elapsed);
+        }
         match stage {
             RuntimeStage::MainFrame => {
                 let totals = self.snapshot();
@@ -213,6 +242,19 @@ impl SlowFrameRecorder {
             _ => {}
         }
         None
+    }
+
+    /// Returns the newest render-thread frame, or `None` before the first one completes.
+    pub fn latest_render_frame(&self) -> Option<RenderFrameSample> {
+        let (sequence, elapsed) = *self
+            .latest_render_frame
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (sequence != 0).then(|| RenderFrameSample {
+            sequence,
+            elapsed,
+            hitch: self.budgets().hitch,
+        })
     }
 
     pub fn set_interval(&self, interval: Duration) {

@@ -9,7 +9,8 @@ use render_scene::ChunkTextureBindingIdentity;
 use super::bind_groups::same_carrier;
 use super::bind_groups::{ChunkTextureUploadStats, PreparedChunkTextureAssets};
 
-pub(super) const FRAME_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
+pub(super) const FRAME_UPLOAD_BYTES: usize =
+    render_api::PublicationServiceConfig::DEFAULT.maximum_frame_authored_texture_bytes as usize;
 const _: () =
     assert!((std::mem::size_of::<u32>() as u64).is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT));
 const _: () = assert!(

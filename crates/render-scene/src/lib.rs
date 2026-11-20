@@ -131,7 +131,7 @@ pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
 };
-pub use runtime_profile_slow::{FrameBudgets, SlowFrameCounts};
+pub use runtime_profile_slow::{FrameBudgets, RenderFrameSample, SlowFrameCounts};
 pub use screen_fire::ScreenFireTexture;
 pub use screen_overlay::{
     MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayKind, ScreenOverlayLayer,

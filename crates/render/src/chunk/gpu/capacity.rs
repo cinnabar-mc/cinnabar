@@ -2,7 +2,9 @@ use crate::chunk::*;
 use render_scene::ChunkRenderInstance;
 
 /// Bounds speculative preallocation; a known backlog can request more within adapter limits.
-const SPECULATIVE_STREAM_BYTES: u64 = ARENA_MIGRATION_FRAME_BYTES;
+/// This is a memory bound, independent of how fast a platform copies a growing arena: a
+/// smaller value would only cause more growth copies.
+const SPECULATIVE_STREAM_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Sizes one stream for the full backlog and the others for the next upload frame.
 pub(super) fn initial_capacity_target(
