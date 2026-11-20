@@ -35,7 +35,7 @@ fn a_fresh_press_sends_the_armor_equip_once() {
     let first = item_frame(1, true, from.clone(), "minecraft:diamond_helmet");
     assert!(first.air_use.is_none(), "armor has no air use");
     let mut runtime = ItemUseRuntime::default();
-    runtime.observe_armor_equip(Some(equip(3, 1, &from, worn.clone())));
+    runtime.observe_armor_equip(Some(equip(3, 1, &from, worn.clone())), true);
     runtime.observe_press(true);
     let outcome = runtime.step(&first);
     assert_eq!(outcome.packets.len(), 1);
@@ -80,7 +80,7 @@ fn a_held_repeat_does_not_equip_the_worn_piece_back() {
     let empty = empty_item();
     let first = item_frame(1, true, from.clone(), "minecraft:diamond_helmet");
     let mut runtime = ItemUseRuntime::default();
-    runtime.observe_armor_equip(Some(equip(3, 1, &from, worn.clone())));
+    runtime.observe_armor_equip(Some(equip(3, 1, &from, worn.clone())), true);
     runtime.observe_press(true);
     assert_eq!(runtime.step(&first).packets.len(), 1);
     assert!(runtime.take_armor_change().is_some());
@@ -97,7 +97,7 @@ fn a_held_repeat_does_not_equip_the_worn_piece_back() {
         inventory_revision: Some(2),
         ..item_frame(2, true, swapped.clone(), "minecraft:diamond_helmet")
     };
-    runtime.observe_armor_equip(Some(equip(3, 2, &swapped, empty)));
+    runtime.observe_armor_equip(Some(equip(3, 2, &swapped, empty)), true);
     assert!(
         runtime.step(&held).packets.is_empty(),
         "a held button must not swap the pieces back"
@@ -119,7 +119,7 @@ fn a_held_repeat_does_not_equip_the_worn_piece_back() {
         inventory_revision: Some(3),
         ..held
     };
-    runtime.observe_armor_equip(Some(equip(3, 3, &swapped, empty_item())));
+    runtime.observe_armor_equip(Some(equip(3, 3, &swapped, empty_item())), true);
     runtime.observe_press(true);
     assert_eq!(
         runtime.step(&pressed_again).packets.len(),
@@ -142,7 +142,7 @@ fn a_stale_or_mismatched_plan_sends_a_plain_air_use() {
         (equip(3, 1, &from, worn.clone()), other),
     ] {
         let mut runtime = ItemUseRuntime::default();
-        runtime.observe_armor_equip(Some(plan));
+        runtime.observe_armor_equip(Some(plan), true);
         runtime.observe_press(true);
         let frame = item_frame(1, true, frame_selection, "minecraft:diamond_helmet");
         let outcome = runtime.step(&frame);
@@ -157,10 +157,36 @@ fn an_admitted_air_use_keeps_the_plan_unused() {
     let from = stack(3, HELMET, 1);
     let worn = stack(2, HELMET, 1).item;
     let mut runtime = ItemUseRuntime::default();
-    runtime.observe_armor_equip(Some(equip(3, 1, &from, worn)));
+    runtime.observe_armor_equip(Some(equip(3, 1, &from, worn)), false);
     runtime.observe_press(true);
     let frame = item_frame(1, true, from, "minecraft:snowball");
     assert!(frame.air_use.is_some());
     assert_eq!(runtime.step(&frame).packets.len(), 1);
     assert!(runtime.take_armor_change().is_none());
+}
+
+/// Without a prediction the plain air use still equips on the server, so a
+/// held button must not repeat it and swap the pieces back.
+#[test]
+fn an_unpredicted_armor_use_does_not_repeat_while_held() {
+    let from = stack(3, HELMET, 1);
+    let first = item_frame(1, true, from.clone(), "minecraft:diamond_helmet");
+    assert!(first.air_use.is_none(), "armor has no air use");
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_armor_equip(None, true);
+    runtime.observe_press(true);
+    let outcome = runtime.step(&first);
+    assert_eq!(outcome.packets.len(), 1);
+    assert!(runtime.take_armor_change().is_none());
+
+    let held = UseFrame {
+        tick: 2,
+        now_millis: first.now_millis + 500,
+        ..item_frame(2, true, from, "minecraft:diamond_helmet")
+    };
+    runtime.observe_armor_equip(None, true);
+    assert!(
+        runtime.step(&held).packets.is_empty(),
+        "a held button must not repeat the server-side equip"
+    );
 }

@@ -273,6 +273,11 @@ fn unobserved_armor_or_a_changed_source_refuses_the_preview() {
             .is_none(),
         "armor contents have not arrived"
     );
+    assert_eq!(
+        unobserved.armor_equip_slot(&verified(&held)),
+        Some(0),
+        "the destination is known even when the swap cannot be predicted"
+    );
 }
 
 /// Settlement revalidates the revision, the exact stacks and the legacy request.

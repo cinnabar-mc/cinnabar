@@ -16,6 +16,15 @@ pub struct ArmorEquipPreview {
 }
 
 impl PlayerInventoryLedger {
+    /// The armor container slot `item` equips into, or `None` when it is not armor.
+    ///
+    /// Independent of whether the current contents allow showing the swap, so a
+    /// caller can suppress armor repeats even when it cannot predict them.
+    pub fn armor_equip_slot(&self, item: &VerifiedNetworkItemStack) -> Option<u8> {
+        let slot = self.item_facts.armour_row(item.network_id())?;
+        (usize::from(slot) < ARMOR_CELLS).then_some(slot)
+    }
+
     /// Resolves the destination armor cell and worn stack for equipping `item`
     /// from hotbar `slot`, or `None` when the swap cannot be shown immediately.
     ///
@@ -28,10 +37,9 @@ impl PlayerInventoryLedger {
         slot: u8,
         item: &VerifiedNetworkItemStack,
     ) -> Option<ArmorEquipPreview> {
-        let armor_slot = self.item_facts.armour_row(item.network_id())?;
+        let armor_slot = self.armor_equip_slot(item)?;
         let armor_index = usize::from(armor_slot);
         if usize::from(slot) >= PLAYER_INVENTORY_SLOT_COUNT
-            || armor_index >= ARMOR_CELLS
             || !self.armor_known.get(armor_index).copied()?
         {
             return None;

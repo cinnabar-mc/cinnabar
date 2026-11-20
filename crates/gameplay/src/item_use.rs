@@ -179,6 +179,9 @@ pub struct ItemUseRuntime {
     inventory_change: Option<(u8, u64, PredictedSlotChange)>,
     /// The ledger's verified armor equip for the current frame.
     armor_equip: Option<ArmorEquip>,
+    /// Whether the selected stack is armor the server may equip, even when the
+    /// ledger cannot show the swap yet.
+    armor_use: bool,
     /// The admitted armor equip and its source revision, until the inventory ledger takes it.
     armor_change: Option<(u64, protocol::ArmorEquipChange)>,
     /// The use button has stayed down since a press no block interaction consumed.
@@ -437,6 +440,7 @@ impl ItemUseRuntime {
         self.predicted = None;
         self.inventory_change = None;
         self.armor_equip = None;
+        self.armor_use = false;
         self.armor_change = None;
         self.crossbows.clear();
     }
@@ -446,10 +450,15 @@ impl ItemUseRuntime {
         self.inventory_change.take()
     }
 
-    /// Observes the ledger's verified armor equip for the current selection,
-    /// replacing any earlier plan; `None` clears it.
-    pub fn observe_armor_equip(&mut self, equip: Option<ArmorEquip>) {
+    /// Observes the ledger's armor equip facts for the current selection,
+    /// replacing any earlier plan.
+    ///
+    /// `equip` is present when the swap can be shown immediately; `armor_use`
+    /// also covers armor whose swap the ledger refuses to predict, so a held
+    /// button never repeats the server-side equip.
+    pub fn observe_armor_equip(&mut self, equip: Option<ArmorEquip>, armor_use: bool) {
         self.armor_equip = equip;
+        self.armor_use = armor_use;
     }
 
     /// Takes an admitted armor equip and its source revision once, after its
@@ -642,6 +651,9 @@ impl ItemUseRuntime {
         let Some(legacy_request_id) = protocol::next_legacy_request_id() else {
             return;
         };
+        // The server equips armor even when the ledger could not predict the
+        // swap, so both paths must disarm the held repeat.
+        let equips_armor = self.armor_use && air_use.is_none();
         // A held button must not swap an equipped piece back; only a fresh press equips.
         let armor_change = self
             .armor_equip
@@ -751,9 +763,11 @@ impl ItemUseRuntime {
             if inventory_change.is_some() {
                 self.inventory_change = inventory_change;
             }
-            if let Some(change) = armor_change {
+            if armor_change.is_some() || equips_armor {
                 // One equip per press; a held button must not swap the pieces back.
                 self.repeat_armed = false;
+            }
+            if let Some(change) = armor_change {
                 self.armor_change = Some(change);
             }
             if matches!(air_use, Some(AirUse::Instant { .. })) {

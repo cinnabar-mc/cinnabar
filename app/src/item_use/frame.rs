@@ -62,7 +62,17 @@ pub(super) fn observe(
     // means the swap can be shown as soon as the press is admitted. Permissions
     // come from this frame's facts, not the last command that refreshed them.
     player_runtime.inventory_commands();
-    let armor_equip = if air_use.is_none() {
+    let armor_slot = if air_use.is_none() {
+        selection.as_ref().and_then(|selection| {
+            context
+                .ui
+                .inventory_ledger(player_runtime)
+                .armor_equip_slot(&selection.item)
+        })
+    } else {
+        None
+    };
+    let armor_equip = if armor_slot.is_some() {
         selection
             .as_ref()
             .zip(inventory_revision)
@@ -82,7 +92,7 @@ pub(super) fn observe(
     } else {
         None
     };
-    runtime.observe_armor_equip(armor_equip);
+    runtime.observe_armor_equip(armor_equip, armor_slot.is_some());
     let riptide_at = |position| {
         selected_riptide_use(
             player_runtime,
