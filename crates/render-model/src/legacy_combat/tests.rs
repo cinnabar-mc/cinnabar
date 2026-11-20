@@ -105,28 +105,19 @@ fn tick_state_uses_resolved_distance_caps_and_follow_rates() {
     assert_eq!(state.endpoints.bob[1], bob + rules.bob_follow * -bob);
 }
 
-/// A standing jump's rise and fall translate nothing and never pitch the view: only walking bobs.
+/// Rising and falling in place leave the view untouched: vertical speed adds no pitch.
 #[test]
-fn jumping_in_place_never_tilts_the_view() {
+fn vertical_speed_in_the_air_never_tilts_the_view() {
     let mut state = LegacyCameraState::default();
-    let mut y = 64.0_f32;
-    let mut vertical = 0.0_f32;
     state.advance(LegacyCameraTick {
-        position: [0.0, y, 0.0],
         movement: [0.0; 3],
-        velocity: [0.0, -0.0784, 0.0],
+        velocity: [0.0; 3],
         ..walking(1, 0.0)
     });
-    for tick in 2..14 {
-        let speed = if tick == 2 {
-            0.42
-        } else {
-            (vertical - 0.08) * 0.98
-        };
-        vertical = speed;
+    let mut y = 64.0;
+    for (tick, speed) in (2..).zip([0.5, 0.25, 0.0, -0.25, -1.0, -3.0]) {
         y += speed;
         state.advance(LegacyCameraTick {
-            tick,
             position: [0.0, y, 0.0],
             movement: [0.0, speed, 0.0],
             velocity: [0.0, speed, 0.0],

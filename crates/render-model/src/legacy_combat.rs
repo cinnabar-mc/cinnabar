@@ -124,8 +124,8 @@ impl LegacyCameraState {
 impl LegacyCameraEndpoints {
     /// Extrapolates walking phase and interpolates amplitude, preserving rotation order.
     ///
-    /// Vertical speed never tilts the view: current Bedrock's movement bob reads only look,
-    /// walk distance and amplitude, so a jump keeps the camera's pitch.
+    /// Vertical speed adds no pitch: current Bedrock's movement bob reads only look, walk
+    /// distance and amplitude.
     pub fn bob_matrix(self, alpha: f32) -> Mat4 {
         let alpha = partial_tick(alpha);
         let rules = BEDROCK_112;
