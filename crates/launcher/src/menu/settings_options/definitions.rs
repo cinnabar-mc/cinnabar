@@ -570,5 +570,7 @@ settings! {
         [(SettingPanel::Touch, 1)], [], None, None;
     NametagBackgroundOpacity => "nametag_background_opacity", slider("options.nametagBackgroundOpacity", 0, 100, 25),
         [(SettingPanel::VideoCustomization, 15)], [SettingsGroup::Video], None, None;
+    OpenPlainInventory => "open_plain_inventory", toggle("Open Plain Inventory", false),
+        [(SettingPanel::AccessibilityGameplay, 5)], [SettingsGroup::Accessibility], None, None;
 
 }
