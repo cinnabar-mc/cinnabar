@@ -87,6 +87,11 @@ impl TrimIcons {
         self.session_items = items.cloned();
     }
 
+    /// The armor slot the session's `minecraft:wearable` component names for `identifier`.
+    pub(super) fn wearable_slot(&self, identifier: &str) -> Option<assets::ArmorSlot> {
+        wearable_slot(self.session_items.as_deref()?.get(identifier)?)
+    }
+
     /// The trim inputs of vanilla trimmable armor, then of the session's trimmable custom armor.
     /// `None` for any other item.
     pub(super) fn item(&self, identifier: &str) -> Option<TrimItem> {
@@ -98,10 +103,7 @@ impl TrimIcons {
         }
         let components = self.session_items.as_deref()?.get(identifier)?;
         Some(TrimItem::Custom {
-            slot: components
-                .wearable_slot
-                .as_deref()
-                .and_then(assets::ArmorSlot::from_wearable_slot)?,
+            slot: wearable_slot(components)?,
             art: Arc::clone(components.armor_trim.as_ref()?),
             icon: components.icon.is_some(),
         })
@@ -417,4 +419,12 @@ impl UiPresentationRuntime {
             self.rebuild_dynamic_textures();
         }
     }
+}
+
+/// The armor slot a server item's `minecraft:wearable` component names, if it is an armor slot.
+fn wearable_slot(components: &protocol::ItemComponents) -> Option<assets::ArmorSlot> {
+    components
+        .wearable_slot
+        .as_deref()
+        .and_then(assets::ArmorSlot::from_wearable_slot)
 }

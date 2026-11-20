@@ -185,6 +185,59 @@ fn failed_live_attachable_falls_back_but_inactive_controller_stays_empty() {
     }
 }
 
+/// Draws `fixture:tool` held in the main hand with every binding set to `category` and the
+/// session's `minecraft:wearable` slot set to `wearable`. Returns whether its attachable drew
+/// live, and the drawn triangle count.
+fn draw_held_attachable(
+    category: assets::EquipmentCategory,
+    wearable: Option<&str>,
+) -> (bool, usize) {
+    let pack = pack_with_files(false, animated_item());
+    let catalog = pack.equipment.as_ref().unwrap();
+    let mut bindings = catalog.bindings().to_vec();
+    for binding in &mut bindings {
+        binding.category = category;
+    }
+    let equipment = Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts([1; 32], bindings, catalog.textures().to_vec())
+            .unwrap(),
+    );
+    let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
+    equip(&mut stream, Some("fixture:tool"));
+    let mut ui = presentation(Arc::clone(&pack));
+    let fallback = ui
+        .gui_models
+        .sources
+        .held
+        .remove("minecraft:stone")
+        .unwrap();
+    ui.gui_models
+        .sources
+        .held
+        .insert("fixture:tool".into(), fallback);
+    let items = Arc::new(
+        crate::ui_runtime::item_facts::SessionItemComponents::from_iter(wearable.map(|slot| {
+            (
+                Arc::from("fixture:tool"),
+                protocol::ItemComponents {
+                    wearable_slot: Some(Arc::from(slot)),
+                    ..protocol::ItemComponents::default()
+                },
+            )
+        })),
+    );
+    ui.gui_models.trim_icons.observe_session_items(Some(&items));
+    ui.set_preview_equipment_assets(None, Some(Arc::clone(&pack.assets)));
+    ui.set_preview_pack_equipment(Some(equipment));
+    ui.set_player_preview_gear([None; 4], Some(("fixture:tool", 0)));
+    let (_, vertices) = draw(&mut ui, &stream, PreviewView::default()).unwrap();
+    let layers = &ui.gui_models.live_equipment.hands[0];
+    if let Some(layers) = layers {
+        assert_eq!(layers.len(), 1, "{category:?}");
+    }
+    (layers.is_some(), triangles(&vertices))
+}
+
 #[test]
 fn held_worn_only_attachable_draws_the_ordinary_held_model() {
     for (category, live) in [
@@ -204,47 +257,27 @@ fn held_worn_only_attachable_draws_the_ordinary_held_model() {
         ),
         (assets::EquipmentCategory::Held, true),
     ] {
-        let pack = pack_with_files(false, animated_item());
-        let catalog = pack.equipment.as_ref().unwrap();
-        let mut bindings = catalog.bindings().to_vec();
-        for binding in &mut bindings {
-            binding.category = category;
-        }
-        let equipment = Arc::new(
-            assets::RuntimeEquipmentCatalog::from_parts(
-                [1; 32],
-                bindings,
-                catalog.textures().to_vec(),
-            )
-            .unwrap(),
+        let (drew_live, triangles) = draw_held_attachable(category, None);
+        assert_eq!(drew_live, live, "{category:?}");
+        let expected = if live { 24 } else { 12 };
+        assert_eq!(
+            triangles, expected,
+            "{category:?} attachable bones or held cube"
         );
-        let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
-        equip(&mut stream, Some("fixture:tool"));
-        let mut ui = presentation(Arc::clone(&pack));
-        let fallback = ui
-            .gui_models
-            .sources
-            .held
-            .remove("minecraft:stone")
-            .unwrap();
-        ui.gui_models
-            .sources
-            .held
-            .insert("fixture:tool".into(), fallback);
-        ui.set_preview_equipment_assets(None, Some(Arc::clone(&pack.assets)));
-        ui.set_preview_pack_equipment(Some(equipment));
-        ui.set_player_preview_gear([None; 4], Some(("fixture:tool", 0)));
-        let (_, vertices) = draw(&mut ui, &stream, PreviewView::default()).unwrap();
-        let layers = &ui.gui_models.live_equipment.hands[0];
-        if live {
-            assert_eq!(layers.as_ref().map(Vec::len), Some(1), "{category:?}");
-            assert_eq!(triangles(&vertices), 24, "{category:?} attachable bones");
-        } else {
-            assert!(
-                layers.is_none(),
-                "{category:?} must not draw its worn model"
-            );
-            assert_eq!(triangles(&vertices), 12, "{category:?} ordinary held cube");
-        }
     }
+}
+
+#[test]
+fn held_custom_wearable_draws_the_ordinary_held_model() {
+    // A declared armor slot makes a held binding armor, as the world renderer routes it.
+    let held = assets::EquipmentCategory::Held;
+    assert_eq!(
+        draw_held_attachable(held, Some("slot.armor.head")),
+        (false, 12)
+    );
+    // A wearable outside the armor slots keeps the held binding live.
+    assert_eq!(
+        draw_held_attachable(held, Some("slot.weapon.offhand")),
+        (true, 24)
+    );
 }
