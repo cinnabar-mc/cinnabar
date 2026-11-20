@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 mod android;
 #[cfg(target_os = "linux")]
 pub mod dbus;
+#[cfg(target_os = "ios")]
+mod ios;
 #[cfg(target_os = "macos")]
 mod macos;
 pub mod picker;
@@ -129,7 +131,12 @@ fn open_outcome(url: &str) -> OpenOutcome {
         tracing::warn!("the activity could not open a browser: {error}");
         false
     }));
-    #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+    #[cfg(target_os = "ios")]
+    return handoff_result(ios::open_url(url));
+    #[cfg(all(
+        unix,
+        not(any(target_os = "linux", target_os = "android", target_os = "ios"))
+    ))]
     return handoff_result(run_tool(url));
 }
 
@@ -161,10 +168,13 @@ fn handoff_result(opened: bool) -> OpenOutcome {
 /// The desktop's command-line opener for URLs and paths.
 #[cfg(target_os = "macos")]
 const OPENER: &str = "open";
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "android", target_os = "ios"))
+))]
 const OPENER: &str = "xdg-open";
 
-#[cfg(all(unix, not(target_os = "android")))]
+#[cfg(all(unix, not(any(target_os = "android", target_os = "ios"))))]
 fn run_tool(argument: impl AsRef<std::ffi::OsStr>) -> bool {
     opener(argument)
         .status()
@@ -172,7 +182,7 @@ fn run_tool(argument: impl AsRef<std::ffi::OsStr>) -> bool {
 }
 
 /// Passes `argument` as one argv entry, never through a shell.
-#[cfg(all(unix, not(target_os = "android")))]
+#[cfg(all(unix, not(any(target_os = "android", target_os = "ios"))))]
 fn opener(argument: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     use std::process::{Command, Stdio};
     let mut command = Command::new(OPENER);
@@ -198,7 +208,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(unix, not(target_os = "android")))]
+    #[cfg(all(unix, not(any(target_os = "android", target_os = "ios"))))]
     #[test]
     fn the_opener_gets_the_folder_as_one_unparsed_argument() {
         let dir = Path::new("/data/My Worlds; echo $HOME");
