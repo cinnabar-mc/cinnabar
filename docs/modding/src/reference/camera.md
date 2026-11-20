@@ -115,9 +115,9 @@ read-perspective: func() -> result<option<perspective>, string>;
 ```
 
 The player's own perspective, the one their perspective control cycles: before any mod's
-`set-perspective`, freelook, camera rig, scripted view or death view. None outside a
-connected world. Like a tilt, it stays readable while a menu owns input. Requires the
-camera grant.
+`set-perspective`, freelook, camera rig, scripted view or death view. None without a
+streaming world or during a dimension transfer. Like a tilt, it stays readable while a
+menu owns input. Requires the camera grant.
 
 Types: [`perspective`](camera.md#type-perspective).
 

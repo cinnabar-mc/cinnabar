@@ -143,17 +143,33 @@ impl GameplayContext<'_> {
         })
     }
 
+    /// Whether a world streams for the UI's current session, outside a dimension transfer.
+    /// Socket-only sessions qualify even without a destination identity.
+    pub(super) fn live_world(&self, ui: &client_ui::ui_runtime::UiRuntime) -> bool {
+        let Some(world) = self.world.as_ref() else {
+            return false;
+        };
+        let session = self
+            .clock
+            .as_ref()
+            .map_or(0, |clock| clock.session_generation());
+        world.stream.is_some()
+            && session != 0
+            && session == ui.session_id()
+            && !world.dimension_transfer.active()
+    }
+
     /// Read-only current world identity and feet pose, independent of input capture.
     pub(super) fn world_observation(
         &self,
         ui: &client_ui::ui_runtime::UiRuntime,
     ) -> Option<mod_host::WorldObservation> {
+        if !self.live_world(ui) {
+            return None;
+        }
         let world = self.world.as_ref()?;
         let authority = world.stream.as_ref()?.authority();
         let session = self.clock.as_ref()?.session_generation();
-        if session == 0 || session != ui.session_id() || world.dimension_transfer.active() {
-            return None;
-        }
         let position = self.view.as_ref()?.feet_translation();
         if !position.is_finite() {
             return None;
