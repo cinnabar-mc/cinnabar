@@ -341,14 +341,15 @@ impl GameplayContext<'_> {
     }
 
     /// Captures the facts gameplay capabilities read: the last presented camera and the use
-    /// control while gameplay owns input, and the relayed feet position and the last presented
-    /// damage shake in a connected world.
+    /// control while gameplay owns input, and the relayed feet position, the last presented
+    /// damage shake and the player's own perspective in a connected world.
     pub(super) fn facts(
         &self,
         input_owned: bool,
         camera: Option<&GlobalTransform>,
         relayed: Option<[f32; 3]>,
         damage_shake: Option<client_presentation::camera::actor_effects::DamageShake>,
+        perspective: Option<semantic_input::PerspectiveMode>,
     ) -> mod_host::GameplayFacts {
         if self
             .world
@@ -398,6 +399,15 @@ impl GameplayContext<'_> {
                     pitch: shake.pitch_degrees,
                 })
                 .filter(|shake| shake.roll.is_finite() && shake.pitch.is_finite()),
+            perspective: perspective.map(|view| {
+                use mod_api::native_camera::Perspective as Mod;
+                use semantic_input::PerspectiveMode as Native;
+                match view {
+                    Native::FirstPerson => Mod::FirstPerson,
+                    Native::ThirdPersonBack => Mod::ThirdPersonBack,
+                    Native::ThirdPersonFront => Mod::ThirdPersonFront,
+                }
+            }),
             relayed_position: relayed
                 .map(Vec3::from_array)
                 .filter(|position| position.is_finite())
