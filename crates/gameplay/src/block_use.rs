@@ -112,16 +112,20 @@ pub(crate) fn overlaps(
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
 /// Items that use liquid sources pick them without making liquids selectable for mining.
+/// Vanilla boats and rafts target the water they are placed on.
 pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
     !item.is_empty()
-        && item.metadata() == 0
         && identifier.is_some_and(|identifier| {
-            [
-                assets::facts::EMPTY_BUCKET_IDENTIFIER,
-                assets::facts::FROG_SPAWN_IDENTIFIER,
-                assets::facts::GLASS_BOTTLE_IDENTIFIER,
-            ]
-            .contains(&identifier)
+            (item.metadata() == 0
+                && [
+                    assets::facts::EMPTY_BUCKET_IDENTIFIER,
+                    assets::facts::FROG_SPAWN_IDENTIFIER,
+                    assets::facts::GLASS_BOTTLE_IDENTIFIER,
+                ]
+                .contains(&identifier))
+                || identifier
+                    .strip_prefix("minecraft:")
+                    .is_some_and(|name| name.ends_with("_boat") || name.ends_with("_raft"))
         })
 }
 

@@ -199,6 +199,19 @@ fn glass_bottle_clicks_the_water_source_instead_of_the_block_behind_it() {
 }
 
 #[test]
+fn boats_target_water_instead_of_the_block_behind_it() {
+    for item in [
+        "minecraft:oak_boat",
+        "minecraft:oak_chest_boat",
+        "minecraft:bamboo_raft",
+    ] {
+        let (mut world, mut captured) = liquid_fixture(item, 0, "minecraft:water", 0, false);
+        world.run_system_cached(produce_block_use).unwrap();
+        assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]], "{item}");
+    }
+}
+
+#[test]
 fn liquid_pick_keeps_flowing_liquids_other_items_and_solid_occluders_distinct() {
     for (item, metadata, depth, obstructed, expected) in [
         (EMPTY_BUCKET_IDENTIFIER, 0, 1, false, [4, 2, 5]),
