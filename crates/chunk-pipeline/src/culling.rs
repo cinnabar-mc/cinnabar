@@ -73,7 +73,7 @@ pub struct CaveVisibilityWork {
 pub struct CaveVisibilityScratch {
     visited: Vec<u8>,
     touched: Vec<u32>,
-    stack: Vec<(u32, u8)>, // Node and the exits it still has to explore.
+    stack: Vec<(SubChunkKey, u8)>, // Node and the exits it still has to explore.
     overflow_ids: HashMap<SubChunkKey, u32>,
     overflow_nodes: Vec<(SubChunkKey, u64)>,
     overflow_visited: Vec<u8>,
@@ -182,8 +182,17 @@ impl CaveVisibilityScratch {
         }
     }
 
+    /// Traversal state of a dense or overflow node: explored exits plus [`REACHED`].
+    fn state(&self, cells: u32, node: u32) -> u8 {
+        if node < cells {
+            self.visited[node as usize]
+        } else {
+            self.overflow_visited[(node - cells) as usize]
+        }
+    }
+
     /// Reaches `node` able to leave through `exits`, queueing whichever were not yet explored.
-    fn reach(&mut self, cells: u32, node: u32, exits: u64) {
+    fn reach(&mut self, cells: u32, key: SubChunkKey, node: u32, exits: u64) {
         let state = if node < cells {
             &mut self.visited[node as usize]
         } else {
@@ -195,7 +204,7 @@ impl CaveVisibilityScratch {
         let fresh = exits as u8 & !*state & FACE_MASK as u8;
         *state |= REACHED | fresh;
         if fresh != 0 {
-            self.stack.push((node, fresh));
+            self.stack.push((key, fresh));
         }
     }
 
@@ -245,7 +254,7 @@ pub(crate) fn fill_visible(
         return;
     };
     let cells = grid.cell_count() as u32;
-    scratch.reach(cells, camera_node, touched_faces(camera_bits));
+    scratch.reach(cells, camera, camera_node, touched_faces(camera_bits));
     propagate(grid, scratch);
     // Visibility is per entity: retain exactly one loaded neighbour shell around reached nodes,
     // except under Sodium's rule, which shows only what it reaches.
@@ -257,10 +266,21 @@ pub(crate) fn fill_visible(
         if !shell {
             continue;
         }
+        // An explored exit reached its loaded neighbour, and reached nodes insert themselves.
+        let unexplored = !scratch.state(cells, node) & FACE_MASK as u8;
         for face in Face::ALL {
-            if let Some(neighbour) = adjacent(key, face)
-                && grid.contains_key(&neighbour)
-            {
+            if unexplored & (1 << face as u8) == 0 {
+                continue;
+            }
+            let Some(neighbour) = adjacent(key, face) else {
+                continue;
+            };
+            let unreached = match grid.slot(neighbour) {
+                Slot::Cell(next, _) => scratch.visited[next as usize] & REACHED == 0,
+                Slot::Overflow(_) => true,
+                Slot::Missing => false,
+            };
+            if unreached {
                 visible.insert(neighbour);
             }
         }
@@ -269,14 +289,27 @@ pub(crate) fn fill_visible(
 
 /// Explores each newly reachable exit once; retained exits need no repeated traversal.
 fn propagate(grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
+    match scratch.camera {
+        Some(camera) if scratch.built_outward_only => {
+            propagate_with(grid, scratch, |key| outward_exits(key, camera));
+        }
+        _ => propagate_with(grid, scratch, |_| FACE_MASK),
+    }
+}
+
+/// [`propagate`] under the rule `allowed` gives, specialised so the default rule costs nothing.
+fn propagate_with(
+    grid: &ConnectivityGrid,
+    scratch: &mut CaveVisibilityScratch,
+    allowed: impl Fn(SubChunkKey) -> u64,
+) {
     let cells = grid.cell_count() as u32;
     // Leaving through an exit enters the neighbour by the opposite face whatever the entry
     // was, so each (node, exit) needs exploring once; the reached set is order-independent.
-    while let Some((node, exits)) = scratch.stack.pop() {
-        let (key, _) = scratch.describe(grid, node);
+    while let Some((key, exits)) = scratch.stack.pop() {
         let mut exits = u64::from(exits);
+        scratch.work.explored_exits += exits.count_ones() as usize;
         while exits != 0 {
-            scratch.work.explored_exits += 1;
             let exit = Face::ALL[exits.trailing_zeros() as usize];
             exits &= exits - 1;
             let Some(next) = adjacent(key, exit) else {
@@ -286,8 +319,8 @@ fn propagate(grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
                 continue;
             };
             let entered = opposite(exit) as u64;
-            let leaves = (next_bits >> (entered * 6)) & FACE_MASK & scratch.allowed_exits(next);
-            scratch.reach(cells, next_node, leaves);
+            let leaves = (next_bits >> (entered * 6)) & FACE_MASK & allowed(next);
+            scratch.reach(cells, next, next_node, leaves);
         }
     }
 }
