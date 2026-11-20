@@ -518,6 +518,8 @@ pub(crate) fn update_block_entity_scene(
             }))
     };
     let mut settled = true;
+    // Profiler-only spans: an enabled span is formatted for the log on every frame.
+    #[cfg(feature = "tracy")]
     let prepare_zone = bevy::log::info_span!("block_entity.prepare").entered();
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
@@ -616,6 +618,7 @@ pub(crate) fn update_block_entity_scene(
                     && let Some(eye) = occlusion_eye
                     && let Some(cave) = cave.as_deref()
                 {
+                    #[cfg(feature = "tracy")]
                     let _zone = bevy::log::info_span!("block_entity.occlusion").entered();
                     hidden = stream.terrain_hides_box(
                         &mut occlusion_budget,
@@ -695,6 +698,7 @@ pub(crate) fn update_block_entity_scene(
             }
         }
     }
+    #[cfg(feature = "tracy")]
     drop(prepare_zone);
     runtime.lids.finish();
     runtime.books.finish();
@@ -708,6 +712,7 @@ pub(crate) fn update_block_entity_scene(
             .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
             .map(|cue| cue.sequence)
     });
+    #[cfg(feature = "tracy")]
     let before_global = submissions.len();
     crystal_beams::submit(
         &mut submissions,
@@ -736,10 +741,14 @@ pub(crate) fn update_block_entity_scene(
             stream.solved_light_at(actor.brightness_sample_position(owner_position))
         },
     );
-    let global = (submissions.len() - before_global) as u32;
-    work.candidates += global;
-    work.prepared += global;
+    #[cfg(feature = "tracy")]
+    {
+        let global = (submissions.len() - before_global) as u32;
+        work.candidates += global;
+        work.prepared += global;
+    }
     placements.0.0 = held;
+    #[cfg(feature = "tracy")]
     let _zone = bevy::log::info_span!(
         "block_entity.scene_update",
         candidates = work.candidates,

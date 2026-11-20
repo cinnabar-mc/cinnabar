@@ -97,6 +97,8 @@ pub fn update_particle_frame(
     system.set_camera(view.position);
     system.tick(dt, world);
     let lists = {
+        // Profiler-only: an enabled span formats its fields for the log on every frame.
+        #[cfg(feature = "tracy")]
         let span = bevy::log::info_span!(
             "particle.instance_build",
             cave_hidden = bevy::log::tracing::field::Empty,
@@ -104,15 +106,19 @@ pub fn update_particle_frame(
             light_lookups = bevy::log::tracing::field::Empty,
             light_cache_hits = bevy::log::tracing::field::Empty,
         );
+        #[cfg(feature = "tracy")]
         let _zone = span.enter();
         let lists = system.build_draw_reusing_with_visibility(view, world, hides_box);
-        span.record("cave_hidden", lists.cave_hidden);
-        span.record("light_lookups", lists.light_lookups);
-        span.record("light_cache_hits", lists.light_cache_hits);
-        span.record(
-            "submitted",
-            lists.opaque.len() + lists.blend.len() + lists.add.len(),
-        );
+        #[cfg(feature = "tracy")]
+        {
+            span.record("cave_hidden", lists.cave_hidden);
+            span.record("light_lookups", lists.light_lookups);
+            span.record("light_cache_hits", lists.light_cache_hits);
+            span.record(
+                "submitted",
+                lists.opaque.len() + lists.blend.len() + lists.add.len(),
+            );
+        }
         lists
     };
     let mut changed = frame.set_lists(lists);
