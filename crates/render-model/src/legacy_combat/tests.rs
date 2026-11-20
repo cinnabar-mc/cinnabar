@@ -109,6 +109,8 @@ fn tick_state_uses_resolved_distance_caps_and_follow_rates() {
         state.endpoints.fall_degrees[1],
         rules.fall_follow * target_fall
     );
+    // Bedrock eases 0.4 of the way toward 15 * atan(-0.2 * vy) degrees on the first airborne tick.
+    assert!((state.endpoints.fall_degrees[1] - 0.598_012).abs() < 1e-5);
     state.advance(LegacyCameraTick {
         on_ground: false,
         walks: false,
