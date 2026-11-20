@@ -94,7 +94,14 @@ pub fn apply_actor_damage_camera_rotation(
         };
         let mode = settings.feel().view_bobbing;
         let effect = sample(mode.hand_enabled());
-        hand.legacy_effect = Some(effect);
+        // Vertical speed tilts only the hand, after its bob; the world view stays level.
+        let hand_tilt = match actor {
+            Some(actor) if mode.hand_enabled() && legacy_bobs(actor, geometry) => {
+                endpoints.hand_fall_tilt(physics_partial_tick)
+            }
+            _ => Mat4::IDENTITY,
+        };
+        hand.legacy_effect = Some(effect * hand_tilt);
         let camera_effect = if mode.hand_enabled() == mode.camera_enabled() {
             effect
         } else {
@@ -192,13 +199,21 @@ fn legacy_bob(
     physics_alpha: f32,
     geometry: Option<&assets::SkinGeometry>,
 ) -> Mat4 {
-    if matches!(actor.kind, protocol::ActorKind::Player { .. })
-        && geometry.is_none_or(|geometry| !geometry.animation_no_head_bob)
-    {
+    if legacy_bobs(actor, geometry) {
         endpoints.bob_matrix(physics_alpha)
     } else {
         Mat4::IDENTITY
     }
+}
+
+/// Whether the Bedrock 1.12 movement bob and hand tilt apply: players whose skin geometry
+/// does not suppress head bob.
+fn legacy_bobs(
+    actor: &client_world::ActorSnapshot,
+    geometry: Option<&assets::SkinGeometry>,
+) -> bool {
+    matches!(actor.kind, protocol::ActorKind::Player { .. })
+        && geometry.is_none_or(|geometry| !geometry.animation_no_head_bob)
 }
 
 /// The Bedrock 1.12 shake the legacy camera samples for `actor` at full strength. The camera
@@ -293,6 +308,7 @@ mod tests {
         let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
             walked: [0.3, 0.6],
             bob: [0.05, 0.1],
+            fall_degrees: [-4.0, -2.0],
         };
         assert_eq!(sample(&actor, 0.0), Mat4::IDENTITY);
         assert_eq!(
@@ -431,6 +447,7 @@ mod legacy_effect_tests {
         let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
             walked: [0.3, 0.6],
             bob: [0.05, 0.1],
+            fall_degrees: [-4.0, -2.0],
         };
         let suppressed = sampled_legacy_effect(actor, endpoints, 0.5, 0.5, true, 1.0, Some(&skin));
         let hurt_only = sampled_legacy_effect(actor, Default::default(), 0.5, 0.5, true, 1.0, None);
@@ -450,6 +467,7 @@ mod legacy_effect_tests {
         let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
             walked: [0.3, 0.6],
             bob: [0.05, 0.1],
+            fall_degrees: [-4.0, -2.0],
         };
         for dead in [false, true] {
             if dead {

@@ -344,6 +344,57 @@ fn java_poses_keep_one_legacy_effect_for_world_and_hand_without_changing_aim() {
     }
 }
 
+/// Vertical speed tilts the first-person hand only; the world camera stays level.
+#[test]
+fn airborne_tilt_reaches_the_hand_but_not_the_camera() {
+    let mut app = camera_app();
+    tick(&mut app, 0);
+    app.world_mut().run_system_cached(sample).unwrap();
+    {
+        let mut physics = app.world_mut().resource_mut::<TestPhysics>();
+        let mut y = 64.0;
+        for (index, speed) in (1..).zip([0.5_f32, 0.25]) {
+            y += speed;
+            physics.state.tick = index;
+            physics.state.on_ground = false;
+            physics.ticks.push(CameraMovementTick {
+                tick: index,
+                position: [0.0, y, 0.0],
+                movement: [0.0, speed, 0.0],
+                velocity: [0.0, speed, 0.0],
+                on_ground: false,
+                riding: false,
+                walks: false,
+            });
+        }
+    }
+    app.world_mut().run_system_cached(sample).unwrap();
+    let base = Transform::from_xyz(3.0, 6.0, -8.0);
+    let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+    app.world_mut().run_system_cached(apply).unwrap();
+    let tilt = app
+        .world()
+        .resource::<LegacyCameraMotion>()
+        .state
+        .endpoints
+        .hand_fall_tilt(0.5);
+    assert!(!tilt.abs_diff_eq(Mat4::IDENTITY, 1e-4));
+    let hand = app
+        .world()
+        .resource::<FirstPersonHandMotion>()
+        .legacy_effect
+        .unwrap();
+    let rendered = app
+        .world()
+        .get::<Transform>(camera)
+        .unwrap()
+        .to_matrix()
+        .inverse();
+    let world = hand * tilt.inverse();
+    assert!(rendered.abs_diff_eq(world * base.to_matrix().inverse(), 3e-5));
+    assert!(!rendered.abs_diff_eq(hand * base.to_matrix().inverse(), 1e-4));
+}
+
 /// Minimal retains the Full hand effect while the world receives only hurt/death motion.
 #[test]
 fn minimal_bobbing_keeps_the_hand_moving_without_bobbing_the_camera() {
@@ -664,6 +715,7 @@ fn reanchored_bob_does_not_rewind_when_the_actor_fraction_wraps() {
         [0.0, rules.walk_gain * WALK_BLOCKS_PER_TICK]
     );
     assert_eq!(endpoints.bob, [0.0, rules.bob_follow * rules.bob_cap]);
+    assert_eq!(endpoints.fall_degrees, [0.0; 2]);
     let expected = endpoints.bob_matrix(0.75);
     assert_ne!(expected, Mat4::IDENTITY);
     assert!(!expected.abs_diff_eq(endpoints.bob_matrix(0.0), 1e-5));

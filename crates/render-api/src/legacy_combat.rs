@@ -10,6 +10,11 @@ pub struct Bedrock112Rules {
     pub walk_gain: f32,
     pub bob_cap: f32,
     pub bob_follow: f32,
+    /// First-person hand tilt from vertical speed: eased by `fall_follow` per tick toward
+    /// `fall_degrees_gain * atan(fall_velocity_gain * vy)` degrees while airborne and alive.
+    pub fall_follow: f32,
+    pub fall_velocity_gain: f32,
+    pub fall_degrees_gain: f32,
     pub horizontal_gain: f32,
     pub roll_radians: f32,
     pub pitch_radians: f32,
@@ -54,6 +59,9 @@ pub const BEDROCK_112: Bedrock112Rules = Bedrock112Rules {
     walk_gain: 0.6,
     bob_cap: 0.1,
     bob_follow: 0.4,
+    fall_follow: 0.4,
+    fall_velocity_gain: -0.2,
+    fall_degrees_gain: 15.0,
     horizontal_gain: 0.65,
     roll_radians: 0.052_359_88,
     pitch_radians: 0.087_266_46,
