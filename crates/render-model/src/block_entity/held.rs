@@ -19,7 +19,7 @@ use super::{
     pot::{self, DecoratedPotModel},
     scene::SceneClock,
     shulker::{self, ShulkerModel},
-    skull::{self, SkullKind, SkullModel, SkullMount},
+    skull::{self, SkullKind},
     statue::{self, Oxidation, StatueModel, StatuePose},
 };
 use crate::{ActorRigGeometry, ActorRigSurface, ActorRigVertex, EntityRigId};
@@ -209,18 +209,9 @@ impl HeldBlockEntity {
                 );
             }
             Self::Lectern => super::book::emit_lectern_stand(builder, atlas, block),
-            Self::Skull(kind) => skull::emit(
-                builder,
-                atlas,
-                heads,
-                block,
-                &SkullModel {
-                    kind,
-                    mount: SkullMount::Floor {
-                        rotation_degrees: 0.0,
-                    },
-                },
-            ),
+            Self::Skull(kind) => {
+                skull::emit_standing(builder, atlas, heads, block, kind, Facing::South);
+            }
         }
     }
 }

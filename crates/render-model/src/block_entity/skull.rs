@@ -124,12 +124,37 @@ pub(super) fn emit(
                 * Mat4::from_translation(glam::Vec3::new(0.0, 0.0, 4.0))
         }
     };
-    let geometry = match model.kind {
+    emit_posed(builder, atlas, heads, matrix, model.kind);
+}
+
+/// Emits a free-standing head whose front faces `facing`, for item poses that have no placing
+/// player's `Rotation`.
+pub(super) fn emit_standing(
+    builder: &mut MeshBuilder,
+    atlas: &BlockEntityAtlas,
+    heads: &HeadModels,
+    block: [i32; 3],
+    kind: SkullKind,
+    facing: Facing,
+) {
+    let matrix = model_matrix(block, [0.5, 0.0, 0.5], facing.yaw_degrees());
+    emit_posed(builder, atlas, heads, matrix, kind);
+}
+
+/// Emits the head model of `kind` under `matrix`, which maps model sixteenths to the world.
+fn emit_posed(
+    builder: &mut MeshBuilder,
+    atlas: &BlockEntityAtlas,
+    heads: &HeadModels,
+    matrix: Mat4,
+    kind: SkullKind,
+) {
+    let geometry = match kind {
         SkullKind::Piglin => heads.piglin.as_ref(),
         SkullKind::Dragon => heads.dragon.as_ref(),
         _ => None,
     }
-    .zip(skull_mob_head(model.kind as u8))
+    .zip(skull_mob_head(kind as u8))
     .and_then(|(head, source)| {
         atlas
             .texture(source.texture, head.texture)
@@ -147,7 +172,7 @@ pub(super) fn emit(
         }
         return;
     }
-    let Some(texture) = model.kind.texture(atlas) else {
+    let Some(texture) = kind.texture(atlas) else {
         return;
     };
     let (origin, size, uv) = SKULL_HEAD;
@@ -158,7 +183,7 @@ pub(super) fn emit(
         BoxSpec::new(origin, size, uv),
         WHITE,
     );
-    if model.kind.has_hat_layer() {
+    if kind.has_hat_layer() {
         // Hat inflation needs native measurement.
         let (origin, size, uv) = SKULL_HAT;
         builder.cuboid(
