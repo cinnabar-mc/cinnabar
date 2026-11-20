@@ -240,6 +240,14 @@ same-binary control for chunk-streaming comparisons.
 `CINNABAR_CPU_CORES=<n>` sizes every thread pool (rayon, Bevy task pools, world workers) as on a
 machine with `n` logical processors, at most the real count, to check pool starvation on low-core
 laptops. It does not limit the cores the OS schedules on.
+On Android, a phone whose cores fall into clear speed tiers keeps world workers and Bevy's io
+threads off its one or two fastest cores, which are left to the main and render threads and
+the threads they wait on, and sizes pools for what the remaining cores can do. `CINNABAR_CPU_TOPOLOGY=0`
+restores sizing by core count with no affinity, a same-binary control; `1` also applies the
+topology on desktop Linux. An installed app has no environment, so Android also reads both
+variables from system properties: `adb shell setprop debug.cinnabar.cpu_topology 0` or
+`debug.cinnabar.cpu_cores <n>`, then restart the app. One startup log line beginning `cpu:`
+reports the detected tiers, the reserved cores and each pool's thread count.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the

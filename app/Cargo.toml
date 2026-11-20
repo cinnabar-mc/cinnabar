@@ -85,6 +85,7 @@ cosmetics = { path = "../crates/cosmetics" }
 protocol-ids = { path = "../crates/protocol-ids" }
 pack-json = { path = "../crates/pack-json" }
 env-compat = { path = "../crates/env-compat" }
+cpu-topology = { path = "../crates/cpu-topology" }
 client-shell = { path = "../crates/client-shell" }
 client-interaction = { path = "../crates/client-interaction" }
 client-runtime = { path = "../crates/client-runtime" }

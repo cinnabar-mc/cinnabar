@@ -4,6 +4,13 @@
 /// Android's `THREAD_PRIORITY_DISPLAY`, the niceness the platform gives its own display threads.
 const FRAME_THREAD_NICENESS: i32 = -4;
 
+/// How often background threads are confined to their cores again. Android moves the app
+/// between cpusets as it leaves and returns to the foreground, and kernels before 6.2 reset
+/// every thread's affinity when it does.
+#[cfg(target_os = "android")]
+pub(super) const BACKGROUND_CONFINEMENT_REFRESH: std::time::Duration =
+    std::time::Duration::from_secs(2);
+
 /// The niceness that raises a frame thread without lowering one the platform already raised.
 fn raised_niceness(current: i32) -> i32 {
     current.min(FRAME_THREAD_NICENESS)

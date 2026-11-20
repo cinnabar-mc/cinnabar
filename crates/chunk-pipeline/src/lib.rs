@@ -25,13 +25,13 @@ pub use stream::{
     StageDurations, SubChunkOutcomeCounters, SubChunkRequestBatch, TerrainPublicationCursor,
     TerrainSampleCache, ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream,
     WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamService,
-    WorldStreamStats, world_worker_threads,
+    WorldStreamStats,
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{FarSummaryFixture, PublicationFixtureIdentity, PublicationFixtureSnapshot};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use stream::{logical_cores, on_idle_world_cores};
+pub use stream::{on_idle_world_cores, world_worker_threads};
 
 pub use stream::ResourceMeshSnapshot;
 
