@@ -47,6 +47,7 @@ pub mod settings_storage;
 pub mod settings_support;
 mod settings_values;
 mod shader_pack_status;
+mod sign_in_away;
 #[cfg(feature = "developer-control")]
 mod sign_in_fixture;
 pub mod video_settings;
@@ -204,6 +205,8 @@ pub struct MenuRuntime {
     sign_in_cancelled: bool,
     /// A helper-start failure stays owned by its interactive prompt; only Failed is stored.
     sign_in_failure: Option<AuthState>,
+    /// The sign-in the player is away in the browser for, kept across the system ending the client.
+    sign_in_away: sign_in_away::SignInAway,
     #[cfg(feature = "developer-control")]
     sign_in_fixture: Option<developer_control::protocol::SignInFixtureState>,
     /// Developer recordings present placeholder accounts without signing in.

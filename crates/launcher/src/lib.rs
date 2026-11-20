@@ -35,6 +35,10 @@ pub const PRODUCT_USER_AGENT: &str = concat!(product_name!(), "/", env!("CARGO_P
 /// controls and start menus in touch mode. A hardware keyboard, mouse or controller still works.
 pub const TOUCH_PRIMARY: bool = cfg!(any(target_os = "android", target_os = "ios"));
 
+/// Whether the system ends this client while the player is in another app, as Android and iOS do
+/// to a game left for the browser. There, a launch resumes the sign-in the player was waiting on.
+pub const SYSTEM_ENDS_HIDDEN_CLIENT: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
 /// Whether window setup must always request fullscreen, regardless of the saved preference.
 /// Android retains its existing window policy; its host controls the display size.
 pub const FULLSCREEN_ONLY: bool = cfg!(target_os = "ios");

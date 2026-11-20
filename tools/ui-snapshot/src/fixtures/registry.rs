@@ -115,6 +115,12 @@ pub(super) const STATES: &[State] = &[
         fixture: || out_of_game::sign_in_recovery(true),
     },
     State {
+        name: "sign-in-resumed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::sign_in_resumed,
+    },
+    State {
         name: "backup-font",
         size: [640, 360],
         gui_scale: 2,

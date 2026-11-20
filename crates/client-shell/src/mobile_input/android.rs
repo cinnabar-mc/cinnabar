@@ -252,7 +252,7 @@ fn sync_pointer_capture(
 }
 
 /// Runs a JNI call with the client activity, clearing any Java exception it raises.
-fn with_activity<T>(
+pub(crate) fn with_activity<T>(
     call: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<T>,
 ) -> jni::errors::Result<T> {
     let app = bevy::android::ANDROID_APP

@@ -104,6 +104,11 @@ presentation until their current pack routes are verified.
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.
+On Android and iOS, device sign-in survives the system closing the app while the player is in
+the browser: a launch resumes the unexpired code the player left with, says sign-in is finishing,
+and adds the account without another tap; a helper ended on its own restarts once on the same code.
+Android holds a three-minute short foreground service while the code waits. Phone acceptance of
+the resume and the hold, and iOS acceptance, remain open.
 Login device claims report a compatible platform and detected hardware model, keeping a stable
 install ID and migrating old profiles. Linux uses the Windows desktop login platform to avoid
 Lifeboat rejecting its Linux device claim. Live Linux authentication through StartGame is verified;

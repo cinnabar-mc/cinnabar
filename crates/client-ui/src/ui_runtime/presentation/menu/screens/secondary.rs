@@ -73,6 +73,11 @@ pub(super) fn profile(
     let (account_status, status_color) = match &view.auth_state {
         AuthState::SignedOut => ("Not signed in", MUTED),
         AuthState::Checking => ("Checking saved account…", MUTED),
+        AuthState::AwaitingCode { .. }
+            if view.sign_in_browser == launcher::menu::sign_in::BrowserState::Resumed =>
+        {
+            ("Finishing Microsoft sign-in…", MUTED)
+        }
         AuthState::AwaitingCode { .. } => ("Waiting for Microsoft sign-in", MUTED),
         AuthState::AwaitingXboxSignup { .. } => ("Waiting for Xbox profile setup", MUTED),
         AuthState::Authenticated => ("Microsoft account connected", SUCCESS),
