@@ -120,15 +120,6 @@ fn armour_pack() -> Vec<(Box<str>, Vec<u8>)> {
                     "textures":["variable.has_trim ? variable.trim_path : Texture.default","Texture.enchanted"]}}}"#
                 .to_vec(),
         ),
-        (
-            "render_controllers/armor.v2.render_controllers.json".into(),
-            br#"{"format_version":"1.8.0","render_controllers":{
-                "controller.render.armor.v2":{
-                    "geometry":"variable.use_baby_geo ? Geometry.baby : Geometry.default",
-                    "materials":[{"*":"variable.is_enchanted ? Material.enchanted : Material.default"}],
-                    "textures":["variable.use_baby_geo ? Texture.baby : (variable.has_trim ? variable.trim_path : Texture.default)","Texture.enchanted"]}}}"#
-                .to_vec(),
-        ),
         ("textures/models/armor/iron_1.png".into(), solid(ADULT)),
         ("textures/models/armor/iron_baby.png".into(), solid(BABY)),
         (

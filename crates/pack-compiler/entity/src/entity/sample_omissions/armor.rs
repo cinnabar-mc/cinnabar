@@ -99,12 +99,6 @@ pub(super) fn missing_bindings<'a>(
 /// `variable.use_dedicated_baby_armor`. The pinned zombie-family entities set it; the engine-side
 /// rule that turns it on is unverified, so this is the narrowest supported reading.
 const BABY_CONDITION: &str = "variable.use_dedicated_baby_armor && query.is_baby";
-/// Pack render controller that selects `Geometry.baby` and `Texture.baby` when
-/// `variable.use_baby_geo` is set.
-const BABY_CONTROLLER: &str = "controller.render.armor.v2";
-const BABY_CONTROLLER_SOURCE: &str = "render_controllers/armor.v2.render_controllers.json";
-/// Set by a baby variant, which is only selected for a baby wearer.
-const BABY_GEOMETRY_FLAG: &str = "variable.use_baby_geo = 1.0;";
 const ARMOUR_TEXTURES: &str = "textures/models/armor/";
 
 /// The armour piece a humanoid armour geometry identifier names.
@@ -140,16 +134,15 @@ fn baby_texture(has_source: &impl Fn(&str) -> bool, adult: &str) -> Option<Strin
 
 /// Adds a baby branch beside each stock armour definition that lacks one, so a baby wearer of
 /// dedicated-armor mobs draws the pack's baby armor geometry and texture instead of the adult
-/// pieces. The branch is a separate owner-conditioned definition, so authored definitions and
-/// server packs keep precedence. Stock definitions are the plain ones whose armor controller
-/// has no baby aliases.
+/// pieces. The branch is a separate owner-conditioned definition whose default geometry and
+/// texture are the baby ones, under the stock armor controller: the pack's `armor.v2` controller
+/// picks them with a runtime expression that compiles to a selection-only rig, so the choice is
+/// made here once the wearer is known to be a baby. Authored definitions and server packs keep
+/// precedence. Stock definitions are the plain ones whose armor controller has no baby aliases.
 pub(super) fn baby_variants<'a>(
     has_source: impl Fn(&str) -> bool,
     documents: impl Iterator<Item = &'a Value> + Clone,
 ) -> Result<Vec<(Box<str>, Value)>, AssetError> {
-    if !has_source(BABY_CONTROLLER_SOURCE) {
-        return Ok(Vec::new());
-    }
     let facts =
         assets::facts::ItemFacts::builtin().map_err(|_| invalid("item facts are unavailable"))?;
     let description_of = |document: &'a Value| &document["minecraft:attachable"]["description"];
@@ -183,7 +176,6 @@ pub(super) fn baby_variants<'a>(
         if description.get("item").is_some()
             || handled.contains(item)
             || description["render_controllers"] != serde_json::json!(["controller.render.armor"])
-            || !matches!(description["scripts"], Value::Null | Value::Object(_))
             || facts
                 .by_identifier(item)
                 .is_none_or(|fact| fact.armour_slot.is_none())
@@ -205,19 +197,9 @@ pub(super) fn baby_variants<'a>(
         let description = &mut document["minecraft:attachable"]["description"];
         description["identifier"] = Value::String(identifier.clone());
         description["item"] = serde_json::json!({(item): BABY_CONDITION});
-        description["geometry"]["baby"] =
+        description["geometry"]["default"] =
             Value::String(format!("geometry.humanoid.baby.armor.{piece}"));
-        description["textures"]["baby"] = Value::String(baby);
-        description["render_controllers"] = serde_json::json!([BABY_CONTROLLER]);
-        let scripts = &mut description["scripts"]["pre_animation"];
-        let mut statements = match scripts.take() {
-            Value::Null => Vec::new(),
-            Value::Array(statements) => statements,
-            statement @ Value::String(_) => vec![statement],
-            _ => continue,
-        };
-        statements.push(Value::String(BABY_GEOMETRY_FLAG.into()));
-        *scripts = Value::Array(statements);
+        description["textures"]["default"] = Value::String(baby);
         missing.push((
             format!(
                 "attachables/_cinnabar/{}.json",
@@ -353,7 +335,6 @@ mod tests {
     }
 
     const BABY_SOURCES: &[&str] = &[
-        BABY_CONTROLLER_SOURCE,
         "models/entity/baby_armor_helmet.geo.json",
         "models/entity/baby_armor_leggings.geo.json",
         "textures/models/armor/iron_baby.png",
@@ -409,21 +390,21 @@ mod tests {
             );
             assert_eq!(
                 description["render_controllers"],
-                serde_json::json!([BABY_CONTROLLER])
+                serde_json::json!(["controller.render.armor"])
             );
             let original = documents
                 .iter()
                 .map(|document| &document["minecraft:attachable"]["description"])
                 .find(|original| original["identifier"] == item && original.get("item").is_none())
                 .unwrap();
+            // The baby resources are the defaults, so the stock controller draws them directly.
+            let piece = armour_piece(original["geometry"]["default"].as_str().unwrap()).unwrap();
             assert_eq!(
                 description["geometry"]["default"],
-                original["geometry"]["default"]
+                format!("geometry.humanoid.baby.armor.{piece}")
             );
-            assert_eq!(
-                description["textures"]["default"],
-                original["textures"]["default"]
-            );
+            assert!(description["geometry"].get("baby").is_none());
+            assert!(description["textures"].get("baby").is_none());
             assert_eq!(
                 description["textures"]["enchanted"],
                 original["textures"]["enchanted"]
@@ -432,15 +413,7 @@ mod tests {
                 description["scripts"]["parent_setup"],
                 original["scripts"]["parent_setup"]
             );
-            assert_eq!(
-                description["scripts"]["pre_animation"],
-                serde_json::json!([BABY_GEOMETRY_FLAG])
-            );
-            let piece = armour_piece(original["geometry"]["default"].as_str().unwrap()).unwrap();
-            assert_eq!(
-                description["geometry"]["baby"],
-                format!("geometry.humanoid.baby.armor.{piece}")
-            );
+            assert!(description["scripts"].get("pre_animation").is_none());
         }
         let baby_texture_of = |item: &str| {
             let (_, document) = generated
@@ -450,7 +423,7 @@ mod tests {
                         == format!("{item}.baby")
                 })
                 .unwrap();
-            document["minecraft:attachable"]["description"]["textures"]["baby"].clone()
+            document["minecraft:attachable"]["description"]["textures"]["default"].clone()
         };
         assert_eq!(
             baby_texture_of("minecraft:iron_helmet"),
@@ -489,7 +462,6 @@ mod tests {
         let without = |missing: &'static str| {
             baby_variants(|path| path != missing && has_source(path), documents.iter()).unwrap()
         };
-        assert!(without(BABY_CONTROLLER_SOURCE).is_empty());
         assert_eq!(without("models/entity/baby_armor_helmet.geo.json").len(), 1);
         assert_eq!(without("textures/models/armor/iron_baby.png").len(), 2);
         let mut server = documents.clone();
