@@ -24,7 +24,7 @@ fn number(inputs: &serde_json::Value, key: &str) -> f32 {
 fn matrices_match_all_numeric_fixtures_and_keep_the_native_view_order() {
     let cases: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("fixtures.json")).unwrap();
-    assert_eq!(cases.len(), 36);
+    assert_eq!(cases.len(), 28);
     let mut walking_matrix = Mat4::IDENTITY;
     for case in cases {
         let inputs = &case["inputs"];
@@ -33,7 +33,6 @@ fn matrices_match_all_numeric_fixtures_and_keep_the_native_view_order() {
             let endpoints = LegacyCameraEndpoints {
                 walked: [number(inputs, "previous_walk"), number(inputs, "walk")],
                 bob: [number(inputs, "previous_bob"), number(inputs, "bob")],
-                fall_degrees: [number(inputs, "previous_tilt"), number(inputs, "tilt")],
             };
             walking_matrix = endpoints.bob_matrix(alpha);
             walking_matrix
@@ -104,26 +103,39 @@ fn tick_state_uses_resolved_distance_caps_and_follow_rates() {
         ..walking(4, 0.2)
     });
     assert_eq!(state.endpoints.bob[1], bob + rules.bob_follow * -bob);
-    let target_fall = rules.fall_degrees_gain * (rules.fall_velocity_gain * -0.5).atan();
-    assert_eq!(
-        state.endpoints.fall_degrees[1],
-        rules.fall_follow * target_fall
-    );
+}
+
+/// Rising and falling in place leave the view untouched: vertical speed adds no pitch.
+#[test]
+fn vertical_speed_in_the_air_never_tilts_the_view() {
+    let mut state = LegacyCameraState::default();
     state.advance(LegacyCameraTick {
-        on_ground: false,
-        walks: false,
-        velocity: [0.0, 0.5, 0.0],
-        ..walking(5, 0.2)
+        movement: [0.0; 3],
+        velocity: [0.0; 3],
+        ..walking(1, 0.0)
     });
-    assert!(state.endpoints.fall_degrees[1] < 0.0);
+    let mut y = 64.0;
+    for (tick, speed) in (2..).zip([0.5, 0.25, 0.0, -0.25, -1.0, -3.0]) {
+        y += speed;
+        state.advance(LegacyCameraTick {
+            position: [0.0, y, 0.0],
+            movement: [0.0, speed, 0.0],
+            velocity: [0.0, speed, 0.0],
+            on_ground: false,
+            walks: false,
+            ..walking(tick, 0.0)
+        });
+        for alpha in [0.0, 0.5, 1.0] {
+            assert_eq!(state.endpoints.bob_matrix(alpha), Mat4::IDENTITY);
+        }
+    }
 }
 
 #[test]
-fn phase_extrapolates_while_amplitude_and_fall_interpolate() {
+fn phase_extrapolates_while_amplitude_interpolates() {
     let state = LegacyCameraEndpoints {
         walked: [0.63, 0.75],
         bob: [0.02, 0.06],
-        fall_degrees: [0.0, 1.2],
     };
     for alpha in [0.0, 0.25, 0.5, 1.0] {
         let matrix = state.bob_matrix(alpha);
@@ -153,7 +165,6 @@ fn riding_death_suppression_stationary_and_resets_are_tick_owned() {
             ..walking(tick, 0.2)
         });
         assert_eq!(state.endpoints.walked[1], walked);
-        assert_eq!(state.endpoints.fall_degrees[1], 0.0);
     }
     assert!(state.endpoints.bob[1] < 0.004);
     state.advance(walking(8, 100.0));

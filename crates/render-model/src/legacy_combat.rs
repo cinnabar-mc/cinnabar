@@ -25,7 +25,6 @@ pub struct LegacyCameraTick {
 pub struct LegacyCameraEndpoints {
     pub walked: [f32; 2],
     pub bob: [f32; 2],
-    pub fall_degrees: [f32; 2],
 }
 
 /// Retains camera motion only; simulation state is read without modification.
@@ -108,7 +107,6 @@ impl LegacyCameraState {
         let state = &mut self.endpoints;
         state.walked[0] = state.walked[1];
         state.bob[0] = state.bob[1];
-        state.fall_degrees[0] = state.fall_degrees[1];
         if tick.walks {
             let distance = (movement.x * movement.x + movement.z * movement.z).sqrt();
             state.walked[1] += rules.walk_gain * distance;
@@ -119,25 +117,21 @@ impl LegacyCameraState {
         } else {
             0.0
         };
-        let target_fall = if !tick.on_ground && tick.alive {
-            rules.fall_degrees_gain * (rules.fall_velocity_gain * velocity.y).atan()
-        } else {
-            0.0
-        };
         state.bob[1] += rules.bob_follow * (target_bob - state.bob[1]);
-        state.fall_degrees[1] += rules.fall_follow * (target_fall - state.fall_degrees[1]);
     }
 }
 
 impl LegacyCameraEndpoints {
-    /// Extrapolates walking phase and interpolates amplitude/tilt, preserving rotation order.
+    /// Extrapolates walking phase and interpolates amplitude, preserving rotation order.
+    ///
+    /// Vertical speed adds no pitch: current Bedrock's movement bob reads only look, walk
+    /// distance and amplitude.
     pub fn bob_matrix(self, alpha: f32) -> Mat4 {
         let alpha = partial_tick(alpha);
         let rules = BEDROCK_112;
         let [previous, current] = self.walked;
         let phase = -std::f32::consts::PI * (current + (current - previous) * alpha);
         let bob = interpolate(self.bob, alpha);
-        let fall = interpolate(self.fall_degrees, alpha);
         let sine = legacy_sin(phase);
         Mat4::from_translation(Vec3::new(
             rules.horizontal_gain * bob * sine,
@@ -147,7 +141,6 @@ impl LegacyCameraEndpoints {
             * Mat4::from_rotation_x(
                 rules.pitch_radians * (bob * legacy_cos(phase + rules.pitch_phase)).abs(),
             )
-            * Mat4::from_rotation_x(fall.to_radians())
     }
 }
 

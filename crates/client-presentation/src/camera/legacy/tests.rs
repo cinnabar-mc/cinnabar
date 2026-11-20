@@ -664,7 +664,6 @@ fn reanchored_bob_does_not_rewind_when_the_actor_fraction_wraps() {
         [0.0, rules.walk_gain * WALK_BLOCKS_PER_TICK]
     );
     assert_eq!(endpoints.bob, [0.0, rules.bob_follow * rules.bob_cap]);
-    assert_eq!(endpoints.fall_degrees, [0.0; 2]);
     let expected = endpoints.bob_matrix(0.75);
     assert_ne!(expected, Mat4::IDENTITY);
     assert!(!expected.abs_diff_eq(endpoints.bob_matrix(0.0), 1e-5));
