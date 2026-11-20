@@ -282,6 +282,20 @@ impl CompiledStacks {
         client_runtime::session::release_off_frame((released, compiled, reads));
     }
 
+    /// Bytes of compressed pack archives the kept stacks hold.
+    pub(crate) fn archive_bytes(&self) -> usize {
+        self.lock().iter().map(|kept| kept.archive_bytes).sum()
+    }
+
+    /// Detaches every kept stack's inflated reads for destruction off the frame, keeping its
+    /// archives and compiled outputs. Later reads inflate again.
+    pub(crate) fn take_cached_reads(&self) -> impl Send + 'static + use<> {
+        self.lock()
+            .iter()
+            .map(|kept| kept.stack.take_cached_reads())
+            .collect::<Vec<_>>()
+    }
+
     /// How many stacks are kept.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {

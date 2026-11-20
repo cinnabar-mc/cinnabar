@@ -13,7 +13,10 @@ use std::{
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use launcher::local_worlds::world::World;
 
-use crate::lifecycle::children::{self, Spawned};
+use crate::{
+    lifecycle::children::{self, Spawned},
+    memory::telemetry,
+};
 
 use super::{
     Cancel, lock,
@@ -200,6 +203,7 @@ fn spawn(
         }
     };
     tracing::info!(label, pid = child.id(), "local server spawned");
+    telemetry::report("local_server_spawned");
     let (stdin, stdout, stderr) = (child.take_stdin(), child.take_stdout(), child.take_stderr());
     let child = Arc::new(child);
     let status = Arc::new(Mutex::new(None));
@@ -218,6 +222,7 @@ fn spawn(
                 output_ack.observe(line);
                 timing.observe(&label, line);
                 if is_ready(line) {
+                    telemetry::report("local_server_ready");
                     let _ = ready_sender.try_send(());
                 }
             });
@@ -246,6 +251,7 @@ fn spawn(
                     Err(_) => break,
                 }
             }
+            telemetry::report("local_server_exited");
             if let Some(hook) = on_exit {
                 let exit = *lock(&status);
                 hook(ending(exit, start_cancelled.load(Ordering::SeqCst)));

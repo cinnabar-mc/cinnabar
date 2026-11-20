@@ -61,6 +61,7 @@ pub use input_pacing::{FramePacing, InputPacingPlugin};
 
 mod lightning_render;
 mod media;
+pub mod memory_totals;
 pub use media::{MediaTexture, MediaUpload};
 mod media_screen;
 

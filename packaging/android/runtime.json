@@ -1,5 +1,6 @@
 {
   "application_id": "app.cinnabar.client",
+  "memory_line": "memory event=",
   "min_sdk": 26,
   "target_sdk": 35,
   "build_tools": "35.0.0",

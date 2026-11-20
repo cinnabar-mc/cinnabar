@@ -171,6 +171,9 @@ pub struct AudioDevice {
     #[cfg(not(target_arch = "wasm32"))]
     opening: Option<Opening>,
     output: Option<Output>,
+    /// Shared with the output's owner thread, which holds no hardware stream while it is set.
+    #[cfg(not(target_arch = "wasm32"))]
+    suspended: Arc<AtomicBool>,
     sample_rate: u32,
     /// While set, new sources mix into a recording instead of the device.
     capture: Option<Arc<rodio::dynamic_mixer::DynamicMixerController<f32>>>,
@@ -183,6 +186,8 @@ impl AudioDevice {
             #[cfg(not(target_arch = "wasm32"))]
             opening: None,
             output: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            suspended: Arc::default(),
             sample_rate: MIXER_RATE,
             capture: None,
             #[cfg(any(test, feature = "test-support"))]
@@ -192,9 +197,15 @@ impl AudioDevice {
     /// Starts opening the default output on its own thread; later uses poll without waiting.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_default_once() -> Self {
-        match open_on_owner_thread(open_default_output, native::refresh_output) {
+        let suspended = Arc::new(AtomicBool::new(false));
+        let owner_flag = Arc::clone(&suspended);
+        match open_on_owner_thread(
+            move || open_default_output(owner_flag),
+            native::refresh_output,
+        ) {
             Ok((opening, _owner)) => Self {
                 opening: Some(opening),
+                suspended,
                 ..Self::disabled()
             },
             Err(error) => {
@@ -235,7 +246,7 @@ impl AudioDevice {
                     self.output = Some(Output {
                         mixer: shared.mixer,
                         unavailable: shared.unavailable,
-                        _release: release,
+                        release,
                     });
                 }
                 Err(TryRecvError::Empty) => self.opening = Some(opening),
@@ -243,6 +254,31 @@ impl AudioDevice {
             }
         }
     }
+    /// Closes the hardware output while the app is off screen and reopens it on return. Sources
+    /// stay on the retained mixer without advancing, so sound resumes where it stopped; capture
+    /// and test mixers are unaffected. Browsers suspend a hidden page's audio themselves.
+    pub fn set_suspended(&mut self, suspended: bool) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.suspended.swap(suspended, Ordering::AcqRel) == suspended {
+                return;
+            }
+            self.resolve();
+            // Wakes the owner thread; one still opening reads the flag at its first check.
+            if let Some(output) = &self.output {
+                let _ = output.release.send(());
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = suspended;
+    }
+
+    /// Whether the hardware output is closed because the app is off screen.
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn is_suspended(&self) -> bool {
+        self.suspended.load(Ordering::Acquire)
+    }
+
     /// Whether requests must wait for the device; capture and test mixers are ready immediately.
     pub fn is_opening(&mut self) -> bool {
         if self.available() {

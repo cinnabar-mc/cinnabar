@@ -141,6 +141,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     crate::melee::server_swings::configure(app);
     crate::game_frame::configure_world(app);
     crate::audio::configure(app);
+    crate::memory_pressure::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
         .init_resource::<crate::melee::MeleeTarget>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
@@ -863,6 +864,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             ),
         );
     crate::lifecycle::heartbeat::configure(&mut app);
+    crate::lifecycle::memory::configure(&mut app);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);

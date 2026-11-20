@@ -368,3 +368,31 @@ fn growth_without_memory_keeps_slots_and_retries() {
     pool.grow();
     assert_eq!(pool.slots.len(), 4);
 }
+
+/// Memory pressure returns a grown pool to its initial slots without losing queued uploads, and
+/// the pool grows again when frames miss.
+#[test]
+fn released_growth_keeps_queued_copies_and_grows_again_after_misses() {
+    let (device, queue, mut pool, target) = setup(64);
+    let grow = |pool: &mut Pool| {
+        pool.record_miss(1, 3 * 64);
+        pool.grow();
+    };
+    grow(&mut pool);
+    assert_eq!(pool.slots.len(), SLOTS + 3);
+
+    assert_eq!(pool.stage_prefix(&[(&target, 0, &[7; 64])]), None);
+    assert_eq!(pool.release_growth(), 0, "a staged copy names its slot");
+    let mut encoder = device.create_command_encoder(&Default::default());
+    pool.encode(&mut encoder);
+    // The slot awaiting its remap stays; every idle grown slot goes.
+    assert_eq!(pool.release_growth(), 3);
+    assert_eq!(pool.diagnostic_counts(), ([SLOTS - 1, 0, 1, 0], 0));
+    queue.submit([encoder.finish()]);
+    device.poll(wgpu::PollType::Poll).unwrap();
+    assert_eq!(pool.diagnostic_counts(), ([SLOTS, 0, 0, 0], 0));
+    assert_eq!(pool.release_growth(), 0, "the initial slots are kept");
+
+    grow(&mut pool);
+    assert_eq!(pool.slots.len(), SLOTS + 3);
+}

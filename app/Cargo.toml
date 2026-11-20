@@ -67,6 +67,7 @@ bytes.workspace = true
 glam.workspace = true
 bevy.workspace = true
 simulation-clock = { path = "../crates/simulation-clock" }
+memory-pressure = { path = "../crates/memory-pressure" }
 render-scene = { path = "../crates/render-scene" }
 bridge = { path = "../crates/bridge" }
 client-session = { path = "../crates/client-session" }

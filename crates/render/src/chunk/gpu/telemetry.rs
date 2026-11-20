@@ -71,6 +71,7 @@ pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'stati
         auxiliary_bytes,
         migration_bytes,
     ]);
+    crate::memory_totals::record_chunk_arena(tracked_capacity_bytes);
     bevy::log::debug!(
         event,
         quad_bytes,

@@ -35,6 +35,7 @@ mod item_use;
 pub mod lifecycle;
 pub mod local_player;
 mod melee;
+pub mod memory_pressure;
 #[cfg(not(target_arch = "wasm32"))]
 mod modding;
 pub mod movement;

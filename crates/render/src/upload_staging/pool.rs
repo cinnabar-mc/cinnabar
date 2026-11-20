@@ -222,6 +222,25 @@ impl Pool {
         }
     }
 
+    /// Drops idle slots that growth added, down to the initial complement, and returns how many
+    /// it dropped. Slots with staged or unfinished copies stay, so no queued upload is lost;
+    /// later missed frames grow the pool again.
+    pub(super) fn release_growth(&mut self) -> usize {
+        // Queued copies name their slots by position.
+        if !self.copies.is_empty() {
+            return 0;
+        }
+        let before = self.slots.len();
+        let mut index = before;
+        while index > 0 && self.slots.len() > self.shape.slots {
+            index -= 1;
+            if self.slots[index].state.load(Ordering::Acquire) == READY {
+                self.slots.remove(index);
+            }
+        }
+        before - self.slots.len()
+    }
+
     /// Copies as many of `bytes` as fit, extending the newest copy when it abuts; returns
     /// the staged length, always a whole number of copy-aligned words.
     fn stage(&mut self, target: &wgpu::Buffer, mut offset: u64, mut bytes: &[u8]) -> u64 {

@@ -53,6 +53,15 @@ impl Process {
         }
     }
 
+    /// The operating-system PID; `None` for an iOS core, which runs inside this process.
+    fn os_id(&self) -> Option<u32> {
+        match self {
+            Self::Os(child) => Some(child.id()),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(_) => None,
+        }
+    }
+
     /// Collects a completed worker's status without waiting for a running one.
     fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         match self {
@@ -280,6 +289,23 @@ impl Children {
         handoff()
     }
 
+    /// Process ids of the tracked child processes still running, for memory accounting. A core
+    /// that runs inside this process has no process of its own and is left out. Never waits:
+    /// shutdown holds the registry while a server saves, so a busy registry or child is skipped
+    /// and the caller's report goes on without it.
+    fn live_pids(&self) -> Vec<u32> {
+        let Some(live) = try_lock(&self.live) else {
+            return Vec::new();
+        };
+        live.entries
+            .iter()
+            .filter_map(|entry| {
+                let mut child = try_lock(&entry.child)?;
+                running(&mut child).then(|| child.os_id()).flatten()
+            })
+            .collect()
+    }
+
     /// Counts the children still registered by the Unix process-lifecycle tests.
     #[cfg(all(test, unix))]
     fn tracked(&self) -> usize {
@@ -297,6 +323,12 @@ impl From<Child> for Spawned {
     fn from(child: Child) -> Self {
         CHILDREN.track(child)
     }
+}
+
+/// Process ids of the helper processes this client started that are still running.
+#[must_use]
+pub fn live_pids() -> Vec<u32> {
+    CHILDREN.live_pids()
 }
 
 /// Spawns `command` as a tracked child that knows to exit with this process.
@@ -561,6 +593,15 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Locks `mutex` when nothing else holds it, recovering a poisoned one.
+fn try_lock<T>(mutex: &Mutex<T>) -> Option<MutexGuard<'_, T>> {
+    match mutex.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
+}
+
 #[cfg(test)]
 mod update_tests {
     use super::*;
@@ -649,6 +690,22 @@ mod tests {
             .unwrap();
         assert_eq!(stderr, "diagnostic\n");
         assert!(child.take_stderr().is_none());
+    }
+
+    #[test]
+    fn live_pids_list_running_children_only() {
+        let children = Children::new();
+        let held = children.track(holds_stdin());
+        assert_eq!(children.live_pids(), vec![held.id()]);
+        {
+            let _shutdown = lock(&children.live);
+            assert!(
+                children.live_pids().is_empty(),
+                "a busy registry is skipped"
+            );
+        }
+        assert_eq!(held.stop(EXIT_GRACE), StopOutcome::Exited);
+        assert!(children.live_pids().is_empty());
     }
 
     fn sh(script: &str) -> Child {
