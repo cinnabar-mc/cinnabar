@@ -159,13 +159,16 @@ impl PredictionHistory {
             });
         }
         let result = simulator.tick_with_controls(state, input, world)?;
+        // Capture before retiring the oldest frame: an unchanged world shares the terrain a
+        // retained frame still holds, and a one-frame history has no other holder.
+        let world = world.snapshot();
         if self.frames.len() == self.capacity {
             self.frames.pop_front();
         }
         self.frames.push_back(PredictedFrame {
             input,
             state: state.clone(),
-            world: world.snapshot(),
+            world,
         });
         Ok(result)
     }

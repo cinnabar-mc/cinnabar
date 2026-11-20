@@ -146,3 +146,44 @@ impl CollisionWorld for CollisionSnapshot {
         Some(self.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{MovementInput, PlayerState, PredictionHistory, Simulator};
+    use ::world::{ChunkStore, SubChunkKey};
+
+    /// A one-frame history, as StartGame's zero rewind size gives, must not copy the terrain
+    /// index again on every tick of an unchanged world.
+    #[test]
+    fn one_frame_history_shares_unchanged_terrain_between_ticks() {
+        let mut registry = CollisionRegistry::new();
+        registry.register(0, []).unwrap();
+        let mut store = ChunkStore::new();
+        store
+            .mark_sub_chunk_loaded(SubChunkKey::new(0, 0, 0, 0))
+            .unwrap();
+        let simulator = Simulator::default();
+        let mut state = PlayerState::new(Vec3::new(8.5, 8.0, 8.5));
+        let mut history = PredictionHistory::new(1).unwrap();
+        let predict = |history: &mut PredictionHistory, state: &mut PlayerState| {
+            history
+                .predict(
+                    state,
+                    MovementInput::default(),
+                    &simulator,
+                    &PaletteWorld::new(&store, &registry, 0, Default::default()),
+                )
+                .unwrap();
+            Arc::downgrade(&history.world_at(state.tick).unwrap().data.store)
+        };
+        let first = predict(&mut history, &mut state);
+        let second = predict(&mut history, &mut state);
+        assert_eq!(history.len(), 1);
+        // A copied index would have released the first tick's terrain with its frame.
+        let shared = first
+            .upgrade()
+            .expect("the second tick copied the terrain index");
+        assert!(Arc::ptr_eq(&shared, &second.upgrade().unwrap()));
+    }
+}

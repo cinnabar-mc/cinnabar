@@ -29,6 +29,20 @@ pub struct ActorRenderLayers<'a> {
     pub head_rotation: Option<HeadRotation>,
 }
 
+impl ActorRenderLayers<'_> {
+    /// Borrows every layer slice, so a reader shares a sample instead of copying its layers.
+    #[must_use]
+    pub fn reborrow(&self) -> ActorRenderLayers<'_> {
+        ActorRenderLayers {
+            render: Cow::Borrowed(&self.render),
+            visibility: self.visibility,
+            skin: Cow::Borrowed(&self.skin),
+            held_item_scale: self.held_item_scale,
+            head_rotation: self.head_rotation,
+        }
+    }
+}
+
 /// A bounded render-layer evaluation frame, borrowing tick-owned actor and rig state.
 pub struct ActorRenderFrame<'a> {
     store: &'a ActorAnimationStore,
@@ -267,8 +281,22 @@ impl<'a> ActorRenderFrame<'a> {
     }
 
     /// Samples the native body and its persona skeletons once under the same frame budget.
+    /// Copies sampled layers; readers that only inspect them use [`Self::sample_layers`].
     pub fn layers_with_skin(&mut self, runtime_id: u64) -> Option<ActorRenderLayers<'a>> {
         self.cached_layers(runtime_id).cloned()
+    }
+
+    /// Samples like [`Self::layers_with_skin`] and borrows the frame's result instead of
+    /// copying it.
+    pub fn sample_layers(&mut self, runtime_id: u64) -> Option<&ActorRenderLayers<'a>> {
+        self.cached_layers(runtime_id)
+    }
+
+    /// Borrows a result this frame already sampled, without sampling. `None` also covers an
+    /// actor no consumer has sampled yet.
+    #[must_use]
+    pub fn sampled(&self, runtime_id: u64) -> Option<&ActorRenderLayers<'a>> {
+        self.sampled_layers.get(&runtime_id)?.as_ref()
     }
 }
 

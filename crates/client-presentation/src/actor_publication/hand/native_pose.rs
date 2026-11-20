@@ -239,7 +239,7 @@ impl NativePoseCache {
         let NativeBodyPose {
             bones: [previous, current],
             skin,
-        } = body_pose(presentation, frame.layers_with_skin(runtime_id)?)?;
+        } = body_pose(presentation, frame.sample_layers(runtime_id)?)?;
         presentation.submission.input.previous_bones = previous;
         presentation.submission.input.current_bones = current;
         skin
@@ -304,14 +304,14 @@ impl NativePoseCache {
 /// Converts sampled native endpoints only when they match the runtime body's skeleton.
 fn body_pose(
     presentation: &ActorRigPresentation,
-    sampled: actor_animation::ActorRenderLayers<'_>,
+    sampled: &actor_animation::ActorRenderLayers<'_>,
 ) -> Option<NativeBodyPose> {
-    let Cow::Owned(layers) = sampled.render else {
+    let Cow::Owned(layers) = &sampled.render else {
         return None;
     };
-    let bones = body_bones(presentation, &layers)?;
-    let skin = match sampled.skin {
-        Cow::Owned(skin) => Some(skin.into()),
+    let bones = body_bones(presentation, layers)?;
+    let skin = match &sampled.skin {
+        Cow::Owned(skin) => Some(Arc::from(skin.as_slice())),
         Cow::Borrowed(_) => None,
     };
     Some(NativeBodyPose { bones, skin })
