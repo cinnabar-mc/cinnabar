@@ -2,9 +2,7 @@
 use super::*;
 
 use launcher::menu::settings_options::BindingId;
-
-/// Every physical modifier key whose held state chat, forms and mod screens track.
-pub(crate) const MODIFIERS: [KeyCode; 8] = [
+const MODIFIERS: [KeyCode; 8] = [
     KeyCode::ControlLeft,
     KeyCode::ControlRight,
     KeyCode::SuperLeft,
