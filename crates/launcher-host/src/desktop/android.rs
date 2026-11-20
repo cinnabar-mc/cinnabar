@@ -137,6 +137,87 @@ fn call_picker(
     Ok(Some(picked))
 }
 
+/// The Java package holding the app's classes: `application_id` in the packaging manifest. A
+/// build can install under another package name, so the installed name does not locate them.
+fn java_package() -> String {
+    #[derive(serde::Deserialize)]
+    struct Runtime {
+        application_id: String,
+    }
+    let runtime: Runtime =
+        serde_json::from_str(include_str!("../../../../packaging/android/runtime.json"))
+            .expect("the tracked Android runtime manifest parses");
+    runtime.application_id
+}
+
+/// Whether `CrashReport.canSaveSession` says this device can save a report of the running
+/// session; false when the question itself fails.
+pub(super) fn saves_diagnostic_reports() -> bool {
+    with_report_class(|env, class, _| {
+        env.call_static_method(class, "canSaveSession", "()Z", &[])?
+            .z()
+    })
+    .unwrap_or_else(|error| {
+        tracing::warn!("the report exporter could not be reached: {error}");
+        false
+    })
+}
+
+/// Asks `CrashReport.saveSession` to write a report of the running session to Downloads. The
+/// Java side writes it on its own worker and shows the result, so this returns at once.
+pub(super) fn save_diagnostic_report() -> Result<(), String> {
+    with_report_class(|env, class, application| {
+        env.call_static_method(
+            class,
+            "saveSession",
+            "(Landroid/content/Context;)V",
+            &[application.into()],
+        )?;
+        Ok(())
+    })
+}
+
+/// Runs `call` with the app's `CrashReport` class and the application context. The class is
+/// loaded through the app's loader because threads attached from native code only see system
+/// classes. A Java exception is cleared and returned as its message.
+fn with_report_class<T>(
+    call: impl FnOnce(&mut JNIEnv, JClass, &JObject) -> jni::errors::Result<T>,
+) -> Result<T, String> {
+    let context = ndk_context::android_context();
+    // The Android runtime owns the VM and the application context for the process lifetime.
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }.map_err(|e| e.to_string())?;
+    let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+    let application = unsafe { JObject::from_raw(context.context().cast()) };
+    let result =
+        report_class(&mut env, &application).and_then(|class| call(&mut env, class, &application));
+    result.map_err(|error| pending_exception(&mut env).unwrap_or_else(|| error.to_string()))
+}
+
+/// Loads the app's `CrashReport` class through the application's class loader.
+fn report_class<'local>(
+    env: &mut JNIEnv<'local>,
+    application: &JObject,
+) -> jni::errors::Result<JClass<'local>> {
+    let loader = env
+        .call_method(
+            application,
+            "getClassLoader",
+            "()Ljava/lang/ClassLoader;",
+            &[],
+        )?
+        .l()?;
+    let name = env.new_string(format!("{}.CrashReport", java_package()))?;
+    let class = env
+        .call_method(
+            &loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[(&name).into()],
+        )?
+        .l()?;
+    Ok(JClass::from(class))
+}
+
 /// Clears a pending Java exception and returns its message, or its class when it has none, for
 /// the import status line.
 fn pending_exception(env: &mut JNIEnv) -> Option<String> {

@@ -35,6 +35,7 @@ impl MenuRuntime {
             gamepad_input: self.input_mode.gamepad(),
             touch_input: self.input_mode.touch(),
             touch_available: self.touch_available,
+            saves_diagnostic_report: self.saves_diagnostic_report,
             touch_editor_open: self.touch_editor_active(),
             server_tab: self.server_tab,
             profile_tab: self.profile_tab,

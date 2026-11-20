@@ -57,6 +57,42 @@ fn is_desktop(os: &str) -> bool {
     matches!(os, "linux" | "macos" | "windows")
 }
 
+/// Whether [`save_diagnostic_report`] can save a report on this device. Only Android can: its
+/// app storage is private, so a tester has no other way to reach the client log. Desktop logs
+/// are ordinary files.
+pub fn saves_diagnostic_reports() -> bool {
+    #[cfg(target_os = "android")]
+    {
+        static SAVES: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *SAVES.get_or_init(android::saves_diagnostic_reports)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        false
+    }
+}
+
+/// Saves a report of the running session where the user can share it: on Android, a ZIP in
+/// Downloads with device details and the client log so far. Returns at once; the platform shows
+/// whether the save worked. Does nothing but log where [`saves_diagnostic_reports`] is false.
+pub fn save_diagnostic_report() {
+    #[cfg(target_os = "android")]
+    if saves_diagnostic_reports() {
+        let spawned = std::thread::Builder::new()
+            .name("save-report".into())
+            .spawn(|| {
+                if let Err(error) = android::save_diagnostic_report() {
+                    tracing::warn!("the diagnostic report could not be saved: {error}");
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!("could not start the diagnostic report: {error}");
+        }
+        return;
+    }
+    tracing::warn!("this platform cannot save a diagnostic report");
+}
+
 /// Creates `dir` if needed and shows it in the OS file manager on a worker thread.
 pub fn open_folder(dir: PathBuf) {
     if !opens_folders() {

@@ -3,6 +3,8 @@
 use anyhow::{Context, Result};
 use launcher_host::lifecycle::{crash, update};
 
+#[cfg(any(test, target_os = "android"))]
+pub(crate) mod adapter_record;
 mod client_logs;
 pub(crate) mod heartbeat;
 

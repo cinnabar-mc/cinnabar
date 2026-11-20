@@ -197,6 +197,12 @@ pub(super) const PAGE_STATES: &[State] = &[
         fixture: || settings_page(SettingSection::General, false),
     },
     State {
+        name: "settings-general-diagnostics",
+        size: [1280, 1500],
+        gui_scale: GUI_SCALE,
+        fixture: settings_general_report,
+    },
+    State {
         name: "settings-creator-page",
         size: [1280, 1300],
         gui_scale: GUI_SCALE,
@@ -229,6 +235,13 @@ fn settings_page(section: SettingSection, signed_in: bool) -> Fixture {
     if signed_in {
         view.auth_state = launcher::menu::auth::AuthState::Authenticated;
     }
+    Fixture::Menu(Box::new(view))
+}
+
+/// The General page on a host that can save a diagnostic report, as Android does.
+fn settings_general_report() -> Fixture {
+    let mut view = settings(SettingSection::General.definition().name);
+    view.saves_diagnostic_report = true;
     Fixture::Menu(Box::new(view))
 }
 
