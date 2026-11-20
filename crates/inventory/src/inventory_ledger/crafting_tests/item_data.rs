@@ -84,6 +84,40 @@ fn item_data_ordinary_manual_recipes_consume_named_inputs_without_copying_the_na
     }
 }
 
+/// A server recipe's named result is crafted, and declared to the server, with its item data.
+#[test]
+fn item_data_named_recipe_results_keep_their_name() {
+    let named = protocol::edit_item_extra(
+        &[],
+        &protocol::ItemNbtEdit {
+            custom_name: Some(Some("Sapphire planks".to_owned())),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut output = OutputFixture::new(PLANKS, 4);
+    output.user_data = named.to_vec();
+    let ingredient = IngredientFixture::named("minecraft:oak_log", 0);
+    let mut recipe =
+        RecipeFixture::shaped("test:named_result", 1, 1, vec![ingredient], vec![output]);
+    recipe.net_id = 56;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![recipe]).update()));
+    let recipe = catalog.recipe(56).expect("a named result keeps its recipe");
+    let mut ledger = named_ledger();
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 2)));
+    assert_eq!(unique(&ledger, &catalog).network_id(), 56);
+    ledger.begin_craft(&recipe, 1).unwrap();
+    let crafted = ledger.cursor_stack().unwrap();
+    assert_eq!(
+        protocol::item_custom_name(&crafted.extra_data).as_deref(),
+        Some("Sapphire planks")
+    );
+    assert!(ledger.newest_request().unwrap().actions.iter().any(|action| matches!(action,
+        StackRequestAction::CraftResultsDeprecated { results, .. } if results[0].user_data == named)));
+}
+
 #[test]
 fn item_data_recipe_book_consumes_named_inputs_with_their_current_stack_identity() {
     for tagged in [false, true] {

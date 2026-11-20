@@ -90,6 +90,8 @@ pub(super) fn decode_with_credits(
                 n.checked_add(identities_count.checked_mul(size_of::<RecipeIdentity>() + 64)?)
             })
             .and_then(|n| n.checked_add(reader.string_bytes()))
+            // Every result's item data, of which named results keep a copy.
+            .and_then(|n| n.checked_add(reader.opaque_bytes()))
             .and_then(|n| n.checked_add(512))
             .ok_or(Refusal::Policy)?;
         if charge > MAX_UPDATE_BYTES {
@@ -162,7 +164,7 @@ pub(super) fn decode_with_credits(
                         mirror: candidate.mirror,
                         priority: candidate.priority,
                         ingredients,
-                        output: candidate.output,
+                        output: candidate.output.owned()?,
                         extra_outputs: candidate.extra.read()?.into_boxed_slice(),
                     })
                 } else {
@@ -203,13 +205,17 @@ pub(super) fn decode_with_credits(
                                 id: record.id,
                                 kind: record.kind,
                                 ingredients,
-                                output: record.output.map(|output| RecipeOutput {
-                                    network_id: output.id,
-                                    aux: output.aux,
-                                    count: output.count,
-                                    block_runtime_id: output.block,
-                                    user_data: output.user_data,
-                                }),
+                                output: record
+                                    .output
+                                    .map(|output| output.owned())
+                                    .transpose()?
+                                    .map(|output| RecipeOutput {
+                                        network_id: output.id,
+                                        aux: output.aux,
+                                        count: output.count,
+                                        block_runtime_id: output.block,
+                                        user_data: output.user_data,
+                                    }),
                             });
                         }
                     }
