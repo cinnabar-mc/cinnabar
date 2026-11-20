@@ -188,17 +188,33 @@ pub(crate) fn engine_frame_input<'a, 'p>(
 /// released after V within the same frame decides V. That gives up the rare Ctrl+V released
 /// within one frame, but a release Bevy recovers and appends after V, such as a Command key-up
 /// macOS swallowed, never pastes.
+///
+/// Alt held at any point in the frame also counts as held at its end, for this frame only:
+/// Ctrl+Alt (AltGr on Windows) types characters such as `@`, which an Alt release later in the
+/// same frame must not turn into a shortcut.
 fn form_held_keys(
     modifiers: &mut ButtonInput<KeyCode>,
     keys: &ButtonInput<KeyCode>,
     events: &[KeyboardInput],
 ) -> Vec<KeyboardKey> {
+    const ALT: [KeyCode; 2] = [KeyCode::AltLeft, KeyCode::AltRight];
     chat_modifiers::capture_before_events(modifiers, keys, events);
+    let alt = ALT
+        .into_iter()
+        .find(|key| modifiers.pressed(*key))
+        .or_else(|| {
+            events
+                .iter()
+                .map(|input| input.key_code)
+                .find(|key| ALT.contains(key))
+        });
     for input in events {
         chat_modifiers::track(modifiers, input);
     }
     let mut held = modifiers.clone();
-    keys.get_pressed().for_each(|key| held.press(*key));
+    keys.get_pressed()
+        .chain(&alt)
+        .for_each(|key| held.press(*key));
     held.get_pressed().map(|key| keyboard_key(*key)).collect()
 }
 
@@ -656,6 +672,34 @@ mod focus_tests {
         );
         assert!(!shortcut(&held));
         let held = frame(&mut modifiers, &[KeyCode::KeyV], &[press(KeyCode::KeyV)]);
+        assert!(!shortcut(&held));
+    }
+
+    // German Windows types `@` with Ctrl+left Alt+Q; Alt released in the same frame as Q must not
+    // turn the character into a shortcut while Ctrl is retained from an earlier frame.
+    #[test]
+    fn ctrl_alt_text_with_a_same_frame_alt_release_stays_typed() {
+        let mut modifiers = ButtonInput::default();
+        let (ctrl, alt) = (KeyCode::ControlLeft, KeyCode::AltLeft);
+        frame(&mut modifiers, &[ctrl, alt], &[press(ctrl), press(alt)]);
+        let at = key_event(KeyCode::KeyQ, ButtonState::Pressed, Some("@"));
+        let held = frame(&mut modifiers, &[KeyCode::KeyQ], &[at, release(alt)]);
+        assert!(!shortcut(&held));
+        // Alt counts only for the frame it was held in.
+        let held = frame(&mut modifiers, &[KeyCode::KeyV], &[press(KeyCode::KeyV)]);
+        assert!(shortcut(&held));
+    }
+
+    #[test]
+    fn alt_pressed_and_released_around_v_with_ctrl_held_leaves_v_typed_text() {
+        let mut modifiers = ButtonInput::default();
+        let (ctrl, alt) = (KeyCode::ControlLeft, KeyCode::AltLeft);
+        frame(&mut modifiers, &[ctrl], &[press(ctrl)]);
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::KeyV],
+            &[press(alt), press(KeyCode::KeyV), release(alt)],
+        );
         assert!(!shortcut(&held));
     }
 
