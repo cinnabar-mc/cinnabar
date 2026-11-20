@@ -841,6 +841,8 @@ pub struct Merged {
     pub control_modes: Option<GameplayControlModes>,
     pub commands: Vec<String>,
     pub cues: Vec<ModCue>,
+    /// Sounds every mod asked to play this frame, in load order.
+    pub sounds: Vec<mod_host::ModSound>,
 }
 
 impl Merged {
@@ -891,6 +893,7 @@ impl Merged {
         self.weather_override = self.weather_override.or(host.weather_override());
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
+        self.sounds.extend(host.take_sounds());
     }
 }
 

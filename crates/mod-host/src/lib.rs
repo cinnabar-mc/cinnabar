@@ -124,6 +124,15 @@ pub struct InteractionOutput {
     pub block_mining_target: Option<GameplayVector3>,
 }
 
+/// A sound a mod asked to play once, committed with its frame and consumed once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModSound {
+    /// A sound definition name, validated by the host.
+    pub name: String,
+    pub volume: f32,
+    pub pitch: f32,
+}
+
 /// A vanilla inventory request a player mod committed, consumed once; the client makes it as
 /// the vanilla screen it stands for would, and the server checks it.
 #[derive(Clone, Debug, PartialEq, Eq)]

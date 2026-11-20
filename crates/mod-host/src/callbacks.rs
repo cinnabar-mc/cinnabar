@@ -209,6 +209,11 @@ impl ModHost {
         self.instance.take_cues()
     }
 
+    /// Consumes the last successful frame's requested sounds once.
+    pub fn take_sounds(&mut self) -> Vec<crate::ModSound> {
+        self.instance.take_sounds()
+    }
+
     /// Queues committed preferences on the active persistence lane without waiting for disk.
     pub(super) fn queue_settings(&mut self) {
         if let Some(writer) = &self.settings_writer

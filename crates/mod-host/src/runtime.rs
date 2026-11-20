@@ -760,6 +760,10 @@ impl Instance {
         std::mem::take(&mut self.store.data_mut().world.cues)
     }
 
+    pub(super) fn take_sounds(&mut self) -> Vec<crate::ModSound> {
+        std::mem::take(&mut self.store.data_mut().world.sounds)
+    }
+
     pub(super) fn take_camera_delta(&mut self) -> Option<CameraDelta> {
         let blocked = self.store.data().exclusive.camera;
         self.store

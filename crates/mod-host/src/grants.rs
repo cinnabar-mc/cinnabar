@@ -205,8 +205,8 @@ grants! {
     /// Allows retained local fullbright lighting, without altering server light data.
     #[permission("Fullbright", false)]
     pub fullbright: bool,
-    /// Allows sound handlers that observe and cancel local sound playback requests.
-    #[permission("Sound filtering", false)]
+    /// Allows sound handlers that cancel local sound playback requests, and bounded named sounds.
+    #[permission("Sound", false)]
     pub audio: bool,
     /// Lets a trusted packet mod see and change every session packet, and add resource packs.
     #[permission("Session packets", true, true)]

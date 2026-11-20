@@ -107,6 +107,13 @@ decodes are not offered again, and playing sounds are not stopped. Managed loops
 offer a new start when they need one, so a later call may admit a previously
 cancelled loop. Resource packs are observed after routing to their sound definitions.
 
+Playing a sound is a separate, one-shot request: `gameplay.play-sound` plays a named sound
+definition once, non-positionally, after the frame returns. It needs the same `audio` grant. A
+mod can ask for at most `MAX_SOUNDS_PER_FRAME` sounds per frame, at a volume up to
+`MAX_PLAYED_SOUND_VOLUME` and a pitch between `MIN_PLAYED_SOUND_PITCH` and
+`MAX_PLAYED_SOUND_PITCH` (see [limits](../reference/limits.md)). A name no sound definition has
+plays nothing. It cannot start loops, place a sound in the world or stop one.
+
 ### Teleports
 
 With the `camera` grant, `handle-teleport` receives each committed local-player

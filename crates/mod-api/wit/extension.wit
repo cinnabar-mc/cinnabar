@@ -664,7 +664,7 @@ interface environment {
 }
 
 /// Explicit local gameplay capabilities; no raw packet access.
-/// Grants: Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `commands` or `packet_delay`; see each function.
+/// Grants: Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `commands`, `packet_delay` or `audio`; see each function.
 interface gameplay {
     /// Three coordinates; the containing record or function specifies their units and frame.
     record vector3 { x: f32, y: f32, z: f32 }
@@ -777,6 +777,14 @@ interface gameplay {
 
     /// Sent as a player command request after frame returns; the command must be granted by name.
     request-command: func(command: string) -> result<_, string>;
+
+    /// Requires audio. Plays a named sound definition once, non-positionally, after frame
+    /// returns; a name no loaded sound definition has plays nothing. The name is at most
+    /// MAX_SOUND_NAME_BYTES of printable ASCII, volume is 0 to MAX_PLAYED_SOUND_VOLUME and pitch
+    /// MIN_PLAYED_SOUND_PITCH to MAX_PLAYED_SOUND_PITCH. At most MAX_SOUNDS_PER_FRAME per frame; a
+    /// request that frame cannot commit is dropped. It cannot start loops, move a sound or stop
+    /// one.
+    play-sound: func(name: string, volume: f32, pitch: f32) -> result<_, string>;
 }
 
 /// Local presentation cues shared by loaded mods; they carry no authority.
