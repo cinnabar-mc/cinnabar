@@ -36,6 +36,10 @@ pub(crate) const UI_COMPOSITE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("f5b1f3c2-7a0e-4d0c-9c5e-3a8a4b1e6d21");
 /// The UI layer's format: raw bytes, so blending happens on sRGB-encoded values.
 pub(crate) const UI_LAYER_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+/// Debug labels of the composite and damage-clear pipelines. The UI layer cannot reach the
+/// screen without them, so a driver failing to build one stops the client.
+pub(crate) const COMPOSITE_LABEL: &str = "gamma-space UI composite";
+pub(crate) const CLEAR_LABEL: &str = "retained UI damage clear";
 pub(super) const UI_LAYER_BYTES_PER_TEXEL: u64 = {
     assert!(matches!(UI_LAYER_FORMAT, TextureFormat::Rgba8Unorm));
     4
@@ -531,7 +535,7 @@ impl FromWorld for UiCompositePipeline {
         let layout =
             BindGroupLayoutDescriptor::new("UI composite layout", &[texture(0), texture(1)]);
         let descriptor = RenderPipelineDescriptor {
-            label: Some("gamma-space UI composite".into()),
+            label: Some(COMPOSITE_LABEL.into()),
             layout: vec![layout.clone()],
             vertex: VertexState {
                 shader: UI_COMPOSITE_SHADER_HANDLE,
@@ -621,7 +625,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for UiCompositePipeline {
 /// Clears a scissored rectangle without reading or blending the old gamma-space layer.
 pub(super) fn clear_pipeline_descriptor() -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
-        label: Some("retained UI damage clear".into()),
+        label: Some(CLEAR_LABEL.into()),
         vertex: VertexState {
             shader: UI_COMPOSITE_SHADER_HANDLE,
             entry_point: Some("composite_vertex".into()),

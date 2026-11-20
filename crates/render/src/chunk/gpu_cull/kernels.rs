@@ -192,7 +192,8 @@ pub struct CullKernels {
 
 impl CullKernels {
     /// Creates kernels only after admission has established compatible device limits.
-    pub fn new(device: &wgpu::Device) -> Self {
+    /// Fails when the driver cannot build a shader module or a kernel.
+    pub fn new(device: &wgpu::Device) -> Result<Self, driver_failure::DriverFailure> {
         let workgroup =
             cull_workgroup(&device.limits()).expect("cull kernels require compatible limits");
         let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
@@ -241,13 +242,16 @@ impl CullKernels {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.count(render_scene::startup_timing::WORLD_SHADER_MODULES, 1);
             }
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(label),
-                source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
-            })
+            driver_failure::shader_module(
+                device,
+                wgpu::ShaderModuleDescriptor {
+                    label: Some(label),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
+                },
+            )
         };
-        let cull = module("terrain cull", cull_shader_source(workgroup));
-        let pyramid = module("terrain hi-z", pyramid_shader_source().to_owned());
+        let cull = module("terrain cull", cull_shader_source(workgroup))?;
+        let pyramid = module("terrain hi-z", pyramid_shader_source().to_owned())?;
         let pipeline = |module, layout: Option<&wgpu::PipelineLayout>, entry: &str| {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.count(render_scene::startup_timing::WORLD_COMPUTE_PIPELINES, 1);
@@ -281,7 +285,7 @@ impl CullKernels {
             usage: wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        Self {
+        driver_failure::catch(device, || Self {
             workgroup,
             count: pipeline(&cull, Some(&pipeline_layout), "cull_count"),
             scan: pipeline(&cull, Some(&pipeline_layout), "cull_scan"),
@@ -292,7 +296,7 @@ impl CullKernels {
             occlusion: pipeline(&cull, None, "cull_occlusion"),
             blank_pyramid: blank.create_view(&Default::default()),
             layout,
-        }
+        })
     }
 
     /// One bind group per phase; the late one tests `pyramid` when there is one.

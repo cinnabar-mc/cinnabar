@@ -1,6 +1,16 @@
 //! Canonical descriptors shared by specialization and descriptor contract tests.
 use super::*;
 
+/// Debug labels of the terrain pipelines, in [`build`]'s order. The world cannot be drawn
+/// without them, so a driver failing to build one stops the client.
+pub(crate) const LABELS: [&str; 5] = [
+    "packed chunk pipeline",
+    "packed model pipeline",
+    "packed solid chunk pipeline",
+    "packed transparent terrain pipeline",
+    "packed depth-writing liquid pipeline",
+];
+
 /// Builds all terrain variants before specialization adds per-view shader definitions.
 pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
     let transparent_bind_group_layout = if compact {
@@ -14,7 +24,7 @@ pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
         opaque_chunk_bind_group_layout()
     };
     let mut descriptor = RenderPipelineDescriptor {
-        label: Some("packed chunk pipeline".into()),
+        label: Some(LABELS[0].into()),
         layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
         vertex: VertexState {
             shader: CHUNK_SHADER_HANDLE,
@@ -57,7 +67,7 @@ pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
             .push("PACKED_TERRAIN".into());
     }
     let mut model_descriptor = descriptor.clone();
-    model_descriptor.label = Some("packed model pipeline".into());
+    model_descriptor.label = Some(LABELS[1].into());
     model_descriptor.vertex.shader = MODEL_SHADER_HANDLE;
     model_descriptor
         .fragment
@@ -72,7 +82,7 @@ pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
     model_descriptor.primitive.cull_mode = None;
     // Single-sided opaque cube runs: hardware culling replaces both fragment discards.
     let mut solid_descriptor = descriptor.clone();
-    solid_descriptor.label = Some("packed solid chunk pipeline".into());
+    solid_descriptor.label = Some(LABELS[2].into());
     solid_descriptor.primitive.cull_mode = Some(bevy::render::render_resource::Face::Back);
     solid_descriptor
         .fragment
@@ -80,7 +90,7 @@ pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
         .expect("solid fragment")
         .entry_point = Some("fragment_solid".into());
     let mut transparent_descriptor = descriptor.clone();
-    transparent_descriptor.label = Some("packed transparent terrain pipeline".into());
+    transparent_descriptor.label = Some(LABELS[3].into());
     transparent_descriptor.vertex.shader = TRANSPARENT_SHADER_HANDLE;
     transparent_descriptor.vertex.entry_point = Some("vertex".into());
     // Sorted transparency is never GPU-culled and indexes its refs by instance.
@@ -95,7 +105,7 @@ pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
     terrain_blend::apply(&mut transparent_descriptor);
     transparent_descriptor.primitive.cull_mode = None;
     let mut depth_liquid_descriptor = descriptor.clone();
-    depth_liquid_descriptor.label = Some("packed depth-writing liquid pipeline".into());
+    depth_liquid_descriptor.label = Some(LABELS[4].into());
     depth_liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
     depth_liquid_descriptor.vertex.entry_point = Some("vertex_depth".into());
     let depth_fragment = depth_liquid_descriptor

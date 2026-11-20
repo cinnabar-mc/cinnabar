@@ -2,11 +2,13 @@
 
 use bevy::render::error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy};
 
-/// Stops rendering so the app can report the GPU failure before requesting an exit.
+/// Stops rendering so the app can report the GPU failure before requesting an exit, and
+/// reports a required pipeline the driver could not build through the same failure.
 /// Install after the render plugin so this handler replaces the default.
 pub fn install_error_policy(app: &mut bevy::app::App) {
     app.init_resource::<GpuFailure>()
         .insert_resource(RenderErrorHandler(error_policy));
+    crate::pipeline_failure::install(app);
 }
 
 /// The first terminal GPU failure; the app stops and shows the driver's report.

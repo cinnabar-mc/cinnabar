@@ -4,6 +4,7 @@ use crate::device_settings::vertex_storage_buffers;
 #[cfg(test)]
 mod cutout_contact_tests;
 pub(in crate::chunk) mod descriptors;
+pub(crate) use descriptors::LABELS as TERRAIN_PIPELINE_LABELS;
 mod terrain_blend;
 mod terrain_cutout;
 

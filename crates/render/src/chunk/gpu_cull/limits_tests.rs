@@ -29,8 +29,20 @@ fn kernels_fit_128_thread_devices() {
             false,
             &limits
         ));
-        assert_eq!(CullKernels::new(&device).workgroup, 128);
+        assert_eq!(CullKernels::new(&device).unwrap().workgroup, 128);
     }
+}
+
+/// A kernel the driver cannot build fails construction instead of reaching the device's
+/// uncaptured-error handler, which panics on this device; the owners then stay uninstalled.
+#[test]
+fn a_kernel_the_driver_cannot_build_fails_construction() {
+    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    driver_failure::test_support::fail_next_pipeline(&device);
+    assert!(CullKernels::new(&device).is_err());
+    driver_failure::test_support::fail_next_pipeline(&device);
+    assert!(super::unit_mask::UnitMasks::new(&device).is_err());
+    assert!(CullKernels::new(&device).is_ok());
 }
 
 /// Missing any required kernel resource keeps both drawing modes on CPU visibility.

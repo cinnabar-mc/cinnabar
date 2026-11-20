@@ -14,34 +14,36 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-type DeviceKey = (wgpu::Device, usize);
+pub(crate) type DeviceKey = (wgpu::Device, usize);
 type FailureObservers = std::collections::HashMap<DeviceKey, Weak<AtomicBool>>;
 
 /// Distinguishes devices whose wgpu IDs may repeat across independent native instances.
 fn device_key(device: &RenderDevice) -> DeviceKey {
+    wgpu_device_key(device.wgpu_device())
+}
+
+/// [`device_key`] for owners that hold the raw device.
+pub(crate) fn wgpu_device_key(device: &wgpu::Device) -> DeviceKey {
     #[cfg(not(target_arch = "wasm32"))]
     let address = {
-        let mut address = native_device_address::<wgpu::hal::api::Noop>(device.wgpu_device());
+        let mut address = native_device_address::<wgpu::hal::api::Noop>(device);
         #[cfg(target_vendor = "apple")]
         {
-            address = address
-                .or_else(|| native_device_address::<wgpu::hal::api::Metal>(device.wgpu_device()));
+            address = address.or_else(|| native_device_address::<wgpu::hal::api::Metal>(device));
         }
         #[cfg(not(target_vendor = "apple"))]
         {
-            address = address
-                .or_else(|| native_device_address::<wgpu::hal::api::Vulkan>(device.wgpu_device()));
+            address = address.or_else(|| native_device_address::<wgpu::hal::api::Vulkan>(device));
         }
         #[cfg(target_os = "windows")]
         {
-            address = address
-                .or_else(|| native_device_address::<wgpu::hal::api::Dx12>(device.wgpu_device()));
+            address = address.or_else(|| native_device_address::<wgpu::hal::api::Dx12>(device));
         }
         address.unwrap_or(0)
     };
     #[cfg(target_arch = "wasm32")]
     let address = 0;
-    (device.wgpu_device().clone(), address)
+    (device.clone(), address)
 }
 
 /// Borrows a native device only to identify its stable address; it is never modified.

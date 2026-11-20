@@ -15,6 +15,11 @@ const UNLOADED_SHADER: Handle<Shader> = uuid_handle!("5b0e7c3d-8a41-4f2e-9d6b-1c
 
 /// Validation-only backend with synchronous compilation, so `process_queue` finishes each pipeline.
 fn cache() -> PipelineCache {
+    cache_on(device())
+}
+
+/// A device of the validation-only backend.
+fn device() -> wgpu::Device {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -28,7 +33,11 @@ fn cache() -> PipelineCache {
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&default())).unwrap();
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&default())).unwrap();
+    device
+}
 
+/// A synchronously compiling cache on `device`, which the caller may keep to inject failures.
+fn cache_on(device: wgpu::Device) -> PipelineCache {
     let mut cache = PipelineCache::new(RenderDevice::from(device), true);
     cache.set_shader(
         Handle::<Shader>::default().id(),
@@ -217,6 +226,40 @@ fn cancelled_sample_requests_do_not_hold_ready_views() {
     world.resource_mut::<SampleCountPreflight>().request(None);
     world.run_schedule(Render);
     assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+}
+
+/// A pipeline the driver could not build is terminal: it is recorded once and stops holding
+/// loading, while the variants that compiled stay usable.
+#[test]
+fn a_driver_failure_is_terminal_and_does_not_hold_loading() {
+    let device = device();
+    let mut world = world(Handle::default());
+    world.insert_resource(cache_on(device.clone()));
+    let warm = world.register_system(prewarm_owner::<TwoModes>);
+    warm_frame(&mut world, warm);
+    driver_failure::test_support::fail_next_pipeline(&device);
+    world.resource_mut::<PipelineCache>().process_queue();
+    for _ in 0..2 {
+        assert!(
+            ready(&mut world),
+            "a terminal failure must not hold loading"
+        );
+        world.resource_mut::<PipelineCache>().process_queue();
+    }
+    let registry = world.resource::<WarmupRegistry>();
+    let cache = world.resource::<PipelineCache>();
+    let failed: Vec<_> = registry.failed.iter().copied().collect();
+    assert_eq!(failed.len(), 1);
+    assert!(matches!(
+        cache.get_render_pipeline_state(failed[0]),
+        CachedPipelineState::Err(bevy::shader::ShaderCacheError::CreatePipeline(_))
+    ));
+    let compiled = registry
+        .ids
+        .iter()
+        .filter(|&&id| cache.get_render_pipeline(id).is_some())
+        .count();
+    assert_eq!(compiled, 1);
 }
 
 #[test]

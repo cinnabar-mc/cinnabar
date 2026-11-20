@@ -84,6 +84,7 @@ mod particle_render;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod pipeline_compilation;
+mod pipeline_failure;
 mod pipeline_warmup;
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline_compilation::PipelineCompilationPlugin;

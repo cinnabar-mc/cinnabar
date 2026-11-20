@@ -21,7 +21,7 @@ impl<'a> Occluder<'a> {
         let capacity = (records.len() as u32).next_power_of_two().max(256);
         let occluder = Self {
             gpu,
-            kernels: CullKernels::new(&gpu.device),
+            kernels: CullKernels::new(&gpu.device).unwrap(),
             storage: OcclusionStorage::new(&gpu.device, capacity),
             slots: records.len() as u32,
         };

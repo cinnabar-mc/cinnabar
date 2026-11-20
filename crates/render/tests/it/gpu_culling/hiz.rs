@@ -113,7 +113,7 @@ fn hi_z_pyramid_keeps_the_farthest_depth_of_every_footprint() {
     let Some(gpu) = Gpu::for_fixture("terrain hi-z pyramid") else {
         return;
     };
-    let kernels = CullKernels::new(&gpu.device);
+    let kernels = CullKernels::new(&gpu.device).unwrap();
     let camera = camera(Vec3::ZERO, Vec3::NEG_Z);
     let boxes = [
         [-6.0, -6.0, -30.0, 1.0, 6.0, 6.0, -29.0, 0.0],
@@ -183,7 +183,7 @@ fn hi_z_pyramid_covers_every_pixel_of_display_sized_targets() {
     let Some(gpu) = Gpu::for_fixture("terrain hi-z display sizes") else {
         return;
     };
-    let kernels = CullKernels::new(&gpu.device);
+    let kernels = CullKernels::new(&gpu.device).unwrap();
     for size in [[1920, 1080], [2560, 1440], [3024, 1834], [1366, 767]] {
         let sizes = kernels::pyramid_sizes(size);
         assert!(sizes[0][0] * 2 >= size[0] && sizes[0][1] * 2 >= size[1]);

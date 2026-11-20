@@ -324,3 +324,18 @@ fn cutout_pipeline_warmup_covers_every_sample_count() {
         }
     }
 }
+
+/// Every terrain variant must stop the client when the driver cannot build it, so a variant
+/// added to the descriptor set cannot be left out of that policy.
+#[test]
+fn every_terrain_descriptor_is_a_required_pipeline() {
+    for compact in [false, true] {
+        for descriptor in descriptors::build(compact) {
+            let label = descriptor
+                .label
+                .as_deref()
+                .expect("terrain pipelines are labelled");
+            assert!(crate::pipeline_failure::required(label), "{label}");
+        }
+    }
+}

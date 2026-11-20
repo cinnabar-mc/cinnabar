@@ -185,6 +185,9 @@ mod tests {
         assert!(!settled(&CachedPipelineState::Queued));
         let failed = ShaderCacheError::CreateShaderModule("bad".into());
         assert!(settled(&CachedPipelineState::Err(failed)));
+        let driver = ShaderCacheError::CreatePipeline("driver refused".into());
+        assert!(!retryable(&driver));
+        assert!(settled(&CachedPipelineState::Err(driver)));
     }
 
     #[test]

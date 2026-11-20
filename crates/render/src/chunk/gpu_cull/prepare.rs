@@ -88,9 +88,13 @@ pub(in crate::chunk) struct GpuCull {
 }
 
 impl GpuCull {
-    pub(super) fn new(device: &RenderDevice, submission: GpuCullSubmission) -> Self {
-        Self {
-            kernels: CullKernels::new(device.wgpu_device()),
+    /// Fails when the driver cannot build the cull kernels.
+    pub(super) fn new(
+        device: &RenderDevice,
+        submission: GpuCullSubmission,
+    ) -> Result<Self, driver_failure::DriverFailure> {
+        Ok(Self {
+            kernels: CullKernels::new(device.wgpu_device())?,
             submission,
             storage: None,
             ready: false,
@@ -109,7 +113,7 @@ impl GpuCull {
             bind_groups: None,
             bound_pyramid: None,
             prepared_view: None,
-        }
+        })
     }
 
     /// Replaces storage and rewrites every record and draw order into it.
@@ -304,7 +308,7 @@ pub(super) fn prepare_gpu_cull(
             .as_ref()
             .is_none_or(|raster| raster.format != format || raster.samples != msaa.samples())
         {
-            cull.raster =
+            let built =
                 crate::gpu_allocation::checked(&device, "terrain raster occlusion", 0, || {
                     super::raster::RasterCull::new(
                         device.wgpu_device(),
@@ -314,6 +318,11 @@ pub(super) fn prepare_gpu_cull(
                         msaa.samples(),
                     )
                 });
+            // A driver failure is not attempted again: the Hi-Z test takes over for the session.
+            cull.raster_enabled = !matches!(built, Some(Err(_)));
+            cull.raster = built.and_then(|built| {
+                crate::pipeline_failure::unavailable("terrain raster occlusion", built)
+            });
         }
     } else {
         cull.raster = None;
