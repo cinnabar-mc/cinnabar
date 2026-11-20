@@ -19,6 +19,12 @@ mod material_shader;
 mod motion_blur_shader;
 #[path = "../../src/nametag_render/shader.rs"]
 mod nametag_shader;
+#[path = "../../src/pipeline_breadcrumbs.rs"]
+#[allow(
+    dead_code,
+    reason = "fixtures compile pipelines without installing the log writer"
+)]
+mod pipeline_breadcrumbs;
 #[path = "../../src/queue_writes.rs"]
 #[allow(
     dead_code,

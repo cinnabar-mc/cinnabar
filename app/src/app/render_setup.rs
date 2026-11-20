@@ -56,7 +56,16 @@ impl bevy::prelude::Plugin for RendererSetup {
         app.add_plugins(render::PipelineCompilationPlugin {
             cache_dir: self.pipeline_cache_dir.clone(),
         });
+        app.add_plugins(render::PipelineBreadcrumbPlugin {
+            writer: write_breadcrumb,
+        });
     }
+}
+
+/// Writes a pipeline-compile line straight to the session log file. Queued log output is lost
+/// when a driver faults in native code, which is when these lines are needed.
+fn write_breadcrumb(line: &str) {
+    device::log(format_args!("{line}"));
 }
 
 /// Carries a plugin-build failure back to the fallible application entry point.

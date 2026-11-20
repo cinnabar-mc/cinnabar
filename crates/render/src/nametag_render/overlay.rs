@@ -1,6 +1,7 @@
 //! Composes world labels in encoded colour after the world's final post-process pass.
 
 use super::*;
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
@@ -135,7 +136,7 @@ pub(super) fn prepare(
         let composite =
             device
                 .wgpu_device()
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                .compile_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("nametag encoded composite"),
                     layout: None,
                     vertex: wgpu::VertexState {

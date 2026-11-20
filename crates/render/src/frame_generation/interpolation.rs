@@ -9,6 +9,7 @@
 //! level has a separate dispatch. The caller supplies SDR colour without overlays
 //! and composites the interface separately after interpolation.
 
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use glam::Mat4;
 
 /// One real frame's inputs.
@@ -302,7 +303,7 @@ impl Interpolation {
             source: wgpu::ShaderSource::Wgsl(include_str!("interpolation.wgsl").into()),
         });
         let pipeline = |entry: &str| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.compile_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
                 module: &module,

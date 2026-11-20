@@ -1,4 +1,5 @@
 //! Keeps the hand outside grading without copying the graded scene into MSAA.
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use crate::scene_target::SceneTarget;
 use bevy::{
     prelude::*,
@@ -45,7 +46,7 @@ impl HandLayer {
             label: Some("enhanced hand composite"),
             source: wgpu::ShaderSource::Wgsl(include_str!("hand_layer.wgsl").into()),
         });
-        let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = gpu.compile_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("enhanced hand composite"),
             layout: None,
             vertex: wgpu::VertexState {

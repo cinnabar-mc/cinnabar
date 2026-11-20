@@ -76,6 +76,99 @@ fn configured_storage_limits_cover_the_renderer_without_lowering_existing_limits
     }
 }
 
+/// An adapter that offers every wgpu feature, as the newest mobile GPUs nearly do.
+fn offering_everything(device_type: wgpu::DeviceType) -> AdapterOffer {
+    AdapterOffer {
+        features: wgpu::Features::all(),
+        limits: wgpu::Limits::default(),
+        device_type,
+    }
+}
+
+#[test]
+fn the_device_requests_only_the_renderer_feature_list_from_an_adapter_offering_everything() {
+    let settings = WgpuSettings::default();
+    for device_type in [
+        wgpu::DeviceType::IntegratedGpu,
+        wgpu::DeviceType::DiscreteGpu,
+    ] {
+        let (features, _) = device_requirements(&offering_everything(device_type), &settings);
+        assert_eq!(
+            features,
+            render::device_features::requested(wgpu::Features::all(), device_type)
+                | settings.features
+        );
+        // Ray tracing would enable acceleration structures and buffer device addresses.
+        let unused = wgpu::Features::all_experimental_mask()
+            | wgpu::Features::ACCELERATION_STRUCTURE_BINDING_ARRAY
+            | wgpu::Features::EXTENDED_ACCELERATION_STRUCTURE_VERTEX_FORMATS
+            | wgpu::Features::SHADER_F16
+            | wgpu::Features::SHADER_INT64
+            | wgpu::Features::TEXTURE_BINDING_ARRAY
+            | wgpu::Features::SUBGROUP;
+        assert!(!features.intersects(unused), "{}", features & unused);
+        assert!(features.contains(
+            render::device_features::RENDERER_FEATURES - wgpu::Features::MAPPABLE_PRIMARY_BUFFERS
+        ));
+    }
+}
+
+#[test]
+fn settings_can_still_disable_and_require_features() {
+    let offer = offering_everything(wgpu::DeviceType::IntegratedGpu);
+    let settings = WgpuSettings {
+        disabled_features: Some(wgpu::Features::TIMESTAMP_QUERY),
+        features: wgpu::Features::DEPTH_CLIP_CONTROL,
+        ..Default::default()
+    };
+    let (features, _) = device_requirements(&offer, &settings);
+    assert!(!features.contains(wgpu::Features::TIMESTAMP_QUERY));
+    assert!(features.contains(wgpu::Features::DEPTH_CLIP_CONTROL));
+    let portable = WgpuSettings {
+        priority: WgpuSettingsPriority::WebGPU,
+        ..Default::default()
+    };
+    assert_eq!(device_requirements(&offer, &portable).0, portable.features);
+}
+
+/// Renderer and shader-pack allocations are sized from the device's limits.
+#[test]
+fn the_device_keeps_the_adapter_limits() {
+    let mut offer = offering_everything(wgpu::DeviceType::IntegratedGpu);
+    offer.limits.max_buffer_size = 1 << 32;
+    offer.limits.max_storage_buffer_binding_size = 1 << 31;
+    offer.limits.max_texture_array_layers = 2048;
+    let (_, limits) = device_requirements(&offer, &WgpuSettings::default());
+    assert_eq!(limits, offer.limits);
+}
+
+#[test]
+fn the_device_request_record_names_the_adapter_driver_and_features() {
+    let info = wgpu::AdapterInfo {
+        name: "Adreno (TM) 750".into(),
+        vendor: 0x5143,
+        device: 0x43051401,
+        driver: "Qualcomm Technologies Inc. Adreno Vulkan Driver".into(),
+        driver_info: "Driver Build: 0762.10".into(),
+        ..wgpu::AdapterInfo::new(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan)
+    };
+    let features = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::PIPELINE_CACHE;
+    let record = device_request_summary(&info, features);
+    for part in [
+        "\"Adreno (TM) 750\"",
+        "vendor 0x5143",
+        "device 0x43051401",
+        "\"Qualcomm Technologies Inc. Adreno Vulkan Driver\"",
+        "\"Driver Build: 0762.10\"",
+        "backend Vulkan",
+        "TIMESTAMP_QUERY",
+        "PIPELINE_CACHE",
+    ] {
+        assert!(record.contains(part), "{record}");
+    }
+    assert!(!record.contains('\n'));
+}
+
 /// Window targets use the adapter's full dimensions without requesting unsupported limits.
 #[test]
 fn window_texture_limits_match_the_adapter_even_for_oversized_requests() {

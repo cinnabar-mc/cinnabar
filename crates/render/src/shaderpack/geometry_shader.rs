@@ -4,6 +4,7 @@ use super::draws::{DrawKind, GeometryDraw};
 use super::geometry::{CONSTANT_STREAM_WORDS, TerrainLayout, vertex_buffer_layouts};
 use super::passes::ViewState;
 use super::targets::Groups;
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use shaderpack::{CompiledStage, GeometryEmulation, ProgramReflection, ScalarType, ValueType};
 use std::borrow::Cow;
 use wgpu::util::StagingBelt;
@@ -282,7 +283,7 @@ pub(crate) fn pipelines(
                 source: wgpu::ShaderSource::Naga(Cow::Owned(stage.module.clone())),
             },
         );
-        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        device.compile_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("geometry shader prepass"),
             layout: Some(&pipeline_layout(layout)),
             module: &module,

@@ -1,5 +1,6 @@
 //! Copies current-frame section verdicts and clears retained flags before direct drawing.
 
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use render_model::terrain_units::IndexedUnitPage;
 use wgpu::util::DeviceExt;
 
@@ -54,7 +55,7 @@ impl UnitMasks {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.count(render_scene::startup_timing::WORLD_COMPUTE_PIPELINES, 1);
             }
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.compile_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("ordinary terrain visibility mask"),
                 layout: Some(&layout),
                 module: &module,

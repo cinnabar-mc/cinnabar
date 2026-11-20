@@ -1,6 +1,7 @@
 //! Mod post passes: each enabled pass reads the previous scene colour and writes the next,
 //! after post-processing and before the HUD, timed per pass slot.
 
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::Vec4Swizzles;
@@ -160,7 +161,7 @@ pub(crate) fn create_pipeline(
         bind_group_layouts: &[Some(layout)],
         immediate_size: 0,
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.compile_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mod post pass"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {

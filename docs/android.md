@@ -22,6 +22,18 @@ duplicate log lines appear once with a repeat count. Include those details when 
 when available. For native crashes on Android 12+, the trace is the original tombstone protobuf;
 attach the ZIP to the crash report. Nothing is uploaded automatically.
 
+The log's startup lines include `Renderer requesting device`, with the GPU, its driver and the
+GPU features in use. Pipeline compiles then write lines straight to the log file, so they
+survive a crash in the graphics driver:
+
+- `Pipeline compile started` and `Pipeline compile finished` bracket one driver call. A `started`
+  line near the end with no matching `finished` line names a pipeline the driver was compiling
+  when the app stopped.
+- `Pipeline compile queued` marks a pipeline handed to a background compile worker, or waiting
+  for a shader. Its `finished` line can trail the compile by a frame, and several can be open at
+  once, so `queued` lines with no `finished` line are candidates, not proof of which pipeline the
+  driver was compiling.
+
 ## Build and install
 
 Install a JDK, Go, CMake, Ninja, a Linux ARM64 GCC/G++ cross-toolchain, librsvg or ImageMagick

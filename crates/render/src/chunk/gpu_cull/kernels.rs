@@ -1,5 +1,6 @@
 //! Cull and depth-pyramid compute kernels on raw wgpu, so fixture tests drive the production code.
 
+use crate::pipeline_breadcrumbs::CompilePipelines as _;
 use std::{borrow::Cow, num::NonZeroU64};
 
 use super::storage::{CullStorage, OcclusionStorage};
@@ -252,7 +253,7 @@ impl CullKernels {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.count(render_scene::startup_timing::WORLD_COMPUTE_PIPELINES, 1);
             }
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            device.compile_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout,
                 module,
