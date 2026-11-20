@@ -308,13 +308,16 @@ fn compiler_routes_all_sign_states_to_reviewed_blank_static_models() {
         let facing = selector >> 4;
         let flags = record.model_state.get(ModelStateField::Flags).unwrap();
         let hanging = flags & MODEL_FLAG_HANGING != 0;
+        let attached = flags & MODEL_FLAG_ATTACHED != 0;
         let peer = oak_hanging
             .iter()
             .find(|peer| {
                 let peer_selector = peer.model_state.get(ModelStateField::Orientation).unwrap();
                 let same_flags = peer.model_state.get(ModelStateField::Flags) == Some(flags);
+                // Ceiling signs hung from edge chains turn by `facing_direction` and ignore
+                // their sixteen-step state; every other form turns by the sixteen-step state.
                 same_flags
-                    && if hanging {
+                    && if hanging && attached {
                         peer_selector & 0x0f == rotation && peer_selector >> 4 == (facing + 1) % 6
                     } else {
                         peer_selector >> 4 == facing && peer_selector & 0x0f == (rotation + 1) % 16
@@ -328,6 +331,75 @@ fn compiler_routes_all_sign_states_to_reviewed_blank_static_models() {
             record.canonical_state
         );
     }
+}
+
+#[test]
+fn ceiling_hanging_sign_board_turns_by_facing_direction_when_it_hangs_from_a_block() {
+    let directory = tempfile::tempdir().expect("create ceiling hanging sign fixture");
+    let records = generated_sign_records()
+        .into_iter()
+        .filter(|record| record.name.as_ref() == "minecraft:oak_hanging_sign")
+        .enumerate()
+        .map(|(id, mut record)| {
+            record.sequential_id = id as u32;
+            record.network_hash = 140_000 + id as u32;
+            record
+        })
+        .collect::<Vec<_>>();
+    write_sign_pack(directory.path(), &records);
+    let compiled = compile_pack(directory.path(), &records).expect("compile ceiling hanging signs");
+
+    let state = |facing: u32, rotation: u32, flags: u32| {
+        let record = records
+            .iter()
+            .find(|record| {
+                record.model_state.get(ModelStateField::Orientation) == Some(rotation | facing << 4)
+                    && record.model_state.get(ModelStateField::Flags) == Some(flags)
+            })
+            .expect("hanging sign selector");
+        let template = compiled.visuals[record.sequential_id as usize].model_template;
+        (template, template_quads(&compiled, template))
+    };
+    let board_bounds = |quads: &[assets::ModelQuad]| model_bounds(&quads[..6]);
+
+    // The reported state: facing west under a ceiling block with the unused sixteen-step
+    // rotation left at zero. The board must be thin along X, like its selection outline,
+    // and its front face must point west.
+    let (west_template, west_quads) = state(4, 0, MODEL_FLAG_HANGING);
+    assert_eq!(board_bounds(west_quads), ([120, 48, 16], [136, 176, 240]));
+    assert!(
+        west_quads[5]
+            .positions
+            .iter()
+            .all(|position| position[0] == 120)
+    );
+
+    // The unused rotation state must not change the geometry of an edge-chain sign.
+    assert_eq!(state(4, 9, MODEL_FLAG_HANGING).0, west_template);
+
+    // Every horizontal facing places the board and its front face on its own axis.
+    for (facing, expected, axis, front) in [
+        (2, ([16, 48, 120], [240, 176, 136]), 2, 120),
+        (3, ([16, 48, 120], [240, 176, 136]), 2, 136),
+        (4, ([120, 48, 16], [136, 176, 240]), 0, 120),
+        (5, ([120, 48, 16], [136, 176, 240]), 0, 136),
+    ] {
+        let (_, quads) = state(facing, 0, MODEL_FLAG_HANGING);
+        assert_eq!(board_bounds(quads), expected, "facing {facing}");
+        assert!(
+            quads[5]
+                .positions
+                .iter()
+                .all(|position| position[axis] == front),
+            "facing {facing} must put the front face toward its facing_direction"
+        );
+    }
+
+    // The centred-chain form keeps the sixteen-step rotation and ignores facing_direction.
+    let attached_flags = MODEL_FLAG_HANGING | MODEL_FLAG_ATTACHED;
+    let (attached_template, _) = state(2, 0, attached_flags);
+    assert_eq!(state(4, 0, attached_flags).0, attached_template);
+    assert_ne!(state(2, 4, attached_flags).0, attached_template);
 }
 
 #[test]

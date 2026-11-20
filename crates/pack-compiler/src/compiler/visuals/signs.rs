@@ -78,6 +78,7 @@ pub(in crate::compiler) fn sign_state(record: &RegistryRecord) -> Option<SignSta
         Some(SignState::HangingCeiling {
             rotation,
             attached: attached != 0,
+            facing,
         })
     }
 }
@@ -100,9 +101,13 @@ pub(in crate::compiler) fn compile_rule(
             SignState::Standing { rotation } => SignTemplateKey::Standing { material, rotation },
             SignState::Wall { facing } => SignTemplateKey::Wall { material, facing },
             SignState::HangingWall { facing } => SignTemplateKey::HangingWall { material, facing },
-            SignState::HangingCeiling { rotation, attached } => SignTemplateKey::HangingCeiling {
-                material,
+            SignState::HangingCeiling {
                 rotation,
+                attached,
+                facing,
+            } => SignTemplateKey::HangingCeiling {
+                material,
+                rotation: hanging_ceiling_rotation(rotation, attached, facing),
                 attached,
             },
         };
@@ -139,7 +144,11 @@ pub(in crate::compiler) fn sign_quads(material: u32, state: SignState) -> Vec<Mo
         }
         SignState::Wall { facing } => wall_sign_quads(materials, facing).into(),
         SignState::HangingWall { facing } => hanging_wall_sign_quads(materials, facing),
-        SignState::HangingCeiling { rotation, attached } => {
+        SignState::HangingCeiling {
+            rotation,
+            attached,
+            facing,
+        } => {
             let mut quads = Vec::with_capacity(if attached { 18 } else { 30 });
             quads.extend(cuboid_quads(materials, [16, 48, 120], [240, 176, 136]));
             let supports: &[[[i16; 3]; 2]] = if attached {
@@ -158,8 +167,26 @@ pub(in crate::compiler) fn sign_quads(material: u32, state: SignState) -> Vec<Mo
             for [min, max] in supports {
                 quads.extend(cuboid_quads(materials, *min, *max));
             }
-            rotate_sign_quads(quads, rotation)
+            rotate_sign_quads(quads, hanging_ceiling_rotation(rotation, attached, facing))
         }
+    }
+}
+
+/// The sixteen-step yaw a ceiling hanging sign's board uses. A sign hung from chains at its
+/// edges below a ceiling block is fixed by `facing_direction` and ignores its rotation state;
+/// the centred chain form (`attached_bit=1`) turns freely by `ground_sign_direction`.
+const fn hanging_ceiling_rotation(rotation: u8, attached: bool, facing: u8) -> u8 {
+    if attached {
+        return rotation;
+    }
+    // Ground rotation 0 faces south, so facings 2..=5 (north, south, west, east) map to
+    // 8, 0, 4 and 12. Vertical facings cannot carry a ceiling sign; face them south.
+    match facing {
+        2 => 8,
+        3 => 0,
+        4 => 4,
+        5 => 12,
+        _ => 0,
     }
 }
 
