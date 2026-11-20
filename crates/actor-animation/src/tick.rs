@@ -406,6 +406,52 @@ impl ActorRigState {
 pub(super) struct EvaluationInheritance<'a> {
     pub variables: ActorAnimationVariables<'a>,
     pub overrides: &'a [(&'a str, f32)],
+    pub authored_no_draw: bool,
+}
+
+fn authored_zero_root_sample(
+    assets: &RuntimeEntityAssets,
+    state: &ActorRigState,
+    draw: Option<super::render::AuthoredDraw>,
+    pose: &[BoneTransform],
+) -> Option<super::render::AuthoredZeroRootCandidate> {
+    let draw = draw?;
+    let rig_geometry = assets
+        .rig_geometries()
+        .get(state.geometry_binding)?
+        .geometry;
+    if draw.geometry != rig_geometry || pose.len() != 1 || state.bones.len() != 1 {
+        return None;
+    }
+    let geometry = assets.geometries().get(draw.geometry as usize)?;
+    let [root] = geometry.bones.as_ref() else {
+        return None;
+    };
+    if root.parent.is_some()
+        || (root.cubes.is_empty() && root.texture_meshes.is_empty() && !root.has_polygons())
+        || state.bones[0].parent.is_some()
+    {
+        return None;
+    }
+    let transform = pose[0];
+    if !transform
+        .rotation
+        .into_iter()
+        .chain(transform.translation_scale)
+        .chain(transform.axis_scale)
+        .all(f32::is_finite)
+    {
+        return None;
+    }
+    let effective_scale = transform
+        .axis_scale
+        .map(|axis| axis * transform.translation_scale[3]);
+    (effective_scale == [0.0; 3]).then_some(super::render::AuthoredZeroRootCandidate {
+        layer: draw.layer,
+        geometry: draw.geometry,
+        effective_scale,
+        root_transform: transform,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -476,6 +522,12 @@ pub(super) fn evaluate_state(
     }
     apply_engine_variables(engine, &mut variables, actor, context, &observed, &motion);
     super::skin_layers::seed(state, &evaluator, &mut variables);
+    let authored_no_draw = inheritance
+        .as_ref()
+        .is_some_and(|inheritance| inheritance.authored_no_draw)
+        && context.attachable.is_some_and(|input| {
+            !input.first_person && !input.off_hand && !input.worn && !input.is_paperdoll
+        });
     if let Some(inheritance) = inheritance {
         inheritance
             .variables
@@ -734,8 +786,12 @@ pub(super) fn evaluate_state(
         Err(_) => super::render::RenderEvaluation {
             layers: None,
             visibility: state.visibility,
+            authored_draw: None,
         },
     };
+    let authored_zero_root_sample = authored_no_draw
+        .then(|| authored_zero_root_sample(assets, state, render.authored_draw, &pose))
+        .flatten();
     let visibility = render.visibility;
     let render = render.layers;
     let skin_layers = super::skin_layers::evaluate(
@@ -780,6 +836,7 @@ pub(super) fn evaluate_state(
             .collect();
     }
     Ok(EvaluatedState {
+        authored_zero_root_sample,
         pose,
         head_angles,
         skin_layers,

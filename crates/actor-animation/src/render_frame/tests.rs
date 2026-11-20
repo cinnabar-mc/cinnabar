@@ -48,6 +48,7 @@ fn native_complete_sample_keeps_authored_state_and_borrows_unchanged_skin_layers
             .unwrap();
         assert!(matches!(sampled.render, Cow::Owned(_)));
         assert!(matches!(sampled.skin, Cow::Borrowed(_)));
+        assert_eq!(sampled.render[0].authored_layer, Some(0));
         assert_eq!(sampled.render[0].color[0], 1.0);
         assert_eq!(sampled.render[0].color[2..], [alpha; 2]);
         assert_eq!(authored_state(&store), before);

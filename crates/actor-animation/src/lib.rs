@@ -99,6 +99,7 @@ mod tick;
 mod view;
 pub use attachable::{
     AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
+    WorldAttachableEvaluation,
 };
 pub use evaluation::ActorAnimationVariables;
 use evaluation::variables::MolangVariables;
@@ -108,6 +109,7 @@ pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
 pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::compose_pose;
+pub use render::{AuthoredZeroRootProof, AuthoredZeroRootSample};
 pub use render::{ControllerActivity, RenderTextureLayer, RenderVisibility};
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};

@@ -155,6 +155,7 @@ pub(super) struct ActorTickInput {
 }
 
 pub(super) struct EvaluatedState {
+    pub(super) authored_zero_root_sample: Option<super::render::AuthoredZeroRootCandidate>,
     pub(super) pose: Vec<BoneTransform>,
     /// The tracked head's own `[x, y]` rotation this tick.
     pub(super) head_angles: Option<[f32; 2]>,

@@ -142,6 +142,19 @@ fn visibility_distinguishes_all_false_one_true_and_multiple_true_controllers() {
             let count = if local { count } else { 0 };
             assert_eq!(rig.render.len(), count);
             assert_eq!(
+                rig.render
+                    .iter()
+                    .map(|layer| layer.authored_layer)
+                    .collect::<Vec<_>>(),
+                if !local || count == 0 {
+                    Vec::new()
+                } else if value == 41 {
+                    vec![Some(0)]
+                } else {
+                    vec![Some(0), Some(1)]
+                }
+            );
+            assert_eq!(
                 rig.visibility.controllers,
                 if count == 0 {
                     ControllerActivity::Inactive

@@ -46,11 +46,55 @@ impl RenderVisibility {
 pub(super) struct RenderEvaluation {
     pub layers: Option<Vec<RenderTextureLayer>>,
     pub visibility: RenderVisibility,
+    pub authored_draw: Option<AuthoredDraw>,
+}
+
+/// One active controller draw selected during the same evaluation pass.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct AuthoredDraw {
+    pub layer: u32,
+    pub geometry: u32,
+}
+
+/// Proof data is retained from the exact evaluator sample, before any artwork rejection.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct AuthoredZeroRootCandidate {
+    pub layer: u32,
+    pub geometry: u32,
+    pub effective_scale: [f32; 3],
+    pub root_transform: BoneTransform,
+}
+
+/// The checked local sample and its identity/placement context, plus its original draw if present.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AuthoredZeroRootProof<'a> {
+    pub layer: u32,
+    pub geometry: u32,
+    pub effective_scale: [f32; 3],
+    pub root_transform: BoneTransform,
+    pub rig_scale: [f32; 4],
+    pub root_parent: AttachableBoneParent<'a>,
+    pub root_bone_name: &'a str,
+    pub owner: ActorLifetimeId,
+    /// Exact binding checked synchronously by `evaluate_world_main_hand`; don't cache this proof.
+    pub attachable_identifier: &'a str,
+}
+
+/// Preliminary local-space evidence plus the same evaluation's optional drawable.
+#[derive(Clone, Debug)]
+pub struct AuthoredZeroRootSample<'a> {
+    pub proof: AuthoredZeroRootProof<'a>,
+    pub drawable: Option<AttachableRigSnapshot<'a>>,
 }
 
 /// One texture layer a rig draws this tick, from its render controllers in controller order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderTextureLayer {
+    /// Global index of the authored render-layer entry in the sampled entity catalog (the
+    /// catalog selected by the rig's assets/pack identity). Synthetic layers without a
+    /// render-controller catalog entry have no identity.
+    pub authored_layer: Option<u32>,
+
     pub material: assets::EntityRenderMaterial,
     pub material_state: Option<assets::EntityRenderMaterialState>,
     /// Raster state of the layer's resolved material definition, when it has one.
@@ -72,6 +116,7 @@ pub struct RenderTextureLayer {
     pub hidden_bones: Arc<[u32]>,
     /// `uv_anim` `[offset u, offset v, scale u, scale v]`: `uv = offset + uv * scale`.
     pub uv_anim: [f32; 4],
+
     /// Catalog geometry this layer draws when its controller picks another than the rig's;
     /// `hidden_bones` and the poses then index that geometry's bones.
     pub geometry: Option<u32>,
@@ -353,6 +398,8 @@ pub(super) fn evaluate_render_cached(
     let mut unresolved_artwork = false;
     let mut active = false;
     let mut no_draw = false;
+    let mut authored_draw = None;
+    let mut authored_draw_count = 0usize;
     let symbol = assets
         .rig_bindings()
         .get(rig.binding)
@@ -362,23 +409,47 @@ pub(super) fn evaluate_render_cached(
         .map_or([1.0; 4], |_| {
             super::query::tint::default_render_color(evaluator.actor, evaluator.life_tick)
         });
-    for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
-        let status = if let Some(cache) = cache.as_deref_mut() {
+    let authored_layers = assets.render_layers(rig.binding);
+    let render_catalog = assets.render_data();
+    let rig_index = u32::try_from(rig.binding).map_err(|_| EvalError::Invalid)?;
+    let catalog_start = render_catalog
+        .layers
+        .partition_point(|layer| layer.rig < rig_index);
+    for (index, layer) in authored_layers.iter().enumerate() {
+        let output_start = output.len();
+        let (status, selected_geometry) = if let Some(cache) = cache.as_deref_mut() {
             let evaluated =
                 cache.sample(index, evaluator, variables, rig, layer, actor_color, budget)?;
             output.extend_from_slice(&evaluated.layers);
-            evaluated.status
+            (evaluated.status, evaluated.selected_geometry)
         } else {
-            evaluate_layer_into(
+            let mut selected_geometry = None;
+            let status = evaluate_layer_into(
                 evaluator,
                 variables,
                 rig,
                 layer,
                 actor_color,
                 &mut output,
+                &mut selected_geometry,
                 budget,
-            )?
+            )?;
+            (status, selected_geometry)
         };
+        let authored_layer =
+            u32::try_from(catalog_start + index).map_err(|_| EvalError::Invalid)?;
+        for emitted in &mut output[output_start..] {
+            emitted.authored_layer = Some(authored_layer);
+        }
+        if status != LayerStatus::Inactive {
+            authored_draw_count += 1;
+            if let Some(geometry) = selected_geometry {
+                authored_draw = Some(AuthoredDraw {
+                    layer: authored_layer,
+                    geometry,
+                });
+            }
+        }
         active |= status != LayerStatus::Inactive;
         unresolved_artwork |= status == LayerStatus::UnresolvedArtwork;
         no_draw |= status == LayerStatus::NoDraw;
@@ -414,7 +485,13 @@ pub(super) fn evaluate_render_cached(
     } else {
         Some(output)
     };
-    Ok(RenderEvaluation { layers, visibility })
+    Ok(RenderEvaluation {
+        layers,
+        visibility,
+        authored_draw: (authored_draw_count == 1)
+            .then_some(authored_draw)
+            .flatten(),
+    })
 }
 
 #[cfg(test)]
@@ -461,6 +538,7 @@ mod hurt_color_tests;
 pub(crate) struct LayerOutput {
     layers: Vec<RenderTextureLayer>,
     status: LayerStatus,
+    selected_geometry: Option<u32>,
 }
 
 /// Intentional empty selections and inactive controllers never become artwork fallbacks.
@@ -491,6 +569,7 @@ fn evaluate_layer(
     budget: &mut EvalBudget<'_>,
 ) -> Result<LayerOutput, EvalError> {
     let mut output = Vec::new();
+    let mut selected_geometry = None;
     let status = evaluate_layer_into(
         evaluator,
         variables,
@@ -498,11 +577,13 @@ fn evaluate_layer(
         layer,
         actor_color,
         &mut output,
+        &mut selected_geometry,
         budget,
     )?;
     Ok(LayerOutput {
         layers: output,
         status,
+        selected_geometry,
     })
 }
 
@@ -514,6 +595,7 @@ fn evaluate_layer_into(
     layer: &assets::EntityRenderLayer,
     actor_color: [f32; 4],
     output: &mut Vec<RenderTextureLayer>,
+    selected_geometry: &mut Option<u32>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<LayerStatus, EvalError> {
     let assets = evaluator.assets;
@@ -599,6 +681,7 @@ fn evaluate_layer_into(
         }
     }
     let visible = hidden.iter().any(|hidden| !hidden);
+    *selected_geometry = chosen.filter(|_| visible);
     if layer.unresolved_textures {
         unresolved_artwork |= visible;
         return Ok(layer_status(unresolved_artwork));
@@ -695,6 +778,7 @@ fn evaluate_layer_into(
             _ => return Ok(layer_status(unresolved_artwork)),
         },
     };
+
     let render_state = material_definition
         .and_then(|index| render.materials.get(index as usize))
         .map(assets::entity::material::EntityMaterialDefinition::render_state);
@@ -702,6 +786,8 @@ fn evaluate_layer_into(
         .and_then(|index| render.material_masks.get(index as usize))
         .copied();
     output.push(RenderTextureLayer {
+        authored_layer: None,
+
         material,
         material_state,
         render_state,
@@ -713,6 +799,7 @@ fn evaluate_layer_into(
         overlay,
         hidden_bones: Arc::clone(&hidden_bones),
         uv_anim,
+
         geometry,
         previous_pose: empty_pose(),
         pose: empty_pose(),

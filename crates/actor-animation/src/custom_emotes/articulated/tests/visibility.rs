@@ -5,6 +5,7 @@ use crate::{RenderTextureLayer, SkinRenderLayer};
 /// Creates a body draw with an independent render-controller visibility mask.
 fn body_layer(hidden_bones: Arc<[u32]>) -> RenderTextureLayer {
     RenderTextureLayer {
+        authored_layer: None,
         render_state: None,
         masks: None,
         material: assets::EntityRenderMaterial::Default,

@@ -33,6 +33,8 @@ mod spear_tests;
 mod third_person_tests;
 #[cfg(test)]
 mod visibility_tests;
+#[cfg(test)]
+mod world_duplicate_sprite_tests;
 pub(super) use native_pose::NativePoseCache;
 
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height

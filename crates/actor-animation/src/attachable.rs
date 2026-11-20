@@ -184,6 +184,62 @@ impl<'a> AttachableRigSnapshot<'a> {
     }
 }
 
+/// World-only evaluator outcome. The zero-root sample is preliminary evidence, not a final
+/// placement-level no-draw decision; consumers must validate both finite owner endpoints.
+#[derive(Debug)]
+pub enum WorldAttachableEvaluation<'a> {
+    Drawable(AttachableRigSnapshot<'a>),
+    AuthoredZeroRootSample(render::AuthoredZeroRootSample<'a>),
+    Unavailable,
+}
+
+fn retained_authored_zero_root_sample<'a>(
+    state: &'a AttachableState,
+    assets: &RuntimeEntityAssets,
+    binding: usize,
+    owner: ActorLifetimeId,
+    candidate: render::AuthoredZeroRootCandidate,
+    drawable: Option<AttachableRigSnapshot<'a>>,
+) -> Option<render::AuthoredZeroRootSample<'a>> {
+    let root_name = state.rig.bone_names.first()?.as_ref();
+    let root = state.rig.bones.first()?;
+    let root_parent = match root.attachable_root {
+        AttachableRootFrame::Actor => AttachableBoneParent::Actor,
+        AttachableRootFrame::MatchingOwnerName => AttachableBoneParent::OwnerNamed(root_name),
+        AttachableRootFrame::BindingExpression => AttachableBoneParent::BindingExpression,
+    };
+    let rig_scale = drawable.map_or_else(
+        || {
+            state
+                .rig
+                .scale
+                .unwrap_or_else(|| [assets.rig_bindings()[binding].scale.get(), 1.0, 1.0, 1.0])
+        },
+        |snapshot| {
+            [
+                snapshot.scale,
+                snapshot.axis_scale[0],
+                snapshot.axis_scale[1],
+                snapshot.axis_scale[2],
+            ]
+        },
+    );
+    Some(render::AuthoredZeroRootSample {
+        proof: render::AuthoredZeroRootProof {
+            layer: candidate.layer,
+            geometry: candidate.geometry,
+            effective_scale: candidate.effective_scale,
+            root_transform: candidate.root_transform,
+            rig_scale,
+            root_parent,
+            root_bone_name: root_name,
+            owner,
+            attachable_identifier: state.identifier.as_ref(),
+        },
+        drawable,
+    })
+}
+
 #[derive(Debug)]
 struct AttachableState {
     identifier: Arc<str>,
@@ -268,6 +324,37 @@ impl AttachablesRuntime {
         }
     }
 
+    /// Evaluates the exact non-preview world main-hand path. The zero-root sample is
+    /// preliminary only; consumers still must validate both finite owner endpoints.
+    pub fn evaluate_world_main_hand(
+        &mut self,
+        identifier: &str,
+        owner: &dyn AnimatedActor,
+        owner_rig: &ActorRigSnapshot<'_>,
+        input: AttachableAnimationInput<'_>,
+    ) -> WorldAttachableEvaluation<'_> {
+        if self.previewing
+            || input.first_person
+            || input.off_hand
+            || input.worn
+            || input.is_paperdoll
+            || input.is_in_ui
+            || input.owner_main_hand != Some(identifier)
+        {
+            return WorldAttachableEvaluation::Unavailable;
+        }
+        let mut sample = None;
+        let drawable =
+            self.evaluate_inner(identifier, owner, owner_rig, input, true, Some(&mut sample));
+        if let Some(sample) = sample {
+            return WorldAttachableEvaluation::AuthoredZeroRootSample(sample);
+        }
+        match drawable {
+            Some(drawable) => WorldAttachableEvaluation::Drawable(drawable),
+            None => WorldAttachableEvaluation::Unavailable,
+        }
+    }
+
     /// Runs authored item scripts with owner queries and native render-time item inputs.
     /// The returned pose has already sampled `frame_alpha`; do not interpolate it again.
     pub fn evaluate(
@@ -277,6 +364,18 @@ impl AttachablesRuntime {
         owner_rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
     ) -> Option<AttachableRigSnapshot<'_>> {
+        self.evaluate_inner(identifier, owner, owner_rig, input, false, None)
+    }
+
+    fn evaluate_inner<'a>(
+        &'a mut self,
+        identifier: &str,
+        owner: &dyn AnimatedActor,
+        owner_rig: &ActorRigSnapshot<'_>,
+        input: AttachableAnimationInput<'_>,
+        authored_no_draw: bool,
+        authored_zero_root_sample: Option<&mut Option<render::AuthoredZeroRootSample<'a>>>,
+    ) -> Option<AttachableRigSnapshot<'a>> {
         let key = (
             owner_rig.actor,
             input.off_hand,
@@ -433,6 +532,7 @@ impl AttachablesRuntime {
             Some(tick::EvaluationInheritance {
                 variables: owner_rig.animation_variables,
                 overrides: input.owner_variables,
+                authored_no_draw,
             }),
         ) {
             Ok(evaluated) => evaluated,
@@ -447,6 +547,9 @@ impl AttachablesRuntime {
             && evaluated.render.is_some()
             && evaluated.clip_clocks.is_empty()
             && static_draw::eligible(state, &evaluated.controllers);
+        let candidate = (!self.previewing && authored_no_draw)
+            .then_some(evaluated.authored_zero_root_sample)
+            .flatten();
         if self.previewing {
             entry.preview = Some(Preview {
                 evaluated,
@@ -462,15 +565,31 @@ impl AttachablesRuntime {
             {
                 self.commits += 1;
             }
-            if !drawable {
-                return None;
-            }
             if retain_static {
                 entry.static_draw = Some(static_draw::StaticDraw {
                     input: static_input,
                     owner_names: owner_rig.bone_names.to_vec(),
                     owner_layers: static_draw::owner_layer_models(owner_rig).collect(),
                 });
+            }
+            if let (Some(candidate), Some(output)) = (candidate, authored_zero_root_sample) {
+                let snapshot = drawable
+                    .then(|| entry.snapshot(&self.assets, binding))
+                    .flatten();
+                if let Some(sample) = retained_authored_zero_root_sample(
+                    entry,
+                    &self.assets,
+                    binding,
+                    owner_rig.actor,
+                    candidate,
+                    snapshot,
+                ) {
+                    *output = Some(sample);
+                    return None;
+                }
+            }
+            if !drawable {
+                return None;
             }
         }
         entry.snapshot(&self.assets, binding)
@@ -495,6 +614,245 @@ pub(super) fn bind_roots(
         } else {
             AttachableRootFrame::Actor
         };
+    }
+}
+
+#[cfg(test)]
+mod authored_no_draw_tests {
+    use super::*;
+    use crate::attachable::tests::owner_rig;
+    use assets::{EntityAnimationProperty, EntityGeometryCube, EntityGeometryUv};
+
+    fn owner_input() -> AttachableAnimationInput<'static> {
+        AttachableAnimationInput {
+            owner_main_hand: Some("minecraft:test_item"),
+            ..Default::default()
+        }
+    }
+
+    fn selected_root_primitive(compiled: &mut assets::CompiledEntityAssets) {
+        compiled.geometries[0].bones[0].cubes = vec![EntityGeometryCube {
+            origin: [crate::test_support::scalar(0.0); 3],
+            size: [crate::test_support::scalar(1.0); 3],
+            pivot: [crate::test_support::scalar(0.0); 3],
+            rotation: [crate::test_support::scalar(0.0); 3],
+            uv: EntityGeometryUv::Box([crate::test_support::scalar(0.0); 2]),
+            inflate: crate::test_support::scalar(0.0),
+            mirror: false,
+        }]
+        .into_boxed_slice();
+        compiled.render.geometries = vec![assets::EntityRenderGeometry {
+            condition: None,
+            geometry: 0,
+        }]
+        .into_boxed_slice();
+        compiled.render.layers[0].geometry_count = 1;
+    }
+
+    fn zero_scale_compiled() -> assets::CompiledEntityAssets {
+        let mut compiled = crate::test_support::compiled_fixture();
+        compiled.animation_channels[0].property = EntityAnimationProperty::Scale;
+        compiled.animation_keyframes[0].value = [crate::test_support::scalar(0.0); 3];
+        compiled.animation_keyframes[0].expressions = [None; 3];
+        compiled.geometries[0].bones[0].pivot = Some([
+            crate::test_support::scalar(2.0),
+            crate::test_support::scalar(3.0),
+            crate::test_support::scalar(4.0),
+        ]);
+        compiled.geometries[0].bones[0].rotation = Some([
+            crate::test_support::scalar(10.0),
+            crate::test_support::scalar(20.0),
+            crate::test_support::scalar(30.0),
+        ]);
+        selected_root_primitive(&mut compiled);
+        compiled
+    }
+
+    fn zero_scale_assets() -> Arc<RuntimeEntityAssets> {
+        Arc::new(RuntimeEntityAssets::from_compiled(zero_scale_compiled()).unwrap())
+    }
+
+    #[test]
+    fn world_main_hand_returns_same_sample_authored_zero_root_before_missing_artwork() {
+        let owner = crate::tests::actor_with_metadata(HashMap::new());
+        let assets = zero_scale_assets();
+        let mut runtime = AttachablesRuntime::new(Arc::clone(&assets));
+        let owner_snapshot = owner_rig();
+        let outcome = runtime.evaluate_world_main_hand(
+            "minecraft:test_item",
+            &owner,
+            &owner_snapshot,
+            owner_input(),
+        );
+        let WorldAttachableEvaluation::AuthoredZeroRootSample(sample) = outcome else {
+            panic!("single active zero-root authored draw should yield preliminary evidence");
+        };
+        let drawable = sample
+            .drawable
+            .as_ref()
+            .expect("resolved artwork snapshot is retained");
+        assert_eq!(sample.proof.effective_scale, [0.0; 3]);
+        assert_eq!(sample.proof.geometry, drawable.geometry);
+        assert_eq!(sample.proof.root_transform, drawable.pose[0]);
+        assert_eq!(
+            sample.proof.rig_scale,
+            [
+                drawable.scale,
+                drawable.axis_scale[0],
+                drawable.axis_scale[1],
+                drawable.axis_scale[2]
+            ]
+        );
+        assert_eq!(sample.proof.root_bone_name, "rightitem");
+        assert_eq!(sample.proof.root_parent, AttachableBoneParent::Actor);
+        assert_eq!(sample.proof.owner, owner_snapshot.actor);
+        assert_eq!(sample.proof.attachable_identifier, "minecraft:test_item");
+        let root = sample.proof.root_transform;
+        assert!(
+            root.rotation
+                .into_iter()
+                .chain(root.translation_scale)
+                .chain(root.axis_scale)
+                .all(f32::is_finite)
+        );
+        assert!(
+            root.translation_scale[..3]
+                .iter()
+                .any(|value| *value != 0.0)
+        );
+        assert!(root.rotation[..3].iter().any(|value| *value != 0.0));
+        assert_eq!(runtime.evaluations, 1, "proof reuses the single evaluation");
+        assert!(
+            runtime
+                .evaluate("minecraft:test_item", &owner, &owner_rig(), owner_input(),)
+                .is_some(),
+            "legacy evaluation remains drawable and unchanged"
+        );
+    }
+
+    #[test]
+    fn zero_pose_with_missing_artwork_keeps_evidence_without_drawable() {
+        let owner = crate::tests::actor_with_metadata(HashMap::new());
+        let mut compiled = zero_scale_compiled();
+        compiled.render.layers[0].unresolved_textures = true;
+        compiled.render.layers[0].slot_count = 0;
+        compiled.render.slots = Box::new([]);
+        compiled.render.candidates = Box::new([]);
+        let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+        let mut runtime = AttachablesRuntime::new(assets);
+        let rig = owner_rig();
+        let outcome =
+            runtime.evaluate_world_main_hand("minecraft:test_item", &owner, &rig, owner_input());
+        let WorldAttachableEvaluation::AuthoredZeroRootSample(sample) = outcome else {
+            panic!("valid zero pose must survive artwork rejection");
+        };
+        assert!(sample.drawable.is_none());
+        assert_eq!(sample.proof.effective_scale, [0.0; 3]);
+        let root = sample.proof.root_transform;
+        assert!(
+            root.rotation
+                .into_iter()
+                .chain(root.translation_scale)
+                .chain(root.axis_scale)
+                .all(f32::is_finite)
+        );
+        assert!(
+            root.translation_scale[..3]
+                .iter()
+                .any(|value| *value != 0.0)
+        );
+        assert!(root.rotation[..3].iter().any(|value| *value != 0.0));
+        assert_eq!(sample.proof.owner, rig.actor);
+        assert_eq!(sample.proof.attachable_identifier, "minecraft:test_item");
+    }
+
+    #[test]
+    fn nonzero_pose_with_missing_artwork_is_unavailable() {
+        let owner = crate::tests::actor_with_metadata(HashMap::new());
+        let mut compiled = crate::test_support::compiled_fixture();
+        selected_root_primitive(&mut compiled);
+        compiled.render.layers[0].unresolved_textures = true;
+        compiled.render.layers[0].slot_count = 0;
+        compiled.render.slots = Box::new([]);
+        compiled.render.candidates = Box::new([]);
+        let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+        let mut runtime = AttachablesRuntime::new(assets);
+        assert!(matches!(
+            runtime.evaluate_world_main_hand(
+                "minecraft:test_item",
+                &owner,
+                &owner_rig(),
+                owner_input(),
+            ),
+            WorldAttachableEvaluation::Unavailable
+        ));
+        assert!(
+            runtime
+                .evaluate("minecraft:test_item", &owner, &owner_rig(), owner_input(),)
+                .is_none(),
+            "legacy evaluate preserves unresolved-artwork fallback behavior"
+        );
+    }
+
+    #[test]
+    fn second_active_layer_makes_single_draw_proof_ineligible() {
+        let owner = crate::tests::actor_with_metadata(HashMap::new());
+        let mut compiled = crate::test_support::compiled_fixture();
+        compiled.animation_channels[0].property = EntityAnimationProperty::Scale;
+        compiled.animation_keyframes[0].value = [crate::test_support::scalar(0.0); 3];
+        compiled.animation_keyframes[0].expressions = [None; 3];
+        selected_root_primitive(&mut compiled);
+        let mut duplicate = compiled.render.layers[0];
+        let mut slots = compiled.render.slots.to_vec();
+        let mut candidate = compiled.render.candidates[0];
+        candidate.source = 4;
+        let mut duplicate_slot = compiled.render.slots[0];
+        duplicate_slot.first_candidate = compiled.render.candidates.len() as u32;
+        duplicate.first_slot = slots.len() as u32;
+        let mut candidates = compiled.render.candidates.to_vec();
+        candidates.push(candidate);
+        slots.push(duplicate_slot);
+        compiled.render.candidates = candidates.into_boxed_slice();
+        compiled.render.slots = slots.into_boxed_slice();
+        let mut geometries = compiled.render.geometries.to_vec();
+        duplicate.first_geometry = geometries.len() as u32;
+        geometries.push(geometries[0]);
+        compiled.render.geometries = geometries.into_boxed_slice();
+        let mut layers = compiled.render.layers.to_vec();
+        layers.push(duplicate);
+        compiled.render.layers = layers.into_boxed_slice();
+        let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+        let mut runtime = AttachablesRuntime::new(assets);
+        assert!(!matches!(
+            runtime.evaluate_world_main_hand(
+                "minecraft:test_item",
+                &owner,
+                &owner_rig(),
+                owner_input(),
+            ),
+            WorldAttachableEvaluation::AuthoredZeroRootSample(_)
+        ));
+    }
+
+    #[test]
+    fn absent_active_layer_never_proves_authored_no_draw() {
+        let owner = crate::tests::actor_with_metadata(HashMap::new());
+        let mut compiled = crate::test_support::compiled_fixture();
+        compiled.render.layers = Box::new([]);
+        compiled.render.slots = Box::new([]);
+        compiled.render.candidates = Box::new([]);
+        compiled.render.geometries = Box::new([]);
+        let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+        let mut runtime = AttachablesRuntime::new(assets);
+        assert!(!matches!(
+            runtime.evaluate_world_main_hand(
+                "minecraft:test_item",
+                &owner,
+                &owner_rig(),
+                owner_input(),
+            ),
+            WorldAttachableEvaluation::AuthoredZeroRootSample(_)
+        ));
     }
 }
 

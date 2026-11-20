@@ -537,6 +537,7 @@ mod tests {
         let original_rig = batch.submissions[0].input.rig;
         let original_skin = batch.skin_layers[0].clone();
         let layer = RenderTextureLayer {
+            authored_layer: None,
             masks: None,
             render_state: Some(render_api::render_state::RenderState {
                 blend: Some(render_api::render_state::BlendState::ALPHA),
@@ -607,6 +608,7 @@ mod tests {
         let mut batch =
             super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
         let layer = |runtime_skin: bool, source: u32| RenderTextureLayer {
+            authored_layer: None,
             render_state: None,
             masks: None,
             material: assets::EntityRenderMaterial::Default,
@@ -685,6 +687,7 @@ mod tests {
     #[test]
     fn runtime_skin_overlay_uses_the_first_admitted_layer_and_keeps_later_layers_independent() {
         let layer = RenderTextureLayer {
+            authored_layer: None,
             render_state: None,
             masks: None,
             material: assets::EntityRenderMaterial::Default,
@@ -803,6 +806,7 @@ mod tests {
             axis_scale: [1.0; 3],
         }]);
         let layer = |runtime_skin: bool, source: u32, geometry: Option<u32>| RenderTextureLayer {
+            authored_layer: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             render_state: None,
@@ -905,6 +909,7 @@ mod tests {
             axis_scale: [1.0; 3],
         }]);
         let morph = RenderTextureLayer {
+            authored_layer: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             render_state: None,
