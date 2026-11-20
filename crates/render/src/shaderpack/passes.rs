@@ -17,6 +17,8 @@ use super::uniforms::{
     DrawUniforms, FAR_PLANE_SCALE, FrameUniforms, GL_NEAR, HostValue, pack_block,
 };
 use crate::gpu_timing::{GpuTimestamps, within_stage};
+use crate::queue_writes::ProfiledQueue as _;
+use crate::render_counting::CountedPasses as _;
 use bevy::math::{Mat4, Vec3};
 use render_scene::RuntimeStage;
 use shaderpack::{CustomUniforms, ProgramGroup};
@@ -198,7 +200,7 @@ impl ViewState {
             if binding.update_atlas_size(block, context.atlas_size(draw.kind))
                 && let Some(buffer) = &binding.uniforms
             {
-                queue.write_buffer(buffer, 0, &binding.base);
+                queue.profiled_write_buffer(buffer, 0, &binding.base);
             }
         }
     }
@@ -281,7 +283,7 @@ impl ViewState {
                 continue;
             };
             pack_block(block, &lookup, &mut self.scratch, &mut self.unknown);
-            queue.write_buffer(buffer, 0, &self.scratch);
+            queue.profiled_write_buffer(buffer, 0, &self.scratch);
             if let Some(audit) = &mut self.audit {
                 audit.block(&format!("program {}", program.name), block, &lookup);
             }
@@ -321,7 +323,7 @@ impl ViewState {
             };
             let lookup = |name: &str| values.value(name).or_else(|| lookup(name));
             pack_block(block, &lookup, &mut self.scratch, &mut self.unknown);
-            queue.write_buffer(buffer, 0, &self.scratch);
+            queue.profiled_write_buffer(buffer, 0, &self.scratch);
             binding.base.clone_from(&self.scratch);
             binding.atlas_size = values.atlas_size;
             if let Some(audit) = &mut self.audit {
@@ -420,7 +422,7 @@ fn pass_with_timestamps<'a>(
     timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
 ) -> wgpu::RenderPass<'a> {
     encoder
-        .begin_render_pass(&wgpu::RenderPassDescriptor {
+        .counted_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(label),
             color_attachments: attachments,
             depth_stencil_attachment: depth,
@@ -650,7 +652,7 @@ fn write_depth_parameters(queue: &Queue, buffer: &wgpu::Buffer, io: &FrameIo<'_>
     let far = io.render_distance.max(16.0) * FAR_PLANE_SCALE;
     let [x, y, w, h] = io.viewport.map(|v| v as f32);
     let parameters: SceneDepthParameters = [io.scene_near, GL_NEAR, far, 0.0, x, y, w, h];
-    queue.write_buffer(buffer, 0, bytemuck::bytes_of(&parameters));
+    queue.profiled_write_buffer(buffer, 0, bytemuck::bytes_of(&parameters));
 }
 
 /// Which of the pack's pass lists to run.
@@ -873,7 +875,7 @@ fn run_step(
             };
             let groups_count = super::dispatch::groups(dispatch, size);
             let mut compute = encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                .counted_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(&program.name),
                     timestamp_writes: timestamps
                         .and_then(|timestamps| timestamps.shaderpack_compute_pass(stage)),

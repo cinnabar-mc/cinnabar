@@ -1,6 +1,7 @@
 //! Returns replacement geometry depth to native overlays in the view's projection.
 
 use super::passes::{FrameIo, ViewState};
+use crate::render_counting::CountedPasses as _;
 
 /// Converts the pack's bottom-up finite depth after its final pass, retaining the view exterior.
 pub(super) fn restore(
@@ -29,7 +30,7 @@ pub(super) fn restore(
             ],
         })
     });
-    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+    let mut pass = encoder.counted_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("shader pack native overlay depth"),
         color_attachments: &[],
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

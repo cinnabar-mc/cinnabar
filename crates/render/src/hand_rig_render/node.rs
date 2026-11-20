@@ -1,4 +1,5 @@
 use super::HandRigGpu;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     prelude::*,
     render::{
@@ -77,7 +78,7 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     } else {
         scene_target.color_attachment(target, encoded)
     })];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("first-person animated rig"),
         color_attachments: &attachments,
         depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {

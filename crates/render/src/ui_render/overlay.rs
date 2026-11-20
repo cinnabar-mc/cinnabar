@@ -9,6 +9,7 @@ use super::{
     damage::UiDamage,
     layer::{UiLayerDraw, draw_batches, model_depth_attachment},
 };
+use crate::render_counting::CountedTrackedPass as _;
 #[path = "world.rs"]
 pub(crate) mod world;
 use bevy::prelude::SystemSet;
@@ -134,6 +135,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     world::ui_world::<false>,
                     Some(render_scene::RuntimeStage::GpuUi),
+                    render_scene::RuntimeStage::NodeUi,
                     "UiWorldLabel",
                 )
                 .in_set(UiWorldLabel)
@@ -143,6 +145,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     ui_overlay,
                     Some(render_scene::RuntimeStage::GpuUi),
+                    render_scene::RuntimeStage::NodeUi,
                     "UiOverlayLabel",
                 )
                 .in_set(UiOverlayLabel)
@@ -152,6 +155,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     ui_overlay,
                     Some(render_scene::RuntimeStage::GpuUi),
+                    render_scene::RuntimeStage::NodeUi,
                     "UiOverlayPostLabel",
                 )
                 .in_set(UiOverlayPostLabel)
@@ -748,7 +752,7 @@ pub(crate) fn ui_overlay(
                         },
                     },
                 )];
-                let pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                let pass = context.counted_tracked_render_pass(RenderPassDescriptor {
                     label: Some("retained depth-free HUD invert"),
                     color_attachments: &attachments,
                     depth_stencil_attachment: depth

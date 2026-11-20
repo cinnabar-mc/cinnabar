@@ -189,12 +189,18 @@ fn configure_passes(world: &mut World, enabled: bool) {
             if enabled {
                 schedule.add_systems(
                     (
-                        crate::gpu_timing::profiled(node::depth_smaa::<false>, None, "Smaa")
-                            .in_set(DepthSmaaLabel)
-                            .after(crate::motion_blur::graph::MotionBlurLabel),
+                        crate::gpu_timing::profiled(
+                            node::depth_smaa::<false>,
+                            None,
+                            render_scene::RuntimeStage::NodePost,
+                            "Smaa",
+                        )
+                        .in_set(DepthSmaaLabel)
+                        .after(crate::motion_blur::graph::MotionBlurLabel),
                         crate::gpu_timing::profiled(
                             nametags::nametags_after_smaa,
                             None,
+                            render_scene::RuntimeStage::NodeUi,
                             "NametagsAfterSmaaLabel",
                         )
                         .in_set(nametags::NametagsAfterSmaaLabel)

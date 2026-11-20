@@ -1,6 +1,7 @@
 //! The sky is the first draw on scene colour, in the first pass that opens it.
 
 use super::{AtmosphereGpu, AtmospherePipelineKey};
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -29,6 +30,7 @@ pub(super) fn install(world: &mut World) {
                 crate::gpu_timing::profiled(
                     atmosphere,
                     Some(render_scene::RuntimeStage::GpuSky),
+                    render_scene::RuntimeStage::NodeSky,
                     "AtmospherePass",
                 )
                 .after(Core3dSystems::Prepass)
@@ -89,7 +91,7 @@ fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: Ren
     let extent = crate::render_bounds::extent(colour.view);
     let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
         .map(|viewport| crate::render_bounds::viewport(&viewport, extent));
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("sky before world geometry"),
         color_attachments: &[Some(colour)],
         depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),

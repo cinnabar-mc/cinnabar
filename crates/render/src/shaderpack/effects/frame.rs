@@ -8,6 +8,7 @@ use super::particles::particle_quads;
 use super::vertices::Mesh;
 use super::weather::{RAIN_KIND, rain_columns, weather_quads};
 use super::{CloudSetting, Effect, EffectSettings};
+use crate::queue_writes::ProfiledQueue as _;
 use crate::shaderpack::draws::DrawKind;
 use crate::shaderpack::loader::PackGpu;
 use assets::AtmosphereRole;
@@ -267,7 +268,7 @@ pub(crate) fn prepare_effects(
             }));
         }
         if let Some(buffer) = buffer {
-            queue.write_buffer(buffer, 0, bytes);
+            queue.profiled_write_buffer(buffer, 0, bytes);
         }
     };
     fit(

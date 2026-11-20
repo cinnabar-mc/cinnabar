@@ -1,4 +1,5 @@
-//! GPU markers bracket the command buffers of one render system in submission order.
+//! GPU markers bracket the command buffers of one render system in submission order, and a CPU
+//! span times the system recording them.
 
 use super::{GpuTimestamps, NO_SPAN, mark};
 use bevy::prelude::IntoScheduleConfigs;
@@ -10,16 +11,20 @@ use bevy::{
     prelude::World,
     render::renderer::RenderContext,
 };
-use render_scene::RuntimeStage;
+use render_scene::{RuntimeStage, RuntimeStageProfiler};
 use std::sync::{
-    Arc,
+    Arc, Mutex, PoisonError,
     atomic::{AtomicU32, Ordering},
 };
+use web_time::Instant;
 
 /// Brackets a render system while preserving its conditions, access and function sets.
+/// `stage` is the GPU span its command buffers are timed as, when it has one; `cpu` is the
+/// `Node*` stage that the render thread's time recording them counts toward.
 pub(crate) fn profiled<S, M>(
     system: S,
     stage: Option<RuntimeStage>,
+    cpu: RuntimeStage,
     name: &'static str,
 ) -> ScheduleConfigs<ScheduleSystem>
 where
@@ -27,6 +32,8 @@ where
 {
     let marker = Arc::new(AtomicU32::new(NO_SPAN));
     let begin_marker = marker.clone();
+    let started = Arc::new(Mutex::new(None));
+    let begin_started = started.clone();
     #[cfg(feature = "tracy")]
     let node_marker = Arc::new(AtomicU32::new(NO_SPAN));
     #[cfg(feature = "tracy")]
@@ -34,6 +41,7 @@ where
     #[cfg(not(feature = "tracy"))]
     let _ = name;
     let begin = move |world: &World, mut context: RenderContext| {
+        *begin_started.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
         begin_marker.store(NO_SPAN, Ordering::Relaxed);
         if let Some(stage) = stage
             && let Some((span, close)) = world
@@ -77,6 +85,15 @@ where
             &mut context,
             node_marker.swap(NO_SPAN, Ordering::Relaxed),
         );
+        let started = started
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(started) = started
+            && let Some(profiler) = world.get_resource::<RuntimeStageProfiler>()
+        {
+            profiler.record(cpu, started, started.elapsed());
+        }
     };
     let system = IntoSystem::into_system(system);
     let name = system.name();

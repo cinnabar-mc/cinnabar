@@ -1,5 +1,6 @@
 //! Validate every Enhanced shader and create its pipeline on an available real adapter.
 
+use crate::render_counting::CountedPasses as _;
 use crate::shader_source;
 type Variant = (&'static str, String, &'static str, &'static str, bool);
 
@@ -224,7 +225,7 @@ import render::lighting::light_colour;
     let (outputs, lights) = (group(0, &results), group(1, &lightmap));
     let mut encoder = device.create_command_encoder(&Default::default());
     {
-        let mut pass = encoder.begin_compute_pass(&Default::default());
+        let mut pass = encoder.counted_compute_pass(&Default::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &outputs, &[]);
         pass.set_bind_group(1, &lights, &[]);

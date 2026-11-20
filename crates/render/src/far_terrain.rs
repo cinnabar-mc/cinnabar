@@ -66,12 +66,17 @@ fn install_graph(world: &mut World) {
     }
     let installed = world
         .try_schedule_scope(Core3d, |_, schedule| {
-            let pass = crate::gpu_timing::profiled(node::far_terrain, None, "FarTerrainLabel")
-                .in_set(FarTerrainLabel)
-                .after(crate::scene_target::ScenePass::Opaque)
-                .after(crate::chunk::GpuCullLateLabel)
-                .before(crate::scene_target::ScenePass::Transparent)
-                .in_set(Core3dSystems::MainPass);
+            let pass = crate::gpu_timing::profiled(
+                node::far_terrain,
+                None,
+                render_scene::RuntimeStage::NodeOpaque,
+                "FarTerrainLabel",
+            )
+            .in_set(FarTerrainLabel)
+            .after(crate::scene_target::ScenePass::Opaque)
+            .after(crate::chunk::GpuCullLateLabel)
+            .before(crate::scene_target::ScenePass::Transparent)
+            .in_set(Core3dSystems::MainPass);
             #[cfg(feature = "enhanced")]
             let pass = pass.before(crate::enhanced::snapshot::EnhancedSnapshotLabel);
             schedule.add_systems(pass);

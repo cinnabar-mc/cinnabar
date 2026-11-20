@@ -4,6 +4,7 @@
 //! and parameters into them instead of creating two buffers per dispatch, each job buffer
 //! holding its own copy of the attribute table.
 
+use crate::queue_writes::ProfiledQueue as _;
 use std::num::NonZeroU64;
 
 use bevy::render::render_resource::{
@@ -64,7 +65,7 @@ impl ExpansionBuffers {
         }
         let buffer = self.jobs.as_ref().expect("created above");
         if self.attributes != attributes {
-            queue.write_buffer(buffer, 0, bytemuck::cast_slice(attributes));
+            queue.profiled_write_buffer(buffer, 0, bytemuck::cast_slice(attributes));
             self.attributes = attributes.to_vec();
         }
         let mut words: Vec<u32> = Vec::with_capacity(jobs * 4);
@@ -81,7 +82,7 @@ impl ExpansionBuffers {
             slots.resize(slots.len() + slot_words - PARAM_WORDS, 0);
         }
         if !words.is_empty() {
-            queue.write_buffer(
+            queue.profiled_write_buffer(
                 buffer,
                 (attributes.len() * 4) as u64,
                 bytemuck::cast_slice(&words),
@@ -105,7 +106,7 @@ impl ExpansionBuffers {
             );
         }
         let params = self.params.as_ref().expect("created above");
-        queue.write_buffer(params, 0, bytemuck::cast_slice(&slots));
+        queue.profiled_write_buffer(params, 0, bytemuck::cast_slice(&slots));
     }
 
     /// The attribute table and jobs every dispatch binds; `None` before the first

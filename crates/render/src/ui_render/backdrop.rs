@@ -10,6 +10,7 @@
 use super::target::{NativeUiTarget, UiTarget};
 use super::*;
 use crate::gpu_allocation::{FailedRequests, checked};
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::{
     render_resource::{
         BindGroup, BindGroupEntries, BindGroupLayout, Extent3d, LoadOp, Operations,
@@ -520,7 +521,7 @@ pub(super) fn apply_backdrops(
                 store: StoreOp::Store,
             },
         })];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("UI backdrop downsample"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,
@@ -545,7 +546,7 @@ pub(super) fn apply_backdrops(
             store: StoreOp::Store,
         },
     })];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("UI backdrop shapes"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,

@@ -1,6 +1,7 @@
 //! World name text retains its colour space and depth policy after spatial edge smoothing.
 
 use super::*;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::render_phase::PhaseItem;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -61,7 +62,7 @@ pub(crate) fn nametags_after_smaa(
         .peekable();
     if ranges.peek().is_some() {
         let attachments = [Some(scene.color_attachment(target, gamma))];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("world text after spatial anti-aliasing"),
             color_attachments: &attachments,
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),

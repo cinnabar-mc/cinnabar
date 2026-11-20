@@ -102,6 +102,7 @@ pub(crate) fn enhanced_post_pass(
         crate::gpu_timing::profiled(
             node::hand_view::<false>,
             Some(render_scene::RuntimeStage::GpuHand),
+            render_scene::RuntimeStage::NodeHand,
             "EnhancedHandLabel",
         )
         .run_if(crate::ui_render::overlay::grade_stage::<true>)
@@ -118,6 +119,7 @@ pub(crate) fn install_hand_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     node::hand_view::<false>,
                     Some(render_scene::RuntimeStage::GpuHand),
+                    render_scene::RuntimeStage::NodeHand,
                     "HandLabel",
                 )
                 .in_set(HandLabel)

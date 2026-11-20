@@ -1,6 +1,7 @@
 //! Enhanced post chain node: light shafts and the graded HDR
 //! composite. Runs before the hand and UI so neither is tonemapped.
 
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     core_pipeline::FullscreenShader,
@@ -188,7 +189,7 @@ fn fullscreen_pass(
     let diagnostics = context.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(context.command_encoder(), label);
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some(label),
         color_attachments: &[Some(RenderPassColorAttachment {
             view: target,

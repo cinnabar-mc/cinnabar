@@ -1,5 +1,6 @@
 //! Encodes native terrain against world depth or a clip's independent depth.
 use super::*;
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::renderer::{RenderContext, ViewQuery};
 use bevy::render::view::ViewDepthStencilTexture;
 
@@ -162,7 +163,7 @@ pub(super) fn world_draw<const OVERLAY: bool>(
             return Ok(());
         };
         let colors = [Some(color)];
-        let mut pass = context.begin_tracked_render_pass(
+        let mut pass = context.counted_tracked_render_pass(
             bevy::render::render_resource::RenderPassDescriptor {
                 label: Some("retained terrain"),
                 color_attachments: &colors,

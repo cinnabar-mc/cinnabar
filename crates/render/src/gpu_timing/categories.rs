@@ -1,6 +1,7 @@
 //! Optional pass splitting attributes opaque cost on adapters without in-pass timestamps.
 //! Extra attachment stores and loads perturb timing; ordinary rendering never takes this path.
 
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::render_phase::PhaseItem;
 use std::ops::Range;
 
@@ -134,7 +135,7 @@ pub(crate) fn draw_categories(
             .get_resource::<GpuTimestamps>()
             .and_then(|timestamps| timestamps.open_pass(stage));
         let colors = [Some(color.clone())];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some(stage.name()),
             color_attachments: &colors,
             depth_stencil_attachment: Some(depth.clone()),

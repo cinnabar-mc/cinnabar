@@ -1,4 +1,5 @@
 use super::*;
+use crate::render_counting::CountedPasses as _;
 use bevy::{
     anti_alias::smaa::{SmaaBindGroups, SmaaInfoUniformOffset},
     render::renderer::RenderContext,
@@ -51,7 +52,7 @@ pub(crate) fn depth_smaa<const AFTER_PACK: bool>(
         })];
         let mut pass = context
             .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
+            .counted_render_pass(&RenderPassDescriptor {
                 label: Some("SMAA depth edges"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
@@ -86,7 +87,7 @@ pub(crate) fn depth_smaa<const AFTER_PACK: bool>(
         })];
         let mut pass = context
             .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
+            .counted_render_pass(&RenderPassDescriptor {
                 label: Some("SMAA spatial weights"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
@@ -122,7 +123,7 @@ pub(crate) fn depth_smaa<const AFTER_PACK: bool>(
         })];
         let mut pass = context
             .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
+            .counted_render_pass(&RenderPassDescriptor {
                 label: Some("SMAA spatial blending"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: None,

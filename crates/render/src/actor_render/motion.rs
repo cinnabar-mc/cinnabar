@@ -5,6 +5,7 @@ use crate::motion_blur::{
     actor_history::{ActorHistory, MotionInstance},
     history::CameraHistory,
 };
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::render::{renderer::RenderContext, view::ViewDepthStencilTexture};
 
 mod buffer;
@@ -331,7 +332,7 @@ pub(crate) fn draw(
         load: wgpu::LoadOp::Load,
         store: wgpu::StoreOp::Store,
     });
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("rendered actor velocities"),
         color_attachments: &attachments,
         depth_stencil_attachment: Some(attachment),

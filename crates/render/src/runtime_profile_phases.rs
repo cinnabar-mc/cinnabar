@@ -1,9 +1,11 @@
 //! Main-schedule phase spans: time no named stage covers is still attributed to the phase that
 //! spent it, so a slow frame never reports main-thread work under no stage at all.
 
-use bevy::app::{App, Last, MainScheduleOrder, PreUpdate, RunFixedMainLoop, Update};
+use bevy::app::{App, Last, MainScheduleOrder, PostUpdate, PreUpdate, RunFixedMainLoop, Update};
+use bevy::camera::visibility::VisibilitySystems;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::ScheduleLabel;
+use bevy::transform::TransformSystems;
 use render_scene::runtime_profile::begin_stage_span;
 use render_scene::runtime_profile::end_stage_span;
 
@@ -13,6 +15,8 @@ const PRE_UPDATE: usize = RuntimeStage::MainPreUpdate as usize;
 const FIXED_UPDATE: usize = RuntimeStage::MainFixedUpdate as usize;
 const UPDATE: usize = RuntimeStage::MainUpdate as usize;
 const POST_UPDATE: usize = RuntimeStage::MainPostUpdate as usize;
+const TRANSFORMS: usize = RuntimeStage::PostTransforms as usize;
+const VISIBILITY: usize = RuntimeStage::PostVisibility as usize;
 
 /// One-system schedules run between two main-schedule phases.
 #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
@@ -25,7 +29,8 @@ enum PhaseBoundary {
 }
 
 /// Times the main schedule phases as RuntimeStage spans, including SpawnScene in PostUpdate.
-/// Boundary schedules keep neighboring phase systems outside each measured span.
+/// Boundary schedules keep neighboring phase systems outside each measured span. Inside
+/// PostUpdate, transform propagation and the visibility sets after it get their own spans.
 pub fn install_main_phase_spans(app: &mut App) {
     app.init_resource::<RuntimeStageSpans>();
     let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
@@ -54,7 +59,20 @@ pub fn install_main_phase_spans(app: &mut App) {
         PhaseBoundary::AfterUpdate,
         (end_stage_span::<UPDATE>, begin_stage_span::<POST_UPDATE>).chain(),
     )
-    .add_systems(PhaseBoundary::BeforeLast, end_stage_span::<POST_UPDATE>);
+    .add_systems(PhaseBoundary::BeforeLast, end_stage_span::<POST_UPDATE>)
+    .add_systems(
+        PostUpdate,
+        (
+            begin_stage_span::<TRANSFORMS>.before(TransformSystems::Propagate),
+            (end_stage_span::<TRANSFORMS>, begin_stage_span::<VISIBILITY>)
+                .chain()
+                .after(TransformSystems::Propagate)
+                .before(VisibilitySystems::CalculateBounds)
+                .before(VisibilitySystems::UpdateFrusta)
+                .before(VisibilitySystems::VisibilityPropagate),
+            end_stage_span::<VISIBILITY>.after(VisibilitySystems::MarkNewlyHiddenEntitiesInvisible),
+        ),
+    );
 }
 
 #[cfg(test)]
@@ -106,6 +124,8 @@ mod tests {
             RuntimeStage::MainFixedUpdate,
             RuntimeStage::MainUpdate,
             RuntimeStage::MainPostUpdate,
+            RuntimeStage::PostTransforms,
+            RuntimeStage::PostVisibility,
         ] {
             assert_eq!(
                 snapshot.samples[stage as usize].count,

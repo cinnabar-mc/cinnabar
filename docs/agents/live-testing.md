@@ -225,6 +225,31 @@ acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
 small main work warrants checking the render stages and OS scheduling before
 changing gameplay. `render_frame` is render-world time excluding drawable acquisition.
+
+`render_submission` splits, in order, into `render_graph` (every graph system recording its
+passes), `encode_finish` (finishing the command encoders those systems recorded, including the
+wait for passes finished on worker tasks), `queue_submit` (the rest of the graph's submission:
+uncovered swap-chain clears, screenshot and readback copies, and handing the command buffers to
+the queue) and `surface_present` (presentation, screenshot collection and any submission left
+to the renderer after the graph). Inside `render_graph`, the `node_*` stages group the graph
+systems the client times: `node_uploads`, `node_shadows`, `node_cull`, `node_opaque`,
+`node_sky`, `node_transparent`, `node_hand`, `node_post` and `node_ui`. A node whose pass
+finishes on a worker task costs its recording there and its encoding in `encode_finish`.
+
+`main_update` splits along the client frame-set chain into `update_input`,
+`update_ui_authority`, `update_simulation`, `update_network_send`, `update_world` and
+`update_presentation`. Each runs from its first set to the next stage's, so a system the
+schedule places between two boundaries counts toward that stage, and `main_update` beyond
+them ran outside the chain. `post_transforms` and `post_visibility` cover transform
+propagation and the visibility sets in `main_post_update`.
+
+`render_counts` lists what the render frames that closed in the interval asked the GPU API
+for: `passes` begun, queue `writes` with their `write_bytes`, and `staged_bytes` copied through
+retained staging. They count client code only, not Bevy's own passes or buffer writes, and
+not draw calls or pipeline creation; the architecture gate keeps client passes and queue writes
+on the counted entry points. Frame traces carry the same values as a `render_counts` counter
+event per render frame.
+
 `input_age` runs from the update's start, where input is sampled, to the end of its render
 extraction. `input_pacing_wait` is the deliberate main-thread delay before the next input sample, until the
 later of its frame-rate cadence slot and the predicted render-thread completion;

@@ -3,6 +3,7 @@
 //! brightness setting moves; here that is the world lightmap Cinnabar's terrain lights with,
 //! so packs see the same sky and block light, night vision and darkness.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::{Local, Res};
 use bevy::render::renderer::RenderQueue;
 use render_model::LightmapInputs;
@@ -55,7 +56,7 @@ pub(crate) fn update_lightmap(
         return;
     }
     written.0 = Some(key);
-    queue.write_texture(
+    queue.profiled_write_texture(
         pack.constants.textures[index].texture.as_image_copy(),
         &lightmap_texels(inputs),
         wgpu::TexelCopyBufferLayout {

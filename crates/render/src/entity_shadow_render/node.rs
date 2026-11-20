@@ -1,4 +1,5 @@
 use super::*;
+use crate::render_counting::CountedTrackedPass as _;
 
 type EntityShadowQuery = (
     &'static ExtractedCamera,
@@ -41,7 +42,7 @@ pub(crate) fn entity_shadows(
         return Ok(());
     };
     let colour = scene.color_attachment(target, true);
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("entity shadows"),
         color_attachments: &[Some(colour)],
         depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {

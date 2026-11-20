@@ -1,6 +1,7 @@
 //! Per-view draw lists over resident expanded sections, retained while what they were built
 //! from holds, and recording them into a pass.
 
+use crate::queue_writes::ProfiledQueue as _;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Range;
 
@@ -349,7 +350,7 @@ impl ViewDraws {
                     mapped_at_creation: false,
                 }));
             }
-            queue.write_buffer(
+            queue.profiled_write_buffer(
                 self.translucent_buffer.as_ref().expect("created above"),
                 0,
                 contents,
@@ -382,7 +383,7 @@ impl ViewDraws {
             }));
         }
         if let Some(buffer) = &self.indirect {
-            queue.write_buffer(buffer, 0, &bytes);
+            queue.profiled_write_buffer(buffer, 0, &bytes);
         }
     }
 

@@ -1,6 +1,7 @@
 //! Experimental current-frame box tests against opaque depth, without a depth pyramid.
 
 use super::{kernels::cull_shader_source, model::group_count, storage::CullStorage};
+use crate::render_counting::CountedPasses as _;
 
 const RASTER_VERTICES: u32 = 6;
 
@@ -140,7 +141,7 @@ impl RasterCull {
             return;
         }
         {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            let mut pass = encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("terrain raster reset"),
                 timestamp_writes: timestamps.0,
             });
@@ -148,7 +149,7 @@ impl RasterCull {
             pass.set_bind_group(0, &self.prepare_group, &[]);
             pass.dispatch_workgroups(group_count(slots, self.workgroup), 1, 1);
         }
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = encoder.counted_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("terrain raster occlusion"),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

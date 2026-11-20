@@ -150,6 +150,18 @@ pub(in crate::chunk) fn chunk_app_with(
     transform: Transform,
     configure: impl FnOnce(&mut App),
 ) -> (App, Entity) {
+    chunk_app_prepared(render, msaa, transform, |_| {}, configure)
+}
+
+/// [`chunk_app_with`], running `prepare` before the chunk renderer is installed, which is when
+/// it looks for the resources that decide what it installs.
+pub(in crate::chunk) fn chunk_app_prepared(
+    render: RenderPlugin,
+    msaa: Msaa,
+    transform: Transform,
+    prepare: impl FnOnce(&mut App),
+    configure: impl FnOnce(&mut App),
+) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(WindowPlugin {
@@ -163,8 +175,9 @@ pub(in crate::chunk) fn chunk_app_with(
             MeshPlugin,
             CameraPlugin,
             CorePipelinePlugin,
-        ))
-        .add_plugins(ChunkRenderPlugin::default());
+        ));
+    prepare(&mut app);
+    app.add_plugins(ChunkRenderPlugin::default());
     crate::render_test_support::fail_on_render_error(&mut app);
     let image = app
         .world_mut()

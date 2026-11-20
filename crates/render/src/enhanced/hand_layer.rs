@@ -1,4 +1,5 @@
 //! Keeps the hand outside grading without copying the graded scene into MSAA.
+use crate::render_counting::CountedPasses as _;
 use crate::scene_target::SceneTarget;
 use bevy::{
     prelude::*,
@@ -97,7 +98,7 @@ impl HandLayer {
 pub(crate) fn clear(context: &mut RenderContext, world: &World, scene: &SceneTarget) {
     let _pass = context
         .command_encoder()
-        .begin_render_pass(&wgpu::RenderPassDescriptor {
+        .counted_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("enhanced hand layer clear"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: scene.color_view(false),
@@ -149,7 +150,7 @@ pub(crate) fn enhanced_hand_composite(
     if scene.texture.sample_count() > 1 {
         let _pass = context
             .command_encoder()
-            .begin_render_pass(&wgpu::RenderPassDescriptor {
+            .counted_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("enhanced hand resolve"),
                 color_attachments: &[Some(
                     scene.resolve_attachment(&layer.view, wgpu::StoreOp::Discard),
@@ -171,7 +172,7 @@ pub(crate) fn enhanced_hand_composite(
     }
     let mut pass = context
         .command_encoder()
-        .begin_render_pass(&wgpu::RenderPassDescriptor {
+        .counted_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("enhanced hand composite"),
             color_attachments: &[Some(target.get_unsampled_color_attachment())],
             depth_stencil_attachment: None,

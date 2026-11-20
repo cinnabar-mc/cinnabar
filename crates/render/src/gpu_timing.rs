@@ -5,6 +5,7 @@
 //! go straight into the encoder where the device allows it; otherwise each is its own pass, and
 //! two per frame cost far less than two per timed node.
 
+use crate::render_counting::CountedPasses as _;
 use bevy::prelude::IntoSystemSet;
 mod categories;
 pub(crate) use categories::draw_categories;
@@ -218,12 +219,19 @@ fn install_builtin_timing(world: &mut World) {
                 profiled(
                     tonemapping,
                     Some(RuntimeStage::GpuTonemapping),
+                    render_scene::RuntimeStage::NodePost,
                     "Tonemapping",
                 ),
             ),
             (
                 fxaa.into_system_set().intern(),
-                profiled(fxaa, Some(RuntimeStage::GpuFxaa), "Fxaa").after(tonemapping),
+                profiled(
+                    fxaa,
+                    Some(RuntimeStage::GpuFxaa),
+                    render_scene::RuntimeStage::NodePost,
+                    "Fxaa",
+                )
+                .after(tonemapping),
             ),
         ] {
             if schedule
@@ -341,7 +349,7 @@ fn mark(
     }
     #[cfg(test)]
     tests::MARKER_PASSES.with(|passes| passes.set(passes.get() + 1));
-    encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+    encoder.counted_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some("gpu timestamp"),
         timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
             query_set: queries,

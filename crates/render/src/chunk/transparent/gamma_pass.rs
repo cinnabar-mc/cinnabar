@@ -6,6 +6,7 @@ mod encoding_tests;
 mod tests;
 
 use crate::chunk::*;
+use crate::render_counting::CountedTrackedPass as _;
 use crate::scene_target::SceneTarget;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -48,6 +49,7 @@ pub(crate) fn install_graph(world: &mut World) {
                 crate::gpu_timing::profiled(
                     gamma_transparent::<false, false>,
                     Some(render_scene::RuntimeStage::GpuTransparent),
+                    render_scene::RuntimeStage::NodeTransparent,
                     "MainTransparentPass",
                 )
                 .in_set(crate::scene_target::ScenePass::Transparent),
@@ -173,7 +175,7 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool, const AFTER_PACK: boo
     let mut ranges = ranges().peekable();
     while let Some(gamma) = ranges.peek().map(|(_, gamma)| *gamma) {
         let attachments = [Some(scene.color_attachment(target, gamma))];
-        let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
+        let mut pass = render_context.counted_tracked_render_pass(RenderPassDescriptor {
             label: Some("sorted ordinary transparent colour-space range"),
             color_attachments: &attachments,
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),

@@ -25,6 +25,12 @@ mod nametag_shader;
     reason = "fixtures exercise a subset of queue upload entry points"
 )]
 mod queue_writes;
+#[path = "../../src/render_counting.rs"]
+#[allow(
+    dead_code,
+    reason = "fixtures exercise a subset of the counted GPU entry points"
+)]
+mod render_counting;
 #[path = "support/rod_snapshot.rs"]
 mod rod_snapshot;
 #[path = "../../src/shader_safety.rs"]

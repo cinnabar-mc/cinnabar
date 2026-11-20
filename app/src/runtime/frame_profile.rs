@@ -95,6 +95,54 @@ impl Drop for TraceExportOnTeardown {
     }
 }
 
+/// Splits `main_update` along the client frame-set chain. Each stage runs from its first set
+/// to the next stage's, so a system the schedule places between two boundaries counts toward
+/// that stage; `main_update` beyond these stages ran outside the chain.
+pub(crate) fn install_frame_set_spans(app: &mut App) {
+    use client_state::ClientFrameSet as Set;
+    use render_scene::{RuntimeStage, begin_stage_span, end_stage_span};
+    const INPUT: usize = RuntimeStage::UpdateInput as usize;
+    const UI_AUTHORITY: usize = RuntimeStage::UpdateUiAuthority as usize;
+    const SIMULATION: usize = RuntimeStage::UpdateSimulation as usize;
+    const NETWORK_SEND: usize = RuntimeStage::UpdateNetworkSend as usize;
+    const WORLD: usize = RuntimeStage::UpdateWorld as usize;
+    const PRESENTATION: usize = RuntimeStage::UpdatePresentation as usize;
+    app.init_resource::<render_scene::RuntimeStageSpans>()
+        .add_systems(
+            Update,
+            (
+                begin_stage_span::<INPUT>.before(Set::RawInput),
+                (end_stage_span::<INPUT>, begin_stage_span::<UI_AUTHORITY>)
+                    .chain()
+                    .after(Set::SemanticSample)
+                    .before(Set::UiAuthority),
+                (
+                    end_stage_span::<UI_AUTHORITY>,
+                    begin_stage_span::<SIMULATION>,
+                )
+                    .chain()
+                    .after(Set::SemanticFinalize)
+                    .before(Set::Physics),
+                (
+                    end_stage_span::<SIMULATION>,
+                    begin_stage_span::<NETWORK_SEND>,
+                )
+                    .chain()
+                    .after(Set::Interaction)
+                    .before(Set::NetworkSend),
+                (end_stage_span::<NETWORK_SEND>, begin_stage_span::<WORLD>)
+                    .chain()
+                    .after(Set::NetworkSend)
+                    .before(Set::WorldPublication),
+                (end_stage_span::<WORLD>, begin_stage_span::<PRESENTATION>)
+                    .chain()
+                    .after(Set::WorldPublication)
+                    .before(Set::ActorPreparation),
+                end_stage_span::<PRESENTATION>.after(Set::UiPublication),
+            ),
+        );
+}
+
 /// Completes export during world teardown or after a runner retains its world and returns.
 pub(crate) fn run(app: &mut App) -> AppExit {
     let profiler = app.world().resource::<RuntimeStageProfiler>().clone();
@@ -156,5 +204,82 @@ mod tests {
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(saved["traceEvents"][0]["frame_id"], 1);
         assert!(retained.borrow().is_some());
+    }
+
+    /// Records a zero-length probe span from inside a frame set.
+    fn probe<const S: usize>(profiler: Res<RuntimeStageProfiler>) {
+        drop(profiler.time(render_scene::RuntimeStage::ALL[S]));
+    }
+
+    /// Work in a frame set is attributed to the update stage covering that set, once a frame.
+    #[test]
+    fn frame_set_stages_enclose_the_sets_they_cover() {
+        use client_state::ClientFrameSet as Set;
+        use render_scene::RuntimeStage;
+        const IN_UI_AUTHORITY: usize = RuntimeStage::Particles as usize;
+        const IN_NETWORK_SEND: usize = RuntimeStage::Audio as usize;
+        const IN_UI_PUBLICATION: usize = RuntimeStage::BlockEntities as usize;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("frame-sets.json");
+        let profiler = RuntimeStageProfiler::with_trace(true, Some(path.clone()));
+        let mut app = App::new();
+        app.insert_resource(profiler.clone());
+        crate::game_frame::configure_client_frame_schedule(&mut app);
+        install_frame_set_spans(&mut app);
+        app.add_systems(
+            Update,
+            (
+                probe::<IN_UI_AUTHORITY>.in_set(Set::UiAuthority),
+                probe::<IN_NETWORK_SEND>.in_set(Set::NetworkSend),
+                probe::<IN_UI_PUBLICATION>.in_set(Set::UiPublication),
+            ),
+        );
+        app.update();
+        let stages = [
+            RuntimeStage::UpdateInput,
+            RuntimeStage::UpdateUiAuthority,
+            RuntimeStage::UpdateSimulation,
+            RuntimeStage::UpdateNetworkSend,
+            RuntimeStage::UpdateWorld,
+            RuntimeStage::UpdatePresentation,
+        ];
+        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+        for stage in stages {
+            assert_eq!(
+                snapshot.samples[stage as usize].count,
+                1,
+                "{}",
+                stage.name()
+            );
+        }
+        profiler.flush_trace();
+        profiler.wait_for_trace_export();
+        let trace: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let span = |name: &str| {
+            let event = trace["traceEvents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|event| event["name"] == name)
+                .unwrap_or_else(|| panic!("missing span {name}"));
+            let start = event["ts"].as_f64().unwrap();
+            (start, start + event["dur"].as_f64().unwrap())
+        };
+        for (probe, owner) in [
+            (IN_UI_AUTHORITY, RuntimeStage::UpdateUiAuthority),
+            (IN_NETWORK_SEND, RuntimeStage::UpdateNetworkSend),
+            (IN_UI_PUBLICATION, RuntimeStage::UpdatePresentation),
+        ] {
+            let (start, end) = span(RuntimeStage::ALL[probe].name());
+            let enclosing: Vec<_> = stages
+                .into_iter()
+                .filter(|stage| {
+                    let (low, high) = span(stage.name());
+                    low <= start && end <= high
+                })
+                .collect();
+            assert_eq!(enclosing, [owner]);
+        }
     }
 }

@@ -1,3 +1,4 @@
+use crate::render_counting::CountedTrackedPass as _;
 use bevy::{
     prelude::World,
     render::{
@@ -43,7 +44,7 @@ pub(super) fn far_terrain(
     {
         return Ok(());
     }
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+    let mut pass = context.counted_tracked_render_pass(RenderPassDescriptor {
         label: Some("far terrain"),
         color_attachments: &[Some(scene.color_attachment(target, false))],
         depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
