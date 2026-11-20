@@ -104,6 +104,8 @@ pub struct NewWorld {
     pub backend: Option<Backend>,
     pub seed: Option<i64>,
     pub options: super::options::WorldOptions,
+    /// Pack archives the world is created with, in the order they are installed.
+    pub packs: Vec<super::packs::PackFile>,
 }
 
 /// Why the dedicated-server backend cannot run.

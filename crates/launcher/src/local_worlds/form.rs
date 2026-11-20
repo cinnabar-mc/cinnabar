@@ -1,4 +1,4 @@
-use super::world::{Difficulty, Generator, NewWorld, World};
+use super::world::{Difficulty, Generator, NewWorld, World, WorldUpdate};
 use bridge::{Backend, GameMode};
 
 /// Vanilla's world name field limit (`CreateNewWorld.general`, 30 characters); the core allows 64.
@@ -104,6 +104,19 @@ impl EditForm {
             original_options: world.options.clone(),
         }
     }
+
+    /// Includes only fields that differ from the `saved` world, using the validated `name`.
+    pub fn changes_from(&self, saved: &World, name: String) -> WorldUpdate {
+        WorldUpdate {
+            name: (name != saved.name).then_some(name),
+            game_mode: (self.game_mode != saved.game_mode).then_some(self.game_mode),
+            difficulty: (self.difficulty != saved.difficulty).then_some(self.difficulty),
+            options: {
+                let changes = self.options.changes_from(&self.original_options);
+                (!changes.is_empty()).then_some(changes)
+            },
+        }
+    }
 }
 
 impl CreateForm {
@@ -119,6 +132,7 @@ impl CreateForm {
             backend: Some(Backend::Bds),
             seed: seed_from_text(&self.seed_text),
             options: self.options.clone(),
+            packs: Vec::new(),
         })
     }
 }

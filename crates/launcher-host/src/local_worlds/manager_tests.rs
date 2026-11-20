@@ -8,6 +8,7 @@ use crate::local_worlds::{
     test_support::{FakeInstance, FakeRunner, scratch},
 };
 use bridge::{LocalWorld, Transport};
+use launcher::local_worlds::packs::PackFile;
 use launcher::local_worlds::world::WorldStatus;
 
 const MAC: Platform = Platform {
@@ -339,6 +340,33 @@ fn a_failed_live_change_after_reopening_a_crashed_server_stays_pending() {
             "the failed edit must be retried"
         );
     }
+}
+
+/// A world's packs change only while its server is stopped.
+#[test]
+fn pack_edits_wait_for_the_server_to_stop() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = with_runner(&runner);
+    let manager = &fixture.manager;
+    let world = manager.create(&flat("w")).expect("create");
+    assert!(
+        manager
+            .packs(&world.id)
+            .expect("an idle world lists its packs")
+            .resource
+            .is_empty()
+    );
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    assert!(matches!(manager.packs(&world.id), Err(WorldError::InUse)));
+    assert!(matches!(
+        manager.remove_pack(&world.id, PackKind::Resource, "id"),
+        Err(WorldError::InUse)
+    ));
+    assert!(matches!(
+        manager.packs("missing"),
+        Err(WorldError::NotFound)
+    ));
 }
 
 /// Reopening a world that still saves starts its server only once the old one has exited.
@@ -1044,4 +1072,81 @@ fn legacy_host_requests_are_refused_without_saving() {
     });
     assert!(matches!(result, Err(WorldError::LegacyWorld)));
     assert!(fixture.manager.list().unwrap().is_empty());
+}
+
+fn pack_archive(dir: &std::path::Path, file: &str, id: &str, name: &str) -> std::path::PathBuf {
+    let manifest = serde_json::json!({
+        "format_version": 2,
+        "header": { "name": name, "description": "d", "uuid": id, "version": [1, 0, 0] },
+        "modules": [{
+            "type": "resources",
+            "uuid": "33333333-3333-4333-8333-333333333333",
+            "version": [1, 0, 0],
+        }],
+    })
+    .to_string();
+    let path = dir.join(file);
+    std::fs::write(
+        &path,
+        crate::local_worlds::test_support::build_zip(&[("manifest.json", manifest.as_bytes())]),
+    )
+    .expect("write archive");
+    path
+}
+
+/// Packs chosen before a world exists arrive with it, and a pack that cannot be installed leaves
+/// no world behind.
+#[test]
+fn a_world_created_with_packs_carries_them_or_is_not_kept() {
+    const A: &str = "11111111-1111-4111-8111-111111111111";
+    const B: &str = "22222222-2222-4222-8222-222222222222";
+    let runner = Arc::new(FakeRunner::default());
+    let (fixture, _) = bds_world(&runner);
+    let manager = &fixture.manager;
+    let dir = fixture._dir.path();
+    let a = pack_archive(dir, "a.mcpack", A, "Alpha");
+    let b = pack_archive(dir, "b.mcpack", B, "Beta");
+
+    let preview = manager
+        .preview_pack(PackKind::Resource, &a, &|| false)
+        .expect("a valid file previews");
+    assert_eq!((preview.id.as_str(), preview.name.as_str()), (A, "Alpha"));
+    assert!(matches!(
+        manager.preview_pack(PackKind::Behaviour, &a, &|| false),
+        Err(WorldError::Rejected(_))
+    ));
+
+    let file = |kind, path: &std::path::Path| PackFile {
+        kind,
+        path: path.to_owned(),
+    };
+    // Installed last-to-first, so the list's first pack ends first.
+    let world = manager
+        .create(&NewWorld {
+            backend: Some(Backend::Bds),
+            packs: vec![file(PackKind::Resource, &b), file(PackKind::Resource, &a)],
+            ..flat("with packs")
+        })
+        .expect("create with packs");
+    let ids: Vec<_> = manager
+        .packs(&world.id)
+        .expect("packs")
+        .resource
+        .into_iter()
+        .map(|pack| pack.id)
+        .collect();
+    assert_eq!(ids, [A, B]);
+
+    let before = manager.list().expect("list").len();
+    let missing = dir.join("gone.mcpack");
+    let result = manager.create(&NewWorld {
+        backend: Some(Backend::Bds),
+        packs: vec![
+            file(PackKind::Resource, &a),
+            file(PackKind::Resource, &missing),
+        ],
+        ..flat("refused")
+    });
+    assert!(result.is_err());
+    assert_eq!(manager.list().expect("list").len(), before);
 }

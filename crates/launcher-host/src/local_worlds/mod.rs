@@ -13,6 +13,7 @@ mod import;
 mod junction;
 mod level_dat;
 mod manager;
+mod packs;
 mod ports;
 mod process;
 mod provision;
@@ -30,6 +31,7 @@ pub use android_trust::refresh as refresh_android_server_trust;
 pub use core_link::{CoreLink, CoreRoute};
 pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
 pub use manager::{Host, Manager};
+pub use packs::MAX_PACK_ARCHIVE_BYTES;
 pub use world::WorldError;
 
 use std::{

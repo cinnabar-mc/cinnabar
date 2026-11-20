@@ -19,6 +19,24 @@ use std::{
     sync::Arc,
 };
 
+/// The game-data folders of the Bedrock installs on this machine, for a player's own request to
+/// look in them. Only profile folder names are listed, never account files.
+pub fn game_data_roots() -> Vec<PathBuf> {
+    let Ok(sources) = locations::discover(&locations::current()) else {
+        return Vec::new();
+    };
+    let mut roots = Vec::new();
+    for root in sources
+        .into_iter()
+        .flat_map(|source| std::iter::once(source.root).chain(source.shared))
+    {
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    roots
+}
+
 /// All player preferences replaced by import, also used as the durable restore snapshot.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserState {

@@ -82,6 +82,7 @@ pub(super) fn import(
             difficulty: settings.difficulty,
             backend: Some(backend),
             seed: settings.seed,
+            packs: Vec::new(),
         },
         cancelled,
     )
