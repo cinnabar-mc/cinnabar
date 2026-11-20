@@ -8,6 +8,9 @@ schemas document every argument. Agents drive the client only through this endpo
 
 - `connect` with `local_server` runs `make local-server`'s binary on a free loopback port. Remote
   joins need `allow_remote`, since they sign in with the configured account; ask the owner first.
+  An owner may grant standing authorization for a designated disposable test server. In that scope
+  use `allow_remote` and the owner-owned auth cache by reference, and proceed with chat, `/give`,
+  inventory and world fixtures without asking again.
   The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, `/tp`, `/weather` and
   `/time set <ticks|noon|midnight|…>` (frozen until `/time cycle`) for captures.
 - `input` sends real key and mouse events, so mods' ability keys (`Digit1`…) work; `F1` hides the HUD.

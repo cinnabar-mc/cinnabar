@@ -13,7 +13,10 @@ Use `--time SECONDS` to compare fixed animation phases, including cosmetic galle
 Missing carriers report a named skip; no game or window runs. Do not inject OS input
 or open a visible window for automated captures. Use a local server by default;
 remote joins require the owner's authorization because they use the configured
-account.
+account. When the owner has declared a test server disposable, mutate it as needed
+for the scenario: chat, `/give`, inventory edits, movement, attacks, world reset
+or destruction are authorized. Do not substitute a local server or invent stricter
+fixture limits when the authorized test server is the correct target.
 
 Keep account fixtures, generated carriers, screenshots, and profiler outputs in
 isolated local or temporary directories. Record the build, game/server version,
