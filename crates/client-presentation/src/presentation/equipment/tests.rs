@@ -16,6 +16,9 @@ mod legacy_combat_tests;
 #[path = "runtime/worn_texture_tests.rs"]
 mod worn_texture_tests;
 
+#[path = "runtime/baby_armour_tests.rs"]
+mod baby_armour_tests;
+
 use std::sync::Arc;
 
 use bevy::math::{Quat, Vec3};
