@@ -1,5 +1,8 @@
 //! Bounded pack inputs, source validation and shared texture decoding.
 
+/// The engine's reserved identifier for the built-in plant cross model.
+pub const CROSS_IDENTIFIER: &str = "minecraft:geometry.cross";
+
 pub mod barrel;
 pub mod geometry_key;
 pub mod image;

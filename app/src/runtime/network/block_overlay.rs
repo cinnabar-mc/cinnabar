@@ -9,6 +9,7 @@ mod condition;
 mod items;
 pub(super) use items::compile_block_item_overlay;
 mod geometry_inputs;
+use pack_compile_input::CROSS_IDENTIFIER as CROSS;
 use pack_compiler::block_geometry as geometry;
 mod legacy;
 mod materials;
@@ -427,6 +428,7 @@ impl Builder<'_> {
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
                 self.model(components, &geometry::Geometry::full_block(), &[])
             }
+            Some(CROSS) => self.model(components, &geometry::Geometry::cross(), &[]),
             Some(identifier) => match geometries.get(identifier) {
                 Some(geometry) => self.model(components, geometry, &state.hidden_bones),
                 None => {
