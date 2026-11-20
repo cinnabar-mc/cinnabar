@@ -6,7 +6,8 @@ use super::{MAX_IMAGE_SIDE, OREUI_PAGE_SIDE, OreUiPage, OreUiSprite};
 
 const GUTTER: u32 = 1;
 pub(super) struct Pages {
-    pages: Vec<([u32; 2], Vec<u8>)>,
+    /// Each page's allocated dimensions, pixels, and the extent its images cover.
+    pages: Vec<([u32; 2], Vec<u8>, [u32; 2])>,
     active: Option<usize>,
     bytes: usize,
     side: u32,
@@ -72,6 +73,8 @@ impl Pages {
             self.pages[page].1[start..start + row]
                 .copy_from_slice(&pixels[line * row..(line + 1) * row]);
         }
+        let used = &mut self.pages[page].2;
+        *used = [used[0].max(self.x + width), used[1].max(self.y + height)];
         let sprite = OreUiSprite {
             page: page as u16,
             bounds: [
@@ -92,16 +95,40 @@ impl Pages {
             return Err("OreUI artwork exceeds the texture budget".into());
         }
         let page = self.pages.len();
-        self.pages.push((dimensions, pixels));
+        let used = if dimensions == [self.side; 2] {
+            [0; 2]
+        } else {
+            dimensions
+        };
+        self.pages.push((dimensions, pixels, used));
         Ok(page)
     }
 
+    /// The packed pages, each cropped to the extent its images cover: a shelf page is
+    /// allocated at full size while packing, and its unused rows and columns would otherwise
+    /// stay resident on the CPU and the GPU.
     pub(super) fn finish(self) -> Vec<OreUiPage> {
         self.pages
             .into_iter()
-            .map(|(dimensions, pixels)| OreUiPage {
-                dimensions,
-                pixels: Arc::from(pixels),
+            .map(|(dimensions, pixels, used)| {
+                if used == dimensions {
+                    return OreUiPage {
+                        dimensions,
+                        pixels: Arc::from(pixels),
+                    };
+                }
+                let [width, height] = used.map(|side| side.max(1) as usize);
+                let stride = dimensions[0] as usize * 4;
+                let pixels: Vec<u8> = pixels
+                    .chunks_exact(stride)
+                    .take(height)
+                    .flat_map(|row| &row[..width * 4])
+                    .copied()
+                    .collect();
+                OreUiPage {
+                    dimensions: [width as u32, height as u32],
+                    pixels: Arc::from(pixels),
+                }
             })
             .collect()
     }

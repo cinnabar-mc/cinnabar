@@ -29,8 +29,13 @@ pub struct HatRig {
     preview_part: u32,
     preview_frame: std::sync::OnceLock<thumbnail::Frame>,
     pub texture: CapeImage,
-    pub pixels: SkinRgba8,
-    world_pixels: Option<SkinRgba8>,
+    /// [`Self::texture`] expanded to the standard skin raster, built when first drawn: every
+    /// catalog item is prepared at startup, but only worn items reach the world.
+    pixels: std::sync::OnceLock<SkinRgba8>,
+    /// Whether the world draws this item fullbright from [`Self::world_pixels`].
+    emissive: bool,
+    /// The emissive world raster of [`Self::pixels`], built when first drawn.
+    world_pixels: std::sync::OnceLock<SkinRgba8>,
     emitters: Box<[emitters::CosmeticEmitter]>,
     cloth: Option<cloth::ClothRig>,
     companion: Option<companion::Rig>,

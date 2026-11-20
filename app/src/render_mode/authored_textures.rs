@@ -60,11 +60,13 @@ impl CombinedMaps {
 }
 
 impl AuthoredTextureLoading {
-    /// Retains the carrier and its keys without starting optional pack work.
-    pub(crate) fn new(base: Arc<RuntimeAssets>, keys: Option<MaterialKeys>) -> Self {
+    /// Retains the carrier, and a copy of its keys when Enhanced is compiled in, without starting
+    /// optional pack work. Builds without Enhanced never decode authored maps, so they keep no
+    /// second copy of the key index.
+    pub(crate) fn new(base: Arc<RuntimeAssets>, keys: Option<&MaterialKeys>) -> Self {
         Self {
             base,
-            keys,
+            keys: keys.filter(|_| ENHANCED_RENDERING_ENABLED).cloned(),
             loading: Loading::Unrequested,
             combined: None,
         }
@@ -402,10 +404,19 @@ mod tests {
         );
     }
 
+    /// Only a build that can decode authored maps keeps its own copy of the key index.
+    #[test]
+    fn keys_are_copied_only_when_enhanced_is_compiled_in() {
+        let base = Arc::new(RuntimeAssets::diagnostic());
+        let keys = MaterialKeys::from_entries([(1, "stone")]);
+        let loading = AuthoredTextureLoading::new(base, Some(&keys));
+        assert_eq!(loading.keys.is_some(), ENHANCED_RENDERING_ENABLED);
+    }
+
     #[test]
     fn vanilla_selection_never_starts_optional_texture_work() {
         let base = Arc::new(RuntimeAssets::diagnostic());
-        let mut loading = AuthoredTextureLoading::new(base, Some(MaterialKeys::default()));
+        let mut loading = AuthoredTextureLoading::new(base, Some(&MaterialKeys::default()));
         loading.begin(RenderMode::Vanilla, |_, _| {
             panic!("vanilla must not inspect or load optional authored packs")
         });
@@ -460,7 +471,7 @@ mod tests {
         app.insert_resource(settings)
             .insert_resource(AuthoredTextureLoading::new(
                 base.clone(),
-                Some(MaterialKeys::default()),
+                Some(&MaterialKeys::default()),
             ))
             .insert_resource(ChunkTextureAssets::new(base))
             .add_systems(Update, update_authored_textures);
