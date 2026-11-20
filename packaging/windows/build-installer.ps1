@@ -62,10 +62,7 @@ $bundleCode = if ($perUser) { $install.bundle_upgrade_code } else { $install.mac
 $msi = Join-Path $outPath "Cinnabar-$version-x64.msi"
 $machineMsi = Join-Path $outPath "Cinnabar-$version-x64-machine.msi"
 foreach ($package in @(@{ Scope = $scope; Out = $msi }, @{ Scope = "perMachine"; Out = $machineMsi })) {
-    # ICE38, ICE64 and ICE91 require HKCU key paths and RemoveFile rows so profile installs survive
-    # roaming. %LOCALAPPDATA% never roams, and the <Files> harvest keys each component by its file.
-    $profileIces = if ($package.Scope -eq "perUser") { @("-sice", "ICE38", "-sice", "ICE64", "-sice", "ICE91") } else { @() }
-    wix build -arch x64 @profileIces -d Version=$version -d Payload=$payload -d Icon=$icon -d "Scope=$($package.Scope)" `
+    wix build -arch x64 -d Version=$version -d Payload=$payload -d Icon=$icon -d "Scope=$($package.Scope)" `
         -d "InstallParent=$($install.parent)" -d "InstallFolder=$($install.folder)" `
         -d "UserKey=$($install.user_key)" -d "UserFolderValue=$($install.user_folder_value)" `
         -d "UserUpgradeCode=$($install.upgrade_code)" -d "MachineUpgradeCode=$($install.machine_upgrade_code)" `
