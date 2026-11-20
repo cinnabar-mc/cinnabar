@@ -19,7 +19,7 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
-mod consent_modifier_tests;
+mod modifier_tests;
 mod mouse_back_tests;
 mod npc_dismissal_tests;
 
