@@ -81,7 +81,8 @@ pub use runtime::cinnabar::extension::{
 
 pub use runtime::cinnabar::extension::terrain::{
     BlockState as TerrainBlockState, ChunkRevision as TerrainChunkRevision,
-    Geometry as TerrainGeometry, Physics as TerrainPhysics, PhysicsFlags as TerrainPhysicsFlags,
+    Geometry as TerrainGeometry, LightChannels as TerrainLightChannels, Physics as TerrainPhysics,
+    PhysicsFlags as TerrainPhysicsFlags,
     Position as TerrainPosition, ReadError as TerrainReadError, ReadResult as TerrainReadResult,
     Region as TerrainRegion, RegionQuery as TerrainQuery, ResolvedShape as TerrainShape,
     ShapeBinding as TerrainShapeBinding, ShapeOverride as TerrainShapeOverride,

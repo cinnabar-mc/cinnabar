@@ -63,7 +63,7 @@ pub fn terrain_guest(
     let module = format!(
         r#"(module
   (import "{name}/terrain@{version}" "read-region"
-    (func $read (param i32 i32 i32 i32 i32 i32 i32 i32 i64 i32 i64 i64 i32)))
+    (func $read (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i64 i32 i64 i64 i32)))
   (memory (export "memory") 64)
   (global $next (mut i32) (i32.const {HEAP}))
   (global $frame (mut i32) (i32.const 0))
@@ -75,7 +75,7 @@ pub fn terrain_guest(
   (func (export "init"))
   (func (export "frame")
     i32.const {HEAP} global.set $next
-    {bounds} i32.const {geometry}
+    {bounds} i32.const {geometry} i32.const 0
     i32.const {HAVE_STAMP} i32.load8_u
     i32.const {STAMP} i64.load i32.const {} i32.load
     i32.const {} i64.load i32.const {} i64.load

@@ -9,6 +9,18 @@ pub(super) const fn dimension_default_light(dimension: i32) -> [u8; 2] {
 }
 
 impl WorldStream {
+    /// Highest light generation among `key`'s resident sub-chunks, or `None` when none has
+    /// stored light. Re-solving any of the column's light changes the stamp.
+    #[must_use]
+    pub fn column_light_generation(&self, key: world::ChunkKey) -> Option<u64> {
+        let range = self.dimension_range(key.dimension)?;
+        let end = range.base_sub_chunk_y + range.sub_chunk_count as i32;
+        (range.base_sub_chunk_y..end)
+            .filter_map(|y| self.lighting.store.light(SubChunkKey::from_chunk(key, y)))
+            .map(|light| light.generation())
+            .max()
+    }
+
     /// Retained `(block, sky)` light in the current dimension. Outside its admitted
     /// height uses the dimension default; unresolved or non-finite positions read dark.
     #[must_use]

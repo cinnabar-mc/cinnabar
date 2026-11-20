@@ -64,6 +64,8 @@ fn region() -> TerrainRegion {
         layer_count: 1,
         loaded: vec![0xff],
         states: vec![0; 8],
+        sky_light: vec![],
+        block_light: vec![],
         palette: vec![],
         shape_offsets: vec![0, 0],
         shape_boxes: vec![],

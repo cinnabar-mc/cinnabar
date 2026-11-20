@@ -996,8 +996,14 @@ interface terrain {
     record position { x: s32, y: s32, z: s32 }
     /// Selects which block shapes to request; an empty set requests neither family.
     flags geometry { collision, selection }
+    /// Selects which per-cell light channels to report; an empty set requests neither.
+    flags light-channels { sky, block }
     /// Inclusive minimum and exclusive maximum; each extent is 1 to `MAX_TERRAIN_EXTENT` blocks.
-    record region-query { min: position, max: position, geometry: geometry }
+    record region-query {
+        min: position, max: position, geometry: geometry,
+        /// Light channels to read for every cell, at one read each.
+        light: light-channels,
+    }
     /// Identifies one sample of one query; an equal stamp means identical contents.
     record stamp { session: u64, dimension: s32, registry: u64, revision: u64 }
     /// Available block contact properties; missing physics remains absent on the block state.
@@ -1024,8 +1030,9 @@ interface terrain {
         tags: list<string>, physics: option<physics>,
         collision: shape-binding, selection: shape-binding,
     }
-    /// Revision of a column the region depends on; none is absent terrain.
-    record chunk-revision { x: s32, z: s32, revision: option<u64> }
+    /// Revision of a column the region depends on; none is absent terrain. `light` is the
+    /// column's light generation when the query requested light, and none otherwise.
+    record chunk-revision { x: s32, z: s32, revision: option<u64>, light: option<u64> }
     /// Geometry of one layer slot that depends on its position; none keeps the state's binding.
     record shape-override { slot: u32, collision: option<resolved-shape>, selection: option<resolved-shape> }
     /// Cell `((x * size-z) + z) * size-y + y`, relative to the minimum, has layer `l` at slot
@@ -1039,6 +1046,12 @@ interface terrain {
         loaded: list<u64>,
         /// Palette index per slot; 65535 is no layer, never air.
         states: list<u16>,
+        /// Sky light per cell in cell order, 0..=15, or 255 when the cell is not loaded or its
+        /// light is not solved. Empty unless the query requested sky light.
+        sky-light: list<u8>,
+        /// Block light per cell in cell order, 0..=15, or 255 when the cell is not loaded or its
+        /// light is not solved. Empty unless the query requested block light.
+        block-light: list<u8>,
         palette: list<block-state>,
         /// Shape `s` is boxes `shape-offsets[s]` to `shape-offsets[s + 1]`.
         shape-offsets: list<u32>,
@@ -1053,7 +1066,9 @@ interface terrain {
     enum read-error { denied, unavailable, invalid-query, out-of-range, budget-exhausted, limit-exceeded }
     /// Requires terrain authority and a gameplay frame; the query lies within
     /// `MAX_TERRAIN_DISTANCE` blocks of the player's feet on each axis. Pass the stamp last received
-    /// for this query to skip unchanged data. Limits are `mod-api`'s `MAX_TERRAIN_*` constants.
+    /// for this query to skip unchanged data. A light-requesting sample is refreshed when any
+    /// column's light generation changes, so light alone can invalidate it. Limits are `mod-api`'s
+    /// `MAX_TERRAIN_*` constants.
     read-region: func(query: region-query, after: option<stamp>) -> result<read-result, read-error>;
     /// Positions of loaded blocks whose identifier matches one of 1 to
     /// `MAX_FOUND_BLOCK_IDENTIFIERS` namespaced names, nearest first, within `range` blocks of
