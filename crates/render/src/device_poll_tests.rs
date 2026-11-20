@@ -92,3 +92,30 @@ fn frames_without_a_swap_chain_stay_within_the_in_flight_bound() {
         );
     }
 }
+
+/// A client leaving the screen waits for the frames it submitted, so their completion callbacks
+/// release what they retired, then starts a fresh window when it returns.
+#[test]
+fn finishing_outstanding_frames_fires_their_callbacks_and_empties_the_window() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let mut frames = FramesInFlight::default();
+    let wait = std::time::Duration::from_secs(1);
+    frames
+        .finish_outstanding(&device, wait)
+        .expect("nothing outstanding");
+    for _ in 0..MAX_FRAMES_IN_FLIGHT {
+        frames.0.push_back(queue.submit([]));
+    }
+    // Registered after the last submission, so only a device poll can fire it.
+    let completed = Arc::new(AtomicUsize::new(0));
+    let done = Arc::clone(&completed);
+    queue.on_submitted_work_done(move || {
+        done.fetch_add(1, Ordering::Release);
+    });
+    assert_eq!(completed.load(Ordering::Acquire), 0);
+    frames
+        .finish_outstanding(&device, wait)
+        .expect("submitted frames finish");
+    assert_eq!(completed.load(Ordering::Acquire), 1);
+    assert!(frames.0.is_empty());
+}

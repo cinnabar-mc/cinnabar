@@ -4,6 +4,8 @@
 use crate::queue_writes::ProfiledQueue as _;
 #[path = "upload_staging/pool.rs"]
 mod pool;
+#[path = "upload_staging/release.rs"]
+mod release;
 #[cfg(test)]
 #[path = "upload_staging/tests.rs"]
 mod tests;
@@ -11,7 +13,7 @@ mod tests;
 use bevy::{
     prelude::*,
     render::{
-        Render, RenderApp, RenderStartup, RenderSystems,
+        ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems,
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
 };
@@ -66,17 +68,28 @@ fn request(app: &mut App, select: impl FnOnce(&mut Installed)) {
     }
     let mut installed = Installed::default();
     select(&mut installed);
+    // Extraction reads the message even in apps that never publish one.
+    app.add_message::<memory_pressure::MemoryPressure>();
+    let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+        return;
+    };
     // Slots return to their pool through the frame's device poll.
     crate::device_poll::install(render_app);
     render_app
         .insert_resource(installed)
+        .init_resource::<release::PendingRelease>()
         .add_systems(RenderStartup, initialize)
+        .add_systems(ExtractSchedule, release::extract_memory_pressure)
         .add_systems(
             Render,
-            grow_upload_pools
-                .in_set(UploadGrowth)
-                .after(RenderSystems::PrepareBindGroups)
-                .before(RenderSystems::Render),
+            (
+                grow_upload_pools
+                    .in_set(UploadGrowth)
+                    .after(RenderSystems::PrepareBindGroups)
+                    .before(RenderSystems::Render),
+                // After the frame's device poll, which returns this frame's slots.
+                release::release_staging_growth.in_set(RenderSystems::Cleanup),
+            ),
         );
 }
 
@@ -349,6 +362,11 @@ impl Staging {
         let pool = self.lock();
         let ([ready, active, pending, failed], _) = pool.diagnostic_counts();
         (ready + active + pending + failed) as u64 * pool.slot_bytes()
+    }
+
+    /// Drops the idle slots growth added and returns how many; see [`Pool::release_growth`].
+    fn release_growth(&self) -> usize {
+        self.lock().release_growth()
     }
 
     /// Encodes pending copies ahead of `encoder`'s later commands, which may read their bytes.

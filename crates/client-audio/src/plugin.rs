@@ -12,6 +12,9 @@ impl bevy::prelude::Plugin for ClientAudioPlugin {
             .add_message::<UiSoundCue>()
             .add_message::<LocalBlockCue>()
             .add_message::<crate::audio::predicted::LocalEatingCue>()
-            .add_message::<crate::audio::predicted::LocalAttackCue>();
+            .add_message::<crate::audio::predicted::LocalAttackCue>()
+            // Read by the pressure systems, also in apps where nothing publishes them.
+            .add_message::<memory_pressure::MemoryPressure>()
+            .add_message::<bevy::window::AppLifecycle>();
     }
 }

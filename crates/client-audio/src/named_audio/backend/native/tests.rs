@@ -16,6 +16,7 @@ fn route() -> (
             failure: Arc::new(OnceLock::new()),
             failures: FailureStreak::default(),
             unavailable: Arc::default(),
+            suspended: Arc::default(),
         },
         controller,
     )
@@ -158,7 +159,7 @@ fn a_temporary_output_gap_does_not_discard_the_owner() {
         output: Some(Output {
             mixer: controller,
             unavailable: Arc::default(),
-            _release: release,
+            release,
         }),
         ..super::super::AudioDevice::disabled()
     };
@@ -187,7 +188,7 @@ fn a_device_change_during_named_submission_preserves_all_sources() {
         output: Some(Output {
             mixer: controller,
             unavailable: Arc::default(),
-            _release: release,
+            release,
         }),
         ..super::super::AudioDevice::disabled()
     };
@@ -236,7 +237,7 @@ fn named_sources_queue_without_failure_during_an_output_gap() {
         output: Some(Output {
             mixer: controller,
             unavailable: Arc::default(),
-            _release: release,
+            release,
         }),
         ..super::super::AudioDevice::disabled()
     };
@@ -425,7 +426,7 @@ fn the_device_reports_the_owner_threads_outage_flag() {
         output: Some(Output {
             mixer: controller,
             unavailable: Arc::clone(&unavailable),
-            _release: release,
+            release,
         }),
         ..super::super::AudioDevice::disabled()
     };
@@ -433,4 +434,40 @@ fn the_device_reports_the_owner_threads_outage_flag() {
     unavailable.store(true, Ordering::Relaxed);
     assert!(device.output_unavailable());
     assert!(!super::super::AudioDevice::disabled().output_unavailable());
+}
+
+/// A hidden app plays nothing: the output closes, queued sound waits unconsumed, and the same
+/// samples continue once the app returns.
+#[test]
+fn a_suspended_route_closes_its_output_and_resumes_where_it_stopped() {
+    let (mut route, controller) = route();
+    let samples: Vec<_> = (0..64).map(|sample| sample as f32 / 128.0).collect();
+    controller.add(rodio::buffer::SamplesBuffer::new(
+        CAPTURE_CHANNELS,
+        MIXER_RATE,
+        samples.clone(),
+    ));
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    let playing = &mut route.stream.as_mut().unwrap().1;
+    for expected in &samples[..16] {
+        assert_eq!(playing.next(), Some(*expected));
+    }
+    assert!(!route.suspend());
+    assert!(route.stream.is_some());
+
+    route.suspended.store(true, Ordering::Release);
+    assert!(route.suspend());
+    assert!(route.stream.is_none());
+    assert!(
+        route.mixer.lock().unwrap().is_some(),
+        "the closed output returned the mixer"
+    );
+
+    route.suspended.store(false, Ordering::Release);
+    assert!(!route.suspend());
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    let resumed = &mut route.stream.as_mut().unwrap().1;
+    for expected in &samples[16..32] {
+        assert_eq!(resumed.next(), Some(*expected));
+    }
 }
