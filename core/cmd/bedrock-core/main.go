@@ -216,10 +216,9 @@ func installProcessDiagnostics(opts options, logger *slog.Logger) {
 	}
 }
 
-type ownedResourcePackCache interface {
-	minecraft.ResourcePackCache
-	Close() error
-}
+// ownedResourcePackCache is a resource-pack cache this process opened and must close.
+type ownedResourcePackCache = packcache.Opened
+
 type resourcePackCacheFactory func(string, ...packcache.Option) (ownedResourcePackCache, error)
 
 func execute(ctx context.Context, args []string, stdout, stderr io.Writer, source sourceFunc, serve serveFunc) int {
@@ -372,16 +371,24 @@ func runWithResourcePackCacheFactory(
 	var resourcePackCache minecraft.ResourcePackCache
 	var closeResourcePackCache func() error
 	if opts.resourcePackCacheDir != "" {
-		cache, cacheErr := openCache(opts.resourcePackCacheDir, packcache.WithQuota(opts.resourcePackCacheQuota))
-		if cacheErr != nil {
-			// Persistence is optional. Keep the cache's permission and integrity
-			// checks fail-closed without turning a cache miss into a join failure.
-			// The underlying error may contain private paths; do not log it.
-			logger.Warn("resource pack cache unavailable; continuing without persistent cache")
-		} else {
-			resourcePackCache = cache
-			closeResourcePackCache = cache.Close
-		}
+		// Persistence is optional, and the cache root is leased to one process at a time: the
+		// previous client's core can still hold it when this one starts. The cache therefore keeps
+		// retrying on use instead of staying disabled, and a failed open never fails a join. The
+		// underlying error may contain private paths, so only whether the root was busy is logged.
+		cache := packcache.NewRetrying(func() (packcache.Opened, error) {
+			return openCache(opts.resourcePackCacheDir, packcache.WithQuota(opts.resourcePackCacheQuota))
+		}, func(available bool, err error) {
+			switch {
+			case available:
+				logger.Info("resource pack cache available")
+			case errors.Is(err, packcache.ErrInUse):
+				logger.Warn("resource pack cache unavailable; continuing without persistent cache", "reason", "in_use")
+			default:
+				logger.Warn("resource pack cache unavailable; continuing without persistent cache", "reason", "error")
+			}
+		})
+		resourcePackCache = cache
+		closeResourcePackCache = cache.Close
 	}
 	// The launcher runs local worlds and reports the open one over local_world.v1.
 	var localWorlds *localworld.Local
