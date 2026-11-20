@@ -143,6 +143,11 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
         39 => tell(&contract::game_mode(ctx)),
         // Server WIT 0.12: the actor's pose.
         40 => tell(&contract::pose(ctx)),
+        // Server WIT 0.12: 5 health points of damage to the actor, which armour does not reduce.
+        43 => tell(&format!(
+            "damage {}",
+            contract::refusal(ctx.damage(player, 5.0, false))
+        )),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())

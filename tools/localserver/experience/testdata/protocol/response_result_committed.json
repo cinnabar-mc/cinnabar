@@ -180,6 +180,12 @@
           "z": -7
         },
         "power": 15
+      },
+      {
+        "type": "damage",
+        "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+        "amount": 3.5,
+        "reduced_by_armour": true
       }
     ]
   }

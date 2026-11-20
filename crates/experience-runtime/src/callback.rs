@@ -690,6 +690,7 @@ impl From<protocol::Cause> for ChangeCause {
 
 mod containers;
 mod craft;
+mod damage;
 mod entities;
 mod invoke;
 mod items;
