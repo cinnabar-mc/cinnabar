@@ -225,6 +225,22 @@ acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
 small main work warrants checking the render stages and OS scheduling before
 changing gameplay. `render_frame` is render-world time excluding drawable acquisition.
+
+`encode` breaks command encoding down with wgpu's own counters, summed since the previous
+frame boundary, zero values left out. It covers every encoder, Bevy's included. Names ending
+in `_us` are microseconds; the rest are counts. Only the Vulkan backend fills the backend
+fields (`rp` onwards).
+
+| Fields | Meaning |
+| --- | --- |
+| `enc`, `finish_us` | Encoders finished and the time finishing them |
+| `prep_us`, `replay_us` | Parts of `finish_us`: per pass, tracker merges and barriers, then backend calls from pass begin to end; the rest is validation and commands outside passes |
+| `rp`, `rp_begin_us` | Backend render passes and the time beginning them, inside `replay_us` |
+| `fb_new`, `fb_new_us` | Framebuffers created, inside `rp_begin_us`; near zero once every target has been drawn to, apart from the swapchain's |
+| `tex_copy`, `copy`, `copy_us` | Texture-to-texture copies, other copies (queue writes included) and their encoding time. Adreno's driver has been seen allocating kernel memory for each texture copy |
+| `bar`, `bar_us` | Barriers and their encoding time |
+| `cb_end_us` | Ending backend command buffers |
+| `pool_reset_us` | Recycling finished encoders, in the device poll rather than `finish_us`; that driver frees those allocations here |
 `input_age` runs from the update's start, where input is sampled, to the end of its render
 extraction. `input_pacing_wait` is the deliberate main-thread delay before the next input sample, until the
 later of its frame-rate cadence slot and the predicted render-thread completion;

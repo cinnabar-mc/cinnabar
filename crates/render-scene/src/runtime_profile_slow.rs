@@ -1,6 +1,7 @@
 //! Always-on attribution using bounded counters, with no formatting on fast frames.
 
 use crate::RuntimeStage;
+use crate::runtime_profile_encode::EncodeCounts;
 use std::fmt::Write;
 use std::{
     sync::{
@@ -159,6 +160,8 @@ struct FrameWindow {
     counts: SlowFrameCounts,
     /// GPU overruns since the last line, counted on arrival.
     gpu_pending: bool,
+    /// The GPU API's encoding totals at the last frame boundary.
+    encode_baseline: EncodeCounts,
 }
 
 impl Default for FrameWindow {
@@ -174,6 +177,7 @@ impl Default for FrameWindow {
             sequence: 0,
             counts: SlowFrameCounts::default(),
             gpu_pending: false,
+            encode_baseline: EncodeCounts::default(),
         }
     }
 }
@@ -250,10 +254,18 @@ impl SlowFrameRecorder {
         let totals = self.snapshot();
         let budgets = self.budgets();
         let violations = self.violations.swap(0, Ordering::Relaxed);
+        let encode = crate::runtime_profile_encode::latest();
         self.frame
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .advance(now, totals, focused, occluded, &budgets, violations)
+            .advance(
+                now,
+                (totals, encode),
+                focused,
+                occluded,
+                &budgets,
+                violations,
+            )
     }
 }
 
@@ -262,7 +274,7 @@ impl FrameWindow {
     fn advance(
         &mut self,
         now: Instant,
-        totals: [u64; STAGES],
+        (totals, encode): ([u64; STAGES], EncodeCounts),
         focused: bool,
         occluded: bool,
         budgets: &FrameBudgets,
@@ -321,12 +333,14 @@ impl FrameWindow {
                             counts: self.counts,
                             stages,
                             window,
+                            encode: encode.since(&self.encode_baseline),
                         }),
                     )
                 });
         self.sequence += 1;
         self.started = Some(now);
         self.baseline = totals;
+        self.encode_baseline = encode;
         self.focused = focused;
         self.occluded = occluded;
         outcome
@@ -347,6 +361,8 @@ pub struct SlowFrameReport {
     counts: SlowFrameCounts,
     stages: [u64; STAGES],
     window: [u64; STAGES],
+    /// Encoding work the GPU API counted since the previous frame boundary.
+    encode: EncodeCounts,
 }
 
 impl std::fmt::Display for SlowFrameReport {
@@ -370,7 +386,10 @@ impl std::fmt::Display for SlowFrameReport {
             self.counts.hard_hitches,
             stage_fields(self.stages),
             stage_fields(self.window)
-        )
+        )?;
+        let mut encode = String::new();
+        self.encode.append_fields(&mut encode);
+        f.write_str(&encode)
     }
 }
 
@@ -430,7 +449,7 @@ mod tests {
         let (_, allocations) = test_alloc::count(|| {
             frame.advance(
                 now + Duration::from_millis(40),
-                [0; STAGES],
+                ([0; STAGES], EncodeCounts::default()),
                 true,
                 false,
                 &at_hz(60.0),
@@ -496,13 +515,20 @@ mod tests {
         ] {
             let mut frame = FrameWindow::default();
             assert_eq!(
-                frame.advance(now, [0; STAGES], true, false, &budgets, 0),
+                frame.advance(
+                    now,
+                    ([0; STAGES], EncodeCounts::default()),
+                    true,
+                    false,
+                    &budgets,
+                    0
+                ),
                 (None, None)
             );
             frame.main = Some((Duration::from_millis(1), [0; STAGES]));
             let (event, _) = frame.advance(
                 now + Duration::from_secs_f64(interval / 1e3),
-                [0; STAGES],
+                ([0; STAGES], EncodeCounts::default()),
                 true,
                 false,
                 &budgets,
@@ -632,7 +658,7 @@ mod tests {
         let budgets = at_hz(120.0);
         let advance = frame.advance(
             now + Duration::from_millis(6),
-            [0; STAGES],
+            ([0; STAGES], EncodeCounts::default()),
             true,
             false,
             &budgets,
@@ -650,7 +676,7 @@ mod tests {
         let advance = |frame: &mut FrameWindow, at: u64, stages| {
             frame.advance(
                 now + Duration::from_millis(at),
-                stages,
+                (stages, EncodeCounts::default()),
                 at.is_multiple_of(2),
                 false,
                 &budgets,
@@ -679,6 +705,37 @@ mod tests {
         assert!(line.contains("slow_frames=3"));
         assert!(line.contains("main_ms=2.000 between_updates_ms=1032.000"));
         assert_eq!([frame.counts.hitches, frame.counts.hard_hitches], [3, 1]);
+    }
+
+    /// A slow frame's line carries the encoding work counted since the previous frame
+    /// boundary, without the counters that stayed at zero.
+    #[test]
+    fn slow_frame_line_carries_the_frames_encoding_work() {
+        use crate::runtime_profile_encode::EncodeCounter;
+        let budgets = at_hz(60.0);
+        let now = Instant::now();
+        let totals = |passes, framebuffers| {
+            let mut counts = EncodeCounts::default();
+            counts.0[EncodeCounter::RenderPasses as usize] = passes;
+            counts.0[EncodeCounter::FramebuffersCreated as usize] = framebuffers;
+            counts
+        };
+        let mut frame = FrameWindow::default();
+        let mut advance = |at: u64, encode| {
+            frame.main = Some((Duration::from_millis(30), [0; STAGES]));
+            frame.advance(
+                now + Duration::from_millis(at),
+                ([0; STAGES], encode),
+                true,
+                false,
+                &budgets,
+                0,
+            )
+        };
+        assert_eq!(advance(0, totals(100, 4)), (None, None), "first boundary");
+        let (_, line) = advance(40, totals(114, 4));
+        let line = line.expect("a 40 ms frame is slow").to_string();
+        assert!(line.ends_with(" encode=rp:14"), "{line}");
     }
 
     #[test]

@@ -142,7 +142,8 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 ] }
 # The noop backend only runs when an instance explicitly enables it (render tests).
 # `std` keeps error scopes per thread; without it, concurrent pipeline compiles share one stack.
-wgpu = { version = "30.0.1", default-features = false, features = ["noop", "std", "wgsl"] }
+# `counters` keeps wgpu's command-encoding counters, which slow-frame reports read.
+wgpu = { version = "30.0.1", default-features = false, features = ["counters", "noop", "std", "wgsl"] }
 # Every crate that names naga uses this one feature set, so `-p cinnabar` and `--workspace`
 # builds agree on naga and nothing above it (wgpu, bevy_render) builds twice. `glsl-in` is the
 # Java shader-pack frontend; it adds only naga's GLSL parser and pp-rs.
@@ -199,13 +200,13 @@ wit-parser = "=0.247.0"
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
 # Mobile input support; patches live on `cinnabar-v0.30`.
 winit = { git = "https://github.com/cinnabar-mc/winit", rev = "b1e59b0d5a63628cd4946575765a6c35d53d90df" }
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "12bb53fde7ac4752ef837c608880c77d3c992ce2" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "12bb53fde7ac4752ef837c608880c77d3c992ce2" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "12bb53fde7ac4752ef837c608880c77d3c992ce2" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "12bb53fde7ac4752ef837c608880c77d3c992ce2" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "12bb53fde7ac4752ef837c608880c77d3c992ce2" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "359ba408fd5b87873d82c84dedd9b5e9308c8993" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "359ba408fd5b87873d82c84dedd9b5e9308c8993" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "359ba408fd5b87873d82c84dedd9b5e9308c8993" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "359ba408fd5b87873d82c84dedd9b5e9308c8993" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "359ba408fd5b87873d82c84dedd9b5e9308c8993" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "12bb53fde7ac4752ef837c608880c77d3c992ce2" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "359ba408fd5b87873d82c84dedd9b5e9308c8993" }
 
 # Keep every Bevy crate on the same renderer fork revision. CI checks the locked graph.
 bevy = { git = "https://github.com/cinnabar-mc/bevy", rev = "5f0dc3907cd7b7714c4298152efb6201684c02d5" }

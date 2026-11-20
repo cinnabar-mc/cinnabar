@@ -28,6 +28,7 @@ pub mod readiness;
 pub mod runtime_profile;
 #[cfg(any(test, feature = "alloc-stats"))]
 mod runtime_profile_alloc;
+pub mod runtime_profile_encode;
 pub mod runtime_profile_slow;
 pub mod runtime_profile_trace;
 pub mod runtime_profile_uploads;
