@@ -397,6 +397,9 @@ fn selection_consumers_ownerless_shield_thumbnail_keeps_the_ordinary_definition(
 #[path = "selected_cache_tests.rs"]
 mod cache;
 
+#[path = "wearable_tests.rs"]
+mod wearable;
+
 #[path = "shield_pressure_tests.rs"]
 mod shield_pressure;
 

@@ -26,6 +26,8 @@ pub(super) struct HeldModel {
     model: PreviewHeldModel,
     /// An unrestricted authored model keeps the ordinary sprite available as a fallback.
     authored: Option<PreviewHeldModel>,
+    /// The binding category of an authored model, which a declared wearable slot can make armor.
+    authored_category: Option<EquipmentCategory>,
     /// The item sprite extruded on first use; `None` for models built up front.
     sprite: Option<usize>,
     extruded: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
@@ -55,9 +57,17 @@ impl HeldModel {
         Self {
             model,
             authored: None,
+            authored_category: None,
             sprite: None,
             extruded: OnceLock::new(),
         }
+    }
+
+    /// Whether the item's `minecraft:wearable` armor slot makes its authored model armor, which
+    /// leaves the hand to the ordinary sprite.
+    pub(super) fn authored_worn(&self, wearable: Option<assets::ArmorSlot>) -> bool {
+        self.authored_category
+            .is_some_and(|category| !category.with_wearable_slot(wearable).draws_in_hand())
     }
 
     /// The model with its mesh, extruding a sprite item's sprite from `icons` on first use;
@@ -262,8 +272,14 @@ pub(super) fn prepare(
                 .entry(binding.identifier.clone())
                 .or_default()
                 .entry(0)
-                .and_modify(|held| held.authored = Some(model.clone()))
-                .or_insert_with(|| HeldModel::ready(model));
+                .and_modify(|held| {
+                    held.authored = Some(model.clone());
+                    held.authored_category = Some(binding.category);
+                })
+                .or_insert_with(|| HeldModel {
+                    authored_category: Some(binding.category),
+                    ..HeldModel::ready(model)
+                });
         }
     }
     Ok((models, fallbacks))
@@ -421,6 +437,9 @@ pub(super) struct SelectedModel {
     pub model: Option<PreviewHeldModel>,
     /// Whether the current atlas admits this model's artwork.
     pub ready: bool,
+    /// Whether the item's wearable armor slot kept this binding out of the hand; such an entry
+    /// never supplies cached geometry once the binding draws in a hand again.
+    worn: bool,
 }
 
 impl SelectedModel {

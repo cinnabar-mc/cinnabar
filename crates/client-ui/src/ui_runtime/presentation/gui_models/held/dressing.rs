@@ -54,9 +54,20 @@ impl UiPresentationRuntime {
                         .filter(|base| base.texture(&binding.texture.identifier).is_some())
                 })?;
             let hand_pivots = self.gui_models.sources.hand_pivots?;
-            let model = if let Some(previous) = self.gui_models.selected_held[index]
-                .as_ref()
-                .filter(|previous| previous.matches(binding, &entities, artwork, hand_pivots))
+            // A declared wearable slot makes the binding armor, which draws as the plain item.
+            let wearable = self.gui_models.trim_icons.wearable_slot(&hand.identifier);
+            let worn = !binding
+                .category
+                .with_wearable_slot(wearable)
+                .draws_in_hand();
+            let model = if worn {
+                None
+            } else if let Some(previous) =
+                self.gui_models.selected_held[index]
+                    .as_ref()
+                    .filter(|previous| {
+                        !previous.worn && previous.matches(binding, &entities, artwork, hand_pivots)
+                    })
             {
                 previous.model.clone()
             } else {
@@ -75,10 +86,10 @@ impl UiPresentationRuntime {
                     },
                 )
             };
-            Some((binding, entities, Arc::clone(artwork), model))
+            Some((binding, entities, Arc::clone(artwork), model, worn))
         });
         self.prepare_shield_hands(selected.iter().enumerate().filter_map(|(index, selected)| {
-            let (binding, _, artwork, model) = selected.as_ref()?;
+            let (binding, _, artwork, model, _) = selected.as_ref()?;
             model.as_ref()?;
             let hand = &hands[index].as_ref()?.0;
             Some((
@@ -89,7 +100,7 @@ impl UiPresentationRuntime {
         self.wear_pack_equipment(
             worn,
             selected.each_ref().map(|selected| {
-                let (binding, _, artwork, model) = selected.as_ref()?;
+                let (binding, _, artwork, model, _) = selected.as_ref()?;
                 model.as_ref()?;
                 pack.as_ref().filter(|pack| Arc::ptr_eq(pack, artwork))?;
                 Some(binding.texture.identifier.as_ref())
@@ -98,7 +109,7 @@ impl UiPresentationRuntime {
         for (index, selected) in selected.into_iter().enumerate() {
             let previous = self.gui_models.selected_held[index].take();
             self.gui_models.selected_held[index] = (|| {
-                let (binding, entities, artwork, mut model) = selected?;
+                let (binding, entities, artwork, mut model, worn) = selected?;
                 let hand = &hands[index].as_ref()?.0;
                 let hand_pivots = self.gui_models.sources.hand_pivots?;
                 let texture = artwork.texture(&binding.texture.identifier)?;
@@ -142,6 +153,7 @@ impl UiPresentationRuntime {
                 {
                     previous.model = model;
                     previous.ready = ready;
+                    previous.worn = worn;
                     return Some(previous);
                 }
                 Some(SelectedModel {
@@ -154,6 +166,7 @@ impl UiPresentationRuntime {
                     entities,
                     ready,
                     model,
+                    worn,
                 })
             })();
         }
@@ -205,6 +218,11 @@ impl UiPresentationRuntime {
             );
             let held = |metadata| self.gui_models.sources.held.get(identifier)?.get(&metadata);
             let base = held(metadata).or_else(|| held(0));
+            // An authored model the item's wearable slot makes armor gives way to its sprite.
+            let sprite_only = pack_model_suppressed
+                || base.is_some_and(|base| {
+                    base.authored_worn(self.gui_models.trim_icons.wearable_slot(&hand.identifier))
+                });
             let sprite = hand
                 .shield_pattern
                 .as_deref()
@@ -222,7 +240,7 @@ impl UiPresentationRuntime {
                     placements: [player_preview::PreviewHeldPlacement::Block; 2],
                 }
             } else if sprite.is_some()
-                || ((pack_model_suppressed || base.is_none_or(HeldModel::is_sprite))
+                || ((sprite_only || base.is_none_or(HeldModel::is_sprite))
                     && self.session_item_icon(identifier, metadata).is_some())
             {
                 let (source, vertices) =
@@ -241,7 +259,7 @@ impl UiPresentationRuntime {
                 }
             } else {
                 let icons = self.icon_catalog.as_deref()?;
-                if pack_model_suppressed {
+                if sprite_only {
                     base?.sprite_model(icons)?
                 } else {
                     base?.model(icons)?

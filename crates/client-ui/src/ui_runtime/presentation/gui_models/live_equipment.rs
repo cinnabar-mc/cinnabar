@@ -89,6 +89,17 @@ impl UiPresentationRuntime {
             if selected.from_pack && !self.player_preview_gear.show_custom_item_models {
                 return None;
             }
+            // A held helmet draws as its item, not as the armor it would be when worn. A
+            // declared wearable slot makes the model armor, as it does in the world.
+            let wearable = self.gui_models.trim_icons.wearable_slot(&item.identifier);
+            if !selected
+                .binding
+                .category
+                .with_wearable_slot(wearable)
+                .draws_in_hand()
+            {
+                return None;
+            }
             let assets = self
                 .preview_equipment_selection
                 .entities(selected.from_pack)?;

@@ -163,6 +163,25 @@ pub enum EquipmentCategory {
     Body,
 }
 
+impl EquipmentCategory {
+    /// Whether a model of this category draws in a hand. Worn-only models (armor, elytra and
+    /// body equipment) leave a held item to its ordinary item rendering.
+    pub fn draws_in_hand(self) -> bool {
+        matches!(self, Self::Held | Self::ArmorAndHeld { .. } | Self::Shield)
+    }
+
+    /// The category an item draws with once its `minecraft:wearable` armor slot is applied: a
+    /// declared slot routes the model as armor worn there, except that elytra and shields keep
+    /// their specialized models and dual-use models keep their hand branch.
+    pub fn with_wearable_slot(self, wearable: Option<ArmorSlot>) -> Self {
+        match (self, wearable) {
+            (Self::Elytra | Self::Shield, _) | (_, None) => self,
+            (Self::ArmorAndHeld { .. }, Some(slot)) => Self::ArmorAndHeld { slot },
+            (_, Some(slot)) => Self::Armor { slot },
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArmorSlot {
@@ -930,6 +949,42 @@ mod tests {
         assert!(
             encode_equipment_catalog_with_textures([1; 32], [2; 32], &sample(), &unordered)
                 .is_err()
+        );
+    }
+}
+
+#[cfg(test)]
+mod wearable_category_tests {
+    use super::{ArmorSlot, EquipmentCategory};
+
+    #[test]
+    fn declared_wearable_slot_routes_models_as_armor_there() {
+        let head = Some(ArmorSlot::Helmet);
+        let chest = ArmorSlot::Chestplate;
+        assert_eq!(
+            EquipmentCategory::Held.with_wearable_slot(head),
+            EquipmentCategory::Armor {
+                slot: ArmorSlot::Helmet
+            }
+        );
+        assert_eq!(
+            EquipmentCategory::Armor { slot: chest }.with_wearable_slot(head),
+            EquipmentCategory::Armor {
+                slot: ArmorSlot::Helmet
+            }
+        );
+        assert_eq!(
+            EquipmentCategory::ArmorAndHeld { slot: chest }.with_wearable_slot(head),
+            EquipmentCategory::ArmorAndHeld {
+                slot: ArmorSlot::Helmet
+            }
+        );
+        for kept in [EquipmentCategory::Elytra, EquipmentCategory::Shield] {
+            assert_eq!(kept.with_wearable_slot(head), kept);
+        }
+        assert_eq!(
+            EquipmentCategory::Held.with_wearable_slot(None),
+            EquipmentCategory::Held
         );
     }
 }

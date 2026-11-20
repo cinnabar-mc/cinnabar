@@ -40,15 +40,11 @@ impl EquipmentRuntime {
                 let source = self
                     .held_binding_source(item, equipment, animation, off_hand)
                     .filter(|source| {
-                        matches!(
-                            self.effective_category(
-                                &item.identifier,
-                                source.catalog.bindings()[source.index].category
-                            ),
-                            EquipmentCategory::Held
-                                | EquipmentCategory::ArmorAndHeld { .. }
-                                | EquipmentCategory::Shield
+                        self.effective_category(
+                            &item.identifier,
+                            source.catalog.bindings()[source.index].category,
                         )
+                        .draws_in_hand()
                     });
                 return EquipmentRoute::Held(source);
             }
