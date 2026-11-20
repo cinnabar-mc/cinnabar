@@ -230,6 +230,31 @@ fn held_heads_have_volume_and_use_their_model_texture() {
     }
 }
 
+/// Held and dropped heads keep their item pose, front toward +Z, whatever the placed-head
+/// `Rotation` convention: the item has no placing player to face.
+#[test]
+fn held_and_dropped_heads_face_their_front_toward_positive_z() {
+    let heads = head_models();
+    for kind in SkullKind::kinds() {
+        let atlas = atlas_with_textures(std::iter::once(head_texture(kind).to_owned()));
+        let model = model_with_heads(EntityRigId(1), &atlas, HeldBlockEntity::Skull(kind), &heads)
+            .expect("head geometry must be available to held-item rendering");
+        // Face 0 of the head box is its front, whose normal is the model's -Z before posing.
+        let front = glam::Vec3::from(model.geometry.vertices[0].normal);
+        assert!(
+            front.abs_diff_eq(glam::Vec3::Z, 1.0e-5),
+            "{kind:?} held front: {front:?}"
+        );
+        let dropped = model.dropped.expect("held heads prepare dropped geometry");
+        // Dropped positions are 1/256 block units with the model centre at 128.
+        let front_z = dropped.quads[0].positions.map(|position| position[2]);
+        assert!(
+            front_z.iter().all(|z| *z == front_z[0] && *z > 128),
+            "{kind:?} dropped front must lie on the +Z side"
+        );
+    }
+}
+
 #[test]
 fn held_head_geometry_changes_invalidate_prepared_identity() {
     let atlas = atlas_with_textures(std::iter::once(head_texture(SkullKind::Piglin).to_owned()));
