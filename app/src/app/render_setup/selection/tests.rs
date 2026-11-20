@@ -233,6 +233,50 @@ fn unused_candidates_are_dropped_under_their_own_api_before_restoring_presentati
     assert_eq!(pending.stage, Stage::FirstPresentation);
 }
 
+/// Counts native destructors so a test can tell which candidates were released.
+struct ReleaseCount(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for ReleaseCount {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Releasing leftover DX12 adapters right after a DX12 device is created deadlocks the NVIDIA
+/// driver, so they must outlive startup while other APIs' leftovers are still released.
+#[test]
+fn unused_dx12_candidates_outlive_startup_but_other_apis_are_released() {
+    use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(root.path()).unwrap();
+    let released = |backend: Backend| (backend, Arc::new(AtomicUsize::new(0)));
+    let used = released(Backend::Dx12);
+    let unused_dx12 = released(Backend::Dx12);
+    let unused_vulkan = released(Backend::Vulkan);
+    let adapters = [&used, &unused_dx12, &unused_vulkan]
+        .into_iter()
+        .map(|(backend, count)| {
+            let fixture = candidate(*backend, wgpu::DeviceType::DiscreteGpu, 0);
+            Candidate {
+                backend: *backend,
+                identity: fixture.identity,
+                device_type: fixture.device_type,
+                native: ReleaseCount(Arc::clone(count)),
+            }
+        })
+        .collect();
+    let selected = try_candidates(adapters, &mut guard, false, |candidate| {
+        let backend = candidate.backend;
+        // The renderer keeps the chosen adapter, as `create_renderer` does.
+        std::mem::forget(candidate);
+        Ok(backend)
+    })
+    .unwrap();
+    assert_eq!(selected, Backend::Dx12);
+    assert_eq!(unused_dx12.1.load(Ordering::SeqCst), 0);
+    assert_eq!(unused_vulkan.1.load(Ordering::SeqCst), 1);
+}
+
 #[test]
 fn unclassified_gl_hardware_ranks_ahead_of_software_vulkan() {
     for preference in [
