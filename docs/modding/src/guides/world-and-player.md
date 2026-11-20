@@ -45,6 +45,7 @@ The `environment` interface changes local presentation only, never server state:
 - `set_time_override(ticks)` fixes visual time to 0–23999 ticks; none restores the tracked server clock. Needs `environment`.
 - `set_weather_override(clear | rain | thunder)` sets the local visual weather target; none restores tracked server weather. Needs `environment`.
 - `set_fullbright(enabled)` retains a local lighting override and needs the separate `fullbright` grant. Server light data is unchanged.
+- `set_fog_suppression(mediums)` retains a local choice of which camera mediums (`air`, `water`, `lava`) skip their distance fog; the empty set restores native fog. Needs `environment`. `air` is every ordinary view outside liquid, in every dimension and weather, so a mod that wants no Nether fog reads the dimension and sets it only there. Blindness and darkness effects and server boss fog still apply, and the screen overlay inside liquid is unchanged. Loaded mods combine: any one that suppresses a medium suppresses it, and it has no exclusive owner as time and weather do.
 
 `examples/mods/time-changer` is a complete tour of the time override.
 

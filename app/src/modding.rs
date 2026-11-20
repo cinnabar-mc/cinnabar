@@ -461,6 +461,7 @@ fn configure_systems(app: &mut App, watching: bool) {
             .before(ClientFrameSet::UiPublication),
     );
     fullbright::configure(app);
+    fog::configure(app);
     terrain_surfaces::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
         .init_resource::<ModCueFeed>()
@@ -666,6 +667,7 @@ mod tests {
 #[cfg(test)]
 mod time_changer_tests;
 
+pub(super) mod fog;
 pub(super) mod fullbright;
 mod gameplay;
 mod input;

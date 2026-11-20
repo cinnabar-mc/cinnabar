@@ -12,6 +12,8 @@ use meshing::cloud_viewport::CLOUD_FADE_START;
 
 use crate::AtmosphereViewInputs;
 
+#[path = "atmosphere/fog_suppression.rs"]
+mod fog_suppression;
 #[path = "atmosphere/liquid_distance.rs"]
 mod liquid_distance;
 
