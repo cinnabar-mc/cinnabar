@@ -7,6 +7,7 @@ pub(super) mod command_macros;
 mod drop_swing;
 pub(crate) mod input_capture;
 pub(crate) mod inventory;
+pub(crate) mod modifier_order;
 mod screen_text;
 pub(crate) use chat::drive_chat_ui_actions;
 

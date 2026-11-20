@@ -45,6 +45,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             .before(bevy::input::InputSystems)
             .run_if(|| launcher::TOUCH_PRIMARY),
     )
+    .init_resource::<crate::ui_runtime::interaction::modifier_order::ModifierEdgeOrder>()
+    .add_systems(
+        bevy::prelude::PreUpdate,
+        crate::ui_runtime::interaction::modifier_order::observe_key_batch
+            .after(bevy::input::InputSystems),
+    )
     .add_systems(
         bevy::prelude::PreUpdate,
         crate::ui_runtime::platform_back::press_mouse_back_for_platform_back

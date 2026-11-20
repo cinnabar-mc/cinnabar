@@ -4,6 +4,7 @@ use crate::ui_runtime::{
     interaction::{
         chat_modifiers,
         input_capture::{restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat},
+        modifier_order::ModifierEdgeOrder,
     },
 };
 use bevy::{
@@ -227,7 +228,17 @@ impl RetainedModifiers {
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window, mut focus, driven, pointer_source, owner, mut retained, frame_count): (
+    (
+        player_runtime,
+        window,
+        mut focus,
+        driven,
+        pointer_source,
+        owner,
+        mut retained,
+        frame_count,
+        edge_order,
+    ): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_state::CursorFocus>>,
@@ -236,6 +247,7 @@ pub(crate) fn drive_server_form_input(
         InputOwner,
         Local<RetainedModifiers>,
         Option<Res<bevy::diagnostic::FrameCount>>,
+        Option<Res<ModifierEdgeOrder>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -382,7 +394,10 @@ pub(crate) fn drive_server_form_input(
         .and_then(|entry| presentation.form_engine_frame(entry.identity))
         .cloned();
     if input_available && let Some(frame) = engine_frame {
-        let events: Vec<_> = keyboard.read().cloned().collect();
+        let events: Vec<_> = match edge_order {
+            Some(order) => order.native_order(keyboard.read_with_id()),
+            None => keyboard.read().cloned().collect(),
+        };
         let (held, press_shortcuts) = form_modifiers(modifiers, &keys, &events);
         let key_presses: Vec<_> = events
             .iter()
@@ -583,6 +598,37 @@ mod focus_tests {
         let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v, release]);
         assert_eq!(shortcuts, [true]);
         assert!(held.is_empty());
+    }
+
+    // macOS first reports a Command held since before focus returned with the V it modifies,
+    // and Bevy appends its synthesized Command press after that V while `keys` already holds it.
+    #[test]
+    fn command_held_as_focus_returns_makes_the_first_v_an_edit_shortcut() {
+        use crate::ui_runtime::interaction::{chat_modifiers::MODIFIERS, modifier_order};
+        use bevy::ecs::message::{MessageCursor, Messages};
+        let mut messages = Messages::<KeyboardInput>::default();
+        messages.write(key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v")));
+        messages.write(key_event(KeyCode::SuperLeft, ButtonState::Pressed, None));
+        let mut cursor = MessageCursor::default();
+        let batch: Vec<_> = cursor.read_with_id(&messages).collect();
+        let mut order = ModifierEdgeOrder::default();
+        order.record(
+            &[
+                modifier_order::NativeStep::Modifiers(
+                    MODIFIERS.map(|key| Some(key == KeyCode::SuperLeft)),
+                ),
+                modifier_order::NativeStep::Key(KeyCode::KeyV, ButtonState::Pressed),
+            ],
+            batch.iter().copied(),
+        );
+        let mut keys = ButtonInput::default();
+        keys.press(KeyCode::SuperLeft);
+        keys.press(KeyCode::KeyV);
+        let events = order.native_order(batch.iter().copied());
+        let (held, shortcuts) = form_modifiers(&mut ButtonInput::default(), &keys, &events);
+        // The synthesized Command press now precedes V, so V is pressed with Command held.
+        assert_eq!(shortcuts, [true, true]);
+        assert_eq!(held, [KeyboardKey::SuperLeft]);
     }
 
     #[test]
