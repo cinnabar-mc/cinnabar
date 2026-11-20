@@ -848,14 +848,11 @@ own `icon_trim` mask (an item atlas key) is not resolved, so such icons stay pla
 palettes outside `textures/trims/` are not retained by the pack catalog. Full native trim
 visual qualification remains incomplete.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
-Baby wearers of mobs that publish `variable.use_dedicated_baby_armor` (the pinned zombie, husk,
-drowned, piglin, zombie pigman and zombie villager) draw the pack's dedicated baby armor models and
-textures, not scaled adult pieces. The pinned attachables omit that branch, so the startup compile
-adds an owner-conditioned `.baby` definition beside each stock armor piece, copper included, using
-the pack's `controller.render.armor.v2`; authored and server-pack definitions keep precedence. The
-engine-side rule that enables baby armor is unverified: this supports a baby wearer with the opt-in
-variable set. A trimmed baby piece still composes the adult trim over the baby texture, where
-native draws no trim, and native visual qualification remains incomplete.
+Baby mobs that publish `variable.use_dedicated_baby_armor` draw the pack's dedicated baby armor
+models and textures. The startup compiler fills the pinned attachables' missing baby branch
+using `controller.render.armor.v2`. The exact native selection rule remains unverified.
+Trimmed baby armor still receives the adult trim overlay in Cinnabar. The sample controller
+gives the baby texture priority over the trim. Native visual qualification remains incomplete.
 Inventory and HUD player models draw prepared block headgear on the captured head pose,
 using the world renderer's shared placement. Headgear scale, vertical placement and held
 pumpkin orientation still need native visual qualification; other player previews remain

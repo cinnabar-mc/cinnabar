@@ -1,7 +1,7 @@
 //! Baby wearers of mobs that opt in to dedicated baby armor draw the pack's baby armor model and
 //! artwork; adults, and babies of mobs that never opt in, keep the adult pieces.
 
-use super::{elytra_tests::selected_pixel, pack_runtime, player_body};
+use super::{elytra_tests::selected_pixel, player_body, startup_runtime};
 use crate::presentation::equipment::runtime::{
     ActorEquipmentInput, EquipmentAnimation, HeldKind, WornItem,
 };
@@ -242,7 +242,7 @@ fn worn_helmet(identifier: &str, baby: bool) -> ([u8; 4], EntityRigId) {
     world.advance_actor_interpolation_ticks(1);
     let rig = world.actor_rig(MOB).expect("the mob has a sampled rig");
     let owner = world.actor(MOB).unwrap();
-    let (mut runtime, pages) = pack_runtime(armour_pack());
+    let (mut runtime, pages) = startup_runtime(armour_pack());
     let body = player_body(&mut runtime);
     let drawn = runtime
         .layers_for(

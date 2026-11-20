@@ -123,16 +123,19 @@ fn has_texture(has_source: &impl Fn(&str) -> bool, path: &str) -> bool {
 }
 
 /// Baby artwork beside an adult armour layer texture such as `textures/models/armor/iron_1`.
-/// The turtle helmet's artwork is named for its scute material.
+/// Chainmail and turtle armor use different material names in the baby artwork.
 fn baby_texture(has_source: &impl Fn(&str) -> bool, adult: &str) -> Option<String> {
     let (stem, layer) = adult.strip_prefix(ARMOUR_TEXTURES)?.rsplit_once('_')?;
     if layer.is_empty() || !layer.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
-    [format!("{stem}_baby"), format!("{stem}_scute_baby")]
-        .into_iter()
-        .map(|name| format!("{ARMOUR_TEXTURES}{name}"))
-        .find(|path| has_texture(has_source, path))
+    let material = match stem {
+        "chain" => "chainmail",
+        "turtle" => "turtle_scute",
+        _ => stem,
+    };
+    let path = format!("{ARMOUR_TEXTURES}{material}_baby");
+    has_texture(has_source, &path).then_some(path)
 }
 
 /// Adds a baby branch beside each stock armour definition that lacks one, so a baby wearer of
@@ -349,13 +352,13 @@ mod tests {
         }}})
     }
 
-    const BABY_SOURCES: [&str; 6] = [
+    const BABY_SOURCES: &[&str] = &[
         BABY_CONTROLLER_SOURCE,
         "models/entity/baby_armor_helmet.geo.json",
         "models/entity/baby_armor_leggings.geo.json",
         "textures/models/armor/iron_baby.png",
         "textures/models/armor/turtle_scute_baby.png",
-        "textures/models/armor/gold_baby.tga",
+        "textures/models/armor/chainmail_baby.png",
     ];
 
     #[test]
@@ -375,15 +378,20 @@ mod tests {
             "geometry.humanoid.armor.helmet",
             "textures/models/armor/turtle_1",
         );
+        let chainmail = stock(
+            "minecraft:chainmail_helmet",
+            "geometry.humanoid.armor.helmet",
+            "textures/models/armor/chain_1",
+        );
         let mut player = helmet.clone();
         let description = &mut player["minecraft:attachable"]["description"];
         description["identifier"] = "minecraft:iron_helmet.player".into();
         description["item"] = serde_json::json!({"minecraft:iron_helmet":"query.owner_identifier == 'minecraft:player'"});
-        let documents = vec![helmet, leggings, turtle, player];
-        let has_source = |path: &str| BABY_SOURCES.iter().any(|source| *source == path);
+        let documents = vec![helmet, leggings, turtle, chainmail, player];
+        let has_source = |path: &str| BABY_SOURCES.contains(&path);
         let generated = baby_variants(has_source, documents.iter()).unwrap();
         // Only the plain definitions branch; the player-conditioned one is left alone.
-        assert_eq!(generated.len(), 3);
+        assert_eq!(generated.len(), 4);
         for (path, document) in &generated {
             let description = &document["minecraft:attachable"]["description"];
             let identifier = description["identifier"].as_str().unwrap();
@@ -456,6 +464,10 @@ mod tests {
             baby_texture_of("minecraft:turtle_helmet"),
             "textures/models/armor/turtle_scute_baby"
         );
+        assert_eq!(
+            baby_texture_of("minecraft:chainmail_helmet"),
+            "textures/models/armor/chainmail_baby"
+        );
         // Their own output, an item that already handles babies, or any missing baby resource
         // leaves nothing to add.
         let mut handled = documents.clone();
@@ -472,14 +484,14 @@ mod tests {
             baby_variants(has_source, authored_baby.iter())
                 .unwrap()
                 .len(),
-            2
+            3
         );
         let without = |missing: &'static str| {
             baby_variants(|path| path != missing && has_source(path), documents.iter()).unwrap()
         };
         assert!(without(BABY_CONTROLLER_SOURCE).is_empty());
         assert_eq!(without("models/entity/baby_armor_helmet.geo.json").len(), 1);
-        assert_eq!(without("textures/models/armor/iron_baby.png").len(), 1);
+        assert_eq!(without("textures/models/armor/iron_baby.png").len(), 2);
         let mut server = documents.clone();
         for document in &mut server {
             document["minecraft:attachable"]["description"]["render_controllers"] =
