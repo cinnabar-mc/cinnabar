@@ -194,7 +194,12 @@ startup-code preparation remains separate from saved-world opens; see [local wor
 Physical-phone battery cost and startup timing remain unmeasured.
 Local-server startup logs include milestone elapsed times and, when accessible, child-process CPU
 time. These entries are available without verbose logging and help distinguish CPU work from waiting.
-BDS worlds cannot pause simulation.
+BDS worlds cannot pause simulation. When Android takes the app off screen, the open world keeps
+running for up to one minute of time the app actually runs; time Android keeps the app frozen does
+not count. After that its server is asked to save and stop (a start still in progress is
+cancelled), so it neither simulates unseen nor holds its memory while Android may end the hidden
+app and its helper processes without a save. Returning sooner keeps playing; returning later shows
+that the world was closed, and opening it again starts nothing until the player does.
 
 With an emulator running, the runtime probe can check the packaged helper under the app's
 normal permissions, including IPv4/IPv6 enumeration, offline name resolution, threads, storage and UDP:

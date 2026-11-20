@@ -974,6 +974,8 @@ fn world_options_reopen_reloads_rules_after_the_previous_server_saves() {
     );
 }
 
+#[path = "manager_hidden_tests.rs"]
+mod hidden;
 #[path = "manager_host_tests.rs"]
 mod host;
 #[cfg(unix)]

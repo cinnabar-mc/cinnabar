@@ -5,6 +5,9 @@ use super::world::{
 use bridge::{Backend, GameMode, WorldState};
 use std::path::PathBuf;
 
+mod background;
+pub use background::CLOSED_IN_BACKGROUND;
+
 use super::form::{CreateForm, EditForm, validate_name};
 use super::progress::{self, Progress};
 use super::prompt::{DOCKER_URL, Prompt, PromptButton, PromptFor, PromptKind};

@@ -2,6 +2,8 @@
 //! `disconnectionScreen.*`/`disconnect.*` wording for each failure kind, or the
 //! server's own kick message. The raw error chain only reaches the log.
 
+use crate::local_worlds::model::CLOSED_IN_BACKGROUND;
+
 /// The screen's title and body.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisconnectText {
@@ -30,6 +32,12 @@ const SERVER_PREFIX: &str = "server disconnected: ";
 /// server's `reason` (empty when the server sent none).
 pub fn from_server(reason: &str) -> String {
     format!("{SERVER_PREFIX}{reason} (launcher core)")
+}
+
+/// The error chain for a local-world session the client ended because the platform took the app
+/// off screen; its body reads as [`CLOSED_IN_BACKGROUND`].
+pub fn local_world_closed_in_background() -> String {
+    format!("{SERVER_PREFIX}{CLOSED_IN_BACKGROUND} (the app stayed in the background)")
 }
 
 /// Vanilla's wording for a session that ended with `error`.
@@ -203,6 +211,18 @@ mod tests {
         assert_eq!(unreachable.body, key("disconnectionScreen.cantConnect"));
         assert_eq!(body("something odd"), key("disconnectionScreen.noReason"));
         assert_eq!(describe("closed").title, DISCONNECTED);
+    }
+
+    // A world closed because the app left the screen explains itself instead of naming a failure.
+    #[test]
+    fn a_world_closed_in_the_background_reads_as_its_explanation() {
+        let text = describe(&local_world_closed_in_background());
+        assert_eq!(text.title, DISCONNECTED);
+        assert_eq!(
+            text.body,
+            DisconnectBody::Server(CLOSED_IN_BACKGROUND.to_owned())
+        );
+        assert!(!requires_client_update(&local_world_closed_in_background()));
     }
 
     // Every key the core sends reads as that key, and Cinnabar's own keys have English text.

@@ -313,6 +313,59 @@ fn back_while_opening_closes_and_ignores_late_status() {
     );
 }
 
+/// A world closed in the background ends an open in progress with an explanation, and its late statuses change nothing.
+#[test]
+fn a_world_closed_in_the_background_ends_an_open_in_progress() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::Play);
+    assert_eq!(menu.closed_in_background(), vec![Effect::Close]);
+    assert_eq!(
+        (menu.screen(), menu.error()),
+        (Screen::Error, Some(CLOSED_IN_BACKGROUND))
+    );
+    assert!(menu.progress().is_none(), "nothing is still opening");
+    for late in [WorldState::Stopping, WorldState::Idle, WorldState::Running] {
+        assert!(menu.apply(Event::Status(status(late, "id0"))).is_empty());
+    }
+    assert!(
+        menu.take_ready().is_none(),
+        "a closed world must not hand off"
+    );
+    assert_eq!(menu.screen(), Screen::Error);
+    menu.update(Input::Back);
+    assert_eq!((menu.screen(), menu.error()), (Screen::List, None));
+    assert_eq!(
+        menu.update(Input::Play),
+        vec![Effect::Open("id0".to_owned())],
+        "the player can open the world again"
+    );
+}
+
+/// A world closed in the background also ends an open that finished before its session began.
+#[test]
+fn a_world_closed_in_the_background_ends_a_ready_open() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::Play);
+    menu.apply(Event::Status(status(WorldState::Running, "id0")));
+    assert_eq!(menu.closed_in_background(), vec![Effect::Close]);
+    assert!(menu.take_ready().is_none());
+    assert_eq!(
+        (menu.screen(), menu.error()),
+        (Screen::Error, Some(CLOSED_IN_BACKGROUND))
+    );
+}
+
+/// Without a pending open a world closed in the background leaves the menu as it was.
+#[test]
+fn a_world_closed_in_the_background_leaves_other_screens_alone() {
+    let mut menu = loaded(&["a"]);
+    assert!(menu.closed_in_background().is_empty());
+    assert_eq!((menu.screen(), menu.error()), (Screen::List, None));
+    menu.update(Input::BeginCreate);
+    assert!(menu.closed_in_background().is_empty());
+    assert_eq!(menu.screen(), Screen::Create);
+}
+
 #[test]
 fn status_for_another_world_is_ignored() {
     let mut menu = loaded(&["a", "b"]);
