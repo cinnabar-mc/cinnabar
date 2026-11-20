@@ -10,6 +10,9 @@ mod admission;
 mod armor_damage;
 #[cfg(test)]
 mod armor_damage_tests;
+mod armor_equip;
+#[cfg(test)]
+mod armor_equip_tests;
 mod auto_craft;
 #[cfg(test)]
 pub(crate) use auto_craft::take_source_validations;
@@ -78,6 +81,7 @@ mod server_menu_tests;
 mod validation;
 mod windows;
 
+pub use armor_equip::ArmorEquipPreview;
 use cells::{Cell, CellSurface, Cells};
 pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination, ShieldCraft};
 pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};

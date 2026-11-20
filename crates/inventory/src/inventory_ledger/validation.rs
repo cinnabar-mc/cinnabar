@@ -230,4 +230,21 @@ impl PlayerInventoryLedger {
         }
         Ok(())
     }
+
+    /// Validates the swap a right-click armor equip performs: the held stack
+    /// leaves `source` for the emptied armor cell while the worn piece returns.
+    pub(super) fn validate_armor_equip(
+        &self,
+        source: Cell,
+        armor: Cell,
+        held: &Held,
+        worn: Option<&Held>,
+    ) -> Result<(), InventoryGestureError> {
+        self.validate_removal(source, Some(held))?;
+        self.validate_removal(armor, worn)?;
+        let mut empty = self.confirmed.clone();
+        empty.set(source, None);
+        empty.set(armor, None);
+        self.validate_placement(&empty, armor, held, held.stack.count)
+    }
 }

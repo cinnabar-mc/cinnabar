@@ -96,6 +96,12 @@ pub enum BlockUsePacketError {
     UnsupportedOffhandPrediction,
     #[error("offhand item release is not implemented")]
     UnsupportedOffhandRelease,
+    #[error("armor container slot {0} is outside the armor container")]
+    InvalidArmorSlot(u8),
+    #[error("legacy request ID {0} is not a negative even integer below -1")]
+    InvalidLegacyRequestId(i32),
+    #[error("armor equip change does not name the request's source slot and stack")]
+    ArmorEquipMismatch,
     #[error("player position must contain only finite values")]
     NonFinitePlayerPosition,
     #[error("relative hit position must contain only finite values")]
@@ -281,6 +287,22 @@ pub struct PredictedSlotChange {
     pub to: VerifiedNetworkItemStack,
 }
 
+/// One right-click armor equip: the held stack moves to an armor container
+/// slot and the armor it replaces moves to the source hotbar slot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArmorEquipChange {
+    /// The negative client legacy request id the transaction carries.
+    pub legacy_request_id: i32,
+    /// The source hotbar slot holding `from`.
+    pub slot: u8,
+    /// The destination armor container slot: `0` head through `3` feet or `4` body.
+    pub armor_slot: u8,
+    /// The held armor stack in `slot`.
+    pub from: VerifiedNetworkItemStack,
+    /// The armor previously worn in `armor_slot`, or an empty stack.
+    pub to: VerifiedNetworkItemStack,
+}
+
 /// Builds the inventory delta BDS requires before accepting `BookEdit` for a
 /// fresh writable book.
 ///
@@ -391,13 +413,66 @@ pub fn click_air_packet(
     request: HeldItemRequest,
     change: Option<PredictedSlotChange>,
 ) -> Result<crate::Packet, BlockUsePacketError> {
+    let parts = slot_change_parts(request.hand, request.selected_slot, change)?;
+    click_air_transaction_packet(request, parts)
+}
+
+/// Builds the click-air transaction vanilla sends for a right-click armor equip.
+///
+/// The single inventory action names the source hotbar slot, whose new stack is
+/// the armor being replaced. The legacy set-slot request names the destination
+/// armor container slot instead, so a refused equip restates the armor without a
+/// second inventory action, matching the native client.
+pub fn click_air_equip_packet(
+    request: HeldItemRequest,
+    change: ArmorEquipChange,
+) -> Result<crate::Packet, BlockUsePacketError> {
+    if request.hand != ItemUseHand::Mainhand
+        || change.slot != request.selected_slot
+        || change.from != request.selected_item
+    {
+        return Err(BlockUsePacketError::ArmorEquipMismatch);
+    }
+    if change.armor_slot >= crate::ARMOR_SLOTS {
+        return Err(BlockUsePacketError::InvalidArmorSlot(change.armor_slot));
+    }
+    if !crate::is_legacy_request_id(change.legacy_request_id) {
+        return Err(BlockUsePacketError::InvalidLegacyRequestId(
+            change.legacy_request_id,
+        ));
+    }
+    let parts = SlotChangeParts {
+        legacy_request_id: change.legacy_request_id,
+        legacy_set_item_slots: Some(vec![LegacySetSlot {
+            container_enum: ContainerEnumName::ArmorContainer,
+            slots: vec![change.armor_slot].into(),
+        }]),
+        actions: vec![InventoryAction {
+            source: InventorySource {
+                source_type: InventorySourceType::ContainerInventory,
+                container_id: Some(wire::I8(0)),
+                bit_flags: None,
+            },
+            slot: wire::VarUInt(u32::from(change.slot)),
+            from_item: change.from.into_transaction_vendor_item()?,
+            to_item: change.to.into_transaction_vendor_item()?,
+        }],
+    };
+    click_air_transaction_packet(request, parts)
+}
+
+/// Encodes one air use with the inventory delta its owner already validated.
+fn click_air_transaction_packet(
+    request: HeldItemRequest,
+    parts: SlotChangeParts,
+) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
     let item = request.selected_item.into_transaction_vendor_item()?;
     let SlotChangeParts {
         legacy_request_id,
         legacy_set_item_slots,
         actions,
-    } = slot_change_parts(request.hand, request.selected_slot, change)?;
+    } = parts;
     Ok(crate::Packet::new(InventoryTransaction {
         legacy_request_id: ItemStackLegacyRequestID(legacy_request_id),
         legacy_set_item_slots,
