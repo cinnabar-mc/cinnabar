@@ -518,7 +518,6 @@ pub(crate) fn update_block_entity_scene(
             }))
     };
     let mut settled = true;
-    // Profiler-only spans: an enabled span is formatted for the log on every frame.
     #[cfg(feature = "tracy")]
     let prepare_zone = bevy::log::info_span!("block_entity.prepare").entered();
     'columns: for chunk_x in chunk_range(eye.x) {
@@ -741,18 +740,15 @@ pub(crate) fn update_block_entity_scene(
             stream.solved_light_at(actor.brightness_sample_position(owner_position))
         },
     );
-    #[cfg(feature = "tracy")]
-    {
-        let global = (submissions.len() - before_global) as u32;
-        work.candidates += global;
-        work.prepared += global;
-    }
     placements.0.0 = held;
+    // Profiler-only spans: an enabled span is formatted for the log on every frame.
+    #[cfg(feature = "tracy")]
+    let global = (submissions.len() - before_global) as u32;
     #[cfg(feature = "tracy")]
     let _zone = bevy::log::info_span!(
         "block_entity.scene_update",
-        candidates = work.candidates,
-        prepared = work.prepared,
+        candidates = work.candidates + global,
+        prepared = work.prepared + global,
         hidden_by_visibility = work.candidates - work.prepared,
         probes = meshing::occlusion::ENTITY_OCCLUSION_PROBES - occlusion_budget.remaining(),
         submitted = submissions.len()
