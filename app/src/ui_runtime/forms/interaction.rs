@@ -179,9 +179,15 @@ pub(crate) fn engine_frame_input<'a, 'p>(
     }
 }
 
-/// The modifiers held as this frame's key events arrived, and for each press among `events`
-/// whether it is an edit shortcut such as Ctrl+V. `modifiers` keeps held modifiers across the
-/// key reset every owned frame ends with, which `keys` forgets.
+/// The modifiers held after this frame's key events, and for each press among `events` whether
+/// it is an edit shortcut such as Ctrl+V. `modifiers` keeps held modifiers across the key reset
+/// every owned frame ends with, which `keys` forgets.
+///
+/// A press counts the modifiers tracked up to it plus those Bevy's reconciled `keys` still holds
+/// at the end of the frame. Bevy appends a modifier press it recovers, such as a Command held
+/// while focus returns on macOS, after the key it modified; the reconciled state still makes
+/// that key a shortcut. As with reading `keys` alone, a real Ctrl or Command press later in the
+/// same frame also turns an earlier press into a shortcut.
 fn form_modifiers(
     modifiers: &mut ButtonInput<KeyCode>,
     keys: &ButtonInput<KeyCode>,
@@ -192,7 +198,9 @@ fn form_modifiers(
     for input in events {
         chat_modifiers::track(modifiers, input);
         if input.state == ButtonState::Pressed {
-            press_shortcuts.push(chat_modifiers::text_modified(modifiers));
+            let mut held = modifiers.clone();
+            keys.get_pressed().for_each(|key| held.press(*key));
+            press_shortcuts.push(chat_modifiers::text_modified(&held));
         }
     }
     let held = modifiers
@@ -582,6 +590,42 @@ mod focus_tests {
         let release = key_event(KeyCode::ControlLeft, ButtonState::Released, None);
         let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v, release]);
         assert_eq!(shortcuts, [true]);
+        assert!(held.is_empty());
+    }
+
+    // macOS first reports a Command held since before focus returned with the V it modifies, and
+    // Bevy appends the Command press it recovers after that V while `keys` already holds it.
+    #[test]
+    fn command_recovered_after_v_on_focus_return_makes_v_an_edit_shortcut() {
+        let (mut modifiers, mut keys) = (ButtonInput::default(), ButtonInput::default());
+        keys.press(KeyCode::KeyV);
+        keys.press(KeyCode::SuperLeft);
+        let v = key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v"));
+        let command = key_event(KeyCode::SuperLeft, ButtonState::Pressed, None);
+        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v, command]);
+        assert_eq!(shortcuts, [true, true]);
+        assert_eq!(held, [KeyboardKey::SuperLeft]);
+    }
+
+    // Bevy recovers a Ctrl key-up the OS swallowed with a release after the native press; a V
+    // after it, in the same frame or the next, types text.
+    #[test]
+    fn recovered_ctrl_release_does_not_keep_ctrl_held() {
+        let (mut modifiers, mut keys) = (ButtonInput::default(), ButtonInput::default());
+        keys.press(KeyCode::ControlLeft);
+        keys.release(KeyCode::ControlLeft);
+        keys.press(KeyCode::KeyV);
+        let ctrl = key_event(KeyCode::ControlLeft, ButtonState::Pressed, None);
+        let release = key_event(KeyCode::ControlLeft, ButtonState::Released, None);
+        let v = key_event(KeyCode::KeyV, ButtonState::Pressed, Some("v"));
+        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[ctrl, release, v.clone()]);
+        assert_eq!(shortcuts, [true, false]);
+        assert!(held.is_empty());
+
+        keys.reset_all();
+        keys.press(KeyCode::KeyV);
+        let (held, shortcuts) = form_modifiers(&mut modifiers, &keys, &[v]);
+        assert_eq!(shortcuts, [false]);
         assert!(held.is_empty());
     }
 
