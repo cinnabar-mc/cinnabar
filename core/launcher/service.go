@@ -285,6 +285,13 @@ func upstreamTarget(kind, value string) (string, error) {
 			return "", control.ErrInvalidTarget
 		}
 		return bridgecontract.RealmTargetPrefix + value, nil
+	case control.TargetNetherNet:
+		if _, err := strconv.ParseUint(value, 10, 64); err != nil {
+			if _, err := uuid.Parse(value); err != nil {
+				return "", control.ErrInvalidTarget
+			}
+		}
+		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingJSONRPC + "/" + value, nil
 	case control.TargetFriend:
 		if _, err := strconv.ParseUint(value, 10, 64); err != nil {
 			return "", control.ErrInvalidTarget

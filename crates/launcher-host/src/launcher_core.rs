@@ -181,9 +181,10 @@ pub fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::Join
         _ if local_world => JoinKind::Local,
         ConnectTarget::Realm(_) => JoinKind::Realm,
         // Friend worlds and experiences use the external-server title until vanilla's is confirmed.
-        ConnectTarget::RakNet(_) | ConnectTarget::Friend(_) | ConnectTarget::Gathering(_) => {
-            JoinKind::External
-        }
+        ConnectTarget::RakNet(_)
+        | ConnectTarget::NetherNet(_)
+        | ConnectTarget::Friend(_)
+        | ConnectTarget::Gathering(_) => JoinKind::External,
     }
 }
 
@@ -192,6 +193,14 @@ pub fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::Join
 /// gets the default port when it names none).
 pub fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
+    let nethernet = format!(
+        "{}{}/",
+        bridge::contract::NETHERNET_TARGET_PREFIX,
+        bridge::contract::NETHERNET_SIGNALING_JSONRPC
+    );
+    if let Some(id) = address.strip_prefix(&nethernet) {
+        return ConnectTarget::NetherNet(id.to_owned());
+    }
     if let Some(id) = address.strip_prefix(launcher::menu::EXPERIENCE_ADDRESS_PREFIX) {
         return ConnectTarget::Gathering(id.to_owned());
     }
@@ -325,6 +334,14 @@ mod tests {
     }
     #[test]
     fn menu_addresses_map_to_connect_targets() {
+        assert_eq!(
+            target_for(&format!(
+                "{}{}/12345",
+                bridge::contract::NETHERNET_TARGET_PREFIX,
+                bridge::contract::NETHERNET_SIGNALING_JSONRPC
+            )),
+            ConnectTarget::NetherNet("12345".into())
+        );
         assert_eq!(
             target_for(&format!("{}42", bridge::contract::REALM_TARGET_PREFIX)),
             ConnectTarget::Realm("42".into())

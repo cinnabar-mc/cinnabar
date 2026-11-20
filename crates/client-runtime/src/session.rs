@@ -30,7 +30,29 @@ pub fn format_transfer_address(host: &str, port: u16) -> String {
 /// legitimately transfer across unrelated hosts, so there is no allowlist.
 pub fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
     let trimmed = host.trim();
-    (!trimmed.is_empty()).then(|| format_transfer_address(trimmed, port))
+    (!trimmed.is_empty()).then(|| {
+        if port == 0 {
+            format!(
+                "{}{}/{}",
+                bridge::contract::NETHERNET_TARGET_PREFIX,
+                bridge::contract::NETHERNET_SIGNALING_JSONRPC,
+                trimmed
+            )
+        } else {
+            format_transfer_address(trimmed, port)
+        }
+    })
+}
+
+/// Retains a loopback endpoint for identity transfers from a local proxy.
+pub fn loopback_login_address(address: &str) -> Option<&str> {
+    let literal = address
+        .parse::<std::net::SocketAddr>()
+        .is_ok_and(|addr| addr.ip().is_loopback() && addr.port() != 0);
+    let localhost = address.rsplit_once(':').is_some_and(|(host, port)| {
+        host.eq_ignore_ascii_case("localhost") && port.parse::<u16>().is_ok_and(|port| port != 0)
+    });
+    (literal || localhost).then_some(address)
 }
 
 /// Drops retired world and pack snapshots on a worker to avoid frame-thread destruction.
@@ -89,6 +111,32 @@ mod tests {
         );
         assert!(transfer_handoff_address("", 19132).is_none());
         assert!(transfer_handoff_address("   ", 19132).is_none());
+        assert_eq!(
+            transfer_handoff_address("123456789", 0).as_deref(),
+            Some(
+                format!(
+                    "{}{}/123456789",
+                    bridge::contract::NETHERNET_TARGET_PREFIX,
+                    bridge::contract::NETHERNET_SIGNALING_JSONRPC
+                )
+                .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn local_proxy_login_address_preserves_only_loopback_endpoints() {
+        for address in ["127.0.0.1:19132", "[::1]:19133", "localhost:19132"] {
+            assert_eq!(loopback_login_address(address), Some(address));
+        }
+        for address in [
+            "example.com:19132",
+            "192.0.2.1:19132",
+            "localhost:0",
+            "nethernet/jsonrpc/id",
+        ] {
+            assert_eq!(loopback_login_address(address), None);
+        }
     }
 
     /// A retired world is freed on another thread, never by the frame that leaves the server.

@@ -50,3 +50,20 @@ func decodeSessionPacket(pool packet.Pool, data []byte, shieldID int32, limits b
 	}
 	return value
 }
+
+// decodeSessionTransfer accepts the current packet or NetherConnect's legacy identity transfer.
+func decodeSessionTransfer(pool packet.Pool, data []byte) *packet.Transfer {
+	if transfer, ok := decodeSessionPacket(pool, data, 0, false).(*packet.Transfer); ok {
+		return transfer
+	}
+	buf := bytes.NewBuffer(data)
+	var header packet.Header
+	if header.Read(buf) != nil || header.PacketID != packet.IDTransfer {
+		return nil
+	}
+	legacy, err := netherConnectTransferPacket(buf.Bytes(), minecraft.DefaultProtocol)
+	if err != nil {
+		return nil
+	}
+	return &packet.Transfer{Address: legacy.Address, Port: legacy.Port, ReloadWorld: legacy.ReloadWorld}
+}

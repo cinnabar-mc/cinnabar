@@ -44,7 +44,7 @@ impl MenuRuntime {
                 .iter()
                 .find(|friend| &friend.xuid == xuid)
                 .map(|friend| friend.max_members),
-            ConnectTarget::Gathering(_) => None,
+            ConnectTarget::Gathering(_) | ConnectTarget::NetherNet(_) => None,
         };
         max.filter(|max| *max > 0)
     }

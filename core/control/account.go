@@ -41,6 +41,7 @@ const (
 // Connect target kinds accepted by connect.v1.
 const (
 	TargetRakNet    = bridgecontract.TargetRakNet
+	TargetNetherNet = bridgecontract.TargetNetherNet
 	TargetRealm     = bridgecontract.TargetRealm
 	TargetFriend    = bridgecontract.TargetFriend
 	TargetGathering = bridgecontract.TargetGathering // an experience ID, joined when the connect is selected
@@ -358,7 +359,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		switch *params.Kind {
-		case TargetRakNet, TargetRealm, TargetFriend, TargetGathering:
+		case TargetRakNet, TargetNetherNet, TargetRealm, TargetFriend, TargetGathering:
 		default:
 			return reply.fail(codeInvalidTarget, "Invalid target")
 		}

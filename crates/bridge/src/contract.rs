@@ -549,6 +549,9 @@ pub enum ConnectTarget {
     /// A `host:port` server.
     #[serde(rename = "raknet")]
     RakNet(String),
+    /// A NetherNet identity reached through JSON-RPC signaling.
+    #[serde(rename = "nethernet")]
+    NetherNet(String),
     /// A Realm id from the Realm target (`realm_id/<id>` → `<id>`).
     #[serde(rename = "realm")]
     Realm(String),

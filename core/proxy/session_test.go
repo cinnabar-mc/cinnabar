@@ -330,6 +330,23 @@ func TestSessionRelaysUnusableTransferAsPacket(t *testing.T) {
 	}
 }
 
+// NetherConnect sends the legacy three-field transfer even after the player joins a server.
+func TestSessionEndsOnNetherConnectLegacyTransfer(t *testing.T) {
+	local, peer := net.Pipe()
+	session := newSessionConn(streamnet.NewFramedConn(local))
+	defer session.Close()
+	frames := readSessionFrames(peer)
+	data := encodeTestPacket(&packet.Transfer{Address: "1234567890123456789"})
+	data = data[:len(data)-1]
+	if err := session.WritePacketRaw(data); !errors.Is(err, errSessionEnded) {
+		t.Fatalf("write legacy transfer = %v", err)
+	}
+	var transfer sessionTransfer
+	if frame := <-frames; frame[0] != bridgecontract.SessionKindTransfer || json.Unmarshal(frame[1:], &transfer) != nil || transfer.Address != "1234567890123456789" || transfer.Port != 0 {
+		t.Fatalf("transfer frame = %q", frame)
+	}
+}
+
 // The handoff lists acquired packs in stack order with the server's required bit and their sizes.
 func TestSelectSessionPacksFollowsTheNegotiatedStack(t *testing.T) {
 	second, err := resource.ReadBytes(admissionPackArchiveWithID(t, "11223344-5566-7788-99aa-bbccddeeff00"))
@@ -503,13 +520,24 @@ func TestSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
 				os.Args = []string{"cinnabar-core"}
 				t.Cleanup(func() { os.Args = original })
 			}
-			testSessionServerHandsOffAndRelaysARealJoin(t)
+			for _, destination := range []struct {
+				name    string
+				packet  packet.Transfer
+				pending string
+			}{
+				{name: "address", packet: packet.Transfer{Address: "play.example.net", Port: 19132}, pending: "play.example.net:19132"},
+				{name: "nethernet identity", packet: packet.Transfer{Address: "1234567890123456789"}, pending: NetherNetTargetPrefix + NetherNetSignalingJSONRPC + "/1234567890123456789"},
+			} {
+				t.Run(destination.name, func(t *testing.T) {
+					testSessionServerHandsOffAndRelaysARealJoin(t, destination.packet, destination.pending)
+				})
+			}
 		})
 	}
 }
 
 // testSessionServerHandsOffAndRelaysARealJoin verifies that only server packs cross the handoff.
-func testSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
+func testSessionServerHandsOffAndRelaysARealJoin(t *testing.T, destination packet.Transfer, pending string) {
 	pack := testAdmissionPack(t)
 	upstreamListener, upstreamNetwork := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
 		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
@@ -596,14 +624,14 @@ func testSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
 		t.Fatalf("upstream read %#v, want chat under the session identity", relayed[0])
 	}
 
-	_ = upstream.WritePacket(&packet.Transfer{Address: "play.example.net", Port: 19132})
+	_ = upstream.WritePacket(&destination)
 	_ = upstream.Flush()
 	var transfer sessionTransfer
 	if frame := <-frames; frame[0] != bridgecontract.SessionKindTransfer || json.Unmarshal(frame[1:], &transfer) != nil ||
-		transfer != (sessionTransfer{Address: "play.example.net", Port: 19132}) {
+		transfer != (sessionTransfer{Address: destination.Address, Port: destination.Port}) {
 		t.Fatalf("transfer frame = %q", frame)
 	}
-	if next, ok := transfers.Pending(); !ok || next != "play.example.net:19132" {
+	if next, ok := transfers.Pending(); !ok || next != pending {
 		t.Fatalf("pending transfer = %q, %t", next, ok)
 	}
 	if _, ok := <-frames; ok {
