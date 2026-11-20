@@ -45,7 +45,7 @@ use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     ecs::system::SystemParam,
     log::info,
-    prelude::{Local, MessageWriter, Res, ResMut, Resource, Time, Vec3},
+    prelude::{Local, MessageWriter, Res, ResMut, Resource, Time},
     time::Real,
 };
 use chunk_pipeline::{CohortProgress, ViewCohortStatus, WorldStream, WorldStreamPoll};
@@ -77,6 +77,8 @@ use {
 
 #[cfg(feature = "acceptance")]
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
+    use bevy::prelude::Vec3;
+
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
     delta.length()
 }

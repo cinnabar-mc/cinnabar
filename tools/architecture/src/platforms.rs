@@ -9,7 +9,7 @@ use syn::{
     ext::IdentExt,
     visit::{self, Visit},
 };
-use workspace_declarations::{MACOS, PLATFORM_SPECIFIC, PLATFORMS, WINDOWS};
+use workspace_declarations::{IOS, MACOS, PLATFORM_SPECIFIC, PLATFORMS, WINDOWS};
 
 use crate::{
     ArchitectureError,
@@ -25,26 +25,30 @@ use crate::{
 enum Platform {
     Macos,
     Windows,
+    Ios,
 }
 
 // Every declarable platform has a variant.
 const _: () = assert!(Platform::ALL.len() == PLATFORMS.len());
 
 impl Platform {
-    const ALL: [Self; 2] = [Self::Macos, Self::Windows];
+    const ALL: [Self; 3] = [Self::Macos, Self::Windows, Self::Ios];
 
     fn name(self) -> &'static str {
         match self {
             Self::Macos => MACOS,
             Self::Windows => WINDOWS,
+            Self::Ios => IOS,
         }
     }
 
-    /// The cfg atom every built-in target of a platform-specific predicate must satisfy.
+    /// The cfg atom every built-in target of a platform-specific predicate must satisfy. Apple
+    /// code also counts as macOS code, since the macOS runner builds what both platforms share.
     fn scope(self) -> &'static str {
         match self {
             Self::Macos => "target_vendor=\"apple\"",
             Self::Windows => "windows",
+            Self::Ios => "target_os=\"ios\"",
         }
     }
 
@@ -54,6 +58,7 @@ impl Platform {
         match self {
             Self::Macos => name.starts_with("objc2") || name == "metal",
             Self::Windows => matches!(name.as_str(), "windows" | "windows_sys" | "winapi"),
+            Self::Ios => name.starts_with("objc2_ui_kit"),
         }
     }
 }
@@ -185,7 +190,7 @@ impl Scan {
         }
     }
 
-    /// Records paths into platform-only crates, `std::os::windows`, and AppKit handles.
+    /// Records paths into platform-only crates, `std::os::windows`, and AppKit or UIKit handles.
     fn path(&mut self, segments: &[String]) {
         let Some(first) = segments.first() else {
             return;
@@ -205,6 +210,10 @@ impl Scan {
         }
         if segments.iter().any(|segment| segment == "AppKit") {
             self.found.insert(Platform::Macos);
+        }
+        // iOS code is Apple code, which the macOS runner also builds.
+        if segments.iter().any(|segment| segment == "UiKit") {
+            self.found.extend([Platform::Macos, Platform::Ios]);
         }
     }
 

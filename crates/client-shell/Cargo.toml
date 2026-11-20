@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-platform-specific = ["macos", "windows"]
+platform-specific = ["macos", "windows", "ios"]
 
 [features]
 developer-control = ["dep:developer-control"]

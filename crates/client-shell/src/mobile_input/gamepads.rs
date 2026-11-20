@@ -78,6 +78,10 @@ pub(crate) fn changed_inputs<const N: usize>(
 static QUEUED: Mutex<Vec<NativeGamepadEvent>> = Mutex::new(Vec::new());
 
 /// Queues events from a platform callback for the next frame's input update.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(dead_code, reason = "only Android callbacks queue; iOS polls")
+)]
 pub(crate) fn queue(events: impl IntoIterator<Item = NativeGamepadEvent>) {
     QUEUED
         .lock()
@@ -91,6 +95,10 @@ pub(crate) struct PendingNativeGamepadEvents(pub(crate) Vec<NativeGamepadEvent>)
 
 impl PendingNativeGamepadEvents {
     /// Names new devices before their queued input and removes devices after it.
+    #[cfg_attr(
+        not(target_os = "android"),
+        allow(dead_code, reason = "only Android rescans devices; iOS polls")
+    )]
     pub(super) fn update_connections(
         &mut self,
         connected: impl IntoIterator<Item = NativeGamepadEvent>,
@@ -115,6 +123,10 @@ pub(crate) struct NativeGamepads {
 
 impl NativeGamepads {
     /// Platform device ids currently connected.
+    #[cfg_attr(
+        not(target_os = "android"),
+        allow(dead_code, reason = "only Android rescans devices; iOS polls")
+    )]
     pub(crate) fn ids(&self) -> impl Iterator<Item = u64> + '_ {
         self.entities.keys().copied()
     }
