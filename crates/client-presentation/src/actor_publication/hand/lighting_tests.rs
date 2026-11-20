@@ -34,7 +34,6 @@ fn legacy_sample_replaces_separate_bob_and_hurt_before_hand_sway() {
         * render_model::legacy_combat::LegacyCameraEndpoints {
             walked: [0.6, 0.72],
             bob: [0.04, 0.064],
-            fall_degrees: [0.0, 1.2],
         }
         .bob_matrix(0.5);
     let motion = crate::camera::FirstPersonHandMotion {
