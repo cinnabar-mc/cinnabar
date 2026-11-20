@@ -31,6 +31,7 @@ mod runtime_profile_alloc;
 pub mod runtime_profile_slow;
 pub mod runtime_profile_trace;
 pub mod runtime_profile_uploads;
+pub mod safe_graphics;
 pub mod screen_fire;
 pub mod screen_overlay;
 pub mod screen_overlay_portal;

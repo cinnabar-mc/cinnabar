@@ -65,6 +65,17 @@ impl CameraAntiAliasingSupport {
             _ => Msaa::Off,
         }
     }
+
+    /// The counts left under `safe_graphics`: one sample while it asks for single sampling,
+    /// which also leaves the Video setting nothing else to offer.
+    #[must_use]
+    pub fn limited(self, safe_graphics: render_api::SafeGraphics) -> Self {
+        if safe_graphics.single_sample() {
+            Self(ui::AntiAliasingSupport::from_counts([]))
+        } else {
+            self
+        }
+    }
 }
 
 /// Publishes the active device's attachment intersection after renderer initialization.
@@ -78,7 +89,8 @@ pub(super) fn install_device_support(app: &mut App) {
     ) else {
         return;
     };
-    let support = device_support(adapter, device);
+    let support = device_support(adapter, device)
+        .limited(render_scene::safe_graphics::ActiveSafeGraphics::of(app));
     app.insert_resource(support);
 }
 
@@ -257,6 +269,42 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1, 4]
         );
+    }
+
+    /// The last safe graphics level leaves one coverage sample, whatever the device supports
+    /// and the player saved; the lower levels leave the device's support alone.
+    #[test]
+    fn safe_graphics_keeps_world_cameras_at_one_sample_only_at_its_last_level() {
+        use render_api::SafeGraphics;
+        let device = CameraAntiAliasingSupport(ui::AntiAliasingSupport::default());
+        for safe in SafeGraphics::ALL {
+            let support = device.limited(safe);
+            if safe.single_sample() {
+                assert_eq!(support.0.counts().collect::<Vec<_>>(), [1], "{safe:?}");
+                assert_eq!(support.msaa(8), Msaa::Off, "{safe:?}");
+            } else {
+                assert_eq!(support.0, device.0, "{safe:?}");
+                assert_eq!(support.msaa(8), Msaa::Sample8, "{safe:?}");
+            }
+        }
+        assert!(SafeGraphics::MAX.single_sample());
+
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .insert_resource(device.limited(SafeGraphics::MAX))
+            .add_systems(Update, apply_camera_antialiasing);
+        let mut settings = ui::UserSettings::default();
+        settings.video.anti_aliasing_samples = 8;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &settings)
+            .unwrap();
+        let entity = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Msaa::Sample8))
+            .id();
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(entity).unwrap(), Msaa::Off);
     }
 
     #[test]

@@ -201,6 +201,10 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<LocalPlayerFrameCarrier>()
             .init_resource::<LocalAvatarPresentation>()
             .init_resource::<LocalAvatarVisibilityCarrier>();
+        let safe_graphics = render_scene::safe_graphics::ActiveSafeGraphics::of(app);
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .set_safe_graphics(safe_graphics);
     }
     fn finish(&self, app: &mut App) {
         antialiasing::install_device_support(app);

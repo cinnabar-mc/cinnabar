@@ -147,6 +147,16 @@ pub(crate) fn startup_render_mode(
     compiled_render_mode(requested.unwrap_or_default())
 }
 
+/// The launch's render-mode override: an explicit `--render-mode`, else Vanilla while
+/// `safe_graphics` turns optional looks off. The saved choice is not rewritten, so it returns
+/// with full graphics, and a mode the player picks in the menu still applies.
+pub(crate) fn launch_override(
+    cli: Option<RenderMode>,
+    safe_graphics: render_api::SafeGraphics,
+) -> Option<RenderMode> {
+    cli.or((!safe_graphics.optional_effects()).then_some(RenderMode::Vanilla))
+}
+
 pub(crate) struct RenderModePlugin {
     cli: Option<RenderMode>,
     attributable: bool,

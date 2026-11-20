@@ -145,3 +145,42 @@ fn available_registry_matches_all_platform_candidates_without_gl() {
         );
     }
 }
+
+#[test]
+fn only_android_steps_down_the_safe_graphics_ladder() {
+    for platform in [
+        Platform::Windows,
+        Platform::Linux,
+        Platform::Macos,
+        Platform::Ios,
+    ] {
+        assert!(!platform.steps_down_graphics(), "{platform:?}");
+    }
+    assert!(Platform::Android.steps_down_graphics());
+}
+
+#[test]
+fn safe_graphics_notice_names_the_change_and_the_way_back_at_every_active_level() {
+    use render_api::SafeGraphics;
+    assert_eq!(safe_graphics_notice(SafeGraphics::Off, false), None);
+    assert_eq!(safe_graphics_notice(SafeGraphics::Off, true), None);
+    let mut seen = Vec::new();
+    for level in SafeGraphics::ALL
+        .into_iter()
+        .filter(|level| level.is_active())
+    {
+        for kept in [false, true] {
+            let notice = safe_graphics_notice(level, kept).unwrap();
+            assert!(notice.starts_with(crate::PRODUCT_NAME), "{notice}");
+            assert!(
+                notice.contains("Graphics API in Video settings"),
+                "{notice}"
+            );
+            assert_eq!(notice.contains("until the next update"), kept, "{notice}");
+            assert!(!seen.contains(&notice), "{notice}");
+            seen.push(notice);
+        }
+    }
+    let reduced = safe_graphics_notice(SafeGraphics::MAX, false).unwrap();
+    assert!(reduced.contains("reduced graphics"), "{reduced}");
+}

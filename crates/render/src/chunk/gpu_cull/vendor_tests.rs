@@ -159,3 +159,68 @@ fn desktop_vendor_policy_respects_the_cpu_override_and_storage_budget() {
         }
     }
 }
+
+/// A device opened for the last safe graphics level, from an adapter offering everything.
+fn safe_graphics_device() -> (WgpuFeatures, wgpu::Limits) {
+    let mut settings = bevy::render::settings::WgpuSettings::default();
+    crate::device_settings::configure(&mut settings);
+    crate::device_settings::configure_safe_graphics(&mut settings, render_api::SafeGraphics::MAX);
+    let offered = WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT;
+    let limits = wgpu::Limits {
+        max_storage_buffers_per_shader_stage: required_vertex_storage_buffers() + 8,
+        ..Default::default()
+    };
+    (
+        offered - settings.disabled_features.unwrap(),
+        limits.or_worse_values_from(settings.constrained_limits.as_ref().unwrap()),
+    )
+}
+
+#[test]
+fn a_safe_graphics_device_takes_the_constrained_terrain_path_on_every_vendor() {
+    let (features, limits) = safe_graphics_device();
+    let downlevel = DownlevelFlags::BASE_VERTEX
+        | DownlevelFlags::INDIRECT_EXECUTION
+        | DownlevelFlags::COMPUTE_SHADERS;
+    assert_eq!(
+        limits.max_storage_buffers_per_shader_stage,
+        minimum_vertex_storage_buffers()
+    );
+    for vendor in [0x10de, 0x5143, ARM_MALI_VENDOR_ID, POWERVR_VENDOR_ID] {
+        let draw_mode = select_chunk_draw_mode(downlevel, features, Backends::VULKAN, false);
+        assert_eq!(draw_mode, ChunkDrawMode::Direct);
+        let forced_cpu = cpu_culling_required(vendor, false, &limits);
+        assert!(forced_cpu, "vendor {vendor:#x}");
+        assert_eq!(
+            gpu_cull_submission(draw_mode, features, downlevel, forced_cpu, &limits),
+            None
+        );
+        assert!(!direct_occlusion_supported(
+            draw_mode, downlevel, forced_cpu, &limits
+        ));
+        assert!(!crate::chunk::pipeline::units::supported(
+            draw_mode, &limits
+        ));
+    }
+}
+
+#[test]
+fn a_safe_graphics_device_compiles_no_culling_pipelines() {
+    let (features, limits) = safe_graphics_device();
+    let (mut app, instance) = cull_app(features, limits);
+    install(&mut app);
+    let world = app.sub_app(RenderApp).world();
+    assert!(!world.resource::<GpuCullSupport>().0);
+    assert!(!world.resource::<DirectOcclusionSupport>().0);
+    assert!(!world.contains_resource::<GpuCull>());
+    assert!(!world.contains_resource::<DirectOcclusion>());
+    assert_eq!(
+        instance
+            .generate_report()
+            .unwrap()
+            .hub
+            .compute_pipelines
+            .num_allocated,
+        0
+    );
+}

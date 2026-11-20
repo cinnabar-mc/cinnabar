@@ -62,6 +62,36 @@ pub fn configure(settings: &mut WgpuSettings) {
     settings.instance_flags = backend_labels(settings.instance_flags).with_env();
 }
 
+/// The indirect-draw features terrain's indirect draws and GPU culling need. A device opened
+/// without them takes direct terrain draws.
+fn indirect_terrain_features() -> wgpu::Features {
+    wgpu::Features::INDIRECT_FIRST_INSTANCE | wgpu::Features::MULTI_DRAW_INDIRECT_COUNT
+}
+
+/// Requests the device a constrained phone would give when `safe` asks for one: no indirect
+/// terrain draws and the smallest storage budget terrain supports. Every renderer path then
+/// follows the switches it already has for such devices (direct draws, CPU culling, compact
+/// terrain and bone storage, no culling or unit pipelines), and the device rejects a path
+/// that does not. Call after [`configure`].
+pub fn configure_safe_graphics(settings: &mut WgpuSettings, safe: render_api::SafeGraphics) {
+    if !safe.constrains_device() {
+        return;
+    }
+    settings.disabled_features =
+        Some(settings.disabled_features.unwrap_or_default() | indirect_terrain_features());
+    // Constrained limits lower a request field by field, so every other field stays unlimited.
+    let constrained = settings
+        .constrained_limits
+        .take()
+        .unwrap_or_else(wgpu::Limits::unlimited);
+    settings.constrained_limits = Some(wgpu::Limits {
+        max_storage_buffers_per_shader_stage: constrained
+            .max_storage_buffers_per_shader_stage
+            .min(crate::minimum_vertex_storage_buffers()),
+        ..constrained
+    });
+}
+
 /// Drops backend object names unless backend debugging or validation is on. A name costs a driver
 /// call (DX12 `SetName`, Metal `setLabel`) for every command list, pass encoder and resource,
 /// about fifty command lists a frame on DX12, and only graphics debuggers and validation layers
@@ -174,6 +204,63 @@ mod tests {
             "{:?}",
             settings.memory_hints
         );
+    }
+
+    #[test]
+    fn only_the_last_safe_graphics_level_constrains_the_device() {
+        use render_api::SafeGraphics;
+        for safe in SafeGraphics::ALL {
+            let mut settings = WgpuSettings::default();
+            configure(&mut settings);
+            let (features, limits) = (settings.disabled_features, settings.limits.clone());
+            configure_safe_graphics(&mut settings, safe);
+            // The requested limits stay what `configure` asked for at every level.
+            assert_eq!(settings.limits, limits);
+            if !safe.constrains_device() {
+                assert_eq!(settings.disabled_features, features, "{safe:?}");
+                assert!(settings.constrained_limits.is_none(), "{safe:?}");
+                continue;
+            }
+            assert!(
+                settings
+                    .disabled_features
+                    .is_some_and(|disabled| disabled.contains(indirect_terrain_features()))
+            );
+            // Applied the way device creation applies it, only the storage budget drops.
+            let adapter = wgpu::Limits {
+                max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers() + 4,
+                ..Default::default()
+            };
+            let constrained = settings.constrained_limits.as_ref().unwrap();
+            assert_eq!(
+                adapter.clone().or_worse_values_from(constrained),
+                wgpu::Limits {
+                    max_storage_buffers_per_shader_stage: crate::minimum_vertex_storage_buffers(),
+                    ..adapter
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn safe_graphics_keeps_limits_and_features_already_constrained() {
+        let mut settings = WgpuSettings {
+            disabled_features: Some(wgpu::Features::TIMESTAMP_QUERY),
+            constrained_limits: Some(wgpu::Limits {
+                max_storage_buffers_per_shader_stage: 1,
+                max_bind_groups: 3,
+                ..wgpu::Limits::unlimited()
+            }),
+            ..Default::default()
+        };
+        configure_safe_graphics(&mut settings, render_api::SafeGraphics::MAX);
+        assert_eq!(
+            settings.disabled_features,
+            Some(wgpu::Features::TIMESTAMP_QUERY | indirect_terrain_features())
+        );
+        let constrained = settings.constrained_limits.unwrap();
+        assert_eq!(constrained.max_storage_buffers_per_shader_stage, 1);
+        assert_eq!(constrained.max_bind_groups, 3);
     }
 
     #[test]

@@ -15,6 +15,8 @@ mod storage;
 /// Enables background compilation and optional Vulkan cache reuse for the client renderer.
 pub struct PipelineCompilationPlugin {
     pub cache_dir: PathBuf,
+    /// A level without the driver cache also deletes what earlier launches saved.
+    pub safe_graphics: render_api::SafeGraphics,
 }
 
 impl Plugin for PipelineCompilationPlugin {
@@ -28,11 +30,15 @@ impl Plugin for PipelineCompilationPlugin {
             return;
         };
         cache.set_async_pipeline_compilation_on_macos(true);
+        if !self.safe_graphics.uses_driver_pipeline_cache() {
+            // A cache the driver crashed on would be handed back to it at every launch.
+            let directory = self.cache_dir.clone();
+            std::thread::spawn(move || storage::discard(&directory));
+            bevy::log::info!("driver pipeline cache discarded and unused: safe graphics");
+        }
         let device = world.resource::<RenderDevice>().clone();
         let info = (**world.resource::<RenderAdapterInfo>()).clone();
-        if info.backend != wgpu::Backend::Vulkan
-            || !device.features().contains(wgpu::Features::PIPELINE_CACHE)
-        {
+        if !driver_cache_enabled(self.safe_graphics, info.backend, device.features()) {
             return;
         }
         let directory = self.cache_dir.clone();
@@ -49,6 +55,18 @@ impl Plugin for PipelineCompilationPlugin {
 
     /// The renderer is configured during `finish`, after device initialization.
     fn build(&self, _app: &mut App) {}
+}
+
+/// Whether this launch reads and saves the driver's pipeline cache: only Vulkan devices have
+/// one, and a safe graphics level may leave it unused.
+fn driver_cache_enabled(
+    safe_graphics: render_api::SafeGraphics,
+    backend: wgpu::Backend,
+    features: wgpu::Features,
+) -> bool {
+    safe_graphics.uses_driver_pipeline_cache()
+        && backend == wgpu::Backend::Vulkan
+        && features.contains(wgpu::Features::PIPELINE_CACHE)
 }
 
 #[derive(Resource)]
@@ -90,5 +108,34 @@ fn persist(mut state: ResMut<CachePersistence>, mut pipelines: ResMut<PipelineCa
     if let Some(cache) = state.cache.clone() {
         state.saved_pipelines = count;
         state.saving = Some(std::thread::spawn(move || cache.store()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use render_api::SafeGraphics;
+
+    #[test]
+    fn every_safe_graphics_level_leaves_the_driver_cache_unused() {
+        let cache = wgpu::Features::PIPELINE_CACHE;
+        assert!(driver_cache_enabled(
+            SafeGraphics::Off,
+            wgpu::Backend::Vulkan,
+            cache
+        ));
+        for safe in SafeGraphics::ALL {
+            assert_eq!(
+                driver_cache_enabled(safe, wgpu::Backend::Vulkan, cache),
+                !safe.is_active(),
+                "{safe:?}"
+            );
+            assert!(!driver_cache_enabled(safe, wgpu::Backend::Metal, cache));
+            assert!(!driver_cache_enabled(
+                safe,
+                wgpu::Backend::Vulkan,
+                wgpu::Features::empty()
+            ));
+        }
     }
 }

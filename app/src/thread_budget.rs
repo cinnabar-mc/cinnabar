@@ -39,8 +39,20 @@ impl ThreadBudget {
         Self::for_cores(chunk_pipeline::logical_cores())
     }
 
-    pub(crate) fn task_pool_plugin() -> TaskPoolPlugin {
-        let budget = Self::current();
+    /// This budget with pipeline compilation on one worker when `safe_graphics` asks for it.
+    pub(crate) fn for_safe_graphics(self, safe_graphics: render_api::SafeGraphics) -> Self {
+        Self {
+            async_compute: if safe_graphics.compiles_one_pipeline_at_a_time() {
+                1
+            } else {
+                self.async_compute
+            },
+            ..self
+        }
+    }
+
+    pub(crate) fn task_pool_plugin(safe_graphics: render_api::SafeGraphics) -> TaskPoolPlugin {
+        let budget = Self::current().for_safe_graphics(safe_graphics);
         let fixed = |threads| TaskPoolThreadAssignmentPolicy {
             min_threads: threads,
             max_threads: threads,

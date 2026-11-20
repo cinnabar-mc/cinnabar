@@ -13,10 +13,13 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::lifecycle::crash::state as crash_state;
 use launcher::graphics_backend::{Adapter, Backend};
 
+pub mod breadcrumb;
+pub mod exit_record;
 pub mod fullscreen;
 mod owner;
 mod recovery;
 mod runtime;
+pub mod safe_mode;
 pub(crate) mod termination;
 
 use owner::Owner;
