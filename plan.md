@@ -1438,7 +1438,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pops in its stack update; where that update falls among a frame's input is unverified, so the
   closing-frame fence is Cinnabar's choice. Launcher menu input, mod panels, consent and modal
   input still use their own checks because they aren't routed through the scene owner yet. Touch and
-  gamepad device acceptance of the owner remains incomplete.
+  gamepad device acceptance of the owner remains incomplete. Server form text boxes decide Ctrl and
+  Command edit shortcuts from the modifiers held at the end of the frame and skip them for a frame in
+  which Alt was held, so an Alt release followed by Ctrl+V within one frame types `v` instead of
+  pasting; per-press ordering of modifier changes within a frame remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.

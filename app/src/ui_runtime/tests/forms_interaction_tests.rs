@@ -19,6 +19,7 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+mod modifier_tests;
 mod mouse_back_tests;
 mod npc_dismissal_tests;
 
@@ -903,23 +904,23 @@ fn a_click_without_a_form_reaches_gameplay() {
     );
 }
 
-// A custom form's toggle and edit box keep their values through the mapping dispatcher.
-#[test]
-fn custom_form_toggle_and_input_edit_their_values() {
-    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+/// A form input app over a custom form holding a toggle and an empty edit box, with the
+/// physical-pixel centres of both controls.
+struct CustomFormApp {
+    app: App,
+    entity: Entity,
+    toggle: Vec2,
+    edit_box: Vec2,
+}
 
-    use bevy::input::mouse::MouseButtonInput;
+/// Builds [`CustomFormApp`] with `configure` adding its systems, or `None` without local carriers.
+fn custom_form_app(configure: impl FnOnce(&mut App)) -> Option<CustomFormApp> {
     use client_ui::test_support::pack_harness;
-    use client_ui::ui_runtime::forms::FormValue;
     use json_ui::HitKind;
     use protocol::{CustomForm, CustomFormElement, FormRequestEvent, ServerFormModel, UiEvent};
     use std::sync::Arc;
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
-        eprintln!(
-            "skipping custom_form_toggle_and_input_edit_their_values: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut presentation = pack_harness::engine_presentation()?;
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(
@@ -975,14 +976,14 @@ fn custom_form_toggle_and_input_edit_their_values() {
     let mut app = App::new();
     app.add_message::<KeyboardInput>()
         .add_message::<MouseWheel>()
-        .add_message::<MouseButtonInput>()
+        .add_message::<bevy::input::mouse::MouseButtonInput>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(UiRuntimeResource(runtime))
-        .insert_resource(player_runtime.clone())
-        .insert_resource(UiPresentationResource(presentation))
-        .add_systems(Update, drive_server_form_input);
+        .insert_resource(player_runtime)
+        .insert_resource(UiPresentationResource(presentation));
+    configure(&mut app);
     let mut window = Window {
         focused: true,
         ..Default::default()
@@ -995,48 +996,89 @@ fn custom_form_toggle_and_input_edit_their_values() {
         .world_mut()
         .spawn((window, CursorOptions::default(), PrimaryWindow))
         .id();
-    let click = |app: &mut App, at: Vec2| {
-        let mut windows = app.world_mut().query::<&mut Window>();
-        windows
-            .single_mut(app.world_mut())
-            .unwrap()
-            .set_cursor_position(Some(at));
-        app.update();
-        for state in [ButtonState::Pressed, ButtonState::Released] {
-            if state == ButtonState::Pressed {
-                app.world_mut()
-                    .resource_mut::<ButtonInput<MouseButton>>()
-                    .press(MouseButton::Left);
-            }
-            app.world_mut().write_message(MouseButtonInput {
-                button: MouseButton::Left,
-                state,
-                window: entity,
-            });
-            app.update();
+    Some(CustomFormApp {
+        app,
+        entity,
+        toggle: centre(HitKind::Toggle),
+        edit_box: centre(HitKind::EditBox),
+    })
+}
+
+/// Moves the cursor to `at`, then presses and releases the left button over two frames.
+fn click_at(app: &mut App, entity: Entity, at: Vec2) {
+    use bevy::input::mouse::MouseButtonInput;
+    let mut windows = app.world_mut().query::<&mut Window>();
+    windows
+        .single_mut(app.world_mut())
+        .unwrap()
+        .set_cursor_position(Some(at));
+    app.update();
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        if state == ButtonState::Pressed {
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Left);
         }
-    };
-    click(&mut app, centre(HitKind::Toggle));
-    let values = |app: &App| {
-        app.world()
-            .resource::<UiRuntimeResource>()
-            .server_forms()
-            .engine()
-            .values
-            .clone()
-    };
-    assert_eq!(values(&app)[0], FormValue::Toggle(true));
-    click(&mut app, centre(HitKind::EditBox));
-    app.world_mut().write_message(KeyboardInput {
-        key_code: KeyCode::KeyX,
-        logical_key: Key::Character("x".into()),
-        state: ButtonState::Pressed,
-        text: Some("x".into()),
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window: entity,
+        });
+        app.update();
+    }
+}
+
+/// The active form's edited values.
+fn form_values(app: &App) -> Vec<client_ui::ui_runtime::forms::FormValue> {
+    app.world()
+        .resource::<UiRuntimeResource>()
+        .server_forms()
+        .engine()
+        .values
+        .clone()
+}
+
+/// A typed key event for `key` carrying `text`.
+fn typed(entity: Entity, key: KeyCode, state: ButtonState, text: Option<&str>) -> KeyboardInput {
+    KeyboardInput {
+        key_code: key,
+        logical_key: Key::Character(text.unwrap_or_default().into()),
+        state,
+        text: text.map(Into::into),
         repeat: false,
         window: entity,
-    });
+    }
+}
+
+// A custom form's toggle and edit box keep their values through the mapping dispatcher.
+#[test]
+fn custom_form_toggle_and_input_edit_their_values() {
+    use client_ui::ui_runtime::forms::FormValue;
+    let Some(CustomFormApp {
+        mut app,
+        entity,
+        toggle,
+        edit_box,
+    }) = custom_form_app(|app| {
+        app.add_systems(Update, drive_server_form_input);
+    })
+    else {
+        eprintln!(
+            "skipping custom_form_toggle_and_input_edit_their_values: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    click_at(&mut app, entity, toggle);
+    assert_eq!(form_values(&app)[0], FormValue::Toggle(true));
+    click_at(&mut app, entity, edit_box);
+    app.world_mut().write_message(typed(
+        entity,
+        KeyCode::KeyX,
+        ButtonState::Pressed,
+        Some("x"),
+    ));
     app.update();
-    assert_eq!(values(&app)[1], FormValue::Text("x".into()));
+    assert_eq!(form_values(&app)[1], FormValue::Text("x".into()));
 }
 
 #[test]
