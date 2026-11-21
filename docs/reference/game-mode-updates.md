@@ -87,10 +87,37 @@ use the grants alone. A server that grants Mine to Adventure players therefore d
 not let a vanilla client start mining; Cinnabar previously did and sent destroy
 actions the server could only explain as a different game mode.
 
-List entries without a namespace name `minecraft:` blocks. The immutable-world
-setting, the WorldBuilder bypass, allow/deny and border blocks, and what a denied
-press sends (a DenyDestroyBlock action, an Attack swing and a missed swing) are not
-yet modeled.
+List entries without a namespace name `minecraft:` blocks. A denied start reports a
+`DenyDestroyBlock` action, an attack swing and a missed swing. The immutable-world
+setting and border blocks remain unmodeled, and live acceptance against a real
+Bedrock server is outstanding.
+
+## Allow and deny block authority
+
+Allow and deny blocks govern the whole column above themselves and nothing below.
+The highest marker strictly below the edited cell decides; markers at or above the
+cell, and markers in other columns, do not. Cinnabar scans from the edited cell down
+to the dimension's minimum Y and stops at the first unloaded cell, so missing terrain
+below never applies a marker. Placement reads the destination cell; destroying and
+requested breaks read the destroyed cell.
+
+An allow marker waives Adventure's held-item rule for that cell but does not grant
+Build or Mine, so a player without those grants still cannot edit. A deny marker
+refuses the edit. Without a marker, the ordinary game-mode rule stands. Neither
+marker affects item use, so doors, levers and containers still work above them.
+
+World builder authority comes from the WorldBuilder ability when a received layer
+defines it; otherwise a Creative operator has it. World builders bypass the
+Adventure rule and marker authority and can edit the marker blocks themselves, while
+Build and Mine still decide their edit. Marker hardness is -1; because the shared
+destroy carrier records them as breakable, Cinnabar substitutes that hardness so a
+destroy the gate admits without world builder authority makes no progress.
+
+Cinnabar applies this rule to predicted placement, local destroy prediction and
+mod-requested breaks. Server-owned world changes, such as commands, pistons and
+endermen, are not gated. Immutable-world off remains unmodeled: Cinnabar applies the
+Adventure held-item rule whenever Adventure lacks Build or Mine, which matches the
+immutable-world-on case. Border blocks and live acceptance remain incomplete.
 
 ## Incomplete historical replay
 

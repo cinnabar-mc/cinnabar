@@ -24,6 +24,8 @@ pub mod ability_bit {
     // Retained wire evidence, not a mining gate. Vanilla instant destruction checks
     // the creative game mode, not the Instabuild ability (see game-mode-updates.md).
     pub const INSTANT_BUILD: u32 = 1 << 11;
+    /// Overrides allow and deny blocks, and lets the player edit the markers themselves.
+    pub const WORLD_BUILDER: u32 = 1 << 16;
     pub const NO_CLIP: u32 = 1 << 17;
     pub const PRIVILEGED_BUILDER: u32 = 1 << 18;
     pub const FLY_SPEED: u32 = 1 << 13;
@@ -40,6 +42,9 @@ pub mod ability_layer {
 /// Spectator ability layer type, per the pinned gophertunnel
 /// `minecraft/protocol/ability.go` (`AbilityLayerTypeSpectator`).
 pub const SPECTATOR_LAYER_TYPE: u16 = 2;
+
+/// Raw `PlayerPermissionLevel::Operator`, per the generated protocol enum.
+const OPERATOR_PLAYER_PERMISSION: i8 = 2;
 
 /// Effective server flight and whether local requests may change it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,13 +90,31 @@ pub enum HeldEditItem {
     Item { lists_block: bool },
 }
 
+/// The allow or deny marker that governs a column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditMarker {
+    /// Non-builders may edit the column above this marker.
+    Allow,
+    /// Only world builders may edit the column above this marker.
+    Deny,
+}
+
+/// Marker authority for one cell, read from the column below it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EditMarkers {
+    /// The highest allow or deny marker strictly below the edited cell in its column.
+    pub column: Option<EditMarker>,
+    /// The edited cell is itself an allow or deny marker.
+    pub target_is_marker: bool,
+}
+
 /// The interaction gates one game mode grants, after server ability overrides.
 ///
 /// `attack_reach` is 0.0 exactly when attacking is disallowed. `creative_reach`
 /// selects the block-pick reach profile, not a capability. `can_build` and `can_mine`
-/// are the Build and Mine grants; [`Self::permits_edit`] adds the per-block adventure
-/// rule. The full surface is modeled from the authoritative reference; not every field
-/// gates a producer yet.
+/// are the Build and Mine grants; [`Self::permits_edit_in`] adds the per-block adventure
+/// rule and allow/deny marker authority. The full surface is modeled from the
+/// authoritative reference; not every field gates a producer yet.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 pub struct GameModeCapabilities {
@@ -113,6 +136,10 @@ pub struct GameModeCapabilities {
     pub has_collision: bool,
     pub attack_reach: f64,
     pub creative_reach: bool,
+    /// The server named the Operator player-permission level.
+    pub operator: bool,
+    /// The WorldBuilder ability, or the Creative operator fallback when no layer defines it.
+    pub world_builder: bool,
     pub edit_permission: EditPermission,
 }
 
@@ -136,6 +163,8 @@ impl GameModeCapabilities {
                 has_collision: true,
                 attack_reach: SURVIVAL_ATTACK_REACH,
                 creative_reach: false,
+                operator: false,
+                world_builder: false,
                 edit_permission: EditPermission::Granted,
             },
             PlayerGameMode::Creative => Self {
@@ -154,6 +183,8 @@ impl GameModeCapabilities {
                 has_collision: true,
                 attack_reach: CREATIVE_ATTACK_REACH,
                 creative_reach: true,
+                operator: false,
+                world_builder: false,
                 edit_permission: EditPermission::Granted,
             },
             // Adventure interacts and attacks; building and mining wait for
@@ -174,6 +205,8 @@ impl GameModeCapabilities {
                 has_collision: true,
                 attack_reach: SURVIVAL_ATTACK_REACH,
                 creative_reach: false,
+                operator: false,
+                world_builder: false,
                 edit_permission: EditPermission::Adventure {
                     privileged_builder: false,
                 },
@@ -194,6 +227,8 @@ impl GameModeCapabilities {
                 has_collision: false,
                 attack_reach: 0.0,
                 creative_reach: false,
+                operator: false,
+                world_builder: false,
                 edit_permission: EditPermission::Granted,
             },
             // Vanilla gives any id but survival its base game-mode logic, which
@@ -216,11 +251,45 @@ impl GameModeCapabilities {
         }
     }
 
+    /// Whether these capabilities admit one edit after marker authority is read.
+    ///
+    /// World builders bypass both the Adventure item-list rule and marker authority; the Build
+    /// and Mine grants still decide their edit. An allow marker otherwise waives the Adventure
+    /// item-list rule without granting Build or Mine. A deny marker refuses the edit. A marker
+    /// block itself is editable by world builders, or in Adventure under that mode's ordinary
+    /// rule; its hardness keeps it from making destroy progress otherwise.
+    pub const fn permits_edit_in(&self, held: HeldEditItem, markers: EditMarkers) -> bool {
+        if self.world_builder {
+            return true;
+        }
+        if markers.target_is_marker {
+            return match self.edit_permission {
+                EditPermission::Adventure { .. } => self.permits_edit(held),
+                EditPermission::Granted => false,
+            };
+        }
+        match markers.column {
+            Some(EditMarker::Allow) => true,
+            Some(EditMarker::Deny) => false,
+            None => self.permits_edit(held),
+        }
+    }
+
+    /// Whether a marker target must use its native -1 hardness instead of the carrier's value.
+    ///
+    /// The shared destroy carrier records the Education markers as breakable. Only world
+    /// builders may break the markers themselves, so every other admitted destroy must make
+    /// no progress even when Adventure's held-item rule admits it.
+    pub const fn marker_target_is_indestructible(&self, markers: EditMarkers) -> bool {
+        markers.target_is_marker && !self.world_builder
+    }
+
     /// These capabilities for one block edit: Build and Mine stay granted only when
-    /// [`Self::permits_edit`] admits what the player holds.
+    /// [`Self::permits_edit_in`] admits what the player holds at the marker authority of
+    /// the edited cell.
     #[must_use]
-    pub const fn for_edit(mut self, held: HeldEditItem) -> Self {
-        let permitted = self.permits_edit(held);
+    pub const fn for_edit(mut self, held: HeldEditItem, markers: EditMarkers) -> Self {
+        let permitted = self.permits_edit_in(held, markers);
         self.can_build &= permitted;
         self.can_mine &= permitted;
         self
@@ -243,6 +312,11 @@ impl GameModeCapabilities {
             return caps;
         };
         let resolved = |bit: u32| resolved_ability(abilities, bit);
+        caps.operator = abilities.player_permission == OPERATOR_PLAYER_PERMISSION;
+        // Editor worlds grant WorldBuilder explicitly; Bedrock without that layer lets an
+        // operator in Creative override allow and deny blocks.
+        caps.world_builder = resolved(ability_bit::WORLD_BUILDER)
+            .unwrap_or(caps.operator && mode == PlayerGameMode::Creative);
         for (bit, field) in [
             (ability_bit::BUILD, &mut caps.can_build),
             (ability_bit::MINE, &mut caps.can_mine),

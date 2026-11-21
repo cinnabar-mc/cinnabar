@@ -6,7 +6,9 @@ pub mod chorus;
 pub mod connection;
 pub mod liquid;
 pub mod rules;
-pub use block::{BlockFact, BlockFacts, BlockStateIdentity};
+pub use block::{
+    ALLOW_BLOCK_IDENTIFIER, BlockFact, BlockFacts, BlockStateIdentity, DENY_BLOCK_IDENTIFIER,
+};
 mod placement;
 pub use placement::{BLOCK_PLACEMENT_SOURCE_PATH, PlacementRule, SupportKind, placement_catalog};
 pub mod shape;
