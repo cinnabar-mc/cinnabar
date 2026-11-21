@@ -668,6 +668,7 @@ impl ActorPipelineKey {
             && (raster.alpha_to_coverage || state.alpha_test)
             && !state.texture_mask
             && !state.emissive
+            && !state.color_mask
             && self.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
             && self.material & assets::EntityRenderMaterialState::KIND_MASK
                 != assets::EntityRenderMaterial::Dragon as u32
