@@ -10,19 +10,6 @@ use assets::compiled::block_destroy::{
 
 use assets::facts::{ItemFact, ItemTier, ItemTraits};
 
-/// Destroy speed of an admitted tool material.
-const fn tier_speed(tier: ItemTier) -> f32 {
-    match tier {
-        ItemTier::Wood => 2.0,
-        ItemTier::Stone => 4.0,
-        ItemTier::Copper => 5.0,
-        ItemTier::Iron => 6.0,
-        ItemTier::Diamond => 8.0,
-        ItemTier::Netherite => 9.0,
-        ItemTier::Gold => 12.0,
-    }
-}
-
 /// Harvest level of an admitted tool material.
 const fn harvest_level(tier: ItemTier) -> u8 {
     match tier {
@@ -267,7 +254,7 @@ fn tool_speed(block: &BlockDestroyInfo, tool: Option<HeldTool>) -> f32 {
         // table; the slowest effective rate never predicts early.
         (ToolKind::Sword, _) if effective => 1.5,
         (ToolKind::Shears, _) if effective => 5.0,
-        (_, Some(tier)) if effective => tier_speed(tier),
+        (_, Some(tier)) if effective => tier.destroy_speed() as f32,
         _ => 1.0,
     }
 }
