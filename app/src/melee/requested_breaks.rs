@@ -88,7 +88,8 @@ pub(super) fn apply(
                 position,
                 minimum_y,
             );
-            if !caps.permits_edit_in(held, markers) {
+            if !caps.permits_edit_in(held, markers) || caps.marker_target_is_indestructible(markers)
+            {
                 return None;
             }
             Some(BlockUseRequest {
