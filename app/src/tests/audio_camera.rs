@@ -13,7 +13,10 @@ use {
     client_presentation::environment::WorldClock,
     client_presentation::{
         camera::{CameraSettingsAuthority, FlyCamera},
-        local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose},
+        local_player::{
+            CameraPose, InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
+            publish_interaction_origin,
+        },
     },
 };
 
@@ -458,4 +461,87 @@ fn publication_column_reads_the_frozen_subject_instead_of_the_mutable_camera() {
         expected,
         crate::runtime::telemetry::local_subject_column(0, Vec3::splat(2000.0))
     );
+}
+
+/// A rider drawn off its ticked seat by its streamed mount's easing moves the camera and the
+/// drawn frame with it, while picks and interactions keep originating from the ticked eye: the
+/// smoothing is visual only.
+#[test]
+fn mount_smoothing_moves_the_camera_but_not_the_interaction_origin() {
+    let mut app = camera_app();
+    app.init_resource::<InteractionOriginSnapshot>()
+        .add_systems(
+            Update,
+            publish_interaction_origin.after(publish_local_player_frame),
+        );
+    app.world_mut()
+        .spawn((FlyCamera::default(), Transform::default()));
+    let eye = Vec3::new(3.0, 70.5, -2.0);
+    let feet = eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET;
+    let mut camera_from_eye = None;
+    let mut camera_positions = Vec::new();
+    for offset in [
+        Vec3::ZERO,
+        Vec3::new(0.1, 0.02, 0.0),
+        Vec3::new(0.25, 0.05, -0.1),
+        Vec3::new(0.4, 0.08, -0.2),
+    ] {
+        {
+            let mut view = app.world_mut().resource_mut::<LocalViewPose>();
+            view.set_subject_position(eye, feet);
+            view.set_ride_render_offset(offset);
+        }
+        app.update();
+        let frame = app
+            .world()
+            .resource::<LocalPlayerFrameCarrier>()
+            .snapshot()
+            .expect("a published frame")
+            .clone();
+        let origin = app
+            .world()
+            .resource::<InteractionOriginSnapshot>()
+            .outbound_ray()
+            .expect("an interaction origin")
+            .origin();
+        assert_eq!(origin, eye, "offset {offset}");
+        assert_eq!(frame.interaction_eye(), eye, "offset {offset}");
+        assert_eq!(frame.eye(), eye + offset, "offset {offset}");
+        assert_eq!(frame.feet(), feet + offset, "offset {offset}");
+        let camera = frame.pose().translation;
+        let from_eye = camera - frame.eye();
+        let expected = *camera_from_eye.get_or_insert(from_eye);
+        assert!(
+            from_eye.abs_diff_eq(expected, 1.0e-5),
+            "{from_eye} {expected}"
+        );
+        camera_positions.push(camera);
+    }
+    assert!(
+        camera_positions
+            .windows(2)
+            .all(|pair| pair[0].distance(pair[1]) > 0.05),
+        "the camera glides with the mount: {camera_positions:?}"
+    );
+}
+
+/// The offset a mount's easing gives the rider is recomputed every frame, so one that is no
+/// longer riding a streamed mount draws, and picks, from its ticked pose again.
+#[test]
+fn a_rider_off_its_streamed_mount_stops_drawing_offset() {
+    let mut app = camera_app();
+    app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
+        .init_resource::<Time<bevy::time::Real>>()
+        .add_systems(
+            Update,
+            crate::runtime::network::advance_actor_motion.before(resolve_camera_pose),
+        );
+    app.world_mut()
+        .resource_mut::<LocalViewPose>()
+        .set_ride_render_offset(Vec3::new(0.3, 0.0, 0.1));
+    let ticked = app.world().resource::<LocalViewPose>().eye_translation();
+    app.update();
+    let view = *app.world().resource::<LocalViewPose>();
+    assert_eq!(view.render_eye_translation(), ticked);
+    assert_eq!(view.eye_translation(), ticked);
 }

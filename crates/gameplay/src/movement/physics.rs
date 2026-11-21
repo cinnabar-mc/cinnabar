@@ -264,6 +264,10 @@ pub struct LocalPhysicsController {
     history: PredictionHistory,
     state: Option<PlayerState>,
     previous_position: Vec3,
+    /// Where the rider draws on its streamed mount this frame, set after the mount's staged
+    /// motion; presentation only, so neither the seat the ticks report nor the interpolated
+    /// feet and eye that picks and interactions read are touched.
+    ride_render_feet: Option<[f32; 3]>,
     eye_offset: eye::LocalEyeOffset,
     visual_correction: visual_correction::VisualCorrection,
     accumulated_seconds: f64,
@@ -336,6 +340,7 @@ impl Default for LocalPhysicsController {
                 .expect("local physics history capacity is non-zero"),
             state: None,
             previous_position: Vec3::ZERO,
+            ride_render_feet: None,
             eye_offset: eye::LocalEyeOffset::default(),
             visual_correction: visual_correction::VisualCorrection::default(),
             accumulated_seconds: 0.0,

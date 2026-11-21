@@ -8,7 +8,7 @@ use bevy::prelude::{App, Mut, Resource, Update};
 use bevy::time::Real;
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Local, Projection, Query, Res, ResMut, Time, Transform, With},
+    prelude::{Local, Projection, Query, Res, ResMut, Time, Transform, Vec3, With},
 };
 use client_presentation::actor_publication::ActorFramePartialTick;
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
@@ -69,15 +69,40 @@ pub(crate) struct ActorObservations<'w> {
 pub(crate) fn advance_actor_motion(
     mut world: ResMut<ClientWorld>,
     mut state: ResMut<client_presentation::actor_publication::ActorFrameState>,
-    physics: Option<Res<LocalPhysicsController>>,
+    mut physics: Option<ResMut<LocalPhysicsController>>,
+    mut view: Option<ResMut<client_presentation::local_player::LocalViewPose>>,
     time: Res<Time<Real>>,
 ) {
     client_presentation::actor_publication::advance_actor_motion(
         &mut state,
         world.stream.as_mut(),
         time.delta().min(simulation_clock::MAX_FRAME_ELAPSED),
-        physics.and_then(|physics| physics.predicted_vehicle_feed()),
+        physics
+            .as_deref()
+            .and_then(|physics| physics.predicted_vehicle_feed()),
     );
+    // The mount's motion for this frame is staged, so the rider can be drawn on it before
+    // the camera resolves; the ticked seat would hold until the next tick and step. Only the
+    // drawn pose moves: picks and interactions keep the ticked eye.
+    let Some(physics) = physics.as_deref_mut() else {
+        if let Some(view) = view.as_deref_mut() {
+            view.set_ride_render_offset(Vec3::ZERO);
+        }
+        return;
+    };
+    let seat = world
+        .stream
+        .as_ref()
+        .zip(state.motion_step())
+        .and_then(|(stream, step)| {
+            stream
+                .authority()
+                .local_rider_render_seat(step.partial_tick)
+        });
+    physics.set_streamed_ride_render(seat);
+    if let Some(view) = view.as_deref_mut() {
+        view.set_ride_render_offset(Vec3::from_array(physics.ride_render_offset()));
+    }
 }
 
 /// Records the actor clock only after the corresponding live motion has completed.

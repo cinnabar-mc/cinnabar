@@ -104,6 +104,7 @@ pub fn advance_actor_motion(
         // seat all read this frame's boat.
         stream.sync_local_vehicle_pose(local_vehicle);
         stream.predict_remote_actor_motion(step.ticks);
+        stream.play_back_actor_mounts(step.partial_tick);
     }
     state.motion_step = Some(step);
 }

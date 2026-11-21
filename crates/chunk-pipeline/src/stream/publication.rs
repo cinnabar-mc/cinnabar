@@ -207,6 +207,10 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.authority.advance_actor_interpolation_ticks(ticks)
     }
+    /// Draws the ridden cart from its jitter-buffered playback for this frame.
+    pub fn play_back_actor_mounts(&mut self, partial_tick: f32) {
+        self.authority.play_back_actor_mounts(partial_tick)
+    }
     /// Stages remote motion for vehicle and collision queries without advancing live actors.
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.authority.predict_remote_actor_motion(ticks)

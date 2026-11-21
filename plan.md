@@ -966,6 +966,10 @@ acceptance remains incomplete.
   Minecart spawn and movement positions share the constructor collision-centre conversion,
   retaining the exact received spawn height. Flat-rail placement has a rendered fixture;
   native client qualification of scaled/custom carts and slope/curve motion remains incomplete.
+  The cart the local player rides draws its position from a jitter-buffered playback of its
+  streamed positions, two ticks behind their phase-locked arrival, so packet timing against
+  actor ticks does not change its pace; the delay is provisional, and the cart's yaw, other
+  carts and pick states keep the tick easing.
   Movement retains signed byte rotations and exact network heights through tick and
   frame interpolation. Interaction picks use completed actor steps while pending motion
   remains separate. Remote reset packets snap through the same

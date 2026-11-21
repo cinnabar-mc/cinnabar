@@ -81,6 +81,31 @@ impl super::LocalPhysicsController {
         self.vehicle.feed(self.tick_alpha())
     }
 
+    /// Draws the rider of a streamed mount at `feet`, where this frame's mount puts its seat,
+    /// until the next call; `None` returns it to the ticked seat. The ticked seat holds until
+    /// the next tick, so without this a rider and its camera would step at the tick rate
+    /// while the mount glides. Presentation only, read through [`Self::ride_render_offset`]:
+    /// the seat the ticks send and the render feet and eye that picks and interactions
+    /// originate from stay the ticked seat.
+    pub fn set_streamed_ride_render(&mut self, feet: Option<[f32; 3]>) {
+        self.ride_render_feet = feet.filter(|feet| feet.iter().all(|axis| axis.is_finite()));
+    }
+
+    /// How far the streamed mount's frame draws the rider from [`Self::render_feet_position`],
+    /// to add to the drawn body and camera but never to a pick or sent position. Zero unless
+    /// the player is riding with a staged mount pose.
+    #[must_use]
+    pub fn ride_render_offset(&self) -> [f32; 3] {
+        let (Some(drawn), Some(ticked)) = (self.ride_render_feet, self.render_feet_position())
+        else {
+            return [0.0; 3];
+        };
+        if self.modes.mode() != sim::MovementMode::Riding {
+            return [0.0; 3];
+        }
+        std::array::from_fn(|axis| drawn[axis] - ticked[axis])
+    }
+
     /// Ends render easing at the committed state, for the eye, visual corrections and the
     /// steered boat alike, so a blocked frame shows the rider on its boat.
     pub(super) fn finish_render_interpolation(&mut self) {
@@ -376,6 +401,61 @@ mod tests {
         assert_eq!(physics.tick_alpha(), 0.0);
         let feet = physics.render_feet_position().unwrap();
         assert!((feet[0] - 20.5).abs() < 0.1, "{feet:?}");
+    }
+
+    /// The rider of a streamed mount is drawn where the mount draws its seat this frame, as an
+    /// offset from the ticked seat, while the render feet, the render eye (the origin of picks
+    /// and interactions) and the seat its ticks send stay the ticked ones. Only a riding player
+    /// has an offset, and a non-finite seat is ignored.
+    #[test]
+    fn a_streamed_rider_draws_at_the_mount_s_render_seat_as_an_offset() {
+        let mut physics = super::super::LocalPhysicsController::default();
+        physics.reanchor_network_position([0.5, protocol::PLAYER_NETWORK_OFFSET, 0.5], 100, true);
+        let ride = |seat| crate::movement::PhysicsSampleContext {
+            mode_intent: ModeIntent {
+                ride: Some(crate::movement::RideKind::Other),
+                ride_seat: seat,
+                ..ModeIntent::default()
+            },
+            ..Default::default()
+        };
+        let advance = |physics: &mut super::super::LocalPhysicsController, seat| {
+            physics.advance_with_context(
+                std::time::Duration::from_millis(50),
+                MovementInput::default(),
+                ride(seat),
+                &Ground,
+            )
+        };
+        let seat = [2.0, 0.0, 4.0];
+        let drawn = [2.4, 0.1, 4.0];
+        assert_eq!(advance(&mut physics, Some(seat)).completed_ticks, 1);
+        assert_eq!(physics.render_feet_position(), Some(seat));
+        assert_eq!(physics.ride_render_offset(), [0.0; 3]);
+        let sent = physics.network_position();
+        let eye = physics.render_eye_position().unwrap();
+
+        physics.set_streamed_ride_render(Some(drawn));
+        for axis in 0..3 {
+            assert!((physics.ride_render_offset()[axis] - (drawn[axis] - seat[axis])).abs() < 1e-6);
+        }
+        assert_eq!(physics.render_feet_position(), Some(seat));
+        assert_eq!(physics.render_eye_position(), Some(eye));
+        assert_eq!(physics.network_position(), sent);
+
+        physics.set_streamed_ride_render(Some([f32::NAN, 0.0, 0.0]));
+        assert_eq!(physics.ride_render_offset(), [0.0; 3]);
+
+        // A dismounted player walks on its own position, whatever was last drawn.
+        physics.set_streamed_ride_render(Some(drawn));
+        let walking = crate::movement::PhysicsSampleContext::default();
+        physics.advance_with_context(
+            std::time::Duration::from_millis(50),
+            MovementInput::default(),
+            walking,
+            &Ground,
+        );
+        assert_eq!(physics.ride_render_offset(), [0.0; 3]);
     }
 
     /// [`Ground`] whose terrain beyond x = 100 loads once `loaded` is set.

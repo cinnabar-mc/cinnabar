@@ -47,6 +47,7 @@ impl ActorStore {
 
     /// Stages remote motion for vehicle and collision queries without advancing live actors.
     pub(crate) fn predict_remote_motion(&mut self, ticks: u32) {
+        self.motion_ticks += u64::from(ticks);
         self.picks_ahead = ticks > 0;
         if !self.picks_ahead {
             return;
@@ -60,6 +61,7 @@ impl ActorStore {
                 .map(|(runtime_id, actor)| movement_interpolation::PickState {
                     runtime_id: *runtime_id,
                     previous_yaw: actor.yaw,
+                    previous_position: actor.position,
                     state: actor.motion_state(),
                 }),
         );
@@ -69,6 +71,7 @@ impl ActorStore {
         for _ in 0..ticks {
             for pick in &mut self.pick_states {
                 pick.previous_yaw = pick.state.pose.yaw;
+                pick.previous_position = pick.state.pose.position;
                 pick.state.tick();
             }
             self.hold_local_vehicle_pick();
