@@ -848,6 +848,12 @@ own `icon_trim` mask (an item atlas key) is not resolved, so such icons stay pla
 palettes outside `textures/trims/` are not retained by the pack catalog. Full native trim
 visual qualification remains incomplete.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
+Baby mobs that publish `variable.use_dedicated_baby_armor` draw the pack's dedicated baby armor
+models and textures. The startup compiler fills the pinned attachables' missing branch with
+owner-conditioned variants that use those assets under the stock armor controller. The exact
+native selection rule remains unverified. Trimmed baby pieces still receive the adult trim overlay.
+The sample's `armor.v2` controller gives the baby texture priority over the trim. Native visual
+qualification remains incomplete.
 Inventory and HUD player models draw prepared block headgear on the captured head pose,
 using the world renderer's shared placement. Headgear scale, vertical placement and held
 pumpkin orientation still need native visual qualification; other player previews remain

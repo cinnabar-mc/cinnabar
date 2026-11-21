@@ -26,6 +26,13 @@ pub(super) fn complete_bindings(
     let mut missing =
         missing_equipment_bindings(|path| payloads.contains_key(path), authored.iter())?;
     missing.extend(missing_render_controllers(root, payloads, symbols)?);
+    let baby = missing_baby_armor_bindings(
+        |path| payloads.contains_key(path),
+        authored
+            .iter()
+            .chain(missing.iter().map(|(_, document)| document)),
+    )?;
+    missing.extend(baby);
     let mut size = 0;
     for (source, value) in missing {
         let bytes = serde_json::to_vec(&value)
@@ -111,6 +118,16 @@ pub fn missing_equipment_bindings<'a>(
     let mut missing = missing_harness_bindings(&has_source, authored.clone())?;
     missing.extend(armor::missing_bindings(has_source, authored)?);
     Ok(missing)
+}
+
+/// Baby branches for the stock armour definitions among `documents`, from the pack's baby armor
+/// models, textures and render controller. Only the startup compile completes these: a session
+/// pack's own armor keeps its authored definitions and every attachable it ships.
+pub fn missing_baby_armor_bindings<'a>(
+    has_source: impl Fn(&str) -> bool,
+    documents: impl Iterator<Item = &'a Value> + Clone,
+) -> Result<Vec<(Box<str>, Value)>, AssetError> {
+    armor::baby_variants(has_source, documents)
 }
 
 /// Supplies omitted harness definitions from present resources without replacing authored items.
