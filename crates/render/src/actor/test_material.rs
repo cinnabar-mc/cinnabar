@@ -14,6 +14,8 @@ pub(crate) struct TestMaterial {
     pub depth_write: bool,
     pub emissive: bool,
     pub only_emissive: bool,
+    /// `USE_COLOR_MASK`: texture alpha weights the dye multiplier instead of coverage.
+    pub color_mask: bool,
     /// With `blend`, adds to the destination.
     pub additive: bool,
     /// With `additive`, weights the source by its alpha.
@@ -34,6 +36,7 @@ impl Default for TestMaterial {
             depth_write: true,
             emissive: false,
             only_emissive: false,
+            color_mask: false,
             additive: false,
             additive_alpha: false,
             disable_overlay: false,
@@ -53,6 +56,7 @@ impl TestMaterial {
             emissive: self.emissive,
             only_emissive: self.only_emissive,
             disable_overlay: self.disable_overlay,
+            color_mask: self.color_mask,
             ..Default::default()
         }
     }

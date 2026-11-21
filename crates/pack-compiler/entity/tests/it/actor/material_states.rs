@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 
 /// Summarizes a layer's shading features and its definition's raster as the flags these
 /// fixtures assert: cutout, back-face culling, blending, depth writes, emissive weighting,
-/// additive factors, overlay suppression, depth comparisons, channel writes and masked
-/// multitexturing. False optional flags are omitted.
+/// additive factors, overlay suppression, depth comparisons, channel writes, colour masking
+/// and masked multitexturing. False optional flags are omitted.
 pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> Value {
     let (Some(state), Some(definition)) = (
         layer.material_state,
@@ -53,6 +53,7 @@ pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> V
             "disable_color_write",
             definition.has_state(State::DisableColorWrite),
         ),
+        ("color_mask", state.color_mask),
         ("masked_multitexture", state.texture_mask),
     ] {
         if enabled {
@@ -610,6 +611,11 @@ fn generated_materials_reach_the_carrier_without_fallback() {
             ("depth_equal", native.depth_equal && !native.depth_always),
             ("disable_alpha_write", native.disable_alpha_write),
             ("disable_color_write", native.disable_color_write),
+            (
+                "color_mask",
+                assets::facts::pack::rules().material(name)
+                    == Some(assets::facts::pack::MaterialKind::ColorMask),
+            ),
             ("masked_multitexture", native.masked_multitexture),
         ] {
             if enabled {
@@ -619,6 +625,13 @@ fn generated_materials_reach_the_carrier_without_fallback() {
         assert_eq!(state(name, None), expected, "{name}");
     }
     assert!(state("cushion", None).is_null());
+}
+
+#[test]
+fn cat_material_is_a_color_mask_alpha_test() {
+    let cat = state("cat", None);
+    assert_eq!(cat["alpha_test"], true);
+    assert_eq!(cat["color_mask"], true);
 }
 
 #[test]
