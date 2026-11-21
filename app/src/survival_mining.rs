@@ -91,10 +91,26 @@ pub(crate) fn observe_destroy_target(
             reason,
         }))
     };
-    if !caps.permits_edit(held) {
+    let mode = stream.network_id_mode();
+    let world = PaletteWorld::new(
+        stream.collision_store(),
+        context.collisions.registry(mode),
+        stream.current_dimension(),
+        Default::default(),
+    );
+    let minimum_y = stream
+        .dimension_range(stream.current_dimension())
+        .map_or(i32::MIN, |range| range.base_sub_chunk_y.saturating_mul(16));
+    let markers = gameplay::edit_markers::resolve(
+        &context.collisions,
+        mode,
+        &world,
+        observed.target.position,
+        minimum_y,
+    );
+    if !caps.permits_edit_in(held, markers) {
         return refused(RefusedDestroyReason::Denied);
     }
-    let mode = stream.network_id_mode();
     let native_destroy_facts = stream
         .runtime_assets()
         .resolve(mode, observed.target.runtime_id)
@@ -130,6 +146,12 @@ pub(crate) fn observe_destroy_target(
             seconds_to_destroy_bits: seconds.to_bits(),
             effective_tools,
         };
+    }
+    // The shared carrier records the Education markers as breakable; their native hardness
+    // is -1, so an admitted non-world-builder destroy must not complete.
+    if caps.marker_target_is_indestructible(markers) {
+        destroy_facts =
+            assets::compiled::block_destroy::BlockDestroyFacts::ProvisionalIndestructible;
     }
     let block = sim::BlockDestroyInfo::from_facts(destroy_facts);
     let instant = caps.instant_break;
@@ -169,12 +191,6 @@ pub(crate) fn observe_destroy_target(
                     .unwrap_or(0),
             )
         });
-    let world = PaletteWorld::new(
-        stream.collision_store(),
-        context.collisions.registry(mode),
-        stream.current_dimension(),
-        Default::default(),
-    );
     let effects = context.effects.mining_effects();
     let helmet = ui.local_armor(player_runtime).helmet;
     let unbreaking =

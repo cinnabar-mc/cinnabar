@@ -80,11 +80,22 @@ fn prepare(
     observed.selection = runtime
         .inventory
         .selection(&server_selection, inventory_revision);
-    let caps = caps.for_edit(stream.authority().held_edit_item(
+    let held = stream.authority().held_edit_item(
         &observed.selection.item,
         protocol::ItemBlockList::CanPlaceOn,
         observed.target.runtime_id,
-    ));
+    );
+    let mode = stream.network_id_mode();
+    let minimum_y = stream
+        .dimension_range(stream.current_dimension())
+        .map_or(i32::MIN, |range| range.base_sub_chunk_y.saturating_mul(16));
+    // Marker scans must not add unloaded cells to the placement observation.
+    let scan_world = PaletteWorld::new(
+        stream.collision_store(),
+        context.collisions.registry(mode),
+        stream.current_dimension(),
+        Default::default(),
+    );
     item_use.synchronize(context.ui.session_id());
     let cooldown = stream
         .authority()
@@ -113,6 +124,18 @@ fn prepare(
     .observe(|world| {
         let surroundings =
             use_surroundings(context, world, &observed, state.position, state.sneaking);
+        // Marker authority follows the cell this edit fills, not the clicked block.
+        let edit_cell = surroundings
+            .destination(observed.target.position, observed.target.face)
+            .0;
+        let markers = gameplay::edit_markers::resolve(
+            &context.collisions,
+            mode,
+            &scan_world,
+            edit_cell,
+            minimum_y,
+        );
+        let caps = caps.for_edit(held, markers);
         let mut local_use = LocalUse::resolve(
             &observed.selection.item,
             observed.target.position,
