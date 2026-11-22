@@ -100,9 +100,18 @@ pub(super) fn maintain_block_use(
     {
         return;
     }
-    // Eating or another item use ignores block and actor use, held repeats included.
-    if item_use.vetoes_build_action(&player_runtime, context.client_world.stream.as_ref()) {
-        runtime.clear_press();
+    // Eating or another item use ignores block and actor use, held repeats included, and a
+    // press it ignores starts no item use either.
+    if item_use.vetoes_build_action(
+        &player_runtime,
+        &context.ui,
+        context.client_world.stream.as_ref(),
+    ) {
+        if runtime.press_pending() {
+            runtime.consume_press();
+        } else {
+            runtime.clear_press();
+        }
         return;
     }
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {

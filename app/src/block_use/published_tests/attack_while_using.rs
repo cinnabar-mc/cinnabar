@@ -132,6 +132,7 @@ fn a_same_frame_slot_change_ends_the_attack_veto() {
         .resource::<client_interaction::item_use::ItemUseRuntime>()
         .vetoes_build_action(
             world.resource::<client_state::PlayerRuntime>(),
+            world.resource::<UiRuntimeResource>(),
             world
                 .resource::<crate::runtime::world::ClientWorld>()
                 .stream

@@ -49,10 +49,12 @@ impl ItemUseRuntime {
     /// uses an item. Derived from current state at each
     /// admission point: the veto holds only while the selected slot still holds the item the
     /// use started with, so any slot change, local or server-driven, ends it at once. A held
-    /// charged item, fishing rod or brush never vetoes, matching vanilla's exceptions.
+    /// charged item, fishing rod or brush never vetoes, matching vanilla's exceptions; a
+    /// crossbow's charge is the locally predicted one when a prediction covers the stack.
     pub fn vetoes_build_action(
         &self,
         player_runtime: &client_state::PlayerRuntime,
+        ui: &UiRuntime,
         stream: Option<&WorldStream>,
     ) -> bool {
         let Some(active) = self.0.active_selection() else {
@@ -70,17 +72,25 @@ impl ItemUseRuntime {
         if selected.slot != active.slot || stack.network_id != active.item.network_id() {
             return false;
         }
-        !stream
-            .and_then(|stream| stream.authority().canonical_item_stack(stack))
-            .is_some_and(|item| {
-                item.charged_projectile.is_some()
-                    || matches!(
-                        item.identifier.as_deref(),
-                        Some(
-                            assets::facts::FISHING_ROD_IDENTIFIER | assets::facts::BRUSH_IDENTIFIER
-                        )
-                    )
-            })
+        let item = stream.and_then(|stream| stream.authority().canonical_item_stack(stack));
+        // A predicted crossbow charge or discharge wins over the server's stack, as air use
+        // reads it.
+        let charged = self
+            .slot_projectile(player_runtime, ui, selected.slot)
+            .map_or_else(
+                || {
+                    item.as_ref()
+                        .is_some_and(|item| item.charged_projectile.is_some())
+                },
+                |projectile| projectile.is_some(),
+            );
+        let exempt = item.as_ref().is_some_and(|item| {
+            matches!(
+                item.identifier.as_deref(),
+                Some(assets::facts::FISHING_ROD_IDENTIFIER | assets::facts::BRUSH_IDENTIFIER)
+            )
+        });
+        !charged && !exempt
     }
 
     /// Native attachables read remaining ticks, not the actor animation's elapsed seconds.

@@ -19,6 +19,7 @@ use gameplay::item_use::fixtures::classify;
 
 mod backing;
 mod brush;
+mod build_veto;
 
 const BOW: i32 = 300;
 

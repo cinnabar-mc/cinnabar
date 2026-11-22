@@ -23,6 +23,12 @@ fn chest_uses(eating: bool, pressed: bool) -> usize {
         item_use_tests::hold_air_item(&mut world, "minecraft:golden_apple", 2, [].into());
     }
     world.run_system_cached(produce_block_use).unwrap();
+    if eating && pressed {
+        assert!(
+            world.resource::<BlockUseRuntime>().press_consumed(),
+            "the ignored press was left for item use"
+        );
+    }
     captured
         .drain()
         .iter()

@@ -25,11 +25,14 @@ pub(crate) fn press(
         {
             return false;
         }
-        if !pressed
-            || context.melee.blocks_use_at(now)
-            || item_use.vetoes_build_action(&player, context.client_world.stream.as_ref())
-        {
+        if !pressed || context.melee.blocks_use_at(now) {
             return true;
+        }
+        // Eating or another item use ignores the press entirely, item use included.
+        if item_use.vetoes_build_action(&player, &context.ui, context.client_world.stream.as_ref())
+        {
+            runtime.consume_press();
+            return false;
         }
         if !movement.accepts_block_interactions()
             || movement.has_held_release()
