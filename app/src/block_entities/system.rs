@@ -23,7 +23,7 @@ use {
 use super::{
     books,
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::{CrackLayers, crack_instances, with_second_parts},
+    cracks::{crack_instances, second_part, with_second_parts},
     describe::{HeldItem, Template, describe, overlay_items},
     sign_text,
     state::BlockState,
@@ -313,33 +313,6 @@ fn block_info(
         .clone()
 }
 
-/// The other block of `entry`'s two-block structure and its layers, while that block is still
-/// the same kind (a lone door half has no partner to crack).
-fn second_crack_part(
-    collisions: &PhysicsCollisionRegistries,
-    store: &world::ChunkStore,
-    mode: assets::NetworkIdMode,
-    dimension: i32,
-    entry: &client_world::ActiveBlockCrack,
-) -> Option<([i32; 3], CrackLayers)> {
-    let id = entry.layers[0]?;
-    let offset = collisions.second_part_offset(mode, id)?;
-    let position: [i32; 3] = std::array::from_fn(|axis| entry.position[axis] + offset[axis]);
-    let side = SUB_CHUNK_SIDE as i32;
-    let key = world::SubChunkKey::new(
-        dimension,
-        position[0].div_euclid(side),
-        position[1].div_euclid(side),
-        position[2].div_euclid(side),
-    );
-    let chunk = store.sub_chunk(key)?;
-    let [x, y, z] = position.map(|value| value.rem_euclid(side) as u8);
-    let layers: CrackLayers = std::array::from_fn(|layer| chunk.runtime_id(layer, x, y, z));
-    let other = layers[0]?;
-    (collisions.block_identifier(mode, other) == collisions.block_identifier(mode, id))
-        .then_some((position, layers))
-}
-
 /// The portal surface `runtime_id` draws, if any.
 fn portal_kind(
     collisions: &PhysicsCollisionRegistries,
@@ -458,7 +431,7 @@ pub(crate) fn update_block_entity_scene(
             let assets = stream.runtime_assets();
             let shapes = &mut runtime.shapes;
             let entries = with_second_parts(&snapshot.entries, |entry| {
-                second_crack_part(&collisions, store, mode, dimension, entry)
+                second_part(&collisions, store, mode, dimension, entry)
             });
             crack_instances(&entries, |entry| {
                 let runtime_id = entry.layers.iter().flatten().next().copied();
@@ -518,9 +491,10 @@ pub(crate) fn update_block_entity_scene(
             }))
     };
     let mut settled = true;
+    let idle = columns::idle(runtime.settled.as_ref(), &window, scans.values());
     #[cfg(feature = "tracy")]
     let prepare_zone = bevy::log::info_span!("block_entity.prepare").entered();
-    'columns: for chunk_x in chunk_range(eye.x) {
+    'columns: for chunk_x in chunk_range(eye.x).filter(|_| !idle) {
         for chunk_z in chunk_range(eye.z) {
             let chunk_key = ChunkKey::new(dimension, chunk_x, chunk_z);
             let Some(chunk) = store.chunk(chunk_key) else {
@@ -699,7 +673,7 @@ pub(crate) fn update_block_entity_scene(
     drop(prepare_zone);
     runtime.lids.finish();
     runtime.books.finish();
-    scans.retain(|_, scan| scan.seen_frame == frame_stamp);
+    scans.retain(|_, scan| idle || scan.seen_frame == frame_stamp);
     runtime.columns = scans;
     runtime.settled = settled.then_some(window);
     piston_arms::prune(&mut runtime.piston_motions, now_seconds);
@@ -752,7 +726,10 @@ pub(crate) fn update_block_entity_scene(
         submitted = submissions.len()
     )
     .entered();
-    frame.0 = scene.update(clock, &cracks, &submissions).clone();
+    render_scene::BlockEntityFrameResource::publish(
+        &mut frame,
+        scene.update(clock, &cracks, &submissions),
+    );
     submissions.clear();
     runtime.submissions = submissions;
 }

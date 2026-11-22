@@ -84,6 +84,17 @@ impl ColumnWindow {
     }
 }
 
+/// Whether a frame may skip its column pass: `window` matches the last settled one, so the
+/// terrain revision proves every scan current, and no scan holds a portal or block entity to
+/// submit.
+pub(super) fn idle<'a>(
+    settled: Option<&ColumnWindow>,
+    window: &ColumnWindow,
+    mut scans: impl Iterator<Item = &'a ColumnScan>,
+) -> bool {
+    settled == Some(window) && scans.all(|scan| scan.portals.is_empty() && scan.entities.is_empty())
+}
+
 /// Maximum distant-column rescans per frame; near edits bypass this streaming budget.
 pub(in crate::block_entities) const MAX_COLUMN_RESCANS_PER_FRAME: usize = 8;
 
