@@ -1378,6 +1378,9 @@ Action-bar controller inputs remain until explicit clear/reset so server control
 without fade animations retain their text. Authored fade animations remain in control
 of visibility, and a new factory creation clock revives a previously destroyed control.
 Each action-bar request starts fresh factory bindings, including when text and creation time repeat.
+Tip-text controller inputs likewise remain until explicit clear/reset, so server controls
+whose pack removes the native fade keep their text. Authored tip fade animations remain in
+control of visibility.
 Matched native controller timing and rendered server HUD qualification remain incomplete.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;

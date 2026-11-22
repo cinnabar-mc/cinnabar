@@ -411,6 +411,11 @@ impl HudStore {
             .filter(|text| text.visible_at(self.presentation_millis))
     }
 
+    /// Last tip request until explicit clear/reset. Pack controls own their display lifetime.
+    pub fn tip_request(&self) -> Option<&TimedText> {
+        self.tip.as_ref()
+    }
+
     /// The ordinary popup above the hotbar, independent of title action-bar requests.
     pub fn popup(&self) -> Option<&TimedText> {
         self.popup
@@ -512,6 +517,8 @@ impl HudStore {
         ));
     }
 
+    /// Keeps the latest tip until it is replaced or titles are cleared. Resource packs own the
+    /// display lifetime of the text their `hud_tip_text` control binds.
     pub fn set_tip(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
         self.tip = Some(TimedText::new(
             text,
@@ -605,13 +612,6 @@ impl HudStore {
         }
         self.title_since_tick = false;
         self.presented_subtitle.clone_from(&self.subtitle);
-        if self
-            .tip
-            .as_ref()
-            .is_some_and(|value| !value.visible_at(now_millis))
-        {
-            self.tip = None;
-        }
         // Toasts show one after another, so expiry is monotone from the front.
         while let Some(front) = self.toasts.front() {
             if now_millis < front.expires_millis {
