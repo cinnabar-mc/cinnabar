@@ -68,8 +68,10 @@ pub fn step_and_send(
                 runtime.pending.rejected_swing_tick =
                     Some((frame.tick, swings.authority_identity()));
             }
-            if outcome.used {
-                runtime.pending.latched_press = true;
+            // A refused press retries as that press. A refused held repeat stays uncommitted and
+            // retries from the hold, still behind the repeat's own gates, such as yielding to an
+            // interactive block.
+            if outcome.used && runtime.pending.latched_press {
                 runtime.pending.deferred_selection = frame.selection.clone();
             }
             if outcome.released {
