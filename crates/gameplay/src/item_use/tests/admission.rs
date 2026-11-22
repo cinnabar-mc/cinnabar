@@ -819,6 +819,7 @@ fn ordered_pending_input_is_not_consumed_by_accepted_use_maintenance() {
     let maintenance = UseFrame {
         held: false,
         press_consumed: true,
+        target_takes_use: false,
         ..press.clone()
     };
     step_and_send(&mut runtime, &mut swings, &maintenance, 7, 6, |_| {

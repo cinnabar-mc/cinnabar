@@ -59,6 +59,7 @@ fn frame(tick: u64, held: bool) -> UseFrame {
         inventory_revision: Some(1),
         charge_projectile: None,
         press_consumed: false,
+        target_takes_use: false,
     }
 }
 

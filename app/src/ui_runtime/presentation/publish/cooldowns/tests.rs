@@ -88,6 +88,7 @@ fn hotbar_publishes_food_and_projectile_cooldowns_for_every_matching_slot() {
             inventory_revision: ui.inventory_ledger(&player).authoritative_slot_revision(0),
             charge_projectile: None,
             press_consumed: false,
+            target_takes_use: false,
         });
         assert!(outcome.started || outcome.swung.is_some());
         for (elapsed, expected) in [

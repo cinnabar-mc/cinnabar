@@ -138,6 +138,7 @@ pub(super) fn observe(
             || press_pending
             || attack_holds_off(&context.melee, now_millis, runtime.pulse_pending())
             || context.block_use.press_consumed(),
+        target_takes_use: context.press_target.block_takes_press(movement),
     };
     if let Some(reason) = runtime.press_drop_reason(&frame) {
         gameplay::movement::note_click_drop("use", reason);

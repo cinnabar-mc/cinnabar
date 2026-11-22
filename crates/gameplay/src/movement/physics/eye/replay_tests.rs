@@ -143,6 +143,7 @@ fn release(
             inventory_revision: Some(1),
             charge_projectile: None,
             press_consumed: false,
+            target_takes_use: false,
         };
         runtime.observe_press(index == 0);
         admit_on_tick(&mut runtime, &mut swings, ticker, &frame, 42, 6, |_| Ok(()));

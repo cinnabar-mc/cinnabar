@@ -98,6 +98,9 @@ pub struct UseFrame {
     pub charge_projectile: Option<assets::item_use::ItemProjectileRole>,
     /// A block interaction, placement or recent attack consumed this press.
     pub press_consumed: bool,
+    /// The aimed block's own use takes a held Use, so the item's held repeat waits: vanilla's
+    /// build action gives an interactive block the use instead of the held item.
+    pub target_takes_use: bool,
 }
 
 /// Transactions in send order, plus what the local player did on this tick.
@@ -608,7 +611,8 @@ impl ItemUseRuntime {
             || self.use_tick_already_admitted(frame, pulse)
             || self.rearm_pending(frame, pulse)
             || (!pressed
-                && (!self.repeat_armed
+                && (frame.target_takes_use
+                    || !self.repeat_armed
                     || air_use.is_some_and(|air_use| !air_use.repeats_while_held())))
         {
             return;

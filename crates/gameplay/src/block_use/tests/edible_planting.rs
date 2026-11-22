@@ -26,6 +26,7 @@ fn food_frame(tick: u64, identifier: &str, ready: bool, consumed: bool) -> UseFr
         inventory_revision: Some(1),
         charge_projectile: None,
         press_consumed: consumed,
+        target_takes_use: false,
     }
 }
 

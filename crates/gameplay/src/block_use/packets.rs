@@ -201,6 +201,7 @@ mod tests {
             inventory_revision: Some(1),
             charge_projectile: None,
             press_consumed: false,
+            target_takes_use: false,
         };
         air.observe_press(true);
         let outcome = air.step(&frame);
@@ -250,6 +251,7 @@ mod tests {
             inventory_revision: Some(1),
             charge_projectile: None,
             press_consumed: false,
+            target_takes_use: false,
         });
         assert!(outcome.packets.is_empty());
         assert!(protocol::next_legacy_request_id().unwrap() < id);

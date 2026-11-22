@@ -115,6 +115,7 @@ fn frame(tick: u64, held: bool) -> UseFrame {
         inventory_revision: Some(1),
         charge_projectile: None,
         press_consumed: false,
+        target_takes_use: false,
     }
 }
 
@@ -408,6 +409,7 @@ fn unpredicted_item_use_rejects_consumed_unverified_and_empty_selections() {
     for rejected in [
         UseFrame {
             press_consumed: true,
+            target_takes_use: false,
             ..frame(100, true)
         },
         UseFrame {
@@ -465,6 +467,7 @@ fn switching_slot_stops_silently_and_consumed_presses_do_nothing() {
     runtime.observe_press(true);
     let consumed = runtime.step(&UseFrame {
         press_consumed: true,
+        target_takes_use: false,
         ..frame(110, true)
     });
     assert!(consumed.packets.is_empty() && !runtime.is_using());
@@ -760,6 +763,26 @@ fn eating_completes_silently_repeats_while_held_and_releases_early() {
     assert!(!runtime.is_using());
 }
 
+/// While the aimed block's own use takes a held Use, an eat that completes does not restart from
+/// the hold, and aiming away resumes it: vanilla's build action gives an interactive block the use
+/// before the held item.
+#[test]
+fn a_held_eat_yields_its_repeat_to_an_interactive_block() {
+    let bread = |tick, target_takes_use| UseFrame {
+        target_takes_use,
+        ..item_frame(tick, true, stack(0, 257, 8), "minecraft:bread")
+    };
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert!(runtime.step(&bread(100, false)).started);
+    let completed = runtime.step(&bread(132, true));
+    assert!(completed.packets.is_empty() && !runtime.is_using());
+    assert!(runtime.step(&bread(140, true)).packets.is_empty());
+    let resumed = runtime.step(&bread(141, false));
+    assert_eq!(kinds(&resumed), ["use"]);
+    assert!(resumed.started);
+}
+
 /// A full player's food sends click-air but starts no use.
 #[test]
 fn food_without_appetite_does_not_start() {
@@ -849,6 +872,7 @@ fn a_dropped_press_names_its_reason() {
     assert_eq!(runtime.press_drop_reason(&frame(100, true)), None);
     let consumed = UseFrame {
         press_consumed: true,
+        target_takes_use: false,
         ..frame(100, true)
     };
     assert_eq!(
