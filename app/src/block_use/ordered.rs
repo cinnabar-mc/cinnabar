@@ -19,8 +19,10 @@ pub(crate) fn press(
     if pressed {
         runtime.forget_press_resolution();
     }
-    // Eating or another item use ignores the press entirely: it reaches neither block, actor
-    // nor item use, and a held-action stop does not keep it for later.
+    // Eating or another item use ignores the press for block and actor use, and a held-action
+    // stop does not keep it for later. Item use still observes it: that starts nothing while a
+    // use is active, but keeps a held Use repeating once the use ends, as vanilla's held build
+    // action does.
     let vetoed = pressed
         && item_use.vetoes_build_action(&player, &context.ui, context.client_world.stream.as_ref());
     let resolved = (|| {
@@ -33,7 +35,7 @@ pub(crate) fn press(
             return true;
         }
         if vetoed {
-            return false;
+            return true;
         }
         if !movement.accepts_block_interactions()
             || movement.has_held_release()

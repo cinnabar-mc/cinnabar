@@ -77,3 +77,60 @@ fn eating_drops_a_use_press_that_shares_a_frame_with_an_attack_tap() {
         "the ignored press stayed latched"
     );
 }
+
+/// A Use tap while eating is not kept by a chest-use stop that a full send queue refuses, so it
+/// cannot replay against the chest once the eat stops vetoing and the queue drains.
+#[test]
+fn a_refused_stop_does_not_keep_a_use_tap_made_while_eating() {
+    let (mut world, mut captured) = fixture_with_network(
+        NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(8),
+    );
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(
+        world
+            .resource::<BlockUseRuntime>()
+            .last_success_destination()
+            .is_some(),
+        "the fixture press uses the chest"
+    );
+    captured.drain();
+    super::attack_while_using_tests::start_eating(&mut world);
+    set_hotbar_stack(&mut world, 1, None);
+    let network = world.resource::<NetworkHandle<PackApplication>>();
+    for _ in 0..8 {
+        network
+            .send_inventory_packet(protocol::swing_arm_packet(42, protocol::SwingSource::Build))
+            .unwrap();
+    }
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    // Releasing Use stops the chest use; the full queue refuses the stop.
+    hold(&mut world, &mut router, Vec::new(), Vec::new());
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(world.resource::<BlockUseRuntime>().stopping());
+    // A quick tap while eating retries the refused stop.
+    let snapshot = hold(&mut world, &mut router, Vec::new(), vec![2]);
+    assert!(snapshot.phases[Action::Use as usize].pressed);
+    world.run_system_cached(produce_block_use).unwrap();
+    hold(&mut world, &mut router, Vec::new(), Vec::new());
+    // Selecting another slot ends the veto, then the queue drains and admits the stop.
+    world
+        .resource_mut::<client_state::PlayerRuntime>()
+        .inventory
+        .set_local_selected_slot(1);
+    captured.drain();
+    world.run_system_cached(produce_block_use).unwrap();
+    world.run_system_cached(produce_block_use).unwrap();
+    let packets = captured.drain();
+    let stop = protocol::stop_item_use_on_packet(42, [4, 2, 6]).kind();
+    assert!(
+        packets.iter().any(|packet| packet.kind() == stop),
+        "the stop drains"
+    );
+    assert!(
+        packets
+            .iter()
+            .filter_map(item_use)
+            .all(|tx| tx.trigger != Some(ItemUseTrigger::PlayerInput)),
+        "the tap made while eating replayed against the chest"
+    );
+}
