@@ -39,12 +39,43 @@ pub fn component_item_registry_payload(
     network_id: i16,
     bytes: Vec<u8>,
 ) -> crate::ItemRegistryEvent {
+    item_registry_payload(identifier, network_id, true, ItemVersion::DataDriven, bytes)
+}
+
+/// Projects a Legacy, non-component entry carrying only a top-level
+/// `minecraft:max_stack_size` component, the layout a dedicated server sends for its
+/// built-in stew items, through wire admission and startup normalization.
+pub fn legacy_stack_component_registry(
+    identifier: &str,
+    network_id: i16,
+    max_stack_size: i32,
+) -> crate::ItemRegistryEvent {
+    let mut bytes = Vec::new();
+    let mut writer = wire::Writer::new(&mut bytes);
+    nbt_name(&mut writer, 10, "");
+    nbt_name(&mut writer, 10, "components");
+    nbt_name(&mut writer, 3, "minecraft:max_stack_size");
+    writer.write_zigzag_i32(max_stack_size).unwrap();
+    writer.write_u8(0).unwrap();
+    writer.write_u8(0).unwrap();
+    item_registry_payload(identifier, network_id, false, ItemVersion::Legacy, bytes)
+}
+
+/// Projects one registry entry through wire admission and startup normalization.
+/// Panics if the payload is not wire-admissible NBT.
+fn item_registry_payload(
+    identifier: &str,
+    network_id: i16,
+    is_component_based: bool,
+    item_version: ItemVersion,
+    bytes: Vec<u8>,
+) -> crate::ItemRegistryEvent {
     let registry = ItemRegistry {
         item_data: vec![ItemData {
             item_name: identifier.into(),
             item_id: wire::I16LE(network_id),
-            is_component_based: true,
-            item_version: ItemVersion::DataDriven,
+            is_component_based,
+            item_version,
             item_component_data: wire::NetworkNbt(bytes.into()),
         }],
     };
