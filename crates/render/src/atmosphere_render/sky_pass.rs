@@ -1,4 +1,6 @@
-//! The sky is the first draw on scene colour, in the first pass that opens it.
+//! The sky draws in the first pass that opens scene colour. The terrain and dedicated sky passes
+//! draw it before geometry; the opaque pass draws it after its opaque geometry, so covered
+//! pixels skip it, unless [`precedes_geometry`] requires it first.
 
 use super::{AtmosphereGpu, AtmospherePipelineKey};
 use bevy::prelude::IntoScheduleConfigs;
@@ -60,9 +62,9 @@ pub(crate) enum SkyHost {
     Opaque,
 }
 
-/// Picks the first pass that opens `view`'s scene colour, so the sky stays the first draw
-/// on that attachment without paying for a render pass of its own. Opaque-category GPU
-/// profiling splits the opaque pass and keeps the sky's own timed pass.
+/// Picks the first pass that opens `view`'s scene colour, so the sky draws there without
+/// paying for a render pass of its own. Opaque-category GPU profiling splits the opaque pass
+/// and keeps the sky's own timed pass.
 pub(crate) fn host(world: &World, view: Entity) -> SkyHost {
     if crate::chunk::terrain_pass_draws_color(world, view) {
         SkyHost::Terrain
@@ -73,6 +75,20 @@ pub(crate) fn host(world: &World, view: Entity) -> SkyHost {
     } else {
         SkyHost::Own
     }
+}
+
+/// Whether the sky must be drawn before world geometry. The pack skybox tests a fragment depth
+/// nearer than the far plane without writing it, so drawn later it would cover farther
+/// geometry; opaque actors that skip depth or colour writes would also change under a later
+/// sky. Otherwise every sky layer sits at the far plane and its depth test leaves pixels
+/// covered by opaque geometry unshaded.
+pub(crate) fn precedes_geometry(world: &World) -> bool {
+    world
+        .get_resource::<AtmosphereGpu>()
+        .is_none_or(|gpu| gpu.skybox_active)
+        || world
+            .get_resource::<crate::actor_render::ActorGpu>()
+            .is_some_and(crate::actor_render::ActorGpu::opaque_draw_needs_sky_first)
 }
 
 /// Opens the sky's own pass only for views whose sky no scene pass hosts.
@@ -119,7 +135,8 @@ fn drawn(world: &World, view: Entity) -> bool {
 }
 
 /// Draws the stock sky, stars and finite pack cube into `pass`, which targets `view`'s scene
-/// colour and depth with its viewport set, before any world geometry can cover them.
+/// colour and depth with its viewport set. Callers draw it before world geometry, or after the
+/// opaque phases when [`precedes_geometry`] allows.
 pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderPass<'w>) {
     if !drawn(world, view) {
         return;

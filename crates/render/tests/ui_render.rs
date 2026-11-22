@@ -83,6 +83,9 @@ mod atmosphere_render {
         pub(crate) fn host(_: &bevy::prelude::World, _: bevy::prelude::Entity) -> SkyHost {
             SkyHost::Own
         }
+        pub(crate) fn precedes_geometry(_: &bevy::prelude::World) -> bool {
+            true
+        }
         pub(crate) fn draw(
             _: &bevy::prelude::World,
             _: bevy::prelude::Entity,

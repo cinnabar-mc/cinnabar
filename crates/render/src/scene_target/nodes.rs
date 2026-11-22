@@ -25,8 +25,9 @@ type SceneOpaqueQuery = (
     Option<&'static bevy::render::view::ViewUniformOffset>,
 );
 
-/// Draws the sky when this pass hosts it, then opaque and cutout geometry, retaining the
-/// samples for later world passes.
+/// Draws opaque and cutout geometry and, when this pass hosts it, the sky (after the geometry
+/// unless a pack skybox or an opaque actor needs it first), retaining the samples for later
+/// world passes.
 pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<SceneOpaqueQuery>,
@@ -110,10 +111,18 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         }
         None => {}
     }
-    if draws_sky {
+    // Opaque and cutout draws write depth and replace colour on the samples they cover (portal
+    // layers blend only over their own first layer), so a sky at the far plane drawn after them
+    // shades only the pixels they leave uncovered. `precedes_geometry` keeps the sky first for
+    // the pack skybox and for actors that break that assumption.
+    let sky_first = draws_sky && sky_pass::precedes_geometry(world);
+    if sky_first {
         sky_pass::draw(world, entity, &mut pass);
     }
     let Some((opaque, cutout)) = phases else {
+        if draws_sky && !sky_first {
+            sky_pass::draw(world, entity, &mut pass);
+        }
         span.end(&mut pass);
         return;
     };
@@ -126,6 +135,9 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         && let Err(error) = cutout.render(&mut pass, world, entity)
     {
         bevy::log::error!("Error rendering the cutout scene: {error:?}");
+    }
+    if draws_sky && !sky_first {
+        sky_pass::draw(world, entity, &mut pass);
     }
     if scene.is_none()
         && let (Some(pipeline), Some(group), Some(offset)) = (sky_pipeline, sky_group, offset)
