@@ -74,3 +74,17 @@ test("invalid range extents do not issue requests", async () => {
   }
   assert.equal(requests.length, 0);
 });
+
+test("credentials stay omitted unless the host asks for same-origin, including later ranges", async () => {
+  const omitted = fixture();
+  const plain = await openSoundBank("https://assets.invalid/bank", 8, () => 16, omitted.fetcher);
+  startRange(plain.source, 40, 4, omitted.fetcher);
+  assert.deepEqual(omitted.requests.map(request => request.credentials), ["omit", "omit", "omit"]);
+  const gated = fixture();
+  const bank = await openSoundBank("https://assets.invalid/bank", 8, () => 16, gated.fetcher, "same-origin");
+  await rangePromise(startRange(bank.source, 40, 4, gated.fetcher));
+  assert.deepEqual(gated.requests.map(request => request.credentials), ["same-origin", "same-origin", "same-origin"]);
+  const forged = fixture();
+  await openSoundBank("https://assets.invalid/bank", 8, () => 16, forged.fetcher, "include");
+  assert.ok(forged.requests.every(request => request.credentials === "omit"));
+});

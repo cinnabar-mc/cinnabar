@@ -4,6 +4,7 @@
 pub mod browser;
 pub mod launcher;
 pub mod play;
+pub mod spectate;
 #[cfg(any(target_arch = "wasm32", test))]
 mod relay;
 
