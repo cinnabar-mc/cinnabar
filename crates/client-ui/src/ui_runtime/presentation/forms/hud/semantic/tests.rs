@@ -370,6 +370,34 @@ fn actionbar_controller_input_outlives_default_animation_until_explicit_clear() 
 }
 
 #[test]
+fn tip_controller_input_outlives_default_animation_until_explicit_clear() {
+    let mut fixture = Fixture::default();
+    let mut cache = SemanticHud::default();
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_tip(Arc::from("Persistent array list"), 1, 100);
+    fixture.frame.now_millis = 100;
+    fixture.check(&mut cache);
+    fixture.runtime.session.hud.expire(30_000);
+    fixture.frame.now_millis = 30_000;
+    fixture.check(&mut cache);
+    assert!(
+        fixture.runtime.hud().tip().is_none(),
+        "the default timed view expired"
+    );
+    assert_eq!(
+        cache.model.tip.as_ref().unwrap().text,
+        "Persistent array list",
+        "an unanimated server control retains the request"
+    );
+    fixture.runtime.session.hud.clear_titles();
+    fixture.check(&mut cache);
+    assert!(cache.model.tip.is_none());
+}
+
+#[test]
 fn actionbar_requests_reset_stateful_server_labels_after_default_expiry() {
     let mut fixture = Fixture::default();
     Arc::make_mut(&mut fixture.catalog).overlay_text(

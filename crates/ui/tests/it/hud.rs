@@ -137,13 +137,16 @@ fn a_tip_text_does_not_replace_the_action_bar() {
     assert_eq!(hud.tip().unwrap().text.as_ref(), "tip");
     let roles: Vec<HudViewRole> = hud.view_nodes(0).iter().map(|n| n.role).collect();
     assert_eq!(roles, [HudViewRole::ActionBar, HudViewRole::Tip]);
-    // Expiry removes only what expired.
+    // The timed view expires, but the request stays until an explicit clear or reset:
+    // resource packs own the display lifetime of the text their control binds.
     hud.expire(4_999);
     assert_eq!(hud.actionbar().unwrap().text.as_ref(), "bar");
     assert_eq!(hud.tip().unwrap().text.as_ref(), "tip");
     hud.expire(5_000);
     assert!(hud.actionbar().is_none());
     assert!(hud.tip().is_none());
+    assert_eq!(hud.actionbar_request().unwrap().text.as_ref(), "bar");
+    assert_eq!(hud.tip_request().unwrap().text.as_ref(), "tip");
 
     // A longer-lived tip outlives the action bar beside it.
     let mut hud = HudStore::default();
@@ -155,6 +158,7 @@ fn a_tip_text_does_not_replace_the_action_bar() {
     assert_eq!(hud.tip().unwrap().text.as_ref(), "tip");
     hud.expire(1_500);
     assert!(hud.tip().is_none());
+    assert_eq!(hud.tip_request().unwrap().text.as_ref(), "tip");
 }
 
 #[test]

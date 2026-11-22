@@ -162,7 +162,7 @@ pub(super) fn hud_model(
             .hud()
             .actionbar_request()
             .map(|text| text.fifo_sequence),
-        tip: visible(runtime.hud().tip(), now).map(timed),
+        tip: runtime.hud().tip_request().map(timed),
         item_name: item_name.filter(|_| popup.is_none()),
         popup,
         jukebox_popup: visible(runtime.hud().jukebox_popup(), now)

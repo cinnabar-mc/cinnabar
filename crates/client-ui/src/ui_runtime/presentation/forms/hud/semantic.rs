@@ -333,8 +333,7 @@ impl SemanticHud {
             &mut self.model.tip,
             runtime
                 .hud()
-                .tip()
-                .filter(|text| text.visible_at(now))
+                .tip_request()
                 .map(|text| (text.text.as_ref(), text.started_millis)),
         );
         changed |= refresh_timed(
