@@ -134,7 +134,14 @@ fn variants_a_pack_leaves_alone_keep_their_base_art_beside_a_replaced_variant_ze
     let mut icons = Vec::new();
     let mut retained = 0;
     append_routes(&view, &routes, &mut icons, &mut retained);
-    pin_base_variants(&routes, &mut icons, &mut retained, &HashSet::new(), base);
+    pin_base_variants(
+        &routes,
+        &mut icons,
+        &mut retained,
+        &HashSet::new(),
+        usize::MAX,
+        base,
+    );
     let first_texel = |metadata: u32| {
         icons
             .iter()
@@ -153,7 +160,14 @@ fn variants_a_pack_leaves_alone_keep_their_base_art_beside_a_replaced_variant_ze
     )]);
     let mut icons = Vec::new();
     append_routes(&view, &routes, &mut icons, &mut 0);
-    pin_base_variants(&routes, &mut icons, &mut 0, &HashSet::new(), base);
+    pin_base_variants(
+        &routes,
+        &mut icons,
+        &mut 0,
+        &HashSet::new(),
+        usize::MAX,
+        base,
+    );
     assert_eq!(
         icons.iter().map(|icon| icon.metadata).collect::<Vec<_>>(),
         [21]
@@ -168,19 +182,30 @@ fn variants_a_pack_leaves_alone_keep_their_base_art_beside_a_replaced_variant_ze
         rgba8: [9, 9, 9, 255].repeat(16 * 16).into(),
     }];
     let declared = HashSet::from([Arc::from("minecraft:splash_potion")]);
-    pin_base_variants(&routes, &mut icons, &mut 0, &declared, base);
+    pin_base_variants(&routes, &mut icons, &mut 0, &declared, usize::MAX, base);
     assert_eq!(icons.len(), 1);
+
+    // Pins stop at the limit, leaving room for what is staged after them.
+    pin_base_variants(&routes, &mut icons, &mut 0, &HashSet::new(), 1, base);
+    assert_eq!(icons.len(), 1);
+    pin_base_variants(&routes, &mut icons, &mut 0, &HashSet::new(), 2, base);
+    assert_eq!(icons.len(), 2);
 }
 
 /// The installed entity and icon carriers, or `None` when `make assets` has not produced them.
+/// Unreadable or undecodable carriers fail the test rather than skipping it.
 fn installed_item_carriers() -> Option<(RuntimeEntityAssets, assets::RuntimeIconCatalog)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.local/assets/compiled");
-    let entities =
-        RuntimeEntityAssets::decode(&std::fs::read(root.join("vanilla-v1.mcbeent")).ok()?).ok()?;
-    let icons =
-        assets::RuntimeIconCatalog::decode(&std::fs::read(root.join("vanilla-v1.mcbeico")).ok()?)
-            .ok()?;
-    Some((entities, icons))
+    let read = |name: &str| match std::fs::read(root.join(name)) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => panic!("reading installed carrier {name}: {error}"),
+    };
+    let (entities, icons) = (read("vanilla-v1.mcbeent")?, read("vanilla-v1.mcbeico")?);
+    Some((
+        RuntimeEntityAssets::decode(&entities).expect("installed entity carrier decodes"),
+        assets::RuntimeIconCatalog::decode(&icons).expect("installed icon carrier decodes"),
+    ))
 }
 
 // With only the plain bottles and arrow replaced, every potion, splash, lingering and tipped arrow
@@ -204,9 +229,14 @@ fn every_potion_variant_keeps_its_base_art_when_a_pack_replaces_the_plain_bottle
     ]);
     let mut icons = Vec::new();
     append_routes(&view, &routes, &mut icons, &mut 0);
-    pin_base_variants(&routes, &mut icons, &mut 0, &HashSet::new(), |path| {
-        sprite_in(&sprites, path)
-    });
+    pin_base_variants(
+        &routes,
+        &mut icons,
+        &mut 0,
+        &HashSet::new(),
+        usize::MAX,
+        |path| sprite_in(&sprites, path),
+    );
     let refs = catalog.sprites();
     let (mut checked, mut shared) = (0, 0);
     for identifier in [

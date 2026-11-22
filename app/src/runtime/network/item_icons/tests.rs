@@ -547,6 +547,7 @@ fn pack_item_short_aliases_follow_the_winning_declaration() {
     ]);
     let registry = [(Arc::from("t:a"), Arc::from("registry_a"))];
     let keys = super::catalog::icon_keys(&view, &registry)
+        .keys
         .into_iter()
         .collect::<std::collections::BTreeMap<_, _>>();
     assert_eq!(keys["t:a"].as_ref(), "upper_a");
@@ -570,6 +571,7 @@ fn generated_short_aliases_preserve_explicit_pack_and_registry_identifiers() {
         ("items/a.json", br#"{"minecraft:item":{"description":{"identifier":"a"},"components":{"minecraft:icon":"explicit_a"}}}"#.to_vec()),
     ]]);
     let keys = super::catalog::icon_keys(&view, &[(Arc::from("b"), Arc::from("registry_b"))])
+        .keys
         .into_iter()
         .collect::<std::collections::BTreeMap<_, _>>();
     assert_eq!(keys["t:a"].as_ref(), "custom_a");
@@ -640,7 +642,7 @@ fn review_item_declaration_priority_survives_moves_between_files() {
             ("items/b.json", declaration("t:a", "upper_a")),
         ],
     ]);
-    let keys = super::catalog::icon_keys(&view, &[]);
+    let keys = super::catalog::icon_keys(&view, &[]).keys;
     // Short-name aliases follow the same winning declaration.
     assert_eq!(
         keys.iter()
@@ -830,4 +832,21 @@ fn an_atlas_outranks_a_java_named_strip() {
     .expect("icons");
     let frames = carried_frames(&icons, "minecraft:compass_atlas");
     assert!(frames.iter().all(|&(frame, _, red)| red == frame as u8));
+}
+
+// A pack declaring a vanilla item's icon under its own short name is still a declaration, so
+// its icon keeps covering every variant; registry-only keys are not declarations.
+#[test]
+fn same_name_pack_icon_declarations_are_recorded_as_declared() {
+    let view = stack(&[&[(
+        "items/splash.json",
+        br#"{"minecraft:item":{"description":{"identifier":"minecraft:splash_potion"},"components":{"minecraft:icon":"splash_potion"}}}"#.to_vec(),
+    )]]);
+    let keys = super::catalog::icon_keys(
+        &view,
+        &[(Arc::from("minecraft:potion"), Arc::from("potion"))],
+    );
+    assert!(keys.declared.contains("minecraft:splash_potion"));
+    assert!(keys.declared.contains("splash_potion"));
+    assert!(!keys.declared.contains("minecraft:potion"));
 }

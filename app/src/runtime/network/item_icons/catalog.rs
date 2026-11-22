@@ -49,11 +49,16 @@ pub(super) fn paths(view: &LayeredPackView) -> HashMap<String, Vec<String>> {
     paths
 }
 
+/// Item icon keys after pack declarations, and which items a pack declared an icon for.
+pub(super) struct IconKeys {
+    /// `(identifier, item_texture key)` for every registry item and pack declaration.
+    pub(super) keys: Vec<(Arc<str>, Arc<str>)>,
+    /// Identifiers (and their short-name aliases) whose key a pack item or attachable declared.
+    pub(super) declared: std::collections::BTreeSet<Arc<str>>,
+}
+
 /// Pack item declarations override the registry's default icon key without changing identity.
-pub(super) fn icon_keys(
-    view: &LayeredPackView,
-    registry: &[(Arc<str>, Arc<str>)],
-) -> Vec<(Arc<str>, Arc<str>)> {
+pub(super) fn icon_keys(view: &LayeredPackView, registry: &[(Arc<str>, Arc<str>)]) -> IconKeys {
     let mut keys: std::collections::BTreeMap<Arc<str>, Arc<str>> =
         registry.iter().cloned().collect();
     let mut declared = std::collections::BTreeSet::new();
@@ -118,14 +123,21 @@ pub(super) fn icon_keys(
         }
     }
     // Aliases use the final declaration and never replace explicit identifiers.
-    for identifier in declared {
+    let mut aliases = Vec::new();
+    for identifier in &declared {
         if let Some((_, short)) = identifier.rsplit_once(':')
             && !keys.contains_key(short)
             && keys.len() < MAX_CATALOG_ENTRIES
         {
-            let key = Arc::clone(&keys[&identifier]);
-            keys.insert(Arc::from(short), key);
+            let key = Arc::clone(&keys[identifier]);
+            let short = Arc::<str>::from(short);
+            keys.insert(Arc::clone(&short), key);
+            aliases.push(short);
         }
     }
-    keys.into_iter().collect()
+    declared.extend(aliases);
+    IconKeys {
+        keys: keys.into_iter().collect(),
+        declared,
+    }
 }

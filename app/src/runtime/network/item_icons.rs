@@ -55,7 +55,10 @@ pub(super) fn compile_session_icons(
         )
         .collect::<HashSet<_>>();
     let paths = catalog::paths(view);
-    let icon_keys = catalog::icon_keys(view, icon_keys);
+    let catalog::IconKeys {
+        keys: icon_keys,
+        declared: pack_declared,
+    } = catalog::icon_keys(view, icon_keys);
     // Explicit icon components outrank short-name guesses when the icon cap bites.
     let short_name = |identifier: &str| {
         identifier
@@ -86,7 +89,7 @@ pub(super) fn compile_session_icons(
         }
     }
     let explicit_count = explicit.len();
-    // Items whose declared icon key resolved; their icon covers every variant.
+    // Items whose declared icon key supplied variant zero; that icon covers every variant.
     let mut declared = HashSet::new();
     let mut block_icons = block_icons.into_iter();
     for (index, (identifier, key)) in explicit.into_iter().chain(guessed).enumerate() {
@@ -106,12 +109,13 @@ pub(super) fn compile_session_icons(
             !identifier.starts_with("minecraft:") || key.as_ref() != short_name(identifier),
         ) {
             Ok(textures) => {
-                if index < explicit_count {
-                    declared.insert(Arc::clone(identifier));
-                }
+                let declaration = index < explicit_count || pack_declared.contains(identifier);
                 for (metadata, texture) in textures {
                     if icons.len() >= MAX_SESSION_ICONS {
                         break;
+                    }
+                    if declaration && metadata == 0 {
+                        declared.insert(Arc::clone(identifier));
                     }
                     let mut sprite = icon(Arc::clone(identifier), texture);
                     sprite.metadata = metadata;
@@ -131,7 +135,9 @@ pub(super) fn compile_session_icons(
     dials::append(view, &mut icons, &mut retained_bytes);
     vanilla::append(view, &mut icons, &mut retained_bytes);
     tint_leather_icons(&mut icons, &mut retained_bytes);
-    vanilla::pin(&mut icons, &mut retained_bytes, &declared);
+    // Equipment staging admits block sheets after every icon under the same cap.
+    let pin_limit = MAX_SESSION_ICONS.saturating_sub(block_sheets.len());
+    vanilla::pin(&mut icons, &mut retained_bytes, &declared, pin_limit);
     (!icons.is_empty() || !block_sheets.is_empty() || !misses.is_empty()).then(|| {
         Arc::new(SessionIcons {
             icons,

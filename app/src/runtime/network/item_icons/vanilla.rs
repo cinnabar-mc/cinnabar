@@ -103,16 +103,18 @@ pub(super) fn append(
 }
 
 /// Pins base art for variants a pack left alone beside its replaced variant zero; see
-/// [`pin_base_variants`]. Runs last, so pins never displace other session icons.
+/// [`pin_base_variants`]. Runs last, so pins never displace other session icons, and stops at
+/// `limit` icons so they never crowd out what is staged after them.
 pub(super) fn pin(
     icons: &mut Vec<SessionIcon>,
     retained_bytes: &mut usize,
-    explicit: &HashSet<Arc<str>>,
+    declared: &HashSet<Arc<str>>,
+    limit: usize,
 ) {
     let Some(paths) = PATHS.get() else {
         return;
     };
-    pin_base_variants(paths, icons, retained_bytes, explicit, sprite);
+    pin_base_variants(paths, icons, retained_bytes, declared, limit, sprite);
 }
 
 /// Strips a route's image extension, as pack textures are named without one.
@@ -177,14 +179,16 @@ fn append_routes(
 }
 
 /// Pins `base` art for every nonzero variant whose item has a variant-zero icon in `icons` but
-/// no exact one. Session lookups fall back to variant zero, so without the pin a pack that
-/// replaces only the plain bottle would draw it for every potion. Items in `explicit` resolved
-/// through a declared icon key, which is meant to cover every variant, and are never pinned.
+/// no exact one, while `icons` holds fewer than `limit`. Session lookups fall back to variant
+/// zero, so without the pin a pack that replaces only the plain bottle would draw it for every
+/// potion. Items in `declared` took variant zero from a declared icon key, which is meant to
+/// cover every variant, and are never pinned.
 fn pin_base_variants(
     paths: &[Route],
     icons: &mut Vec<SessionIcon>,
     retained_bytes: &mut usize,
-    explicit: &HashSet<Arc<str>>,
+    declared: &HashSet<Arc<str>>,
+    limit: usize,
     base: impl Fn(&str) -> Option<DecodedTexture>,
 ) {
     let mut present = icons
@@ -192,7 +196,10 @@ fn pin_base_variants(
         .map(|icon| (icon.identifier.clone(), icon.metadata))
         .collect::<HashSet<_>>();
     for route in paths.iter().filter(|route| route.metadata != 0) {
-        if explicit.contains(&route.identifier)
+        if icons.len() >= limit {
+            break;
+        }
+        if declared.contains(&route.identifier)
             || !present.contains(&(route.identifier.clone(), 0))
             || present.contains(&(route.identifier.clone(), route.metadata))
         {
