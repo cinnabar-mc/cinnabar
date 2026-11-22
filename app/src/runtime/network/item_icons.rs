@@ -86,6 +86,8 @@ pub(super) fn compile_session_icons(
         }
     }
     let explicit_count = explicit.len();
+    // Items whose icon key supplied variant zero; that icon covers every variant.
+    let mut keyed = HashSet::new();
     let mut block_icons = block_icons.into_iter();
     for (index, (identifier, key)) in explicit.into_iter().chain(guessed).enumerate() {
         // Block items rank after explicit icons and before short-name guesses.
@@ -108,6 +110,9 @@ pub(super) fn compile_session_icons(
                     if icons.len() >= MAX_SESSION_ICONS {
                         break;
                     }
+                    if metadata == 0 {
+                        keyed.insert(Arc::clone(identifier));
+                    }
                     let mut sprite = icon(Arc::clone(identifier), texture);
                     sprite.metadata = metadata;
                     retained_bytes += sprite.rgba8.len();
@@ -126,6 +131,9 @@ pub(super) fn compile_session_icons(
     dials::append(view, &mut icons, &mut retained_bytes);
     vanilla::append(view, &mut icons, &mut retained_bytes);
     tint_leather_icons(&mut icons, &mut retained_bytes);
+    // Equipment staging admits block sheets after every icon under the same cap.
+    let pin_limit = MAX_SESSION_ICONS.saturating_sub(block_sheets.len());
+    vanilla::pin(&mut icons, &mut retained_bytes, &keyed, pin_limit);
     (!icons.is_empty() || !block_sheets.is_empty() || !misses.is_empty()).then(|| {
         Arc::new(SessionIcons {
             icons,
