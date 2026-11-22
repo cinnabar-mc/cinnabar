@@ -8,17 +8,14 @@ use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::{
     App, Mat4, Projection, Query, Real, Res, ResMut, Resource, Time, Transform, Update, Vec3, With,
 };
+use render_model::{
+    AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
+    BlockEntitySubmission, ConduitModel, CrackShape, CrackShapeCache, FramedMap, SceneClock,
+    SignFace, SignModel, StaticItemPlacement, item_frame_block_transform,
+    item_frame_item_transform, matrix_rows,
+};
 use ui::TextLayoutCache;
 use world::{ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
-use {
-    render_model::{
-        AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-        BlockEntitySubmission, ConduitModel, CrackShape, CrackShapeCache, FramedMap, SceneClock,
-        SignFace, SignModel, StaticItemPlacement, item_frame_block_transform,
-        item_frame_item_transform, matrix_rows,
-    },
-    render_scene::AtmosphereFrame,
-};
 
 use super::{
     books,
@@ -238,49 +235,14 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
         );
 }
 
-/// Brightness per light level, matching the terrain lighting curve.
-const LIGHT_CURVE: [f32; 16] = [
-    0.0,
-    0.017_543_86,
-    0.037_037_037,
-    0.058_823_53,
-    0.083_333_336,
-    0.111_111_11,
-    0.142_857_15,
-    0.179_487_18,
-    0.222_222_22,
-    0.272_727_28,
-    0.333_333_34,
-    0.407_407_4,
-    0.5,
-    0.619_047_64,
-    0.777_777_8,
-    1.0,
-];
-/// Lowest sky-light transfer at night, as in terrain lighting.
-const NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.083_333_336;
-
-/// Light multiplier from retained block/sky levels and the current daylight transfer.
-fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
-    let curve = |level: u8| LIGHT_CURVE[usize::from(level.min(15))];
-    let transfer = daylight.clamp(0.0, 1.0).max(NIGHT_SKY_TRANSFER_FLOOR);
-    curve(block).max(curve(sky) * transfer)
-}
-
-fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> BlockEntityLight {
-    // Vanilla lights a skull with the world light at its block position,
-    // through mob_head's ordinary entity material. The enchanting table's book is an entity
-    // model lit the same way, so the table's own glow lights it at night (provisional).
-    if matches!(
-        kind,
-        BlockEntityKind::Skull(_)
-            | BlockEntityKind::Chalkboard(_)
-            | BlockEntityKind::EnchantTable { .. }
-            | BlockEntityKind::PistonArm(_)
-    ) {
-        BlockEntityLight::Actor { block, sky }
-    } else {
-        light_factor(block, sky, daylight).into()
+/// Light coordinates for a block entity drawn through the native entity material.
+fn model_light(kind: &BlockEntityKind, block: u8, sky: u8) -> BlockEntityLight {
+    match kind {
+        // Portal surfaces are drawn unlit; the primary palette never submits them here.
+        BlockEntityKind::EndPortal | BlockEntityKind::EndGateway => 1.0.into(),
+        // Every other world block entity samples the shared environment lightmap, so
+        // night vision, brightness, darkness and colored light reach it like terrain.
+        _ => BlockEntityLight::Actor { block, sky },
     }
 }
 
@@ -366,7 +328,6 @@ pub(crate) fn update_block_entity_scene(
     collisions: Res<PhysicsCollisionRegistries>,
     view: Res<LocalViewPose>,
     ui: Res<UiRuntimeResource>,
-    atmosphere: Res<AtmosphereFrame>,
     time: Res<Time<Real>>,
     font: Res<BlockEntityFont>,
     mut runtime: ResMut<BlockEntityRuntime>,
@@ -421,7 +382,6 @@ pub(crate) fn update_block_entity_scene(
     let mode = stream.network_id_mode();
     let eye = view.eye_translation();
     let delta = time.delta_secs();
-    let daylight = atmosphere.daylight();
     let camera_position = camera.map(|(transform, _)| transform.translation);
     let clip_from_world = camera.map(|(transform, projection)| {
         projection.get_clip_from_view() * transform.to_matrix().inverse()
@@ -589,7 +549,7 @@ pub(crate) fn update_block_entity_scene(
             settled &= scan.is_current(chunk);
             scan.seen_frame = frame_stamp;
             let before_portals = submissions.len();
-            portals::submit(&mut submissions, &scan.portals, eye, daylight, |position| {
+            portals::submit(&mut submissions, &scan.portals, eye, |position| {
                 stream.light_level_at(position)
             });
             let portals = (submissions.len() - before_portals) as u32;
@@ -679,7 +639,7 @@ pub(crate) fn update_block_entity_scene(
                         let sample = piston_arms::light_sample(&kind, [x, y, z])
                             .unwrap_or(center.to_array());
                         let (block_light, sky_light) = stream.light_level_at(sample);
-                        model_light(&kind, block_light, sky_light, daylight)
+                        model_light(&kind, block_light, sky_light)
                     };
                     submissions.push(BlockEntitySubmission {
                         block: [x, y, z],

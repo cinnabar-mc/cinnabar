@@ -28,13 +28,44 @@ fn review_session_changes_reset_container_animation() {
 }
 
 #[test]
-fn light_follows_the_terrain_curve_and_night_transfer_floor() {
-    assert!((light_factor(15, 0, 0.0) - 1.0).abs() < 1.0e-6);
-    assert!((light_factor(0, 15, 1.0) - 1.0).abs() < 1.0e-6);
-    // Full sky light at night is throttled to the transfer floor.
-    assert!((light_factor(0, 15, 0.0) - NIGHT_SKY_TRANSFER_FLOOR).abs() < 1.0e-6);
-    assert_eq!(light_factor(0, 0, 1.0), 0.0);
-    assert!(light_factor(8, 0, 1.0) > light_factor(4, 0, 1.0));
+fn containers_and_other_world_block_entities_use_the_environment_lightmap() {
+    let chest = BlockEntityKind::Chest(render_model::ChestModel {
+        variant: render_model::ChestVariant::Normal,
+        facing: render_model::Facing::South,
+        pair: render_model::ChestPair::Single,
+        lid: 0.0,
+    });
+    let shulker = BlockEntityKind::Shulker(render_model::ShulkerModel {
+        color: "undyed",
+        facing: 1,
+        open: 0.0,
+    });
+    let sign = BlockEntityKind::Sign(render_model::SignModel {
+        mount: render_model::SignMount::Standing {
+            rotation_degrees: 0.0,
+        },
+        front: None,
+        back: None,
+    });
+    let bell = BlockEntityKind::Bell(render_model::BellModel {
+        attachment: render_model::BellAttachment::Standing,
+        ring_direction: 0,
+        seconds_since_ring: f32::MAX,
+    });
+    let conduit = BlockEntityKind::Conduit(render_model::ConduitModel {
+        active: false,
+        hunting: false,
+        viewer_yaw_degrees: 0.0,
+    });
+    for kind in [chest, shulker, sign, bell, conduit] {
+        for (block, sky) in [(0, 0), (0, 15), (12, 4), (15, 15)] {
+            assert_eq!(
+                model_light(&kind, block, sky),
+                BlockEntityLight::Actor { block, sky },
+                "{kind:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -46,17 +77,17 @@ fn placed_player_skulls_keep_native_light_coordinates_for_the_environment_shader
         },
     });
     for (block, sky) in [(0, 0), (0, 15), (12, 0)] {
-        for daylight in [0.0, 1.0] {
-            assert_eq!(
-                model_light(&kind, block, sky, daylight),
-                BlockEntityLight::Actor { block, sky }
-            );
-        }
+        assert_eq!(
+            model_light(&kind, block, sky),
+            BlockEntityLight::Actor { block, sky }
+        );
     }
-    assert_eq!(
-        model_light(&BlockEntityKind::EndPortal, 0, 15, 1.0),
-        1.0.into()
-    );
+}
+
+#[test]
+fn portal_surfaces_stay_unlit() {
+    assert_eq!(model_light(&BlockEntityKind::EndPortal, 0, 15), 1.0.into());
+    assert_eq!(model_light(&BlockEntityKind::EndGateway, 0, 15), 1.0.into());
 }
 
 #[test]
