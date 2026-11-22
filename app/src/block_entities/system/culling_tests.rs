@@ -103,7 +103,14 @@ fn beacons_are_prepared_from_hidden_sections() {
     let cave = cave();
     let culling = CaveCulling::new(&cave, key(0, 4, 0), GENERATION, |_: SubChunkKey| true);
     let mut work = BlockEntityWork::default();
-    assert!(work.admit(Some(&culling), None, &Template::Beacon, [56, 70, 56]));
+    assert!(work.admit(
+        Some(&culling),
+        None,
+        &Template::Beacon {
+            levels_reported: true
+        },
+        [56, 70, 56]
+    ));
     assert_eq!(
         work,
         BlockEntityWork {
@@ -203,7 +210,9 @@ fn extended_effects_and_unknown_item_bounds_fail_open_behind_the_camera() {
         metadata: 0,
     };
     let templates = [
-        Template::Beacon,
+        Template::Beacon {
+            levels_reported: true,
+        },
         Template::Static(BlockEntityKind::CrystalBeam(CrystalBeamModel {
             target: [0.0, 0.0, -20.0],
             crystal: [0.0, 0.0, 20.0],
