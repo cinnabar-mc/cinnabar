@@ -173,7 +173,7 @@ fn variants_a_pack_leaves_alone_keep_their_base_art_beside_a_replaced_variant_ze
         [21]
     );
 
-    // A declared icon key covers every variant, so its variant zero keeps the fallback.
+    // An icon key's image covers every variant, so its variant zero keeps the fallback.
     let mut icons = vec![SessionIcon {
         identifier: Arc::from("minecraft:splash_potion"),
         metadata: 0,
@@ -181,8 +181,8 @@ fn variants_a_pack_leaves_alone_keep_their_base_art_beside_a_replaced_variant_ze
         height: 16,
         rgba8: [9, 9, 9, 255].repeat(16 * 16).into(),
     }];
-    let declared = HashSet::from([Arc::from("minecraft:splash_potion")]);
-    pin_base_variants(&routes, &mut icons, &mut 0, &declared, usize::MAX, base);
+    let keyed = HashSet::from([Arc::from("minecraft:splash_potion")]);
+    pin_base_variants(&routes, &mut icons, &mut 0, &keyed, usize::MAX, base);
     assert_eq!(icons.len(), 1);
 
     // Pins stop at the limit, leaving room for what is staged after them.

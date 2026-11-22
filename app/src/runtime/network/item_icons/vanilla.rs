@@ -108,13 +108,13 @@ pub(super) fn append(
 pub(super) fn pin(
     icons: &mut Vec<SessionIcon>,
     retained_bytes: &mut usize,
-    declared: &HashSet<Arc<str>>,
+    keyed: &HashSet<Arc<str>>,
     limit: usize,
 ) {
     let Some(paths) = PATHS.get() else {
         return;
     };
-    pin_base_variants(paths, icons, retained_bytes, declared, limit, sprite);
+    pin_base_variants(paths, icons, retained_bytes, keyed, limit, sprite);
 }
 
 /// Strips a route's image extension, as pack textures are named without one.
@@ -181,13 +181,13 @@ fn append_routes(
 /// Pins `base` art for every nonzero variant whose item has a variant-zero icon in `icons` but
 /// no exact one, while `icons` holds fewer than `limit`. Session lookups fall back to variant
 /// zero, so without the pin a pack that replaces only the plain bottle would draw it for every
-/// potion. Items in `declared` took variant zero from a declared icon key, which is meant to
-/// cover every variant, and are never pinned.
+/// potion. Items in `keyed` took variant zero from their icon key, an image meant to cover every
+/// variant, and are never pinned; only a replaced base route file is.
 fn pin_base_variants(
     paths: &[Route],
     icons: &mut Vec<SessionIcon>,
     retained_bytes: &mut usize,
-    declared: &HashSet<Arc<str>>,
+    keyed: &HashSet<Arc<str>>,
     limit: usize,
     base: impl Fn(&str) -> Option<DecodedTexture>,
 ) {
@@ -199,7 +199,7 @@ fn pin_base_variants(
         if icons.len() >= limit {
             break;
         }
-        if declared.contains(&route.identifier)
+        if keyed.contains(&route.identifier)
             || !present.contains(&(route.identifier.clone(), 0))
             || present.contains(&(route.identifier.clone(), route.metadata))
         {
