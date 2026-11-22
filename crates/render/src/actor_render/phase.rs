@@ -197,7 +197,22 @@ pub(super) fn sorted(material: u32, raster: &render_api::render_state::RenderSta
         || material & crate::actor::material::LATE_DISSOLVE_COLOR != 0
 }
 
+/// The opaque-phase test behind [`ActorGpu::opaque_draw_skips_depth_write`]; a disabled depth
+/// test also disables depth writes.
+fn opaque_spans_skip_depth_write(spans: &[crate::actor::gpu::ActorDrawSpan]) -> bool {
+    spans.iter().any(|span| {
+        !sorted(span.material, &span.raster)
+            && !(span.raster.depth.write && span.raster.depth.compare.is_some())
+    })
+}
+
 impl ActorGpu {
+    /// Whether an actor draw queued in the opaque phase leaves depth unwritten, so a sky drawn
+    /// after that phase would cover it wherever nothing behind it wrote depth.
+    pub(crate) fn opaque_draw_skips_depth_write(&self) -> bool {
+        opaque_spans_skip_depth_write(&self.spans)
+    }
+
     /// Uses the same material and artwork admission for native and pack draws.
     pub(super) fn pack_supports_span(&self, span: &crate::actor::gpu::ActorDrawSpan) -> bool {
         let page = (span.page != 0)
@@ -358,5 +373,48 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
             maximum_vertices: gpu.maximum_vertex_count,
         });
         RenderCommandResult::Success
+    }
+}
+
+#[cfg(test)]
+mod sky_order_tests {
+    use super::opaque_spans_skip_depth_write;
+    use crate::actor::gpu::ActorDrawSpan;
+    use render_api::render_state::{BlendState, RenderState};
+
+    fn span(raster: RenderState) -> ActorDrawSpan {
+        ActorDrawSpan {
+            material: assets::EntityRenderMaterial::Default as u32,
+            raster,
+            page: Default::default(),
+            first: 0,
+            count: 1,
+            vertex_count: 36,
+        }
+    }
+
+    /// A depth-tested, unblended actor that disables depth writes stays in the opaque phase and
+    /// leaves open-sky depth at the far plane, so it must keep the sky ahead of geometry.
+    #[test]
+    fn opaque_actor_without_depth_writes_keeps_the_sky_first() {
+        let mut no_write = RenderState::default();
+        no_write.depth.write = false;
+        assert!(opaque_spans_skip_depth_write(&[
+            span(RenderState::default()),
+            span(no_write)
+        ]));
+    }
+
+    /// Depth-writing opaque actors and sorted (blended) actors let the sky follow geometry.
+    #[test]
+    fn depth_writing_and_sorted_actors_allow_a_late_sky() {
+        let mut blended = RenderState::default();
+        blended.blend = Some(BlendState::ALPHA);
+        blended.depth.write = false;
+        assert!(!opaque_spans_skip_depth_write(&[
+            span(RenderState::default()),
+            span(blended)
+        ]));
+        assert!(!opaque_spans_skip_depth_write(&[]));
     }
 }

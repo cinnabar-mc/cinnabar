@@ -77,12 +77,16 @@ pub(crate) fn host(world: &World, view: Entity) -> SkyHost {
 }
 
 /// Whether the sky must be drawn before world geometry: the pack skybox writes depth nearer
-/// than the far plane, so geometry has to overwrite it. Without it every sky layer sits at the
-/// far plane and its depth test leaves covered pixels unshaded.
+/// than the far plane, so geometry has to overwrite it, and an opaque actor draw without depth
+/// writes would be covered by a later sky. Otherwise every sky layer sits at the far plane and
+/// its depth test leaves pixels covered by opaque geometry unshaded.
 pub(crate) fn precedes_geometry(world: &World) -> bool {
     world
         .get_resource::<AtmosphereGpu>()
         .is_none_or(|gpu| gpu.skybox_active)
+        || world
+            .get_resource::<crate::actor_render::ActorGpu>()
+            .is_some_and(crate::actor_render::ActorGpu::opaque_draw_skips_depth_write)
 }
 
 /// Opens the sky's own pass only for views whose sky no scene pass hosts.
