@@ -49,6 +49,9 @@ pub(super) fn apply(
         stream.current_dimension(),
         Default::default(),
     );
+    let minimum_y = stream
+        .dimension_range(stream.current_dimension())
+        .map_or(i32::MIN, |range| range.base_sub_chunk_y.saturating_mul(16));
     let eye = context
         .origin
         .outbound_ray()
@@ -78,7 +81,15 @@ pub(super) fn apply(
                 protocol::ItemBlockList::CanDestroy,
                 id,
             );
-            if !caps.permits_edit(held) {
+            let markers = gameplay::edit_markers::resolve(
+                &context.collisions,
+                mode,
+                &world,
+                position,
+                minimum_y,
+            );
+            if !caps.permits_edit_in(held, markers) || caps.marker_target_is_indestructible(markers)
+            {
                 return None;
             }
             Some(BlockUseRequest {

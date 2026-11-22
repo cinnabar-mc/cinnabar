@@ -13,6 +13,10 @@ pub enum BlockStateIdentity<'a> {
 }
 /// Canonical empty-block identity checked against the pinned air trait.
 pub const AIR_IDENTIFIER: &str = "minecraft:air";
+/// The block that lets non-builders edit the column above it.
+pub const ALLOW_BLOCK_IDENTIFIER: &str = "minecraft:allow";
+/// The block that stops non-builders editing the column above it.
+pub const DENY_BLOCK_IDENTIFIER: &str = "minecraft:deny";
 /// The piston whose head wears the sticky art when its actor data does not say.
 pub const STICKY_PISTON_IDENTIFIER: &str = "minecraft:sticky_piston";
 

@@ -1,8 +1,8 @@
 use protocol::{AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence};
 
 use super::{
-    CREATIVE_ATTACK_REACH, FlightAuthority, GameModeCapabilities, HeldEditItem,
-    SURVIVAL_ATTACK_REACH, ability_bit,
+    CREATIVE_ATTACK_REACH, EditMarker, EditMarkers, FlightAuthority, GameModeCapabilities,
+    HeldEditItem, SURVIVAL_ATTACK_REACH, ability_bit,
 };
 use protocol::PlayerGameMode::{Adventure, Creative, Spectator, Survival, Unknown};
 
@@ -25,6 +25,14 @@ fn update(layers: Vec<AbilityLayerEvidence>) -> AbilitiesUpdate {
         player_permission: 1,
         command_permission: 0,
         layers: AbilityLayersEvidence::Received(layers.into()),
+    }
+}
+
+/// Wraps received layers in local-player ability evidence at one permission level.
+fn update_as(player_permission: i8, layers: Vec<AbilityLayerEvidence>) -> AbilitiesUpdate {
+    AbilitiesUpdate {
+        player_permission,
+        ..update(layers)
     }
 }
 
@@ -392,4 +400,210 @@ fn mode_assignment_rewrites_only_mode_owned_layers() {
     assert_eq!(spectating[1].abilities & b::BUILD, b::BUILD);
 
     assert_eq!(assign_mode_layers(&layers, Unknown), [base, command]);
+}
+
+/// An allow marker waives Adventure's item-list rule but never supplies Build or Mine.
+#[test]
+fn allow_marker_waives_the_adventure_list_without_granting_edit_abilities() {
+    let denied = HeldEditItem::Item { lists_block: false };
+    let granted = update(vec![layer(
+        ability_bit::BUILD | ability_bit::MINE,
+        ability_bit::BUILD | ability_bit::MINE,
+    )]);
+    let caps = GameModeCapabilities::resolve(Adventure, Some(&granted));
+    let permitted = caps.for_edit(
+        denied,
+        EditMarkers {
+            column: Some(EditMarker::Allow),
+            target_is_marker: false,
+        },
+    );
+    assert!(permitted.can_build && permitted.can_mine);
+
+    let unpowered = GameModeCapabilities::resolve(Adventure, None);
+    let permitted = unpowered.for_edit(
+        HeldEditItem::Item { lists_block: true },
+        EditMarkers {
+            column: Some(EditMarker::Allow),
+            target_is_marker: false,
+        },
+    );
+    assert!(
+        !permitted.can_build && !permitted.can_mine,
+        "an allow marker must not grant Build or Mine"
+    );
+}
+
+/// A deny marker blocks everyone except a world builder, whatever the game mode.
+#[test]
+fn deny_marker_requires_world_builder_authority() {
+    let deny = EditMarkers {
+        column: Some(EditMarker::Deny),
+        target_is_marker: false,
+    };
+    for mode in [Survival, Creative, Adventure, Unknown] {
+        let caps = GameModeCapabilities::resolve(mode, None);
+        assert!(
+            !caps.permits_edit_in(HeldEditItem::EmptyHand, deny),
+            "{mode:?} without WorldBuilder"
+        );
+    }
+    let operator = GameModeCapabilities::resolve(Creative, Some(&update_as(2, vec![])));
+    assert!(
+        !operator.permits_edit_in(HeldEditItem::EmptyHand, deny),
+        "operator status alone is not WorldBuilder"
+    );
+
+    let builder = update(vec![layer(
+        ability_bit::WORLD_BUILDER,
+        ability_bit::WORLD_BUILDER,
+    )]);
+    assert!(
+        GameModeCapabilities::resolve(Survival, Some(&builder))
+            .permits_edit_in(HeldEditItem::EmptyHand, deny)
+    );
+    let cleared = update_as(2, vec![layer(ability_bit::WORLD_BUILDER, 0)]);
+    let caps = GameModeCapabilities::resolve(Creative, Some(&cleared));
+    assert!(!caps.world_builder);
+    assert!(!caps.permits_edit_in(HeldEditItem::EmptyHand, deny));
+}
+
+/// WorldBuilder comes only from a layer that defines it, never from operator status or mode.
+#[test]
+fn world_builder_is_only_the_layered_ability() {
+    for mode in [Survival, Creative, Adventure] {
+        for permission in [1, 2] {
+            let caps = GameModeCapabilities::resolve(mode, Some(&update_as(permission, vec![])));
+            assert!(!caps.world_builder, "{mode:?} at permission {permission}");
+        }
+    }
+    assert!(!GameModeCapabilities::resolve(Creative, None).world_builder);
+    let granted = update_as(
+        1,
+        vec![layer(
+            ability_bit::WORLD_BUILDER,
+            ability_bit::WORLD_BUILDER,
+        )],
+    );
+    assert!(GameModeCapabilities::resolve(Survival, Some(&granted)).world_builder);
+}
+
+/// WorldBuilder bypasses the Adventure rule and marker authority; the grants still decide.
+#[test]
+fn world_builder_bypasses_adventure_rules_and_markers() {
+    let builder = update(vec![layer(
+        ability_bit::WORLD_BUILDER | ability_bit::BUILD | ability_bit::MINE,
+        ability_bit::WORLD_BUILDER | ability_bit::BUILD | ability_bit::MINE,
+    )]);
+    let caps = GameModeCapabilities::resolve(Adventure, Some(&builder));
+    assert!(caps.world_builder);
+    for markers in [
+        EditMarkers::default(),
+        EditMarkers {
+            column: Some(EditMarker::Allow),
+            target_is_marker: false,
+        },
+        EditMarkers {
+            column: Some(EditMarker::Deny),
+            target_is_marker: false,
+        },
+        EditMarkers {
+            column: Some(EditMarker::Deny),
+            target_is_marker: true,
+        },
+    ] {
+        assert!(
+            caps.permits_edit_in(HeldEditItem::EmptyHand, markers),
+            "{markers:?}"
+        );
+    }
+    let permitted = caps.for_edit(
+        HeldEditItem::EmptyHand,
+        EditMarkers {
+            column: Some(EditMarker::Deny),
+            target_is_marker: false,
+        },
+    );
+    assert!(permitted.can_build && permitted.can_mine);
+
+    // WorldBuilder is not itself a Build or Mine grant.
+    let no_grants = update(vec![layer(
+        ability_bit::WORLD_BUILDER,
+        ability_bit::WORLD_BUILDER,
+    )]);
+    let refused = GameModeCapabilities::resolve(Adventure, Some(&no_grants)).for_edit(
+        HeldEditItem::EmptyHand,
+        EditMarkers {
+            column: Some(EditMarker::Allow),
+            target_is_marker: false,
+        },
+    );
+    assert!(!refused.can_build && !refused.can_mine);
+}
+
+/// A marker target governs its own cell; its hardness, not admission, stops the break.
+#[test]
+fn marker_targets_govern_their_own_cell() {
+    let allow_target = EditMarkers {
+        column: Some(EditMarker::Allow),
+        target_is_marker: true,
+    };
+    let adventure = GameModeCapabilities::resolve(Adventure, None);
+    assert!(adventure.permits_edit_in(HeldEditItem::Item { lists_block: false }, allow_target));
+    assert!(adventure.marker_target_is_indestructible(allow_target));
+
+    let deny_target = EditMarkers {
+        column: Some(EditMarker::Deny),
+        target_is_marker: true,
+    };
+    for mode in [Survival, Creative, Adventure] {
+        let caps = GameModeCapabilities::resolve(mode, Some(&update_as(2, vec![])));
+        assert!(
+            !caps.permits_edit_in(HeldEditItem::Item { lists_block: true }, deny_target),
+            "{mode:?}"
+        );
+    }
+}
+
+/// Only world builders may break a marker block; everyone else makes no destroy progress.
+#[test]
+fn marker_targets_stay_indestructible_without_world_builder() {
+    let marker = EditMarkers {
+        column: None,
+        target_is_marker: true,
+    };
+    for mode in [Survival, Creative, Adventure, Unknown] {
+        assert!(
+            GameModeCapabilities::resolve(mode, None).marker_target_is_indestructible(marker),
+            "{mode:?}"
+        );
+    }
+    let builder = update(vec![layer(
+        ability_bit::WORLD_BUILDER,
+        ability_bit::WORLD_BUILDER,
+    )]);
+    assert!(
+        !GameModeCapabilities::resolve(Adventure, Some(&builder))
+            .marker_target_is_indestructible(marker)
+    );
+    assert!(
+        !GameModeCapabilities::resolve(Survival, None)
+            .marker_target_is_indestructible(EditMarkers::default())
+    );
+}
+
+/// Without a marker in the column, the ordinary mode and held-item rules are unchanged.
+#[test]
+fn columns_without_a_marker_keep_the_ordinary_edit_rule() {
+    let adventure = GameModeCapabilities::resolve(Adventure, None);
+    for held in [
+        HeldEditItem::EmptyHand,
+        HeldEditItem::Item { lists_block: false },
+    ] {
+        assert!(!adventure.permits_edit_in(held, EditMarkers::default()));
+    }
+    assert!(
+        GameModeCapabilities::resolve(Survival, None)
+            .permits_edit_in(HeldEditItem::EmptyHand, EditMarkers::default())
+    );
 }

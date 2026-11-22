@@ -108,6 +108,9 @@ mod held_book_tests;
 #[path = "published_tests/brush.rs"]
 mod brush_tests;
 
+#[path = "published_tests/edit_markers.rs"]
+mod edit_marker_tests;
+
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
     let mut payload = vec![1, 2];
@@ -660,6 +663,39 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
     (world, captured)
+}
+
+/// Replaces fixture cells with each named block's first registry state and commits them.
+fn set_blocks(world: &mut World, eye: [f32; 3], blocks: &[([i32; 3], &str)]) {
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let updates = blocks
+        .iter()
+        .map(|&(position, name)| protocol::BlockUpdateEvent {
+            dimension: 0,
+            position,
+            layer: 0,
+            network_id: records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+                .map(|record| record.sequential_id)
+                .min()
+                .unwrap(),
+        })
+        .collect();
+    let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
+    let stream = client_world.stream.as_mut().unwrap();
+    let sequence = stream.committed_sequence() + 1;
+    stream
+        .submit(sequence, protocol::WorldEvent::BlockUpdates(updates))
+        .unwrap();
+    test_time::eventually("fixture block commit", || {
+        stream.poll(eye, 0);
+        stream.committed_sequence() >= sequence
+    });
 }
 
 /// Routes one frame of held keys and mouse buttons into the world's input snapshot.
