@@ -1629,12 +1629,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   PrivilegedBuilder with an empty hand, before the Build/Mine grant. Denied block presses
   report DenyDestroyBlock, an Attack swing, an abort and a missed swing. Creative presses
   with a no-break item report their destroy request, start and abort. Both keep existing
-  mining cancellation ahead of the refusal. The highest allow or deny marker strictly
+  mining cancellation ahead of the refusal. The highest allow or deny marker at or
   below the edited cell governs its column: allow waives the Adventure list rule without
-  granting Build/Mine, deny admits only world builders, and WorldBuilder (or a Creative
-  operator when no layer defines that ability) also edits the markers themselves. Server
-  world changes are not gated. Immutable-world off, border blocks and live mining
-  acceptance remain incomplete.
+  granting Build/Mine, deny admits only world builders, and the WorldBuilder ability also
+  edits the markers themselves. Server world changes are not gated. Immutable-world off,
+  border blocks, the refusal effect at the block centre, the destroy check's pre-scan
+  block bypass, scanning past unloaded cells and live mining acceptance remain incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   A food or drink item that declares a zero use duration takes the standard 32-tick consume time,

@@ -11,10 +11,11 @@ use crate::movement::PhysicsCollisionRegistries;
 
 /// Reads the marker authority over `cell` from its own column.
 ///
-/// The highest allow or deny marker strictly below `cell` governs; a marker in another
-/// column, or at or above `cell`, does not. Scanning stops at the first unreadable cell,
-/// so authority below loaded terrain stays unknown. `cell` itself is reported separately
-/// because a marker block follows its own edit rule.
+/// The highest allow or deny marker at or below `cell` governs, as vanilla's block
+/// permission checks scan from the edited cell itself down to the dimension minimum; a
+/// marker in another column, or above `cell`, does not. Scanning stops at the first
+/// unreadable cell, so authority below loaded terrain stays unknown. Whether `cell` is
+/// itself a marker is also reported, for its destroy hardness.
 pub fn resolve(
     collisions: &PhysicsCollisionRegistries,
     mode: NetworkIdMode,
@@ -39,7 +40,7 @@ fn markers_by(
     let target_is_marker = marker_at(cell).ok().flatten().is_some();
     let [x, _, z] = cell;
     let mut column = None;
-    let mut y = cell[1].checked_sub(1);
+    let mut y = Some(cell[1]);
     while let Some(height) = y
         && height >= minimum_y
     {

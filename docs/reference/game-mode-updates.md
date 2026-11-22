@@ -94,20 +94,22 @@ Bedrock server is outstanding.
 
 ## Allow and deny block authority
 
-Allow and deny blocks govern the whole column above themselves and nothing below.
-The highest marker strictly below the edited cell decides; markers at or above the
-cell, and markers in other columns, do not. Cinnabar scans from the edited cell down
-to the dimension's minimum Y and stops at the first unloaded cell, so missing terrain
-below never applies a marker. Placement reads the destination cell; destroying and
-requested breaks read the destroyed cell.
+Allow and deny blocks govern their own cell and the whole column above it, and
+nothing below. The highest marker at or below the edited cell decides; markers above
+the cell, and markers in other columns, do not. Vanilla scans from the edited cell
+itself down to the dimension's minimum Y; Cinnabar stops at the first unloaded cell,
+so missing terrain below never applies a marker. Placement reads the destination
+cell; destroying and requested breaks read the destroyed cell, so breaking a deny
+block is refused by that block itself.
 
 An allow marker waives Adventure's held-item rule for that cell but does not grant
 Build or Mine, so a player without those grants still cannot edit. A deny marker
 refuses the edit. Without a marker, the ordinary game-mode rule stands. Neither
 marker affects item use, so doors, levers and containers still work above them.
 
-World builder authority comes from the WorldBuilder ability when a received layer
-defines it; otherwise a Creative operator has it. World builders bypass the
+World builder authority is the WorldBuilder ability alone, as `Actor::isWorldBuilder`
+reads it through the ability layers; when no layer defines it, nobody has it,
+operators included. World builders bypass the
 Adventure rule and marker authority and can edit the marker blocks themselves, while
 Build and Mine still decide their edit. Marker hardness is -1; because the shared
 destroy carrier records them as breakable, Cinnabar substitutes that hardness so a

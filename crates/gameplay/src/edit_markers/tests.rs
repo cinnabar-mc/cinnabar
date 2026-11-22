@@ -24,7 +24,7 @@ fn no_marker_leaves_the_ordinary_edit_rule() {
 }
 
 #[test]
-fn the_highest_marker_strictly_below_the_cell_governs() {
+fn the_highest_marker_at_or_below_the_cell_governs() {
     assert_eq!(
         markers_by(
             [0, 10, 0],
@@ -46,11 +46,7 @@ fn the_highest_marker_strictly_below_the_cell_governs() {
 }
 
 #[test]
-fn markers_at_or_above_the_cell_and_other_columns_do_not_govern() {
-    assert_eq!(
-        markers_by([0, 10, 0], -64, column(&[(10, EditMarker::Deny)])).column,
-        None
-    );
+fn markers_above_the_cell_and_other_columns_do_not_govern() {
     assert_eq!(
         markers_by([0, 10, 0], -64, column(&[(11, EditMarker::Deny)])).column,
         None
@@ -71,10 +67,14 @@ fn markers_at_or_above_the_cell_and_other_columns_do_not_govern() {
 }
 
 #[test]
-fn the_target_itself_is_reported_without_governing_its_column() {
-    let markers = markers_by([0, 10, 0], -64, column(&[(10, EditMarker::Deny)]));
+fn a_marker_target_governs_its_own_cell() {
+    let markers = markers_by(
+        [0, 10, 0],
+        -64,
+        column(&[(10, EditMarker::Deny), (5, EditMarker::Allow)]),
+    );
     assert!(markers.target_is_marker);
-    assert_eq!(markers.column, None);
+    assert_eq!(markers.column, Some(EditMarker::Deny));
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn admitted_marker_states_are_identified_and_scanned() {
     assert!(target.target_is_marker);
     assert_eq!(
         target.column,
-        Some(EditMarker::Allow),
-        "the allow block below the deny target still governs its column"
+        Some(EditMarker::Deny),
+        "the deny target governs its own cell above the allow block"
     );
 }

@@ -43,9 +43,6 @@ pub mod ability_layer {
 /// `minecraft/protocol/ability.go` (`AbilityLayerTypeSpectator`).
 pub const SPECTATOR_LAYER_TYPE: u16 = 2;
 
-/// Raw `PlayerPermissionLevel::Operator`, per the generated protocol enum.
-const OPERATOR_PLAYER_PERMISSION: i8 = 2;
-
 /// Effective server flight and whether local requests may change it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlightAuthority {
@@ -99,10 +96,10 @@ pub enum EditMarker {
     Deny,
 }
 
-/// Marker authority for one cell, read from the column below it.
+/// Marker authority for one cell, read from its column down from the cell itself.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EditMarkers {
-    /// The highest allow or deny marker strictly below the edited cell in its column.
+    /// The highest allow or deny marker at or below the edited cell in its column.
     pub column: Option<EditMarker>,
     /// The edited cell is itself an allow or deny marker.
     pub target_is_marker: bool,
@@ -136,9 +133,7 @@ pub struct GameModeCapabilities {
     pub has_collision: bool,
     pub attack_reach: f64,
     pub creative_reach: bool,
-    /// The server named the Operator player-permission level.
-    pub operator: bool,
-    /// The WorldBuilder ability, or the Creative operator fallback when no layer defines it.
+    /// The WorldBuilder ability; false when no layer defines it.
     pub world_builder: bool,
     pub edit_permission: EditPermission,
 }
@@ -163,7 +158,6 @@ impl GameModeCapabilities {
                 has_collision: true,
                 attack_reach: SURVIVAL_ATTACK_REACH,
                 creative_reach: false,
-                operator: false,
                 world_builder: false,
                 edit_permission: EditPermission::Granted,
             },
@@ -183,7 +177,6 @@ impl GameModeCapabilities {
                 has_collision: true,
                 attack_reach: CREATIVE_ATTACK_REACH,
                 creative_reach: true,
-                operator: false,
                 world_builder: false,
                 edit_permission: EditPermission::Granted,
             },
@@ -205,7 +198,6 @@ impl GameModeCapabilities {
                 has_collision: true,
                 attack_reach: SURVIVAL_ATTACK_REACH,
                 creative_reach: false,
-                operator: false,
                 world_builder: false,
                 edit_permission: EditPermission::Adventure {
                     privileged_builder: false,
@@ -227,7 +219,6 @@ impl GameModeCapabilities {
                 has_collision: false,
                 attack_reach: 0.0,
                 creative_reach: false,
-                operator: false,
                 world_builder: false,
                 edit_permission: EditPermission::Granted,
             },
@@ -256,17 +247,11 @@ impl GameModeCapabilities {
     /// World builders bypass both the Adventure item-list rule and marker authority; the Build
     /// and Mine grants still decide their edit. An allow marker otherwise waives the Adventure
     /// item-list rule without granting Build or Mine. A deny marker refuses the edit. A marker
-    /// block itself is editable by world builders, or in Adventure under that mode's ordinary
-    /// rule; its hardness keeps it from making destroy progress otherwise.
+    /// block itself governs its own cell; its hardness keeps it from making destroy progress
+    /// for anyone but world builders.
     pub const fn permits_edit_in(&self, held: HeldEditItem, markers: EditMarkers) -> bool {
         if self.world_builder {
             return true;
-        }
-        if markers.target_is_marker {
-            return match self.edit_permission {
-                EditPermission::Adventure { .. } => self.permits_edit(held),
-                EditPermission::Granted => false,
-            };
         }
         match markers.column {
             Some(EditMarker::Allow) => true,
@@ -279,7 +264,7 @@ impl GameModeCapabilities {
     ///
     /// The shared destroy carrier records the Education markers as breakable. Only world
     /// builders may break the markers themselves, so every other admitted destroy must make
-    /// no progress even when Adventure's held-item rule admits it.
+    /// no progress even when marker authority admits it.
     pub const fn marker_target_is_indestructible(&self, markers: EditMarkers) -> bool {
         markers.target_is_marker && !self.world_builder
     }
@@ -312,11 +297,8 @@ impl GameModeCapabilities {
             return caps;
         };
         let resolved = |bit: u32| resolved_ability(abilities, bit);
-        caps.operator = abilities.player_permission == OPERATOR_PLAYER_PERMISSION;
-        // Editor worlds grant WorldBuilder explicitly; Bedrock without that layer lets an
-        // operator in Creative override allow and deny blocks.
-        caps.world_builder = resolved(ability_bit::WORLD_BUILDER)
-            .unwrap_or(caps.operator && mode == PlayerGameMode::Creative);
+        // `Actor::isWorldBuilder` reads only the layered ability; undefined is false.
+        caps.world_builder = resolved(ability_bit::WORLD_BUILDER).unwrap_or(false);
         for (bit, field) in [
             (ability_bit::BUILD, &mut caps.can_build),
             (ability_bit::MINE, &mut caps.can_mine),
