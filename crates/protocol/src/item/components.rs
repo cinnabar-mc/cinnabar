@@ -62,7 +62,8 @@ pub struct ItemComponents {
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
     pub max_stack_size: Option<u8>,
-    /// The top-level stack component, independent from item_properties precedence.
+    /// The top-level stack component as a plain item's network initialization reads it: the
+    /// low byte of a direct Int tag. Other tags and a zero byte stay unresolved.
     pub max_stack_size_component: Option<u8>,
     /// Duplicate capacity fields or ancestors make the stack capacity unresolved.
     pub stack_capacity_ambiguous: bool,
@@ -316,9 +317,10 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         max_stack_size: count(property("max_stack_size").or(component("minecraft:max_stack_size")))
             .filter(|size| (1..=255).contains(size))
             .map(|size| size as u8),
-        max_stack_size_component: count(component("minecraft:max_stack_size"))
-            .filter(|size| (1..=255).contains(size))
-            .map(|size| size as u8),
+        max_stack_size_component: match component("minecraft:max_stack_size") {
+            Some(Nbt::Int(value)) => Some((value & 0xff) as u8).filter(|size| *size != 0),
+            _ => None,
+        },
         stack_capacity_ambiguous,
         item_properties_declared: properties.is_some(),
         max_stack_size_component_declared: component("minecraft:max_stack_size").is_some(),
