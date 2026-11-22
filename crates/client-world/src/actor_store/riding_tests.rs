@@ -784,7 +784,9 @@ fn a_rider_left_inside_its_vehicle_passes_through_it_until_released() {
 fn a_local_rider_leaving_on_the_client_keeps_its_link_until_the_server_unlinks() {
     let mut store = player_on_boat(Some([0.0; 3]), false);
     assert_eq!(shown_on_boat(&store), [true; 3]);
+    assert!(store.rider_render_seat(10, 0.5).is_some());
     leave_beside_boat(&mut store);
+    assert!(store.rider_render_seat(10, 0.5).is_none());
     assert!(store.left_local_vehicle(10));
     assert_eq!(shown_on_boat(&store), [false; 3]);
     assert_eq!(
@@ -842,4 +844,142 @@ fn a_rider_that_left_on_the_client_collides_with_its_vehicle() {
         seated + 1,
         "the boat collides again"
     );
+}
+
+/// A rider drawn from the staged or live mount lands where the same rider seated by the live
+/// tick draws, `alpha` of the way through the frame, so the local rider glides with its mount
+/// instead of holding the seat of the tick the mount last completed.
+#[test]
+fn a_streamed_rider_draws_on_the_mount_s_eased_pose() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.advance_interpolation_ticks(1);
+    let mut movement = super::tests::network_move(20, 12.0, false);
+    let ActorEvent::Move(ref mut event) = movement else {
+        unreachable!()
+    };
+    event.position[0] = Some(22.0);
+    store.apply(1, 4, movement);
+    for (ticks, alpha) in [(1, 0.5), (0, 0.25), (2, 0.75), (0, 0.5)] {
+        store.predict_remote_motion(ticks);
+        let before = store.rider_seat_pose(10).unwrap().0;
+        let staged = store.rider_render_seat(10, alpha).unwrap();
+        store.advance_interpolation_frame(ticks);
+        let drawn = store.get(10).unwrap().interpolated_position(alpha).unwrap();
+        for axis in 0..3 {
+            assert!(
+                (staged[axis] - drawn[axis]).abs() < 0.00001,
+                "{ticks} ticks, alpha {alpha}: {staged:?} against {drawn:?}"
+            );
+        }
+        if ticks > 0 {
+            // The seat of the last completed tick is not where the mount's frame draws it.
+            assert!((before[0] - drawn[0]).abs() > 0.01, "{before:?} {drawn:?}");
+        }
+    }
+}
+
+/// A rider whose mount is itself seated has no mount pose of its own to follow.
+#[test]
+fn a_rider_on_a_seated_mount_has_no_render_seat() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.apply(1, 5, spawn(30, 30));
+    store.apply_link(1, 6, link(20, 30, ActorLinkType::Rider));
+    assert!(store.rider_render_seat(10, 0.5).is_none());
+}
+
+/// What a frame loop saw of a cart streaming one position per server tick while the local
+/// player rides it.
+struct CartRide {
+    /// The rider's drawn seat along x, per frame.
+    seat: Vec<f32>,
+    /// The cart's drawn position along x, per frame.
+    drawn: Vec<f32>,
+    /// The seat of the last completed tick and the staged cart pose, which picks read.
+    ticked: Vec<([f32; 3], Option<[f32; 3]>)>,
+}
+
+const FRAMES_PER_TICK: u32 = 6;
+
+/// Frames between consecutive position packets of a powered-rail cart, as a headless client
+/// at 120 frames per second received them from a local server: 50 ms apart on average, a frame
+/// or two early or late, and settled right at an actor tick's boundary, so each packet falls on
+/// one side of the boundary or the other.
+const PACKET_GAPS: [u32; 28] = [
+    6, 6, 5, 8, 5, 6, 5, 6, 8, 5, 6, 5, 8, 5, 6, 6, 5, 6, 7, 6, 6, 5, 8, 5, 6, 6, 5, 8,
+];
+
+/// Rides a minecart that moves 0.4 blocks per server tick, one packet per tick, arriving
+/// [`PACKET_GAPS`] frames apart from the frame after the first actor tick. `play_back` is
+/// whether the frame loop asks for the ridden cart's playback, as the client does every frame.
+fn ride_cart(play_back: bool) -> CartRide {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    store.actors.get_mut(&20).unwrap().entity_fact.native_class =
+        assets::facts::entity::NativeEntityClass::Minecart;
+    let mut ride = CartRide {
+        seat: Vec::new(),
+        drawn: Vec::new(),
+        ticked: Vec::new(),
+    };
+    let mut arrival = FRAMES_PER_TICK;
+    let mut sequence = 10;
+    let mut sent = 0_usize;
+    let mut previous_ticks = 0;
+    for frame in 0..(160 * FRAMES_PER_TICK) {
+        while frame >= arrival {
+            let mut movement = super::tests::network_move(20, 5.0, false);
+            let ActorEvent::Move(ref mut event) = movement else {
+                unreachable!()
+            };
+            event.position[0] = Some(10.0 + 0.4 * sent as f32);
+            sequence += 1;
+            store.apply(1, sequence, movement);
+            arrival += PACKET_GAPS[sent % PACKET_GAPS.len()];
+            sent += 1;
+        }
+        let elapsed = f64::from(frame + 1) / f64::from(FRAMES_PER_TICK);
+        let ticks = elapsed as u32 - previous_ticks;
+        previous_ticks = elapsed as u32;
+        let alpha = elapsed.fract() as f32;
+        store.predict_remote_motion(ticks);
+        if play_back {
+            store.play_back_mounts(alpha, 10);
+        }
+        let seat = store.rider_render_seat(10, alpha).unwrap();
+        ride.ticked.push((
+            store.rider_seat_pose(10).unwrap().0,
+            store.pick_pose(20).map(|pose| pose.position),
+        ));
+        store.advance_interpolation_frame(ticks);
+        ride.seat.push(seat[0]);
+        ride.drawn
+            .push(store.get(20).unwrap().interpolated_position(alpha).unwrap()[0]);
+    }
+    ride
+}
+
+/// The rider and the cart it rides draw at the cart's steady pace however the packets'
+/// arrivals fall against the actor ticks, and the rider stays on its cart.
+#[test]
+fn a_ridden_cart_draws_at_a_steady_pace_despite_arrival_jitter() {
+    let ride = ride_cart(true);
+    let pace = 0.4 / FRAMES_PER_TICK as f32;
+    for frame in 60..150 {
+        let seat_step = ride.seat[frame] - ride.seat[frame - 1];
+        let drawn_step = ride.drawn[frame] - ride.drawn[frame - 1];
+        assert!(
+            (seat_step - pace).abs() < pace * 0.15,
+            "frame {frame}: seat step {seat_step} against {pace}"
+        );
+        assert!(
+            (seat_step - drawn_step).abs() < 0.00001,
+            "frame {frame}: seat {seat_step} and cart {drawn_step} move apart"
+        );
+    }
+}
+
+/// The playback changes what is drawn, never the seat a rider sends or the staged cart pose
+/// picks read: those keep the vanilla actor ticks.
+#[test]
+fn cart_playback_leaves_ticked_seats_and_picks_alone() {
+    assert_eq!(ride_cart(true).ticked, ride_cart(false).ticked);
 }

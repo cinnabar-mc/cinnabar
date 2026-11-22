@@ -226,6 +226,8 @@ pub(super) struct PickState {
     pub(super) runtime_id: u64,
     /// The yaw one tick before `state`, which this frame eases from.
     pub(super) previous_yaw: f32,
+    /// The feet position one tick before `state`, which this frame eases from.
+    pub(super) previous_position: [f32; 3],
     pub(super) state: MotionState,
 }
 

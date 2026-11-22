@@ -56,6 +56,30 @@ fn local_view_pose_moves_both_origins_but_accepts_a_separate_crouch_eye() {
 }
 
 #[test]
+fn a_ride_render_offset_moves_only_the_drawn_pose() {
+    let feet = Vec3::new(4.0, 70.0, -2.0);
+    let eye = feet + Vec3::Y * protocol::PLAYER_NETWORK_OFFSET;
+    let offset = Vec3::new(0.2, 0.0, -0.1);
+    let mut view = LocalViewPose::default();
+    view.set_subject_position(eye, feet);
+    view.set_ride_render_offset(offset);
+    assert_eq!(view.eye_translation(), eye);
+    assert_eq!(view.feet_translation(), feet);
+    assert_eq!(view.render_eye_translation(), eye + offset);
+    assert_eq!(view.render_feet_translation(), feet + offset);
+    assert_eq!(
+        view.actor_positions(Some(eye.to_array()), Some(feet.to_array())),
+        (
+            Some((eye + offset).to_array()),
+            Some((feet + offset).to_array())
+        )
+    );
+    view.set_ride_render_offset(Vec3::NAN);
+    assert_eq!(view.render_eye_translation(), eye);
+    assert_eq!(view.render_feet_translation(), feet);
+}
+
+#[test]
 fn both_shift_bindings_produce_held_sneak_and_release() {
     for shift in [0xe1, 0xe5] {
         let mut runtime = SemanticInputRuntime::default();

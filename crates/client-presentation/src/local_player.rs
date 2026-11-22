@@ -66,6 +66,7 @@ pub struct FrozenLocalPlayerFrame {
     world_collision_identity: WorldCollisionIdentity,
     pose: Transform,
     eye: Vec3,
+    interaction_eye: Vec3,
     feet: Vec3,
     rotation: Quat,
     direction: Vec3,
@@ -112,9 +113,17 @@ impl FrozenLocalPlayerFrame {
         &self.pose
     }
 
+    /// The eye the camera and body are drawn from.
     #[must_use]
     pub const fn eye(&self) -> Vec3 {
         self.eye
+    }
+
+    /// The eye that picks and interactions originate from. It equals [`Self::eye`] except
+    /// while a streamed mount's frame draws its rider off the ticked seat.
+    #[must_use]
+    pub const fn interaction_eye(&self) -> Vec3 {
+        self.interaction_eye
     }
 
     #[must_use]
@@ -144,13 +153,24 @@ pub struct LocalPlayerFrameCarrier {
 
 impl LocalPlayerFrameCarrier {
     pub fn publish(&mut self, sample: LocalPlayerFrameSample) -> Result<(), LocalPlayerFrameError> {
+        let interaction_eye = sample.eye;
+        self.publish_with_interaction_eye(sample, interaction_eye)
+    }
+
+    /// Publishes `sample` with picks and interactions originating from `interaction_eye`
+    /// instead of the drawn eye, for a rider drawn off its ticked seat.
+    pub fn publish_with_interaction_eye(
+        &mut self,
+        sample: LocalPlayerFrameSample,
+        interaction_eye: Vec3,
+    ) -> Result<(), LocalPlayerFrameError> {
         if !sample.pose.translation.is_finite()
             || !sample.pose.rotation.is_finite()
             || !sample.pose.scale.is_finite()
         {
             return Err(LocalPlayerFrameError::NonFinitePose);
         }
-        if !sample.eye.is_finite() {
+        if !sample.eye.is_finite() || !interaction_eye.is_finite() {
             return Err(LocalPlayerFrameError::NonFiniteEye);
         }
         if !sample.feet.is_finite() {
@@ -175,6 +195,7 @@ impl LocalPlayerFrameCarrier {
             world_collision_identity: sample.world_collision_identity,
             pose: sample.pose,
             eye: sample.eye,
+            interaction_eye,
             feet: sample.feet,
             rotation,
             direction: (rotation * Vec3::NEG_Z).normalize_or_zero(),
@@ -205,6 +226,7 @@ pub struct LocalViewPose {
     rotation: ViewRotation,
     freelook_rotation: Option<ViewRotation>,
     camera_reanchor_epoch: u64,
+    ride_render_offset: Vec3,
     sleeping: Option<sleeping::SleepingPose>,
     sleeping_camera: bool,
     sleeping_changed: bool,
@@ -254,6 +276,7 @@ impl Default for LocalViewPose {
             },
             freelook_rotation: None,
             camera_reanchor_epoch: 0,
+            ride_render_offset: Vec3::ZERO,
             sleeping: None,
             sleeping_camera: false,
             sleeping_changed: false,
@@ -270,6 +293,7 @@ impl LocalViewPose {
         pose
     }
 
+    /// The eye gameplay reads: picks, interactions and observations originate here.
     #[must_use]
     pub const fn eye_translation(self) -> Vec3 {
         match self.sleeping {
@@ -284,6 +308,36 @@ impl LocalViewPose {
             Some(pose) => pose.feet,
             None => self.feet_translation,
         }
+    }
+
+    /// The eye the camera is drawn from: [`Self::eye_translation`], moved to where a streamed
+    /// mount's frame draws its rider. Never an origin for picks or interactions.
+    #[must_use]
+    pub fn render_eye_translation(self) -> Vec3 {
+        match self.sleeping {
+            Some(pose) => pose.eye,
+            None => self.eye_translation + self.ride_render_offset,
+        }
+    }
+
+    /// The feet the body is drawn at, by the same rule as [`Self::render_eye_translation`].
+    #[must_use]
+    pub fn render_feet_translation(self) -> Vec3 {
+        match self.sleeping {
+            Some(pose) => pose.feet,
+            None => self.feet_translation + self.ride_render_offset,
+        }
+    }
+
+    /// Draws the rider `offset` away from the ticked pose, as streamed mount motion eases it
+    /// between ticks. Presentation only: gameplay reads keep the ticked eye and feet. A
+    /// non-finite offset clears it.
+    pub fn set_ride_render_offset(&mut self, offset: Vec3) {
+        self.ride_render_offset = if offset.is_finite() {
+            offset
+        } else {
+            Vec3::ZERO
+        };
     }
 
     #[must_use]
@@ -513,7 +567,7 @@ impl InteractionOriginSnapshot {
             pose_generation: frame.pose_generation(),
             perspective: frame.perspective(),
             world_collision_identity: frame.world_collision_identity().clone(),
-            origin: frame.eye(),
+            origin: frame.interaction_eye(),
             direction: frame.direction(),
         });
     }
@@ -807,20 +861,20 @@ pub fn resolve_camera_pose(
         );
         match settings.rig() {
             Some(rig) => collision_safe_rig_pose(
-                view.eye_translation(),
+                view.render_eye_translation(),
                 view.player_camera_rotation(),
                 rig,
                 &collision_world,
             ),
             None => collision_safe_perspective_pose(
-                view.eye_translation(),
+                view.render_eye_translation(),
                 rotation,
                 perspective,
                 &collision_world,
             ),
         }
     } else {
-        unavailable_world_perspective_pose(view.eye_translation(), rotation, perspective)
+        unavailable_world_perspective_pose(view.render_eye_translation(), rotation, perspective)
     };
     transform.rotation = settings.offset_view_rotation(transform.rotation);
     *camera_transform.1 = transform;
@@ -887,11 +941,14 @@ pub fn publish_local_player_frame(
         perspective: settings.perspective(),
         world_collision_identity,
         pose: *camera.transform(),
-        eye: view.eye_translation(),
-        feet: view.feet_translation(),
+        eye: view.render_eye_translation(),
+        feet: view.render_feet_translation(),
         rotation: view.rotation(),
     };
-    if carrier.publish(sample).is_err() {
+    if carrier
+        .publish_with_interaction_eye(sample, view.eye_translation())
+        .is_err()
+    {
         carrier.reset(LocalPlayerFrameReset::Correction);
     } else if let Some(frame) = carrier.snapshot() {
         receipt.finish(camera_proof, frame.pose_generation());

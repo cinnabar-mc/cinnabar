@@ -193,6 +193,13 @@ impl ActorStore {
             .map(|(_, pose)| pose.yaw)
     }
 
+    /// Whether `runtime_id` is the predicted boat held at its fed render pose.
+    pub(super) fn local_vehicle_renders_on_rider_clock(&self, runtime_id: u64) -> bool {
+        self.local_vehicle
+            .render
+            .is_some_and(|(predicted, _)| predicted == runtime_id)
+    }
+
     /// Holds the predicted boat at its fed render pose, whatever the actor clock's point
     /// between ticks.
     pub(super) fn show_local_vehicle_render(&mut self) {

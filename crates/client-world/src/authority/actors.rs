@@ -160,6 +160,13 @@ impl WorldAuthority {
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.actors.predict_remote_motion(ticks);
     }
+    /// Draws the cart the local player rides from its jitter-buffered playback, `partial_tick`
+    /// of the way through the actor clock's tick. Call it each frame after
+    /// [`Self::predict_remote_actor_motion`].
+    pub fn play_back_actor_mounts(&mut self, partial_tick: f32) {
+        self.actors
+            .play_back_mounts(partial_tick, self.local_player_unique_id);
+    }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.actors.advance_interpolation_frame(ticks);
@@ -348,6 +355,13 @@ impl WorldAuthority {
     /// Seat feet position and body yaw of the local player on its mount, when placed.
     pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.actors.rider_seat_pose(self.local_player_unique_id)
+    }
+    /// Feet of the local player on its streamed mount's seat as the mount draws `alpha` of the
+    /// way through the actor clock's tick, for drawing the rider alongside it. The sent
+    /// position stays [`Self::local_rider_seat_pose`].
+    pub fn local_rider_render_seat(&self, alpha: f32) -> Option<[f32; 3]> {
+        self.actors
+            .rider_render_seat(self.local_player_unique_id, alpha)
     }
     /// Feet and body yaw the local player's seat gives it on its vehicle, were the vehicle's
     /// feet at `vehicle_feet` facing `vehicle_yaw`.
