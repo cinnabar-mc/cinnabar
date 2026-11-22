@@ -1,6 +1,7 @@
 //! Immediate build preparation shared by ordered presses and held placement.
 
 use super::*;
+use client_world::game_mode_capabilities::EditMarkers;
 use gameplay::{
     mining::FrozenMiningSelection,
     movement::{MiningEffects, UnsentSampleView},
@@ -124,18 +125,17 @@ fn prepare(
     .observe(|world| {
         let surroundings =
             use_surroundings(context, world, &observed, state.position, state.sneaking);
-        // Marker authority follows the cell this edit fills, not the clicked block.
+        let markers_at = |cell| {
+            gameplay::edit_markers::resolve(&context.collisions, mode, &scan_world, cell, minimum_y)
+        };
+        // Marker authority follows the cell an edit fills, not the clicked block.
         let edit_cell = surroundings
             .destination(observed.target.position, observed.target.face)
             .0;
-        let markers = gameplay::edit_markers::resolve(
-            &context.collisions,
-            mode,
-            &scan_world,
-            edit_cell,
-            minimum_y,
-        );
-        let caps = caps.for_edit(held, markers);
+        let ability_caps = caps;
+        let caps = ability_caps.for_edit(held, markers_at(edit_cell));
+        // Brushing is item use rather than a block edit, so markers do not gate it.
+        let item_caps = ability_caps.for_edit(held, EditMarkers::default());
         let mut local_use = LocalUse::resolve(
             &observed.selection.item,
             observed.target.position,
@@ -151,7 +151,9 @@ fn prepare(
         let paired = paired_item_block(&context.collisions, stream, &observed.selection.item);
         let placed_block = paired
             .or_else(|| held_block_store_id(stream, observed.selection.item.block_runtime_id()));
-        let placement = (ready && caps.can_build && local_use != LocalUse::Interact)
+        // Stacking placements fill the clicked cell rather than `edit_cell`, so admission is
+        // read again at the placement's own cell.
+        let candidate = (ready && ability_caps.can_build && local_use != LocalUse::Interact)
             .then_some(placed_block)
             .flatten()
             .and_then(|block| {
@@ -165,6 +167,18 @@ fn prepare(
                     attempt.view,
                 )
             });
+        let refused = candidate.as_ref().is_some_and(|placement| {
+            let cell_caps = if placement.position == edit_cell {
+                caps
+            } else {
+                ability_caps.for_edit(held, markers_at(placement.position))
+            };
+            !cell_caps.can_build
+        });
+        let placement = candidate.filter(|_| !refused);
+        if refused && local_use == LocalUse::Place {
+            local_use = LocalUse::Nothing;
+        }
         if placement.is_some() && observed.selection.item.count() > 0 {
             local_use = LocalUse::Place;
         }
@@ -214,7 +228,8 @@ fn prepare(
         if ready {
             // An unreadable cell counts as air, so the brush predicts nothing there.
             let clicked_air = world.is_air(observed.target.position).unwrap_or(true);
-            local_use = local_use.or_brush(brush, clicked_air, &observed.selection.item, &caps);
+            local_use =
+                local_use.or_brush(brush, clicked_air, &observed.selection.item, &item_caps);
         }
         let destination = planted.map(|(cell, _)| cell).unwrap_or_else(|| {
             placement.as_ref().map_or_else(

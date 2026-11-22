@@ -197,6 +197,24 @@ fn holding_use_with_a_brush_brushes_until_the_button_comes_up() {
     assert!(!using(&world));
 }
 
+/// Allow and deny blocks gate block edits, not item use, so a brush still brushes a block
+/// in a column a deny block protects.
+#[test]
+fn a_deny_block_does_not_stop_brushing() {
+    let (mut world, mut captured) = brush_fixture(None);
+    set_blocks(&mut world, EYE, &[(FLOOR, "minecraft:deny")]);
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    settle(&mut world, &mut router);
+
+    let press = step(&mut world, &mut router, &mut captured, true);
+    assert_eq!(
+        press.uses,
+        vec![(Some(ItemUseTrigger::PlayerInput), FLOOR, true)],
+        "{press:?}"
+    );
+    assert!(using(&world));
+}
+
 /// A brush that reaches a block while Use is already held starts its use on that build's
 /// tick, before physics simulates it, so that tick's input reports the start.
 #[test]
