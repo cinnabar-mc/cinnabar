@@ -386,7 +386,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
 mod sky_order_tests {
     use super::opaque_spans_need_sky_first;
     use crate::actor::gpu::ActorDrawSpan;
-    use render_api::render_state::{BlendState, RenderState};
+    use render_api::render_state::{BlendState, DepthState, RenderState};
 
     fn span(material: assets::EntityRenderMaterial, raster: RenderState) -> ActorDrawSpan {
         ActorDrawSpan {
@@ -407,8 +407,13 @@ mod sky_order_tests {
     /// leaves open-sky depth at the far plane, so a late sky would cover it.
     #[test]
     fn opaque_actor_without_depth_writes_keeps_the_sky_first() {
-        let mut no_write = RenderState::default();
-        no_write.depth.write = false;
+        let no_write = RenderState {
+            depth: DepthState {
+                write: false,
+                ..DepthState::default()
+            },
+            ..RenderState::default()
+        };
         assert!(opaque_spans_need_sky_first(&[
             plain(RenderState::default()),
             plain(no_write)
@@ -419,8 +424,10 @@ mod sky_order_tests {
     /// colour where the sky showed through before.
     #[test]
     fn depth_only_actors_keep_the_sky_first() {
-        let mut no_colour = RenderState::default();
-        no_colour.write_color = false;
+        let no_colour = RenderState {
+            write_color: false,
+            ..RenderState::default()
+        };
         assert!(opaque_spans_need_sky_first(&[plain(no_colour)]));
         assert!(opaque_spans_need_sky_first(&[span(
             assets::EntityRenderMaterial::DissolveDepth,
@@ -432,9 +439,14 @@ mod sky_order_tests {
     /// geometry.
     #[test]
     fn writing_and_sorted_actors_allow_a_late_sky() {
-        let mut blended = RenderState::default();
-        blended.blend = Some(BlendState::ALPHA);
-        blended.depth.write = false;
+        let blended = RenderState {
+            blend: Some(BlendState::ALPHA),
+            depth: DepthState {
+                write: false,
+                ..DepthState::default()
+            },
+            ..RenderState::default()
+        };
         assert!(!opaque_spans_need_sky_first(&[
             plain(RenderState::default()),
             plain(blended)

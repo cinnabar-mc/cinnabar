@@ -134,7 +134,8 @@ fn drawn(world: &World, view: Entity) -> bool {
 }
 
 /// Draws the stock sky, stars and finite pack cube into `pass`, which targets `view`'s scene
-/// colour and depth with its viewport set, before any world geometry can cover them.
+/// colour and depth with its viewport set. Callers draw it before world geometry, or after the
+/// opaque phases when [`precedes_geometry`] allows.
 pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderPass<'w>) {
     if !drawn(world, view) {
         return;
