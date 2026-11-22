@@ -23,6 +23,7 @@ fn a_released_brush_clears_the_local_use_flag() {
     let released = runtime.step(&UseFrame {
         air_use: None,
         press_consumed: true,
+        target_takes_use: false,
         ..frame(11, false)
     });
     assert_eq!(kinds(&released), ["release"]);

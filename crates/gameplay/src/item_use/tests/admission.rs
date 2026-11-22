@@ -474,6 +474,37 @@ fn accepted_use_updates_only_its_exact_tick_before_the_movement_flush() {
 }
 
 /// A throw retry preserves its swing when render publication occurred between sends.
+/// A held throw the full queue refuses retries from the hold rather than as a fresh press, so it
+/// still yields once an interactive block takes the use, and throws again once it does not.
+#[test]
+fn a_refused_held_throw_retries_behind_the_repeat_gates() {
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    let throw = |tick, target_takes_use| UseFrame {
+        target_takes_use,
+        ..item_frame(tick, true, stack(4, SNOWBALL, 16), "minecraft:snowball")
+    };
+    runtime.observe_press(true);
+    step_and_send(&mut runtime, &mut swings, &throw(100, false), 7, 6, |_| {
+        Ok(())
+    });
+    let mut refused = 0;
+    step_and_send(&mut runtime, &mut swings, &throw(110, false), 7, 6, |_| {
+        refused += 1;
+        Err(BatchSendError::Full)
+    });
+    assert_eq!(refused, 1, "the held repeat throws");
+    step_and_send(&mut runtime, &mut swings, &throw(111, true), 7, 6, |_| {
+        panic!("the refused repeat threw at the interactive block")
+    });
+    let mut sent = 0;
+    step_and_send(&mut runtime, &mut swings, &throw(112, false), 7, 6, |_| {
+        sent += 1;
+        Ok(())
+    });
+    assert_eq!(sent, 1, "the hold throws again once aimed away");
+}
+
 #[test]
 fn a_backpressured_throw_retries_after_its_tick_was_published() {
     let mut runtime = ItemUseRuntime::default();
@@ -819,6 +850,7 @@ fn ordered_pending_input_is_not_consumed_by_accepted_use_maintenance() {
     let maintenance = UseFrame {
         held: false,
         press_consumed: true,
+        target_takes_use: false,
         ..press.clone()
     };
     step_and_send(&mut runtime, &mut swings, &maintenance, 7, 6, |_| {
