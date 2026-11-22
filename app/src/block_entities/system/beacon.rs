@@ -22,20 +22,23 @@ fn runtime_id_at(store: &world::ChunkStore, dimension: i32, [x, y, z]: [i32; 3])
         )
 }
 
-/// Whether a full first layer of base blocks sits under a beacon. Servers that never report the
-/// beacon's `Levels` leave the client to decide from the loaded blocks, and unloaded terrain
-/// keeps the beam off until the pyramid can be read.
+/// Whether a complete first layer of base blocks sits under a beacon. Servers that never report
+/// the beacon's `Levels` leave the client to decide from the loaded blocks. A beam needs only a
+/// level of one, so higher layers, which may reach into unloaded columns, are not read; an
+/// unloaded first-layer cell keeps the beam off until it can be read.
 pub(super) fn pyramid_is_built(
     store: &world::ChunkStore,
     dimension: i32,
     mode: assets::NetworkIdMode,
-    position: [i32; 3],
+    [x, y, z]: [i32; 3],
 ) -> bool {
     let states = assets::block_presentation_state::pinned_block_presentation_states();
-    client_ui::ui_runtime::presentation::forms::beacon_pyramid_level(position, |block| {
-        runtime_id_at(store, dimension, block).map(|id| states.get(mode, id).beacon_base)
+    (-1..=1).all(|dx| {
+        (-1..=1).all(|dz| {
+            runtime_id_at(store, dimension, [x + dx, y - 1, z + dz])
+                .is_some_and(|id| states.get(mode, id).beacon_base)
+        })
     })
-    .is_some_and(|level| level > 0)
 }
 
 /// Builds an admitted beacon's sections for caching in its owning column scan.

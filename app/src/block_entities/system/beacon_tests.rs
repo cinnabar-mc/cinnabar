@@ -286,8 +286,10 @@ fn unreported_levels_nbt() -> Vec<u8> {
     out
 }
 
-#[test]
-fn beacons_without_reported_levels_beam_only_over_a_built_pyramid() {
+/// Places a beacon without reported `Levels` at `beacon_x` and checks that its beam follows the
+/// first pyramid layer: off with no base, on once the layer is complete, off after one gap. The
+/// loaded cells of the second layer are base blocks, so only unloaded cells can leave it unsettled.
+fn assert_beam_follows_first_layer(beacon_x: i32) {
     let mut world = fixture(1, Vec3::new(8.0, 8.0, 8.0), false);
     let records = assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
@@ -301,27 +303,33 @@ fn beacons_without_reported_levels_beam_only_over_a_built_pyramid() {
             .unwrap()
             .sequential_id
     };
-    let key = BlockEntityKey::new(0, 8, BEACON_Y, 8);
+    let key = BlockEntityKey::new(0, beacon_x, BEACON_Y, 8);
     let place = |world: &mut World, events: Vec<WorldEvent>| {
         let mut client_world = world.resource_mut::<ClientWorld>();
         for event in events {
             commit(client_world.stream.as_mut().unwrap(), event);
         }
     };
-    let layer = |network_id: u32, cells: &[[i32; 2]]| {
+    let layer = |network_id: u32, depth: i32, cells: &[[i32; 2]]| {
         WorldEvent::BlockUpdates(
             cells
                 .iter()
                 .map(|&[x, z]| protocol::BlockUpdateEvent {
                     dimension: 0,
-                    position: [x, BEACON_Y - 1, z],
+                    position: [x, BEACON_Y - depth, z],
                     layer: 0,
                     network_id,
                 })
                 .collect(),
         )
     };
-    let footprint: Vec<[i32; 2]> = (7..=9).flat_map(|x| (7..=9).map(move |z| [x, z])).collect();
+    let footprint: Vec<[i32; 2]> = (beacon_x - 1..=beacon_x + 1)
+        .flat_map(|x| (7..=9).map(move |z| [x, z]))
+        .collect();
+    let loaded_second_layer: Vec<[i32; 2]> = (beacon_x - 2..=beacon_x + 2)
+        .filter(|x| (0..SUB_CHUNK_SIDE as i32).contains(x))
+        .flat_map(|x| (6..=10).map(move |z| [x, z]))
+        .collect();
     let beams = |world: &mut World| {
         world.run_system_once(update_block_entity_scene).unwrap();
         world.resource::<BlockEntityRuntime>().columns[&key.chunk()]
@@ -338,15 +346,33 @@ fn beacons_without_reported_levels_beam_only_over_a_built_pyramid() {
             },
         )],
     );
+    place(
+        &mut world,
+        vec![layer(id("minecraft:iron_block"), 2, &loaded_second_layer)],
+    );
     assert!(!beams(&mut world), "no pyramid, no beam");
     place(
         &mut world,
-        vec![layer(id("minecraft:iron_block"), &footprint)],
+        vec![layer(id("minecraft:iron_block"), 1, &footprint)],
     );
     assert!(beams(&mut world), "a built pyramid lights the beam");
-    place(&mut world, vec![layer(id("minecraft:stone"), &[[9, 9]])]);
+    place(
+        &mut world,
+        vec![layer(id("minecraft:stone"), 1, &[[beacon_x + 1, 9]])],
+    );
     assert!(
         !beams(&mut world),
         "a gap in the first layer puts the beam out"
     );
+}
+
+#[test]
+fn beacons_without_reported_levels_beam_only_over_a_built_pyramid() {
+    assert_beam_follows_first_layer(8);
+}
+
+#[test]
+fn unloaded_upper_pyramid_layers_keep_a_built_first_layer_lit() {
+    // The second layer reaches x = -1, in the fixture's unloaded neighbouring column.
+    assert_beam_follows_first_layer(1);
 }
