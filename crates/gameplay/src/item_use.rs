@@ -477,10 +477,13 @@ impl ItemUseRuntime {
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
         self.observe_use_button(frame.held);
         let release = std::mem::take(&mut self.release);
-        self.end_use(frame, &mut outcome, release);
+        let completed = self.end_use(frame, &mut outcome, release);
         let ended = was_using && self.active.is_none();
-        if self.active.is_none() && (pressed || frame.held) {
-            self.try_use(frame, pressed, pulse, &mut outcome);
+        // A press made while the use was still running does nothing, as vanilla's build action
+        // ignores presses while an item is in use; only the held button repeats once it ends.
+        let fresh = pressed && !completed;
+        if self.active.is_none() && (fresh || frame.held) {
+            self.try_use(frame, fresh, pulse && fresh, &mut outcome);
         }
         if !frame.held {
             self.repeat_armed = false;
@@ -494,11 +497,18 @@ impl ItemUseRuntime {
         outcome
     }
 
-    fn end_use(&mut self, frame: &UseFrame, outcome: &mut UseOutcome, release: ReleaseState) {
+    /// Returns whether the use completed by running out its duration, rather than ending on a
+    /// release or reselection.
+    fn end_use(
+        &mut self,
+        frame: &UseFrame,
+        outcome: &mut UseOutcome,
+        release: ReleaseState,
+    ) -> bool {
         let release_pending = release.is_captured();
         let release_observed = !matches!(release, ReleaseState::Idle);
         let Some(active) = &self.active else {
-            return;
+            return false;
         };
         let mut selection = match &frame.selection {
             Some(_)
@@ -512,7 +522,7 @@ impl ItemUseRuntime {
                 // Switching away stops the use without a release, as vanilla does.
                 self.stop_active_use();
                 self.riptide_release = None;
-                return;
+                return false;
             }
             Some(current) => current.clone(),
             // An in-flight inventory request hides the stack; keep the one the use began with.
@@ -526,7 +536,7 @@ impl ItemUseRuntime {
             active.selection = selection.clone();
         }
         let Some(active) = &self.active else {
-            return;
+            return false;
         };
         let depleted =
             frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks);
@@ -545,10 +555,10 @@ impl ItemUseRuntime {
                 );
             }
             self.stop_active_use();
-            return;
+            return true;
         }
         if (frame.held || !active.button_owned) && !release_pending && !release_observed {
-            return;
+            return false;
         }
         let launch = self.riptide_release.take().and_then(|release| {
             selection = release.selection;
@@ -563,6 +573,7 @@ impl ItemUseRuntime {
             outcome.released = true;
             self.riptide_launch = launch;
         }
+        false
     }
 
     /// Why a latched press sends nothing on this frame, for the click-drop trace; `None` when it

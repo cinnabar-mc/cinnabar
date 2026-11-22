@@ -34,14 +34,14 @@ pub(crate) fn press(
         if !pressed || context.melee.blocks_use_at(now) {
             return true;
         }
-        if vetoed {
-            return true;
-        }
         if !movement.accepts_block_interactions()
             || movement.has_held_release()
             || movement.between_ticks_sample().is_none()
         {
             return false;
+        }
+        if vetoed {
+            return true;
         }
         let Some(selection) = verified_use_selection(&player, &context.ui) else {
             return false;

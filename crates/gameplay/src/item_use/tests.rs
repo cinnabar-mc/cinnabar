@@ -312,6 +312,25 @@ fn a_depleted_crossbow_charge_ends_without_a_packet() {
     assert!(runtime.step(&crossbow(60)).packets.is_empty());
 }
 
+/// A press made while a charge is still running does nothing, even on the tick the charge
+/// completes: vanilla ignores presses while an item is in use, so the newly loaded crossbow does
+/// not fire from it.
+#[test]
+fn a_press_on_the_tick_a_crossbow_charge_completes_does_not_fire() {
+    let crossbow = |tick| UseFrame {
+        air_use: classify("minecraft:crossbow", false, 0, None),
+        charge_projectile: Some(assets::item_use::ItemProjectileRole::Arrow),
+        ..frame(tick, true)
+    };
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert!(runtime.step(&crossbow(10)).started);
+    runtime.observe_press(true);
+    let completed = runtime.step(&crossbow(35));
+    assert_eq!(kinds(&completed), Vec::<&str>::new());
+    assert!(!runtime.is_using());
+}
+
 /// Without ammunition vanilla still sends click-air, but no use starts or releases.
 #[test]
 fn a_bow_without_arrows_sends_click_air_but_never_starts() {
