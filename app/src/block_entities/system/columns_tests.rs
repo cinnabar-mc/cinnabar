@@ -398,3 +398,44 @@ fn beacon_sections_share_unchanged_columns_and_refresh_after_block_or_nbt_edits(
     .unwrap();
     assert!(!Arc::ptr_eq(&replacement, &scan.beacons[&beacon].sections));
 }
+
+#[test]
+fn only_a_settled_window_without_drawable_cells_skips_its_column_pass() {
+    let sign = key(1);
+    let store = store_with(&[(sign, "Sign", "text")]);
+    let chunk = store.chunk(sign.chunk()).unwrap();
+    let window = ColumnWindow {
+        terrain: store.content_revision(),
+        columns: [0..=0, 0..=0],
+        eye_column: [0, 0],
+    };
+    let empty = ColumnScan::new(chunk, Vec::new(), Vec::new());
+    assert!(idle(Some(&window), &window, [&empty].into_iter()));
+    assert!(!idle(None, &window, [&empty].into_iter()), "unsettled");
+    let moved = ColumnWindow {
+        terrain: window.terrain.wrapping_add(1),
+        ..window.clone()
+    };
+    assert!(
+        !idle(Some(&moved), &window, [&empty].into_iter()),
+        "terrain changed"
+    );
+
+    let calls = Cell::new(0);
+    let entities = ColumnScan::new(
+        chunk,
+        Vec::new(),
+        routed_entities(chunk, None, counting(&calls)),
+    );
+    assert!(!idle(
+        Some(&window),
+        &window,
+        [&empty, &entities].into_iter()
+    ));
+    let portal = ColumnScan::new(
+        chunk,
+        vec![(sign.position(), BlockEntityKind::EndPortal)],
+        Vec::new(),
+    );
+    assert!(!idle(Some(&window), &window, [&portal].into_iter()));
+}
