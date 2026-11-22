@@ -99,43 +99,60 @@ pub(super) fn append(
     let Some(paths) = PATHS.get() else {
         return;
     };
-    append_routes(view, paths, icons, retained_bytes, sprite);
+    append_routes(view, paths, icons, retained_bytes);
 }
 
-/// Appends each route's pack file, then pins `base` art for every nonzero variant whose item has
-/// a variant-zero icon in `icons` but no exact one. Session lookups fall back to variant zero, so
-/// without the pin a pack that replaces only the plain bottle would draw it for every potion.
+/// Pins base art for variants a pack left alone beside its replaced variant zero; see
+/// [`pin_base_variants`]. Runs last, so pins never displace other session icons.
+pub(super) fn pin(
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+    explicit: &HashSet<Arc<str>>,
+) {
+    let Some(paths) = PATHS.get() else {
+        return;
+    };
+    pin_base_variants(paths, icons, retained_bytes, explicit, sprite);
+}
+
+/// Strips a route's image extension, as pack textures are named without one.
+fn stem(path: &str) -> &str {
+    path.rsplit_once('.').map_or(path, |(stem, _)| stem)
+}
+
+/// Appends `texture` as `route`'s icon when both session budgets allow it.
+fn push_route_icon(
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+    route: &Route,
+    mut texture: DecodedTexture,
+) -> bool {
+    texture.retain_first_strip_frame();
+    let mut replacement = icon(route.identifier.clone(), texture);
+    if icons.len() >= MAX_SESSION_ICONS
+        || replacement.rgba8.len()
+            > assets::texture::policy::MAX_SUBSCRIBER_BYTES.saturating_sub(*retained_bytes)
+    {
+        return false;
+    }
+    *retained_bytes += replacement.rgba8.len();
+    replacement.metadata = route.metadata;
+    icons.push(replacement);
+    true
+}
+
+/// Appends each route's pack file, through the pack's own atlas entry when it names one.
 fn append_routes(
     view: &LayeredPackView,
     paths: &[Route],
     icons: &mut Vec<SessionIcon>,
     retained_bytes: &mut usize,
-    base: impl Fn(&str) -> Option<DecodedTexture>,
 ) {
     let mut present = icons
         .iter()
         .map(|icon| (icon.identifier.clone(), icon.metadata))
         .collect::<HashSet<_>>();
     let catalog = super::catalog::paths(view);
-    let stem = |path: &str| {
-        path.rsplit_once('.')
-            .map_or(path, |(stem, _)| stem)
-            .to_owned()
-    };
-    let mut push = |icons: &mut Vec<SessionIcon>, route: &Route, mut texture: DecodedTexture| {
-        texture.retain_first_strip_frame();
-        let mut replacement = icon(route.identifier.clone(), texture);
-        if icons.len() >= MAX_SESSION_ICONS
-            || replacement.rgba8.len()
-                > assets::texture::policy::MAX_SUBSCRIBER_BYTES.saturating_sub(*retained_bytes)
-        {
-            return false;
-        }
-        *retained_bytes += replacement.rgba8.len();
-        replacement.metadata = route.metadata;
-        icons.push(replacement);
-        true
-    };
     for route in paths {
         if icons.len() >= MAX_SESSION_ICONS {
             break;
@@ -143,29 +160,46 @@ fn append_routes(
         if present.contains(&(route.identifier.clone(), route.metadata)) {
             continue;
         }
-        let stem = stem(&route.path);
         let override_path = route
             .aliases
             .iter()
             .find_map(|key| catalog.get(key)?.get(route.variant as usize));
         if let Some(texture) = pack_runtime::pack_textures::decode_pack_texture_with_policy(
             view,
-            override_path.map_or(stem.as_str(), String::as_str),
+            override_path.map_or(stem(&route.path), String::as_str),
             assets::texture::policy::device_policy(),
             true,
-        ) && push(icons, route, texture)
+        ) && push_route_icon(icons, retained_bytes, route, texture)
         {
             present.insert((route.identifier.clone(), route.metadata));
         }
     }
+}
+
+/// Pins `base` art for every nonzero variant whose item has a variant-zero icon in `icons` but
+/// no exact one. Session lookups fall back to variant zero, so without the pin a pack that
+/// replaces only the plain bottle would draw it for every potion. Items in `explicit` resolved
+/// through a declared icon key, which is meant to cover every variant, and are never pinned.
+fn pin_base_variants(
+    paths: &[Route],
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+    explicit: &HashSet<Arc<str>>,
+    base: impl Fn(&str) -> Option<DecodedTexture>,
+) {
+    let mut present = icons
+        .iter()
+        .map(|icon| (icon.identifier.clone(), icon.metadata))
+        .collect::<HashSet<_>>();
     for route in paths.iter().filter(|route| route.metadata != 0) {
-        if !present.contains(&(route.identifier.clone(), 0))
+        if explicit.contains(&route.identifier)
+            || !present.contains(&(route.identifier.clone(), 0))
             || present.contains(&(route.identifier.clone(), route.metadata))
         {
             continue;
         }
-        if let Some(texture) = base(&stem(&route.path))
-            && push(icons, route, texture)
+        if let Some(texture) = base(stem(&route.path))
+            && push_route_icon(icons, retained_bytes, route, texture)
         {
             present.insert((route.identifier.clone(), route.metadata));
         }

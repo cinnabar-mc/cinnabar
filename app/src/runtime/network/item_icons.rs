@@ -86,6 +86,8 @@ pub(super) fn compile_session_icons(
         }
     }
     let explicit_count = explicit.len();
+    // Items whose declared icon key resolved; their icon covers every variant.
+    let mut declared = HashSet::new();
     let mut block_icons = block_icons.into_iter();
     for (index, (identifier, key)) in explicit.into_iter().chain(guessed).enumerate() {
         // Block items rank after explicit icons and before short-name guesses.
@@ -104,6 +106,9 @@ pub(super) fn compile_session_icons(
             !identifier.starts_with("minecraft:") || key.as_ref() != short_name(identifier),
         ) {
             Ok(textures) => {
+                if index < explicit_count {
+                    declared.insert(Arc::clone(identifier));
+                }
                 for (metadata, texture) in textures {
                     if icons.len() >= MAX_SESSION_ICONS {
                         break;
@@ -126,6 +131,7 @@ pub(super) fn compile_session_icons(
     dials::append(view, &mut icons, &mut retained_bytes);
     vanilla::append(view, &mut icons, &mut retained_bytes);
     tint_leather_icons(&mut icons, &mut retained_bytes);
+    vanilla::pin(&mut icons, &mut retained_bytes, &declared);
     (!icons.is_empty() || !block_sheets.is_empty() || !misses.is_empty()).then(|| {
         Arc::new(SessionIcons {
             icons,

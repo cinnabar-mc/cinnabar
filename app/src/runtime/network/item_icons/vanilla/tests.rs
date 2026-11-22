@@ -133,7 +133,8 @@ fn variants_a_pack_leaves_alone_keep_their_base_art_beside_a_replaced_variant_ze
     };
     let mut icons = Vec::new();
     let mut retained = 0;
-    append_routes(&view, &routes, &mut icons, &mut retained, base);
+    append_routes(&view, &routes, &mut icons, &mut retained);
+    pin_base_variants(&routes, &mut icons, &mut retained, &HashSet::new(), base);
     let first_texel = |metadata: u32| {
         icons
             .iter()
@@ -151,11 +152,24 @@ fn variants_a_pack_leaves_alone_keep_their_base_art_beside_a_replaced_variant_ze
         flat_png([250, 30, 30, 255]),
     )]);
     let mut icons = Vec::new();
-    append_routes(&view, &routes, &mut icons, &mut 0, base);
+    append_routes(&view, &routes, &mut icons, &mut 0);
+    pin_base_variants(&routes, &mut icons, &mut 0, &HashSet::new(), base);
     assert_eq!(
         icons.iter().map(|icon| icon.metadata).collect::<Vec<_>>(),
         [21]
     );
+
+    // A declared icon key covers every variant, so its variant zero keeps the fallback.
+    let mut icons = vec![SessionIcon {
+        identifier: Arc::from("minecraft:splash_potion"),
+        metadata: 0,
+        width: 16,
+        height: 16,
+        rgba8: [9, 9, 9, 255].repeat(16 * 16).into(),
+    }];
+    let declared = HashSet::from([Arc::from("minecraft:splash_potion")]);
+    pin_base_variants(&routes, &mut icons, &mut 0, &declared, base);
+    assert_eq!(icons.len(), 1);
 }
 
 /// The installed entity and icon carriers, or `None` when `make assets` has not produced them.
@@ -189,11 +203,12 @@ fn every_potion_variant_keeps_its_base_art_when_a_pack_replaces_the_plain_bottle
         ("textures/items/arrow.png", grey),
     ]);
     let mut icons = Vec::new();
-    append_routes(&view, &routes, &mut icons, &mut 0, |path| {
+    append_routes(&view, &routes, &mut icons, &mut 0);
+    pin_base_variants(&routes, &mut icons, &mut 0, &HashSet::new(), |path| {
         sprite_in(&sprites, path)
     });
     let refs = catalog.sprites();
-    let mut checked = 0;
+    let (mut checked, mut shared) = (0, 0);
     for identifier in [
         "minecraft:potion",
         "minecraft:splash_potion",
@@ -205,19 +220,31 @@ fn every_potion_variant_keeps_its_base_art_when_a_pack_replaces_the_plain_bottle
             .find(|icon| icon.identifier.as_ref() == identifier && icon.metadata == 0)
             .unwrap_or_else(|| panic!("{identifier} keeps the pack's variant zero"));
         assert_eq!(&replaced.rgba8[..4], &[200, 200, 200, 255]);
+        let plain = &routes
+            .iter()
+            .find(|route| route.identifier.as_ref() == identifier && route.metadata == 0)
+            .unwrap()
+            .path;
         for route in routes
             .iter()
             .filter(|route| route.identifier.as_ref() == identifier && route.metadata != 0)
         {
-            let base = &refs[catalog
-                .lookup_index(identifier, route.metadata)
-                .unwrap_or_else(|| panic!("{identifier}:{} base icon", route.metadata))];
             let icon = icons
                 .iter()
                 .find(|icon| {
                     icon.identifier.as_ref() == identifier && icon.metadata == route.metadata
                 })
-                .unwrap_or_else(|| panic!("{identifier}:{} keeps base art", route.metadata));
+                .unwrap_or_else(|| panic!("{identifier}:{} has an icon", route.metadata));
+            // Water, mundane, thick and awkward share the plain bottle, so they take its
+            // replacement as the base game does.
+            if route.path == *plain {
+                assert_eq!(&icon.rgba8[..], &replaced.rgba8[..]);
+                shared += 1;
+                continue;
+            }
+            let base = &refs[catalog
+                .lookup_index(identifier, route.metadata)
+                .unwrap_or_else(|| panic!("{identifier}:{} base icon", route.metadata))];
             assert_eq!(
                 (icon.width, icon.height, &*icon.rgba8),
                 (u32::from(base.width), u32::from(base.height), &*base.rgba8),
@@ -227,6 +254,7 @@ fn every_potion_variant_keeps_its_base_art_when_a_pack_replaces_the_plain_bottle
             checked += 1;
         }
     }
-    // 46 effect variants of each potion form and 64 tipped arrows.
-    assert_eq!(checked, 46 * 3 + 64);
+    // Four base potions share the plain bottle in each form; the other 42 effect variants of
+    // each form and all 64 tipped arrows keep their own art.
+    assert_eq!((checked, shared), (42 * 3 + 64, 4 * 3));
 }
