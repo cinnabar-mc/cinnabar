@@ -110,9 +110,9 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         }
         None => {}
     }
-    // Opaque and cutout draws write depth and never blend, so a sky at the far plane drawn after
-    // them shades only the pixels they leave uncovered. A pack skybox writes nearer depth and
-    // must stay first.
+    // Opaque and cutout draws write depth and colour and never blend, so a sky at the far plane
+    // drawn after them shades only the pixels they leave uncovered. `precedes_geometry` keeps
+    // the sky first for the pack skybox and for actors that break that assumption.
     let sky_first = draws_sky && sky_pass::precedes_geometry(world);
     if sky_first {
         sky_pass::draw(world, entity, &mut pass);
