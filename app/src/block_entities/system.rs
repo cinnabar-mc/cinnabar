@@ -637,27 +637,20 @@ pub(crate) fn update_block_entity_scene(
                     font: &font.0,
                     readers: &readers,
                 };
-                let kind = if let Template::Beacon { levels_reported } = template {
-                    beam_top
-                        .filter(|_| {
-                            *levels_reported
-                                || beacon::pyramid_is_built(store, dimension, mode, [x, y, z])
-                        })
-                        .map(|top| {
-                            let model = scan.beacons.entry(entity.key).or_insert_with(|| {
-                                beacon::model(
-                                    runtime,
-                                    &collisions,
-                                    stream.runtime_assets(),
-                                    store,
-                                    dimension,
-                                    mode,
-                                    [x, y, z],
-                                    top,
-                                )
-                            });
-                            BlockEntityKind::Beacon(model.clone())
-                        })
+                let kind = if let &Template::Beacon { levels_reported } = template {
+                    beacon::kind(
+                        &mut scan.beacons,
+                        entity.key,
+                        levels_reported,
+                        beam_top,
+                        runtime,
+                        &collisions,
+                        stream.runtime_assets(),
+                        store,
+                        dimension,
+                        mode,
+                        [x, y, z],
+                    )
                 } else {
                     resolve(
                         template,
