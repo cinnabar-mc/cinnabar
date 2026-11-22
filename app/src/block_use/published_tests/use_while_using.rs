@@ -52,3 +52,23 @@ fn eating_ignores_the_chest_in_front_of_the_player() {
         );
     }
 }
+
+/// A Use press that shares its frame with an Attack tap while eating is dropped at once rather
+/// than kept for after the attack, so it cannot use the chest once the eat ends.
+#[test]
+fn eating_drops_a_use_press_that_shares_a_frame_with_an_attack_tap() {
+    let (mut world, _captured) = fixture();
+    super::attack_while_using_tests::start_eating(&mut world);
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    let mut snapshot = hold(&mut world, &mut router, Vec::new(), vec![1, 2]);
+    // Attack went down and back up within the frame, so it is pressed but no longer held.
+    snapshot.phases[Action::Attack as usize].held = false;
+    assert!(snapshot.phases[Action::Use as usize].pressed);
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
+    world.run_system_cached(produce_block_use).unwrap();
+    let runtime = world.resource::<BlockUseRuntime>();
+    assert!(!runtime.press_pending(), "the ignored press stayed latched");
+    assert!(runtime.press_consumed());
+}

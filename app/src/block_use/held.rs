@@ -93,15 +93,8 @@ pub(super) fn maintain_block_use(
     ) {
         return;
     }
-    // An attack in the same frame is handled first: the use waits until melee resolves it,
-    // and an actor hit then holds the use off for the post-attack window.
-    if (!has_ordered_input && context.input.phase(Action::Attack).pressed)
-        || context.melee.press_pending()
-    {
-        return;
-    }
-    // Eating or another item use ignores block and actor use, held repeats included, and a
-    // press it ignores starts no item use either.
+    // Eating or another item use ignores block and actor use, held repeats included. A press
+    // it ignores starts no item use either, and is not kept for after a same-frame attack.
     if item_use.vetoes_build_action(
         &player_runtime,
         &context.ui,
@@ -112,6 +105,13 @@ pub(super) fn maintain_block_use(
         } else {
             runtime.clear_press();
         }
+        return;
+    }
+    // An attack in the same frame is handled first: the use waits until melee resolves it,
+    // and an actor hit then holds the use off for the post-attack window.
+    if (!has_ordered_input && context.input.phase(Action::Attack).pressed)
+        || context.melee.press_pending()
+    {
         return;
     }
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {

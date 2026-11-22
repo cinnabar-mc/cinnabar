@@ -73,17 +73,15 @@ impl ItemUseRuntime {
             return false;
         }
         let item = stream.and_then(|stream| stream.authority().canonical_item_stack(stack));
-        // A predicted crossbow charge or discharge wins over the server's stack, as air use
-        // reads it.
-        let charged = self
-            .slot_projectile(player_runtime, ui, selected.slot)
-            .map_or_else(
-                || {
-                    item.as_ref()
-                        .is_some_and(|item| item.charged_projectile.is_some())
-                },
-                |projectile| projectile.is_some(),
-            );
+        // A predicted crossbow charge or discharge wins over the server's stack, read against
+        // the same backing stack air use reads.
+        let charged = self.selected_projectile(player_runtime, ui).map_or_else(
+            || {
+                item.as_ref()
+                    .is_some_and(|item| item.charged_projectile.is_some())
+            },
+            |projectile| projectile.is_some(),
+        );
         let exempt = item.as_ref().is_some_and(|item| {
             matches!(
                 item.identifier.as_deref(),
