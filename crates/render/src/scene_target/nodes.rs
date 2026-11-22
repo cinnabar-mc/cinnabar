@@ -26,7 +26,8 @@ type SceneOpaqueQuery = (
 );
 
 /// Draws opaque and cutout geometry and, when this pass hosts it, the sky (after the geometry
-/// unless a pack skybox needs it first), retaining the samples for later world passes.
+/// unless a pack skybox or an opaque actor needs it first), retaining the samples for later
+/// world passes.
 pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<SceneOpaqueQuery>,

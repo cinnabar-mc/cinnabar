@@ -1,5 +1,6 @@
-//! The sky draws in the first pass that opens scene colour: first in that pass when a pack
-//! skybox needs it, otherwise after the pass's opaque geometry so covered pixels skip it.
+//! The sky draws in the first pass that opens scene colour. The terrain and dedicated sky passes
+//! draw it before geometry; the opaque pass draws it after its opaque geometry, so covered
+//! pixels skip it, unless [`precedes_geometry`] requires it first.
 
 use super::{AtmosphereGpu, AtmospherePipelineKey};
 use bevy::prelude::IntoScheduleConfigs;
