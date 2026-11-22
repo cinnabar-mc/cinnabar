@@ -23,10 +23,14 @@ fn chest_uses(eating: bool, pressed: bool) -> usize {
         item_use_tests::hold_air_item(&mut world, "minecraft:golden_apple", 2, [].into());
     }
     world.run_system_cached(produce_block_use).unwrap();
-    if eating && pressed {
+    if eating {
+        let runtime = world.resource::<BlockUseRuntime>();
+        assert!(!runtime.press_pending(), "the ignored press stayed latched");
+        // Vanilla keeps repeating the build action while Use is held, so the item's use resumes
+        // from the hold once the eat ends.
         assert!(
-            world.resource::<BlockUseRuntime>().press_consumed(),
-            "the ignored press was left for item use"
+            !runtime.press_consumed(),
+            "the ignored press disabled the held item use"
         );
     }
     captured
@@ -68,7 +72,8 @@ fn eating_drops_a_use_press_that_shares_a_frame_with_an_attack_tap() {
         semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
     ));
     world.run_system_cached(produce_block_use).unwrap();
-    let runtime = world.resource::<BlockUseRuntime>();
-    assert!(!runtime.press_pending(), "the ignored press stayed latched");
-    assert!(runtime.press_consumed());
+    assert!(
+        !world.resource::<BlockUseRuntime>().press_pending(),
+        "the ignored press stayed latched"
+    );
 }

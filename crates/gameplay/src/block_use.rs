@@ -400,13 +400,6 @@ impl BlockUseRuntime {
         self.stop_repress = false;
     }
 
-    /// Drops a press the build action ignores, as it does while an item is in use, and marks
-    /// it resolved so the held item's use does not take it either. Keeps the repeat schedule.
-    pub fn consume_press(&mut self) {
-        self.press_consumed = true;
-        self.clear_press();
-    }
-
     pub fn clear(&mut self) {
         self.rejected_tick = None;
         self.stopping = false;

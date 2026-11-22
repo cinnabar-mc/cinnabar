@@ -19,19 +19,20 @@ pub(crate) fn press(
     if pressed {
         runtime.forget_press_resolution();
     }
+    // Eating or another item use ignores the press entirely: it reaches neither block, actor
+    // nor item use, and a held-action stop does not keep it for later.
+    let vetoed = pressed
+        && item_use.vetoes_build_action(&player, &context.ui, context.client_world.stream.as_ref());
     let resolved = (|| {
         if (runtime.stopping() || runtime.last_success_destination().is_some())
-            && !stop_block_use(&mut runtime, &context, pressed)
+            && !stop_block_use(&mut runtime, &context, pressed && !vetoed)
         {
             return false;
         }
         if !pressed || context.melee.blocks_use_at(now) {
             return true;
         }
-        // Eating or another item use ignores the press entirely, item use included.
-        if item_use.vetoes_build_action(&player, &context.ui, context.client_world.stream.as_ref())
-        {
-            runtime.consume_press();
+        if vetoed {
             return false;
         }
         if !movement.accepts_block_interactions()
