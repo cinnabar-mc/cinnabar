@@ -58,6 +58,8 @@ pub(crate) struct ItemUseContext<'w, 's> {
     client_world: Res<'w, ClientWorld>,
     melee: Res<'w, MeleeRuntime>,
     block_use: Res<'w, BlockUseRuntime>,
+    /// Whether the aimed block's own use takes the held Use from the item.
+    press_target: crate::block_use::UsePressTarget<'w>,
     effects: Res<'w, LocalMovementEffectTimeline>,
     physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     weather: Option<Res<'w, render_scene::AtmosphereViewInputs>>,

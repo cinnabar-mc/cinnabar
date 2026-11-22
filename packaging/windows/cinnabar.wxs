@@ -1,8 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- WiX v5 (Files element). Build via build-installer.ps1, which supplies Version, Payload and Icon. -->
+<!-- WiX v5 (Files element). Build via build-installer.ps1, which supplies Version, Payload, Icon,
+     Scope and the install names and upgrade codes from release-assets.json. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- perUser installs without administrator approval. perMachine only updates installs made before
+       per-user packages, under their original upgrade code; the updater then moves them per-user. -->
+  <?if $(Scope) = "perUser" ?>
+    <?define UpgradeCode = $(UserUpgradeCode) ?>
+    <?define ShortcutKey = $(UserKey) ?>
+  <?elseif $(Scope) = "perMachine" ?>
+    <?define UpgradeCode = $(MachineUpgradeCode) ?>
+    <?define ShortcutKey = Software\Cinnabar ?>
+  <?else?>
+    <?error Scope must be perUser or perMachine ?>
+  <?endif?>
   <Package Name="Cinnabar" Manufacturer="Cinnabar" Version="$(Version)"
-           UpgradeCode="2A430447-F280-4F32-AFE9-F8A652811A04" Scope="perMachine" Compressed="yes">
+           UpgradeCode="$(UpgradeCode)" Scope="$(Scope)" Compressed="yes">
     <!-- Signed build ordering and explicit channel-switch consent are enforced by the updater. -->
     <MajorUpgrade Schedule="afterInstallInitialize" AllowDowngrades="yes" />
     <MediaTemplate EmbedCab="yes" />
@@ -11,20 +23,27 @@
     <!-- The update helper owns the client relaunch. -->
     <Property Id="MSIDISABLERMRESTART" Value="1" />
 
-    <!-- A custom INSTALLFOLDER from the command line survives elevation, so upgrades stay in place. -->
+    <!-- A custom INSTALLFOLDER from the command line is kept, so upgrades stay in place. -->
     <Property Id="INSTALLFOLDER" Secure="yes" />
 
-    <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Cinnabar">
-        <!-- Layout: the runtime executables beside a resources\ tree. -->
-      </Directory>
-    </StandardDirectory>
+    <?if $(Scope) = "perUser" ?>
+      <StandardDirectory Id="LocalAppDataFolder">
+        <Directory Id="UserPrograms" Name="$(InstallParent)">
+          <Directory Id="INSTALLFOLDER" Name="$(InstallFolder)" />
+        </Directory>
+      </StandardDirectory>
+    <?else?>
+      <StandardDirectory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="$(InstallFolder)" />
+      </StandardDirectory>
+    <?endif?>
 
+    <!-- Each scope keys its shortcuts separately, so removing one product never breaks the other's. -->
     <StandardDirectory Id="DesktopFolder">
       <Component Id="DesktopShortcut" Guid="*">
         <Shortcut Id="DesktopAppShortcut" Name="Cinnabar" Target="[INSTALLFOLDER]cinnabar.exe"
                   WorkingDirectory="INSTALLFOLDER" Icon="cinnabar.ico" />
-        <RegistryValue Root="HKCU" Key="Software\Cinnabar" Name="desktop-shortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="$(ShortcutKey)" Name="desktop-shortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
 
@@ -32,7 +51,11 @@
       <Component Id="StartMenuShortcut" Guid="*">
         <Shortcut Id="AppShortcut" Name="Cinnabar" Target="[INSTALLFOLDER]cinnabar.exe"
                   WorkingDirectory="INSTALLFOLDER" Icon="cinnabar.ico" />
-        <RegistryValue Root="HKCU" Key="Software\Cinnabar" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="$(ShortcutKey)" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+        <?if $(Scope) = "perUser" ?>
+          <!-- The updater updates the folder recorded here in place, including a custom INSTALLFOLDER. -->
+          <RegistryValue Root="HKCU" Key="$(ShortcutKey)" Name="$(UserFolderValue)" Type="string" Value="[INSTALLFOLDER]" />
+        <?endif?>
       </Component>
     </StandardDirectory>
 

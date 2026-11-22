@@ -293,7 +293,6 @@ mod tests {
         let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
             walked: [0.3, 0.6],
             bob: [0.05, 0.1],
-            fall_degrees: [-4.0, -2.0],
         };
         assert_eq!(sample(&actor, 0.0), Mat4::IDENTITY);
         assert_eq!(
@@ -432,7 +431,6 @@ mod legacy_effect_tests {
         let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
             walked: [0.3, 0.6],
             bob: [0.05, 0.1],
-            fall_degrees: [-4.0, -2.0],
         };
         let suppressed = sampled_legacy_effect(actor, endpoints, 0.5, 0.5, true, 1.0, Some(&skin));
         let hurt_only = sampled_legacy_effect(actor, Default::default(), 0.5, 0.5, true, 1.0, None);
@@ -452,7 +450,6 @@ mod legacy_effect_tests {
         let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
             walked: [0.3, 0.6],
             bob: [0.05, 0.1],
-            fall_degrees: [-4.0, -2.0],
         };
         for dead in [false, true] {
             if dead {

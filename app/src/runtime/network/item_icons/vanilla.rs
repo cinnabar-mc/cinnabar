@@ -46,6 +46,12 @@ pub(crate) fn install_vanilla_item_assets(
 /// Retains source routes once, so menus can apply packs before any item registry arrives.
 fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
     super::vanilla_blocks::install(entities);
+    let _ = PATHS.set(routes(entities));
+}
+
+/// Each sprite-routed item variant with its base source image, atlas variant, and the short
+/// names of every item drawn from that same image and variant.
+fn routes(entities: &RuntimeEntityAssets) -> Vec<Route> {
     let mut aliases_by_source = HashMap::<_, Vec<String>>::new();
     for item in entities.item_visuals() {
         if let ItemVisualDefinitionRoute::Sprite { texture } = item.route {
@@ -61,7 +67,7 @@ fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
                 );
         }
     }
-    let paths = entities
+    entities
         .item_visuals()
         .iter()
         .filter_map(|item| {
@@ -81,8 +87,7 @@ fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
                 aliases,
             })
         })
-        .collect();
-    let _ = PATHS.set(paths);
+        .collect()
 }
 
 /// Appends only files actually supplied by a pack; absent overrides keep their base icons.
@@ -94,48 +99,116 @@ pub(super) fn append(
     let Some(paths) = PATHS.get() else {
         return;
     };
+    append_routes(view, paths, icons, retained_bytes);
+}
+
+/// Pins base art for variants a pack left alone beside its replaced variant zero; see
+/// [`pin_base_variants`]. Runs last, so pins never displace other session icons, and stops at
+/// `limit` icons so they never crowd out what is staged after them.
+pub(super) fn pin(
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+    keyed: &HashSet<Arc<str>>,
+    limit: usize,
+) {
+    let Some(paths) = PATHS.get() else {
+        return;
+    };
+    pin_base_variants(paths, icons, retained_bytes, keyed, limit, sprite);
+}
+
+/// Strips a route's image extension, as pack textures are named without one.
+fn stem(path: &str) -> &str {
+    path.rsplit_once('.').map_or(path, |(stem, _)| stem)
+}
+
+/// Appends `texture` as `route`'s icon when both session budgets allow it.
+fn push_route_icon(
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+    route: &Route,
+    mut texture: DecodedTexture,
+) -> bool {
+    texture.retain_first_strip_frame();
+    let mut replacement = icon(route.identifier.clone(), texture);
+    if icons.len() >= MAX_SESSION_ICONS
+        || replacement.rgba8.len()
+            > assets::texture::policy::MAX_SUBSCRIBER_BYTES.saturating_sub(*retained_bytes)
+    {
+        return false;
+    }
+    *retained_bytes += replacement.rgba8.len();
+    replacement.metadata = route.metadata;
+    icons.push(replacement);
+    true
+}
+
+/// Appends each route's pack file, through the pack's own atlas entry when it names one.
+fn append_routes(
+    view: &LayeredPackView,
+    paths: &[Route],
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+) {
     let mut present = icons
         .iter()
         .map(|icon| (icon.identifier.clone(), icon.metadata))
         .collect::<HashSet<_>>();
     let catalog = super::catalog::paths(view);
-    for Route {
-        identifier,
-        metadata,
-        path,
-        variant,
-        aliases,
-    } in paths
-    {
+    for route in paths {
         if icons.len() >= MAX_SESSION_ICONS {
             break;
         }
-        if present.contains(&(identifier.clone(), *metadata)) {
+        if present.contains(&(route.identifier.clone(), route.metadata)) {
             continue;
         }
-        let stem = path
-            .rsplit_once('.')
-            .map_or(path.as_str(), |(stem, _)| stem);
-        let override_path = aliases
+        let override_path = route
+            .aliases
             .iter()
-            .find_map(|key| catalog.get(key)?.get(*variant as usize));
-        if let Some(mut texture) = pack_runtime::pack_textures::decode_pack_texture_with_policy(
+            .find_map(|key| catalog.get(key)?.get(route.variant as usize));
+        if let Some(texture) = pack_runtime::pack_textures::decode_pack_texture_with_policy(
             view,
-            override_path.map_or(stem, String::as_str),
+            override_path.map_or(stem(&route.path), String::as_str),
             assets::texture::policy::device_policy(),
             true,
-        ) {
-            texture.retain_first_strip_frame();
-            let mut replacement = icon(identifier.clone(), texture);
-            if replacement.rgba8.len()
-                > assets::texture::policy::MAX_SUBSCRIBER_BYTES.saturating_sub(*retained_bytes)
-            {
-                continue;
-            }
-            *retained_bytes += replacement.rgba8.len();
-            replacement.metadata = *metadata;
-            icons.push(replacement);
-            present.insert((identifier.clone(), *metadata));
+        ) && push_route_icon(icons, retained_bytes, route, texture)
+        {
+            present.insert((route.identifier.clone(), route.metadata));
+        }
+    }
+}
+
+/// Pins `base` art for every nonzero variant whose item has a variant-zero icon in `icons` but
+/// no exact one, while `icons` holds fewer than `limit`. Session lookups fall back to variant
+/// zero, so without the pin a pack that replaces only the plain bottle would draw it for every
+/// potion. Items in `keyed` took variant zero from their icon key, an image meant to cover every
+/// variant, and are never pinned; only a replaced base route file is.
+fn pin_base_variants(
+    paths: &[Route],
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+    keyed: &HashSet<Arc<str>>,
+    limit: usize,
+    base: impl Fn(&str) -> Option<DecodedTexture>,
+) {
+    let mut present = icons
+        .iter()
+        .map(|icon| (icon.identifier.clone(), icon.metadata))
+        .collect::<HashSet<_>>();
+    for route in paths.iter().filter(|route| route.metadata != 0) {
+        if icons.len() >= limit {
+            break;
+        }
+        if keyed.contains(&route.identifier)
+            || !present.contains(&(route.identifier.clone(), 0))
+            || present.contains(&(route.identifier.clone(), route.metadata))
+        {
+            continue;
+        }
+        if let Some(texture) = base(stem(&route.path))
+            && push_route_icon(icons, retained_bytes, route, texture)
+        {
+            present.insert((route.identifier.clone(), route.metadata));
         }
     }
 }
@@ -144,19 +217,31 @@ static SPRITES: OnceLock<HashMap<String, assets::IconSprite>> = OnceLock::new();
 
 /// Retains base sprite pixels by their recorded source filenames for custom item aliases.
 fn set_vanilla_item_sprites(entities: &RuntimeEntityAssets, icons: &assets::RuntimeIconCatalog) {
-    if entities.source_manifest_sha256() != icons.source_manifest_sha256() {
-        return;
+    if let Some(sprites) = base_sprites(entities, icons) {
+        let _ = SPRITES.set(sprites);
     }
-    let sprites = icons
-        .sources()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|source| {
-            let sprite = icons.sprites().get(source.sprite as usize)?.clone();
-            Some((source.path.to_string(), sprite))
-        })
-        .collect();
-    let _ = SPRITES.set(sprites);
+}
+
+/// Base sprites by lowercase source filename, or `None` when the icon carrier was compiled from
+/// different sources than the entity carrier's routes.
+fn base_sprites(
+    entities: &RuntimeEntityAssets,
+    icons: &assets::RuntimeIconCatalog,
+) -> Option<HashMap<String, assets::IconSprite>> {
+    if entities.source_manifest_sha256() != icons.source_manifest_sha256() {
+        return None;
+    }
+    Some(
+        icons
+            .sources()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|source| {
+                let sprite = icons.sprites().get(source.sprite as usize)?.clone();
+                Some((source.path.to_ascii_lowercase(), sprite))
+            })
+            .collect(),
+    )
 }
 
 /// Resolves an absent pack raster against a matching immutable base sprite filename, then the
@@ -174,7 +259,11 @@ pub(super) fn texture(path: &str) -> Option<DecodedTexture> {
 
 /// Copies a base item sprite whose recorded source filename matches `path`.
 fn sprite(path: &str) -> Option<DecodedTexture> {
-    let sprites = SPRITES.get()?;
+    sprite_in(SPRITES.get()?, path)
+}
+
+/// Copies the sprite in `sprites` (keyed by lowercase source filename) that `path` names.
+fn sprite_in(sprites: &HashMap<String, assets::IconSprite>, path: &str) -> Option<DecodedTexture> {
     let sprite = pack_runtime::pack_textures::texture_image_paths(path)
         .into_iter()
         .find_map(|path| sprites.get(&path.to_ascii_lowercase()))?;

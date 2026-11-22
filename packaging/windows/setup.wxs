@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
-  <!-- The embedded MSI remains the single owner of files, shortcuts and upgrades. -->
-  <Bundle Name="Cinnabar Setup" Manufacturer="Cinnabar" Version="$(Version)"
-          UpgradeCode="3D75803D-B970-4281-A17B-7BCC8CF39F7C" IconSourceFile="$(Icon)">
+  <!-- The embedded MSI remains the single owner of files, shortcuts and upgrades. The standard UI
+       appends " Setup" to the name. Per-user and per-machine bundles use separate upgrade codes from
+       release-assets.json, so a per-user bundle never plans an elevated removal of a per-machine one. -->
+  <Bundle Name="Cinnabar" Manufacturer="Cinnabar" Version="$(Version)"
+          UpgradeCode="$(BundleUpgradeCode)" IconSourceFile="$(Icon)">
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl=""
                                                LogoFile="$(Logo)" />

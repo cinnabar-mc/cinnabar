@@ -104,6 +104,39 @@ fn creative_take_refuses_unparsed_stack_size_data() {
     }
 }
 
+/// A dedicated server registers its built-in stews as Legacy items whose only stack size
+/// fact is a top-level `minecraft:max_stack_size` component; creative still hands one out.
+#[test]
+fn creative_take_reads_a_legacy_stack_size_component() {
+    const STEW: i32 = 260;
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply_registry(
+        &protocol::test_support::items::legacy_stack_component_registry(
+            "minecraft:mushroom_stew",
+            STEW as i16,
+            1,
+        ),
+    );
+    ledger.set_permissions(InventoryPermissions {
+        creative: true,
+        instabuild: Some(true),
+    });
+    ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+        groups: Arc::from([]),
+        items: Arc::from([protocol::CreativeItem {
+            creative_network_id: 44,
+            stack: stack(STEW, -1, 1),
+            group: 0,
+        }]),
+        skipped: 0,
+    }));
+    ledger
+        .begin_creative_take(44, CreativeDestination::Cursor, None)
+        .unwrap();
+    let held = ledger.cursor_stack().unwrap();
+    assert_eq!((held.network_id, held.count), (STEW, 1));
+}
+
 /// Vanilla's creative create-item scope declares
 /// the catalog prototype, not the full-stack prediction used for the transfer.
 #[test]

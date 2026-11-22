@@ -102,6 +102,9 @@ pub struct GameplayFacts {
     pub camera: Option<GameplayCameraPose>,
     /// The full-strength native damage shake of the last presented view, in a connected world.
     pub damage_shake: Option<DamageShake>,
+    /// The player's own cycled perspective, before mod and presentation overrides, while a
+    /// world streams outside a dimension transfer.
+    pub perspective: Option<mod_api::native_camera::Perspective>,
     /// The local feet position last relayed to the server, in a connected world.
     pub relayed_position: Option<GameplayVector3>,
     /// A physical binding holds the use control.

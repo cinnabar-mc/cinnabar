@@ -1,8 +1,9 @@
 use super::{LocalFormAction, engine_input};
 use crate::ui_runtime::{
     input_owner::InputOwner,
-    interaction::input_capture::{
-        restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
+    interaction::{
+        chat_modifiers,
+        input_capture::{restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat},
     },
 };
 use bevy::{
@@ -178,15 +179,79 @@ pub(crate) fn engine_frame_input<'a, 'p>(
     }
 }
 
+/// The keys held at the end of this frame, which decide the form's edit shortcuts: Bevy's
+/// reconciled `keys` plus the modifiers `modifiers` still holds after applying `events`.
+/// `modifiers` keeps held modifiers across the key reset every owned frame ends with, which
+/// `keys` forgets.
+///
+/// Like reading `keys` alone, the decision uses end-of-frame state, so a modifier pressed or
+/// released after V within the same frame decides V. That gives up the rare Ctrl+V released
+/// within one frame, but a release Bevy recovers and appends after V, such as a Command key-up
+/// macOS swallowed, never pastes.
+///
+/// Alt held at any point in the frame also counts as held at its end, for this frame only:
+/// Ctrl+Alt (AltGr on Windows) types characters such as `@`, which an Alt release later in the
+/// same frame must not turn into a shortcut.
+fn form_held_keys(
+    modifiers: &mut ButtonInput<KeyCode>,
+    keys: &ButtonInput<KeyCode>,
+    events: &[KeyboardInput],
+) -> Vec<KeyboardKey> {
+    const ALT: [KeyCode; 2] = [KeyCode::AltLeft, KeyCode::AltRight];
+    chat_modifiers::capture_before_events(modifiers, keys, events);
+    let alt = ALT
+        .into_iter()
+        .find(|key| modifiers.pressed(*key))
+        .or_else(|| {
+            events
+                .iter()
+                .map(|input| input.key_code)
+                .find(|key| ALT.contains(key))
+        });
+    for input in events {
+        chat_modifiers::track(modifiers, input);
+    }
+    let mut held = modifiers.clone();
+    keys.get_pressed()
+        .chain(&alt)
+        .for_each(|key| held.press(*key));
+    held.get_pressed().map(|key| keyboard_key(*key)).collect()
+}
+
+/// Modifiers the form saw held, kept only across consecutive runs of its input system.
+#[derive(Default)]
+pub(crate) struct RetainedModifiers {
+    held: ButtonInput<KeyCode>,
+    last_frame: Option<u32>,
+}
+
+impl RetainedModifiers {
+    /// The modifiers still held entering `frame`. They are forgotten when the system did not run
+    /// on the previous frame, such as one a server experience's consent prompt owned, because a
+    /// release on that frame never reached the form. Without a frame count every run counts as
+    /// consecutive.
+    fn for_frame(&mut self, frame: Option<u32>) -> &mut ButtonInput<KeyCode> {
+        if let Some(frame) = frame {
+            if self.last_frame.map(|last| last.wrapping_add(1)) != Some(frame) {
+                self.held.reset_all();
+            }
+            self.last_frame = Some(frame);
+        }
+        &mut self.held
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window, mut focus, driven, pointer_source, owner): (
+    (player_runtime, window, mut focus, driven, pointer_source, owner, mut retained, frame_count): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_state::CursorFocus>>,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::ui_runtime::touch_pointer::UiPointerSource>>,
         InputOwner,
+        Local<RetainedModifiers>,
+        Option<Res<bevy::diagnostic::FrameCount>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -205,6 +270,7 @@ pub(crate) fn drive_server_form_input(
     mut stick: Local<[bool; 4]>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    let modifiers = retained.for_frame(frame_count.map(|count| count.0));
     let handoff_now_millis = time
         .as_ref()
         .map(|time| u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
@@ -230,6 +296,7 @@ pub(crate) fn drive_server_form_input(
         // In particular, do not let a held edge answer the form behind it.
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *stick = [false; 4];
         *owned_last_frame = false;
@@ -256,6 +323,7 @@ pub(crate) fn drive_server_form_input(
     if frame.covers(form_scene) && !matches!(frame.top(), Scene::Menu(_)) {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *owned_last_frame = false;
         return;
@@ -266,6 +334,7 @@ pub(crate) fn drive_server_form_input(
         runtime.server_forms_mut().reject_active_busy();
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *owned_last_frame = false;
         return;
     }
@@ -274,6 +343,7 @@ pub(crate) fn drive_server_form_input(
         // Otherwise a held mouse/key edge could answer the replacement form as soon as it lands.
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *stick = [false; 4];
         runtime
@@ -294,6 +364,7 @@ pub(crate) fn drive_server_form_input(
     if !runtime.server_forms().owns_input() {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         if *owned_last_frame && !runtime.ui_focused(&player_runtime) && input_available {
             restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
         }
@@ -304,6 +375,7 @@ pub(crate) fn drive_server_form_input(
     if !input_available || !frame.reads(|scene| scene == form_scene) {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
         *held = false;
         *stick = [false; 4];
         runtime
@@ -326,9 +398,10 @@ pub(crate) fn drive_server_form_input(
         .and_then(|entry| presentation.form_engine_frame(entry.identity))
         .cloned();
     if input_available && let Some(frame) = engine_frame {
-        let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
-        let key_presses: Vec<_> = keyboard
-            .read()
+        let events: Vec<_> = keyboard.read().cloned().collect();
+        let held = form_held_keys(modifiers, &keys, &events);
+        let key_presses: Vec<_> = events
+            .iter()
             .filter(|input| input.state == ButtonState::Pressed)
             .collect();
         let input = engine_input::EngineInput {
@@ -349,6 +422,7 @@ pub(crate) fn drive_server_form_input(
         engine_input::drive(&mut runtime, &frame, input);
     } else if input_available && let Some(entry) = runtime.server_forms().active() {
         keyboard.clear();
+        modifiers.reset_all();
         let identity = entry.identity;
         if keys.just_pressed(KeyCode::ArrowUp)
             || (keys.just_pressed(KeyCode::Tab) && keys.pressed(KeyCode::ShiftLeft))
@@ -417,6 +491,7 @@ pub(crate) fn drive_server_form_input(
     } else {
         wheel.clear();
         keyboard.clear();
+        modifiers.reset_all();
     }
     if runtime.server_forms().handoff_pending()
         && let Some(focus) = focus.as_deref_mut()
@@ -473,6 +548,173 @@ mod focus_tests {
         );
         pad.digital_mut().clear();
         assert!(keys(&pad, &mut stick).is_empty());
+    }
+
+    fn key_event(key_code: KeyCode, state: ButtonState, text: Option<&str>) -> KeyboardInput {
+        use bevy::input::keyboard::Key;
+        KeyboardInput {
+            key_code,
+            logical_key: Key::Character(text.unwrap_or_default().into()),
+            state,
+            text: text.map(Into::into),
+            repeat: false,
+            window: bevy::prelude::Entity::PLACEHOLDER,
+        }
+    }
+
+    /// Whether a press this frame becomes an edit shortcut, as the form engine decides from
+    /// the held keys the frame ends with.
+    fn shortcut(held: &[KeyboardKey]) -> bool {
+        client_ui::ui_runtime::interaction::is_chat_edit_shortcut(held)
+    }
+
+    /// Runs one frame: `held` is Bevy's reconciled key state after `events`.
+    fn frame(
+        modifiers: &mut ButtonInput<KeyCode>,
+        held: &[KeyCode],
+        events: &[KeyboardInput],
+    ) -> Vec<KeyboardKey> {
+        let mut keys = ButtonInput::default();
+        held.iter().for_each(|key| keys.press(*key));
+        form_held_keys(modifiers, &keys, events)
+    }
+
+    fn press(key: KeyCode) -> KeyboardInput {
+        let text = (key == KeyCode::KeyV).then_some("v");
+        key_event(key, ButtonState::Pressed, text)
+    }
+
+    fn release(key: KeyCode) -> KeyboardInput {
+        key_event(key, ButtonState::Released, None)
+    }
+
+    // Pasting with Ctrl+V into a form's edit box typed "v": the form's frame end resets `keys`,
+    // so a Ctrl pressed in an earlier frame was gone when V arrived.
+    #[test]
+    fn ctrl_held_across_the_key_reset_makes_v_an_edit_shortcut() {
+        let mut modifiers = ButtonInput::default();
+        let ctrl = KeyCode::ControlLeft;
+        frame(&mut modifiers, &[ctrl], &[press(ctrl)]);
+        let held = frame(&mut modifiers, &[KeyCode::KeyV], &[press(KeyCode::KeyV)]);
+        assert!(shortcut(&held));
+    }
+
+    #[test]
+    fn ctrl_released_before_v_leaves_v_typed_text() {
+        let mut modifiers = ButtonInput::default();
+        let ctrl = KeyCode::ControlLeft;
+        frame(&mut modifiers, &[ctrl], &[press(ctrl)]);
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::KeyV],
+            &[release(ctrl), press(KeyCode::KeyV)],
+        );
+        assert!(!shortcut(&held));
+    }
+
+    // A release after V in the same frame decides V from the state the frame ends with, as the
+    // form did before tracking modifiers: Bevy may append a release it recovered for a key-up the
+    // OS swallowed, which a real release cannot be told apart from.
+    #[test]
+    fn ctrl_released_after_v_in_the_same_frame_leaves_v_typed_text() {
+        let mut modifiers = ButtonInput::default();
+        let ctrl = KeyCode::ControlLeft;
+        frame(&mut modifiers, &[ctrl], &[press(ctrl)]);
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::KeyV],
+            &[press(KeyCode::KeyV), release(ctrl)],
+        );
+        assert!(!shortcut(&held));
+    }
+
+    // macOS can swallow a Command key-up without a focus change; Bevy then recovers the release
+    // with the next plain V and appends it after that V.
+    #[test]
+    fn command_release_recovered_after_v_leaves_v_typed_text() {
+        let mut modifiers = ButtonInput::default();
+        let command = KeyCode::SuperLeft;
+        frame(&mut modifiers, &[command], &[press(command)]);
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::KeyV],
+            &[press(KeyCode::KeyV), release(command)],
+        );
+        assert!(!shortcut(&held));
+        let held = frame(&mut modifiers, &[KeyCode::KeyV], &[press(KeyCode::KeyV)]);
+        assert!(!shortcut(&held));
+    }
+
+    // macOS first reports a Command held since before focus returned with the V it modifies, and
+    // Bevy appends the Command press it recovers after that V while `keys` already holds it.
+    #[test]
+    fn command_recovered_after_v_on_focus_return_makes_v_an_edit_shortcut() {
+        let mut modifiers = ButtonInput::default();
+        let command = KeyCode::SuperLeft;
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::KeyV, command],
+            &[press(KeyCode::KeyV), press(command)],
+        );
+        assert!(shortcut(&held));
+    }
+
+    // Bevy recovers a Ctrl key-up the OS swallowed with a release after the native press; a V
+    // after it, in the same frame or the next, types text.
+    #[test]
+    fn recovered_ctrl_release_does_not_keep_ctrl_held() {
+        let mut modifiers = ButtonInput::default();
+        let ctrl = KeyCode::ControlLeft;
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::KeyV],
+            &[press(ctrl), release(ctrl), press(KeyCode::KeyV)],
+        );
+        assert!(!shortcut(&held));
+        let held = frame(&mut modifiers, &[KeyCode::KeyV], &[press(KeyCode::KeyV)]);
+        assert!(!shortcut(&held));
+    }
+
+    // German Windows types `@` with Ctrl+left Alt+Q; Alt released in the same frame as Q must not
+    // turn the character into a shortcut while Ctrl is retained from an earlier frame.
+    #[test]
+    fn ctrl_alt_text_with_a_same_frame_alt_release_stays_typed() {
+        let mut modifiers = ButtonInput::default();
+        let (ctrl, alt) = (KeyCode::ControlLeft, KeyCode::AltLeft);
+        frame(&mut modifiers, &[ctrl, alt], &[press(ctrl), press(alt)]);
+        let at = key_event(KeyCode::KeyQ, ButtonState::Pressed, Some("@"));
+        let held = frame(&mut modifiers, &[KeyCode::KeyQ], &[at, release(alt)]);
+        assert!(!shortcut(&held));
+        // Alt counts only for the frame it was held in.
+        let held = frame(&mut modifiers, &[KeyCode::KeyV], &[press(KeyCode::KeyV)]);
+        assert!(shortcut(&held));
+    }
+
+    #[test]
+    fn alt_pressed_and_released_around_v_with_ctrl_held_leaves_v_typed_text() {
+        let mut modifiers = ButtonInput::default();
+        let (ctrl, alt) = (KeyCode::ControlLeft, KeyCode::AltLeft);
+        frame(&mut modifiers, &[ctrl], &[press(ctrl)]);
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::KeyV],
+            &[press(alt), press(KeyCode::KeyV), release(alt)],
+        );
+        assert!(!shortcut(&held));
+    }
+
+    #[test]
+    fn plain_and_alt_gr_v_stay_typed_text() {
+        let mut modifiers = ButtonInput::default();
+        let held = frame(&mut modifiers, &[KeyCode::KeyV], &[press(KeyCode::KeyV)]);
+        assert!(!shortcut(&held));
+        // Windows reports AltGr as Ctrl+Alt, which types characters rather than shortcuts.
+        let held = frame(
+            &mut modifiers,
+            &[KeyCode::ControlLeft, KeyCode::AltRight, KeyCode::KeyV],
+            &[press(KeyCode::KeyV)],
+        );
+        assert!(!shortcut(&held));
     }
 
     #[test]

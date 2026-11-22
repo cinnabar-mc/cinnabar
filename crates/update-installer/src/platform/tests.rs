@@ -74,3 +74,28 @@ fn no_trailing_backslash_escapes_the_closing_quote() {
         assert_eq!(arguments.last().unwrap(), folder, "{target}");
     }
 }
+
+#[test]
+fn only_a_per_machine_install_moves_to_the_per_user_folder() {
+    let default = PathBuf::from("/profile/local/Programs/Cinnabar");
+    let machine = Path::new("/program-files/Cinnabar");
+    let custom = Path::new("/games/Cinnabar");
+    // Per-user packages cannot write a machine-wide folder, so it moves on its next update.
+    assert_eq!(destination(machine, None, default.clone(), true), default);
+    assert_eq!(
+        destination(machine, Some(custom), default.clone(), true),
+        custom
+    );
+    // A recorded per-user folder updates in place beside a per-machine install, in any case.
+    assert_eq!(
+        destination(custom, Some(custom), default.clone(), true),
+        custom
+    );
+    let upper = Path::new("/GAMES/cinnabar");
+    assert_eq!(
+        destination(upper, Some(custom), default.clone(), true),
+        upper
+    );
+    // Without a per-machine product, every install updates in place.
+    assert_eq!(destination(custom, None, default, false), custom);
+}

@@ -43,9 +43,13 @@ class ReleaseDownloadsTests(unittest.TestCase):
             platform: {arch: "fixture-" + name for arch, name in arches.items()}
             for platform, arches in self.config["manual_assets"].items()
         }
-        self.config["update_assets"] = {
-            platform: {arch: "fixture-" + name for arch, name in arches.items()}
-            for platform, arches in self.config["update_assets"].items()
+        for updates in ("update_assets", "machine_update_assets"):
+            self.config[updates] = {
+                platform: {arch: "fixture-" + name for arch, name in arches.items()}
+                for platform, arches in self.config[updates].items()
+            }
+        self.config["update_platforms"] = {
+            platform: "fixture-" + key for platform, key in self.config["update_platforms"].items()
         }
         self.config["symbols"] = {**self.config["symbols"],
                                   "archive": "fixture-" + self.config["symbols"]["archive"]}
@@ -68,7 +72,10 @@ class ReleaseDownloadsTests(unittest.TestCase):
             name for arches in self.config["assets"].values() for name in arches.values()
         ] + [
             name for arches in self.config["manual_assets"].values() for name in arches.values()
-        ] + [name for arches in self.config["update_assets"].values() for name in arches.values()] + [
+        ] + [
+            name for updates in ("update_assets", "machine_update_assets")
+            for arches in self.config[updates].values() for name in arches.values()
+        ] + [
             self.symbol_archive(platform, arch)
             for platform, arches in self.config["assets"].items() for arch in arches
         ] + [self.config["install_script"]]
@@ -184,6 +191,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
                                     SYMBOLS_ASSET=self.symbol_archive(platform, arch))
                     if platform == "windows":
                         expected["AUXILIARY_ASSET"] = self.config["update_assets"][platform][arch]
+                        expected["MACHINE_ASSET"] = self.config["machine_update_assets"][platform][arch]
                     self.assertEqual(
                         dict(line.split("=", 1) for line in result.stdout.splitlines()), expected,
                     )
@@ -233,18 +241,44 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         specs = [line.split("=", 2) for line in result.stdout.splitlines()]
         expected, copies = {}, []
-        for platform, arches in self.config["assets"].items():
-            for arch, name in arches.items():
-                selected = self.config["update_assets"].get(platform, {}).get(arch, name)
-                digest = hashlib.sha256((directory / selected).read_bytes()).hexdigest()
-                payload = f'{self.config["update_payload_prefix"]}{digest[:16]}-{selected}'
-                expected[f"{platform}-{arch}"] = (base + "/" + payload, str(out / payload))
-                # A byte-identical copy, so its name changes whenever its content does.
-                copies.append((out / payload, directory / selected))
+        selections = [
+            (f'{self.config["update_platforms"].get(platform, platform)}-{arch}',
+             self.config["update_assets"].get(platform, {}).get(arch, name))
+            for platform, arches in self.config["assets"].items() for arch, name in arches.items()
+        ] + [
+            # Installs from before a platform's rename keep their original key.
+            (f"{platform}-{arch}", name)
+            for platform, arches in self.config["machine_update_assets"].items()
+            for arch, name in arches.items()
+        ]
+        for key, selected in selections:
+            digest = hashlib.sha256((directory / selected).read_bytes()).hexdigest()
+            payload = f'{self.config["update_payload_prefix"]}{digest[:16]}-{selected}'
+            expected[key] = (base + "/" + payload, str(out / payload))
+            # A byte-identical copy, so its name changes whenever its content does.
+            copies.append((out / payload, directory / selected))
+        self.assertEqual(len(expected), len(selections), "update platform keys collide")
         self.assertEqual(len(specs), len(expected))
         self.assertEqual({platform: (url, local) for platform, url, local in specs}, expected)
         for copy, source in copies:
             self.assertEqual(copy.read_bytes(), source.read_bytes())
+
+    def test_source_without_a_platform_rename_publishes_only_its_original_keys(self):
+        directory = self.root / "dist"
+        self.populate()
+        source = self.root / "older-source"
+        (source / "packaging").mkdir(parents=True)
+        older = {key: value for key, value in self.config.items() if key != "update_platforms"}
+        (source / "packaging/release-assets.json").write_text(json.dumps(older))
+        result = self.run_helper("update-payloads", "https://x.invalid", directory,
+                                 self.root / "payloads", "--source", source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        keys = {line.split("=", 1)[0] for line in result.stdout.splitlines()}
+        for platform, renamed in self.config["update_platforms"].items():
+            for arch in self.config["assets"][platform]:
+                # That source's updater reads only the original key, served its per-machine package.
+                self.assertNotIn(f"{renamed}-{arch}", keys)
+                self.assertIn(f"{platform}-{arch}", keys)
 
     def test_windows_job_retains_the_workflow_source_working_directory(self):
         workflow = (PACKAGING.parent / ".github/workflows/package.yml").read_text()

@@ -1,8 +1,8 @@
 {
   "$cinnabar_main_arm_left": false,
   "$cinnabar_status_row_y": -39,
-  // Experience, locator and mount-jump bars share one place above the hotbar.
-  "$cinnabar_progress_bar_size": [182, 5],
+  // Experience, locator and mount-jump bars share one place above the hotbar, across its width.
+  "$cinnabar_progress_bar_size": ["100%", 5],
   "$cinnabar_progress_bar_offset": [0, -24],
   "$cinnabar_chat_top": false,
   // The Video setting that opens vanilla Bedrock's full chat screen instead of Java's input line.
@@ -11,5 +11,9 @@
   "$cinnabar_chat_history_bottom": -40,
   // The Video setting that raises the bottom HUD and chat by vanilla desktop's hotbar clearance.
   "$cinnabar_bedrock_hotbar": false,
-  "$cinnabar_bedrock_hotbar_lift": -1.5
+  "$cinnabar_bedrock_hotbar_lift": -1.5,
+  // Set while the hotbar ends in the touch inventory button, which the bottom stack then spans.
+  "$cinnabar_touch_hotbar": false,
+  "$cinnabar_hotbar_width": 182,
+  "$cinnabar_touch_hotbar_width": 202
 }

@@ -289,7 +289,9 @@ pub(crate) fn entry_capacity_with_base(
             Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE)
         };
     }
-    if stack_component && vanilla.is_none() && entry.version == ItemRegistryVersion::Legacy {
+    if stack_component && entry.version == ItemRegistryVersion::Legacy {
+        // A Legacy entry is a plain item, built in or not; its network initialization takes
+        // the top-level component as its stack size.
         return components.and_then(|components| components.max_stack_size_component);
     }
     if stack_component {
@@ -437,13 +439,14 @@ mod tests {
         );
     }
 
-    // A component item without item_properties takes the stack size component; plain items
-    // read it differently, so they leave the stack size unsettled.
+    // A component item without item_properties takes the stack size component, and so does
+    // a Legacy entry, even under a built-in name. Unversioned plain entries stay unsettled.
     #[test]
-    fn the_stack_size_component_binds_only_component_items() {
+    fn the_stack_size_component_binds_component_and_legacy_items() {
         let with_component = |entry: ItemRegistryEntry| ItemRegistryEntry {
             components: Some(Arc::new(ItemComponents {
                 max_stack_size: Some(1),
+                max_stack_size_component: Some(1),
                 max_stack_size_component_declared: true,
                 ..ItemComponents::default()
             })),
@@ -458,6 +461,13 @@ mod tests {
             entry_capacity(&with_component(versioned(
                 entry("minecraft:stick", false, None),
                 ItemRegistryVersion::Legacy
+            ))),
+            Some(1)
+        );
+        assert_eq!(
+            entry_capacity(&with_component(versioned(
+                entry("minecraft:stick", false, None),
+                ItemRegistryVersion::None
             ))),
             None
         );

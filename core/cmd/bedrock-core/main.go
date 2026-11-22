@@ -105,6 +105,9 @@ type options struct {
 	language                  string
 	catalogFile               string
 	authEvents                bool
+	ownership                 bool
+	ownershipClientID         string
+	ownershipSignIn           bool
 	resourcePackCacheDir      string
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
@@ -143,6 +146,9 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
+	flags.BoolVar(&opts.ownership, "ownership", false, "with -auth-events, check that the license account in -auth-cache owns Minecraft")
+	flags.StringVar(&opts.ownershipClientID, "ownership-client-id", "", "the Microsoft app registration that signs in the license account (requires -ownership)")
+	flags.BoolVar(&opts.ownershipSignIn, "ownership-sign-in", false, "sign in a new license account before checking (requires -ownership)")
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
@@ -174,6 +180,12 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	}
 	if opts.resourcePackCacheDir != "" && opts.resourcePackCacheQuota == 0 {
 		return options{}, errors.New("resource-pack-cache-quota-bytes must be greater than zero")
+	}
+	if opts.ownership && !opts.authEvents {
+		return options{}, errors.New("ownership requires -auth-events")
+	}
+	if (opts.ownershipClientID != "" || opts.ownershipSignIn) && !opts.ownership {
+		return options{}, errors.New("ownership-client-id and ownership-sign-in require -ownership")
 	}
 	if opts.authEvents && flags.NArg() != 0 {
 		return options{}, errors.New("auth-events mode does not accept positional arguments")
@@ -255,6 +267,15 @@ func runWithResourcePackCacheFactory(
 		}
 		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" || opts.controlStatus {
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
+		}
+		if opts.ownership {
+			var licenses authflow.Licenses
+			if opts.ownershipClientID != "" {
+				licenses = authflow.MinecraftServices(opts.ownershipClientID)
+			}
+			return authflow.Ownership(ctx, authflow.OwnershipConfig{
+				Path: opts.authCache, SignIn: opts.ownershipSignIn, Licenses: licenses, Writer: stdout, Logger: logger,
+			})
 		}
 		return authflow.Run(ctx, authflow.Config{
 			Path: opts.authCache, Writer: stdout, Logger: logger,

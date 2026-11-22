@@ -50,7 +50,8 @@ def checksum(directory, version, symbols=True):
     (release-symbols.py has-symbols), which publishes no symbol archives."""
     config = manifest()
     expected = [name for arches in download_assets(config).values() for name in arches.values()]
-    expected.extend(name for arches in config["update_assets"].values() for name in arches.values())
+    for updates in ("update_assets", "machine_update_assets"):
+        expected.extend(name for arches in config[updates].values() for name in arches.values())
     if symbols:
         expected.extend(symbols_archive(config, version, platform, arch)
                         for platform, arches in config["assets"].items() for arch in arches)
@@ -68,21 +69,36 @@ def checksum(directory, version, symbols=True):
     (directory / config["checksums"]).write_text("".join(lines))
 
 
-def update_payloads(directory, out):
+def update_payloads(directory, out, source=None):
     """Copies each platform's update artifact to a content-addressed name, so an upload never
-    replaces a payload that a published manifest still names."""
+    replaces a payload that a published manifest still names. A platform renamed in
+    `update_platforms` keeps serving its `machine_update_assets` package under the original key.
+    `source` is the packaged checkout: if its updater predates a rename, its packages are
+    per-machine, so the renamed key is omitted."""
     config = manifest()
+    source_config = json.loads((source / "packaging/release-assets.json").read_text()) if source else config
+    renamed = source_config.get("update_platforms", {})
     out.mkdir(parents=True, exist_ok=True)
-    payloads = []
+    selected = []
     for platform, arches in config["assets"].items():
+        if platform in config["update_platforms"] and platform not in renamed:
+            continue
+        key = config["update_platforms"].get(platform, platform)
         for arch, filename in arches.items():
-            filename = config["update_assets"].get(platform, {}).get(arch, filename)
-            source = directory / filename
-            with source.open("rb") as payload:
-                digest = hashlib.file_digest(payload, "sha256").hexdigest()
-            target = out / f'{config["update_payload_prefix"]}{digest[:16]}-{filename}'
-            shutil.copyfile(source, target)
-            payloads.append((f"{platform}-{arch}", target))
+            selected.append((f"{key}-{arch}", config["update_assets"].get(platform, {}).get(arch, filename)))
+    for platform, arches in config["machine_update_assets"].items():
+        selected.extend((f"{platform}-{arch}", filename) for arch, filename in arches.items())
+    keys = [key for key, _ in selected]
+    if len(set(keys)) != len(keys):
+        raise ValueError("update platform keys collide: " + ", ".join(sorted(keys)))
+    payloads = []
+    for key, filename in selected:
+        source = directory / filename
+        with source.open("rb") as payload:
+            digest = hashlib.file_digest(payload, "sha256").hexdigest()
+        target = out / f'{config["update_payload_prefix"]}{digest[:16]}-{filename}'
+        shutil.copyfile(source, target)
+        payloads.append((key, target))
     return payloads
 
 
@@ -104,6 +120,7 @@ def main():
     update.add_argument("base")
     update.add_argument("directory", type=Path)
     update.add_argument("out", type=Path)
+    update.add_argument("--source", type=Path, help="packaged source checkout (default: these tools)")
     checksums = commands.add_parser("checksums")
     checksums.add_argument("directory", type=Path)
     checksums.add_argument("--version", required=True, help="app version naming the symbol archives")
@@ -134,8 +151,9 @@ def main():
                 print(f"SYMBOLS_ASSET={symbols_archive(config, args.version, args.platform, args.arch)}")
             if args.platform == "windows":
                 print(f'AUXILIARY_ASSET={config["update_assets"][args.platform][args.arch]}')
+                print(f'MACHINE_ASSET={config["machine_update_assets"][args.platform][args.arch]}')
     elif args.command == "update-payloads":
-        for platform, path in update_payloads(args.directory, args.out):
+        for platform, path in update_payloads(args.directory, args.out, args.source):
             print(f"{platform}={args.base}/{path.name}={path}")
     elif args.command == "install-script":
         args.output.parent.mkdir(parents=True, exist_ok=True)

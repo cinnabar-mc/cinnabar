@@ -1,4 +1,5 @@
-//! Natives for the setup activity, which prepares carriers before the game activity starts.
+//! Natives for the setup activity, which runs the ownership gate and prepares carriers before the
+//! game activity starts.
 //!
 //! `prepare` runs on the activity's worker thread and returns null when the game can start,
 //! an empty string when the user quit, or the failure to show. Each call carries its attempt
@@ -14,12 +15,13 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use first_run::Outcome;
+use first_run::{GateHost, Outcome, Progress, Prompt};
 use jni::{
     JNIEnv, JavaVM, NativeMethod,
-    objects::{JObject, JString, JValue},
+    objects::{JObject, JString, JValue, JValueOwned},
     sys::{JNI_ERR, JNI_VERSION_1_6, jboolean, jfloat, jint, jlong, jstring},
 };
+use serde::Serialize;
 
 use crate::cancellation::Cancellation;
 
@@ -205,6 +207,17 @@ fn setup(
     let native_library_dir = PathBuf::from(String::from(env.get_string(native_library_dir)?));
     let layout = super::layout(&files_dir, &native_library_dir);
     launcher::install_layout::configure_android(layout.clone())?;
+    cinnabar::lifecycle::start_logging();
+    launcher_host::ownership::android::use_context(env, activity)
+        .context("read the app context")?;
+    // Before every download, local world and join.
+    let mut gate = Gate {
+        env: &mut *env,
+        activity,
+    };
+    if !first_run::verify_with_host(&layout, CANCELLATION.flag(), &mut gate) {
+        return Ok(Outcome::Quit);
+    }
     export_platform_trust(env, activity, &layout.user_data_root)?;
     // The kit arrives as APK assets, but Android executes only native-library files.
     let compiler = assets::carriers::kit_compiler(&layout.prep_kit());
@@ -229,20 +242,11 @@ fn setup(
                 activity,
                 ("requestConsent", "(Ljava/lang/String;Ljava/lang/String;)Z"),
                 &[title, body],
+                |value| value.z(),
             )
             .unwrap_or(false)
         },
-        |update| {
-            let Ok(message) = serde_json::to_string(update) else {
-                return;
-            };
-            let _ = call_activity(
-                &mut env.borrow_mut(),
-                activity,
-                ("showProgress", "(Ljava/lang/String;)V"),
-                &[&message],
-            );
-        },
+        |update| show_json(&mut env.borrow_mut(), activity, "showProgress", update),
     )?;
     // The game activity's UI thread waits for the game thread until its event loop starts, so
     // the carriers load here, behind the startup screen, to keep that wait short.
@@ -250,6 +254,49 @@ fn setup(
         cinnabar::lifecycle::preload(outcome == Outcome::Prepared);
     }
     Ok(outcome)
+}
+
+/// The setup activity's screens for the ownership gate.
+struct Gate<'a, 'env, 'obj> {
+    env: &'a mut JNIEnv<'env>,
+    activity: &'a JObject<'obj>,
+}
+
+impl GateHost for Gate<'_, '_, '_> {
+    fn progress(&mut self, update: &Progress) {
+        show_json(self.env, self.activity, "showProgress", update);
+    }
+
+    fn show(&mut self, prompt: &Prompt) {
+        show_json(self.env, self.activity, "showGate", prompt);
+    }
+
+    fn choose(&mut self, prompt: &Prompt) -> Option<usize> {
+        let message = serde_json::to_string(prompt).ok()?;
+        let index = call_activity(
+            self.env,
+            self.activity,
+            ("chooseGate", "(Ljava/lang/String;)I"),
+            &[&message],
+            |value| value.i(),
+        )
+        .ok()?;
+        usize::try_from(index).ok()
+    }
+}
+
+/// Passes `value` as JSON to the activity's one-string `void` method `name`, ignoring failures.
+fn show_json(env: &mut JNIEnv<'_>, activity: &JObject<'_>, name: &str, value: &impl Serialize) {
+    let Ok(message) = serde_json::to_string(value) else {
+        return;
+    };
+    let _ = call_activity(
+        env,
+        activity,
+        (name, "(Ljava/lang/String;)V"),
+        &[&message],
+        |_| Ok(()),
+    );
 }
 
 /// Refreshes the server's platform trust, refusing setup if stale trust cannot be invalidated.
@@ -309,26 +356,22 @@ fn log_warning(env: &mut JNIEnv<'_>, message: &str) {
     }
 }
 
-/// Calls an activity method with string arguments in its own local frame; a `Z` method returns
-/// its result and any other returns false.
-fn call_activity(
+/// Calls an activity method with string arguments in its own local frame, returning what `read`
+/// takes from its result.
+fn call_activity<T>(
     env: &mut JNIEnv<'_>,
     activity: &JObject<'_>,
     (name, signature): (&str, &str),
     args: &[&str],
-) -> Result<bool> {
-    let result = env.with_local_frame(4, |env| -> Result<bool> {
+    read: impl FnOnce(JValueOwned<'_>) -> jni::errors::Result<T>,
+) -> Result<T> {
+    let result = env.with_local_frame(4, |env| -> Result<T> {
         let strings = args
             .iter()
             .map(|arg| env.new_string(*arg).map(JObject::from))
             .collect::<jni::errors::Result<Vec<_>>>()?;
         let values: Vec<JValue<'_, '_>> = strings.iter().map(JValue::Object).collect();
-        let value = env.call_method(activity, name, signature, &values)?;
-        Ok(if signature.ends_with('Z') {
-            value.z()?
-        } else {
-            false
-        })
+        Ok(read(env.call_method(activity, name, signature, &values)?)?)
     });
     if result.is_err() {
         clear_exception(env);

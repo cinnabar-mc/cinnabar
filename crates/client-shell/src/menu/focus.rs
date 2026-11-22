@@ -439,6 +439,9 @@ impl MenuRuntime {
                         })
                         .map(|(index, _)| MenuAction::SwitchAccount(index))
                         .collect();
+                    if self.feeds.license_account {
+                        actions.push(MenuAction::RemoveLicenseAccountDialog);
+                    }
                     actions.extend([
                         MenuAction::AddAccount,
                         MenuAction::Navigate(MenuScreen::Profile),
@@ -479,6 +482,10 @@ impl MenuRuntime {
                 MenuDialog::RemoveShaderPack(index, revision) => vec![
                     MenuAction::DismissDialog,
                     MenuAction::ConfirmRemoveShaderPack(index, revision),
+                ],
+                MenuDialog::RemoveLicenseAccount => vec![
+                    MenuAction::ConfirmRemoveLicenseAccount,
+                    MenuAction::DismissDialog,
                 ],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),

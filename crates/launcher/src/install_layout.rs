@@ -291,6 +291,21 @@ impl InstallLayout {
         self.auth_cache().with_file_name("device.json")
     }
 
+    /// The token cache of the Microsoft account that proves Minecraft ownership; playing accounts
+    /// never use it.
+    #[must_use]
+    pub fn license_cache(&self) -> PathBuf {
+        self.auth_cache()
+            .with_file_name("license")
+            .join("microsoft-token.json")
+    }
+
+    /// The ownership pass earned by the license account's checks.
+    #[must_use]
+    pub fn ownership_pass_file(&self) -> PathBuf {
+        self.license_cache().with_file_name("ownership.json")
+    }
+
     /// Downloaded launcher artwork, beside the auth cache with the core's persona art.
     #[must_use]
     pub fn launcher_artwork_dir(&self) -> PathBuf {

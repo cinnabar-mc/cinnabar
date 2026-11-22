@@ -621,6 +621,11 @@ Interaction rotation retains picked aim independently of body, head and camera i
 Active assistance publishes its target direction, or body facing when no target is found,
 to the matching unsent tick. Ordinary crosshair input uses the direction lookup table.
 The touch and classic control modes aim interactions along the ray through the finger and report their interaction model; picking from the camera origin in third person, the idle selection between touches and camera-actor substitution remain incomplete.
+Each finger landing on a touch control is its own press, including before a frame saw it
+released. As vanilla's touch buttons follow one finger at a time, a finger landing on a control
+that an earlier finger still holds does not press it. Incomplete: a control pressed twice within
+one frame presses once, as touch has no ordered event stream like desktop, and a control handed
+from one finger to another stays held instead of releasing as vanilla's does.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -663,6 +668,10 @@ authority through the same ordered controls. Synthetic creation keeps that lifet
 and its already accepted updates and effects. Replacement retires cached flags, pose
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
 actor and controller writes independently of the replaced actor state.
+The local player's direct passengers do not take its picks and aim assistance, as vanilla's
+actor picking skips them; riders of those passengers stay pickable. They also do not block
+its predicted movement, which is provisional because the native collision rule for a
+player's own passengers is unverified (incomplete).
 Passenger order follows vanilla's `Actor::addPassenger` and `ActorLinkSystem::_tick`: links
 apply in arrival order, a player boarding behind a non-player takes the front seat, and a
 rider whose actor is missing never holds back later riders. A rider spawning in its link's
@@ -1429,7 +1438,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pops in its stack update; where that update falls among a frame's input is unverified, so the
   closing-frame fence is Cinnabar's choice. Launcher menu input, mod panels, consent and modal
   input still use their own checks because they aren't routed through the scene owner yet. Touch and
-  gamepad device acceptance of the owner remains incomplete.
+  gamepad device acceptance of the owner remains incomplete. Server form text boxes decide Ctrl and
+  Command edit shortcuts from the modifiers held at the end of the frame and skip them for a frame in
+  which Alt was held, so an Alt release followed by Ctrl+V within one frame types `v` instead of
+  pasting; per-press ordering of modifier changes within a frame remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -1554,7 +1566,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pending preparations before a new login.
   Destroy rates read ground contact from before the tick's movement. After a multi-tick
   block, the next start lands on the tick the 250 ms destroy deadline is reached, and a
-  held Creative destroy repeats on the tick after it.
+  held Creative destroy repeats on the tick after it. Its moving check reads the tick's
+  resolved displacement, so standing on the ground does not count as travel.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Block-action carriers retain every accumulated action in tick order.
@@ -1667,8 +1680,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   settings close. Embedding their controls within the settings panel instead of a
   separate form remains incomplete.
   NPC dialogue actions expose command/URL labels and pointer hit targets through
-  their JSON-UI collection. Actor portraits, matched acceptance for larger action
-  lists and touch/console behavior remain incomplete.
+  their JSON-UI collection. A dialogue without a scene name shows the NPC actor's
+  synced name tag, `InteractText` and `Actions` instead of the packet's fields.
+  That text is read once when the screen opens rather than following later actor
+  data updates, and a dialogue for an unknown or non-NPC actor still opens instead
+  of being ignored. Actor portraits, matched acceptance for larger action lists
+  and touch/console behavior remain incomplete.
   A command block opens vanilla's JSON-UI editor from the server's `ContainerOpen`, loaded from
   its block and actor, and reports a `CommandBlockUpdate` when a changed screen closes. The
   minecart command block editor, command autocomplete (`IntellisenseHandler`), the paste
@@ -2003,11 +2020,40 @@ On macOS and extracted Linux AppDirs, a staged update's carriers build in the ba
 the lowest priority with bounded parallelism, and its first launch promotes them without
 setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
 captures of a game running beside the background build remain incomplete.
+Packaged launches pass an ownership gate before first-run setup, downloads, worlds or joins.
+Proof sources plug in per platform and any one passes: a store install, best-effort and checked
+every launch, and a Microsoft account signed in through Cinnabar's own app when
+`CINNABAR_MSA_CLIENT_ID` is built in. On Windows the store install is Minecraft for Windows
+registered for the user (Windows package API). AtlasOS can strip Gaming Services, without
+which the Store cannot install the game; with both missing it drops that source, so it stays
+ungated until the account source exists. Its marker is a registry value anyone can set. On Android the store
+install is `com.mojang.minecraftpe`, never the trial, signed by Mojang's certificate and
+installed by Google Play, itself signed by Google,
+not by `adb` (`PackageManager` metadata only; before API 30 an `adb` install naming Play as its
+installer passes, and a Play install carried over from Android 10 records no initiator, so it
+fails until Play updates or reinstalls it). Amazon Appstore copies are re-signed with a key
+Amazon does not publish, so they cannot pass until that signer is pinned. Android's setup
+activity draws the gate's screens before setup downloads, local worlds and joins, and the game
+activity checks the install again. Android offers no account source yet: its game activity,
+restored after the process ends, starts without the setup activity and cannot ask for a sign-in.
+The Android store source is dropped only where one probe cleanly finds Google Play absent for
+the user, disabled or not signed by Google: such devices have no proof source, so they stay
+ungated until an Android account source exists. A probe that cannot read Play keeps the gate on
+and refuses as unverifiable whatever it found of the game, and Try again probes again. The
+account check keeps a 30-day pass, re-checks in the background, survives outages with a prior
+pass and revokes only after two not-owned answers a day apart; the account manager lists that
+account and warns before removing it. The gate is on where a source exists: Windows, and Android
+devices with a usable Play, now; macOS and Linux once the client ID is set, which waits on
+Mojang approving Cinnabar's app; iOS needs an in-game gate, since its setup runs no first-run
+window. No release has qualified the account path against real accounts (owned, Game Pass,
+Java-only, child, non-owner), the Windows source against a current Store or Xbox app install, or
+the Android source on Play and sideloaded devices across API 26–35, with the setup screens at
+large font scales.
 Bootstrap windows initialize only the platform-preferred graphics API by default, preserving explicit `WGPU_BACKEND` overrides, so unused Windows Vulkan drivers are not loaded before setup can fall back to system dialogs. Affected Intel driver and dual-GPU acceptance remain incomplete.
 Particle atlas updates scope dynamic tile staging as well as base allocation. A failed tile update drops its partial atlas, keeps the generation uncommitted and retries the base plus current patches after retirement. Repeated failures keep exponential backoff until both the base and tiles upload successfully. Low-memory desktop GPU acceptance remains incomplete.
 
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
-Desktop startup feedback starts without waiting for its loading window, which stays hidden when the first menu frame arrives before its show delay, and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Android first-run consent, download and preparation progress and failure retry draw on that startup screen; an emulator fixture with scripted setup reports confirms the flow, and a clean-install run with real downloads on a phone remains pending. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
+Desktop startup feedback starts without waiting for its loading window, which stays hidden when the first menu frame arrives before its show delay, and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Android first-run consent, download and preparation progress and failure retry draw on that startup screen; an emulator fixture with scripted setup reports confirms the flow, and a clean-install run with real downloads on a phone remains pending. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending. Known setup issue: a setup activity waiting on the player at the consent or ownership prompt holds the process-wide setup lock, so a second setup activity opened in another task stays on its startup screen until the first is closed.
 
 The setup and crash windows use Apple's Game Controller framework on macOS for controller
 buttons and hotplugging, including controllers unavailable through HID compatibility.
@@ -2196,7 +2242,7 @@ Flathub submission remain incomplete.
   cache publication use a no-overwrite rename instead of hard links; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. A Control mode option offers Bedrock's three modes, saved per install and defaulting to tap to interact: joystick or the classic D-pad (default centre and height share, forward diagonals while moving forward, centre jump) for movement, and world taps and holds (0.25 s tap window, 0.4 s hold, 0.05 screen-width turn threshold) or crosshair attack and use buttons for interaction. Unverified and provisional: which action each gesture performs on each target, crosshair visibility per mode, the turn threshold's sensitivity factor, D-pad axis values and diagonal rule, down diagonals, and sneak and sprint in the classic layout. Confirmed gap: the classic D-pad covers the start of bottom-left chat lines. Touchscreen settings offers a touch-control layout draft with dragging, corner resizing (0.5–3× uniform scale), alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions and sizes drive both artwork and hit regions. Control resizing is a Cinnabar layout-editor feature with no verified Bedrock size range. Mods with the controls grant add up to four labelled buttons each (sixteen shown) in the dropdown's button style; taps complete on release inside the button, reach only the owning mod's next frame, and placements persist by button id in the same editor. The sensitivity curve, movement/action parity, remapping, cutout handling and physical-device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. With that button the built-in HUD's status rows and bars span the hotbar's full width, as `centered_gui_elements_at_bottom_middle_touch` does in the pinned vanilla pack; a matched native touch frame remains outstanding. The joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. A Control mode option offers Bedrock's three modes, saved per install and defaulting to tap to interact: joystick or the classic D-pad (default centre and height share, forward diagonals while moving forward, centre jump) for movement, and world taps and holds (0.25 s tap window, 0.4 s hold, 0.05 screen-width turn threshold) or crosshair attack and use buttons for interaction. Unverified and provisional: which action each gesture performs on each target, crosshair visibility per mode, the turn threshold's sensitivity factor, D-pad axis values and diagonal rule, down diagonals, and sneak and sprint in the classic layout. Confirmed gap: the classic D-pad covers the start of bottom-left chat lines. Touchscreen settings offers a touch-control layout draft with dragging, corner resizing (0.5–3× uniform scale), alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions and sizes drive both artwork and hit regions. Control resizing is a Cinnabar layout-editor feature with no verified Bedrock size range. Mods with the controls grant add up to four labelled buttons each (sixteen shown) in the dropdown's button style; taps complete on release inside the button, reach only the owning mod's next frame, and placements persist by button id in the same editor. The sensitivity curve, movement/action parity, remapping, cutout handling and physical-device layout acceptance remain open.
   Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.

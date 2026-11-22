@@ -24,6 +24,17 @@ fn run() -> Result<()> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args
         .first()
+        .is_some_and(|arg| arg == update_installer::platform::REMOVE_MACHINE_FLAG)
+    {
+        ensure!(
+            args.len() == 1,
+            "{} takes no arguments",
+            update_installer::platform::REMOVE_MACHINE_FLAG
+        );
+        return update_installer::platform::remove_machine_install();
+    }
+    if args
+        .first()
         .is_some_and(|arg| arg == update_installer::recovery::RECOVER_FLAG)
     {
         ensure!(

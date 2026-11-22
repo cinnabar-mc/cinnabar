@@ -736,7 +736,11 @@ fn other_player_movement_modes_preserve_riding_links() {
 /// seat, and the collision that leaves the mount out.
 fn shown_on_boat(store: &ActorStore) -> [bool; 3] {
     let rider = store.snapshot_by_unique(10).unwrap().runtime_id;
-    let colliders = store.effect_members.collidable.snapshot(rider, None).len();
+    let colliders = store
+        .effect_members
+        .collidable
+        .snapshot(rider, std::iter::empty())
+        .len();
     [
         store.ridden_unique_id(10) == Some(20),
         store.rider_seat_pose(10).is_some(),

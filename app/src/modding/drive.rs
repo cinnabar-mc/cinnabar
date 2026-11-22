@@ -383,6 +383,10 @@ pub(super) fn drive_mod(
                     .as_ref()
                     .and(damage_shake.as_deref())
                     .and_then(|shake| shake.0),
+                camera
+                    .as_deref()
+                    .filter(|_| gameplay.live_world(&ui))
+                    .map(|camera| camera.player_perspective()),
             ),
         },
         |grants| {

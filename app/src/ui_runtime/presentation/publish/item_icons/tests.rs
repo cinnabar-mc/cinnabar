@@ -129,6 +129,7 @@ fn charge_frame(
             .authoritative_slot_revision(2),
         charge_projectile: Some(assets::item_use::ItemProjectileRole::Arrow),
         press_consumed: false,
+        target_takes_use: false,
     }
 }
 

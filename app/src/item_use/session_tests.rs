@@ -43,6 +43,7 @@ fn use_frame(tick: u64) -> UseFrame {
         inventory_revision: Some(1),
         charge_projectile: None,
         press_consumed: false,
+        target_takes_use: false,
     }
 }
 
@@ -543,6 +544,7 @@ fn assisted_release_uses_the_same_charge_clock_as_holding() {
                 tick: if assisted { end } else { end + 1 },
                 held,
                 press_consumed: assisted,
+                target_takes_use: false,
                 ..start.clone()
             };
             super::admit_with_action_aim(

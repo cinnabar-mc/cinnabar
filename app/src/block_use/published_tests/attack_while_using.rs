@@ -29,6 +29,7 @@ pub(super) fn start_eating(world: &mut World) {
         inventory_revision: Some(1),
         charge_projectile: None,
         press_consumed: false,
+        target_takes_use: false,
     };
     let mut runtime = world.resource_mut::<client_interaction::item_use::ItemUseRuntime>();
     runtime.synchronize(7);
@@ -130,8 +131,9 @@ fn a_same_frame_slot_change_ends_the_attack_veto() {
     attack(&mut world);
     let vetoed = world
         .resource::<client_interaction::item_use::ItemUseRuntime>()
-        .vetoes_attack(
+        .vetoes_build_action(
             world.resource::<client_state::PlayerRuntime>(),
+            world.resource::<UiRuntimeResource>(),
             world
                 .resource::<crate::runtime::world::ClientWorld>()
                 .stream

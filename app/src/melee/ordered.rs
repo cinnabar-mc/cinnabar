@@ -45,7 +45,7 @@ pub(crate) fn press(
     mut block_use: Option<ResMut<client_interaction::block_use::BlockUseRuntime>>,
 ) {
     // An earlier use edge in this batch may have started eating or drawing.
-    if item_use.vetoes_attack(&player, context.client_world.stream.as_ref()) {
+    if item_use.vetoes_build_action(&player, &context.ui, context.client_world.stream.as_ref()) {
         gameplay::movement::note_click_drop("attack", gameplay::melee::USING_ITEM);
         return;
     }

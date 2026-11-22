@@ -76,21 +76,25 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     update::on_next_release(first_run::prepare_next_release);
     update::check_in_background(&layout);
 
-    if !assets_overridden {
-        // An update helper waiting on this start must not mistake a long asset download for a
-        // hang.
-        let outcome = update::while_preparing(
-            &layout,
-            &first_run::progress_file(&layout),
-            first_run::awaiting_user,
-            || first_run::ensure_prepared(&layout),
-        )?;
-        match outcome {
-            first_run::Outcome::Quit => return Ok(false),
-            // Preparation rewrote carriers that a preload may already hold.
-            first_run::Outcome::Prepared => crate::app::startup::discard_preloaded(),
-            first_run::Outcome::NotNeeded => {}
-        }
+    // An update helper waiting on this start must not mistake a long asset download, or a
+    // player answering the ownership gate, for a hang. Supplied carriers skip only preparation.
+    let outcome = update::while_preparing(
+        &layout,
+        &first_run::progress_file(&layout),
+        first_run::awaiting_user,
+        || {
+            if assets_overridden {
+                first_run::ensure_owned(&layout)
+            } else {
+                first_run::ensure_prepared(&layout)
+            }
+        },
+    )?;
+    match outcome {
+        first_run::Outcome::Quit => return Ok(false),
+        // Preparation rewrote carriers that a preload may already hold.
+        first_run::Outcome::Prepared => crate::app::startup::discard_preloaded(),
+        first_run::Outcome::NotNeeded => {}
     }
     Ok(true)
 }
@@ -108,6 +112,12 @@ pub fn preload(rewritten: bool) {
     };
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     crate::app::startup::preload(&layout, rewritten);
+}
+
+/// Starts client logging and this session's log files, so Android's setup activity records its
+/// ownership check even when the player quits before [`preload`].
+pub fn start_logging() {
+    let _ = start_session();
 }
 
 /// Starts client logging, crash capture and this session's log files on the first call in the

@@ -39,6 +39,7 @@ pub(super) fn food_use() -> (ItemUseRuntime, UseFrame) {
         inventory_revision: Some(1),
         charge_projectile: None,
         press_consumed: false,
+        target_takes_use: false,
         riptide: None,
         riptide_facing: Default::default(),
     };

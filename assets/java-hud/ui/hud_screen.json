@@ -15,12 +15,20 @@
     "type": "panel",
     "anchor_from": "bottom_middle",
     "anchor_to": "bottom_middle",
-    "size": [ 182, 22 ],
+    "$cinnabar_bottom_width": "$cinnabar_hotbar_width",
+    "size": [ "$cinnabar_bottom_width", 22 ],
     "$cinnabar_hotbar_lift": 0,
-    "variables": [{
-      "requires": "$cinnabar_bedrock_hotbar",
-      "$cinnabar_hotbar_lift": "$cinnabar_bedrock_hotbar_lift"
-    }],
+    "variables": [
+      {
+        "requires": "$cinnabar_bedrock_hotbar",
+        "$cinnabar_hotbar_lift": "$cinnabar_bedrock_hotbar_lift"
+      },
+      // As vanilla's touch layout does, the status rows and bars span the inventory button too.
+      {
+        "requires": "$cinnabar_touch_hotbar",
+        "$cinnabar_bottom_width": "$cinnabar_touch_hotbar_width"
+      }
+    ],
     "offset": [ 0, "$cinnabar_hotbar_lift" ],
     "controls": [
       {
@@ -112,7 +120,7 @@
     ]
   },
 
-  // The 182x5 bar sits 29 GUI px above the bottom edge.
+  // The bar spans the hotbar, 5 GUI px tall and 29 above the bottom edge.
   "java_exp_bar": {
     "type": "panel",
     "size": "$cinnabar_progress_bar_size",

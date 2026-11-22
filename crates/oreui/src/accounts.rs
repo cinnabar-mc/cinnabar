@@ -28,7 +28,7 @@ pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -
         return sign_in_modal(view);
     }
     let active = view.feeds.account_active_id.as_deref();
-    let items = view
+    let mut items: Vec<_> = view
         .feeds
         .accounts
         .iter()
@@ -48,6 +48,16 @@ pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -
             }
         })
         .collect();
+    if view.feeds.license_account {
+        items.push(MenuItem {
+            label: "Minecraft ownership account",
+            picture_slot: false,
+            picture: None,
+            selected: false,
+            enabled: true,
+            action: Some(MenuAction::RemoveLicenseAccountDialog),
+        });
+    }
     Modal {
         title: "Accounts",
         items,
@@ -343,6 +353,22 @@ mod tests {
                 .any(|button| button.2 == Some(MenuAction::OpenSignInLink))
         );
         assert!(success.body.contains("Signed in"));
+    }
+
+    #[test]
+    fn a_stored_ownership_account_is_listed_and_opens_its_removal_warning() {
+        let mut view = account_manager_view();
+        assert!(
+            !draw(&view)
+                .1
+                .contains(&MenuAction::RemoveLicenseAccountDialog)
+        );
+        view.feeds.license_account = true;
+        assert!(
+            draw(&view)
+                .1
+                .contains(&MenuAction::RemoveLicenseAccountDialog)
+        );
     }
 
     #[test]

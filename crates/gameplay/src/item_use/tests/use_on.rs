@@ -10,6 +10,7 @@ fn brush_frame(tick: u64, held: bool) -> UseFrame {
         selection: Some(selection(2, BRUSH)),
         air_use: None,
         press_consumed: true,
+        target_takes_use: false,
         ..frame(tick, held)
     }
 }

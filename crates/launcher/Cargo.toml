@@ -16,6 +16,7 @@ reads = [
     "core/authcache/testdata/pending_prompt.json",
     "core/catalog/artwork_limit.txt",
     "core/catalog/profile_overview_limit.txt",
+    "packaging/android/AndroidManifest.xml",
 ]
 
 [features]
@@ -36,6 +37,9 @@ serde_json = "1"
 update-manifest = { path = "../update-manifest" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

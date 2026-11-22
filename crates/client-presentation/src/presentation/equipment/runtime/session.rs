@@ -199,13 +199,7 @@ impl EquipmentRuntime {
         identifier: &str,
         category: EquipmentCategory,
     ) -> EquipmentCategory {
-        match (category, self.wearable_slot(identifier)) {
-            (EquipmentCategory::Elytra | EquipmentCategory::Shield, _) | (_, None) => category,
-            (EquipmentCategory::ArmorAndHeld { .. }, Some(slot)) => {
-                EquipmentCategory::ArmorAndHeld { slot }
-            }
-            (_, Some(slot)) => EquipmentCategory::Armor { slot },
-        }
+        category.with_wearable_slot(self.wearable_slot(identifier))
     }
 
     /// Returns the session block sheet only while its artwork placement is admitted.

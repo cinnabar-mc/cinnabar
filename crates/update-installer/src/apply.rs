@@ -104,12 +104,30 @@ pub fn after_exit(
             .prefix(".cinnabar-update-")
             .tempdir_in(parent)?;
         if os == "windows" {
+            let destination = platform::windows_destination(target)?;
             let artifact = copy_payload(stage_dir, &selected.artifact, work.path())?;
             touched = true;
-            platform::install_windows(&artifact, work.path(), target, &selected.artifact)?;
-            remember_installer(root, &artifact)?;
-            start(target)?;
+            let replace = destination == target
+                || may_replace(
+                    &destination,
+                    &selected.manifest.version,
+                    selected.manifest.build_number,
+                    target::installed_build,
+                )?;
+            if replace {
+                platform::install_windows(
+                    &artifact,
+                    work.path(),
+                    &destination,
+                    &selected.artifact,
+                )?;
+                remember_installer(root, &artifact)?;
+            }
+            start(&destination)?;
             started = true;
+            if destination != target {
+                platform::remove_migrated_machine_install();
+            }
         } else {
             let backup = target::backup(target)?;
             let candidate = match prepared {
@@ -249,6 +267,31 @@ impl std::fmt::Display for Untouched {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("installation was not changed")
     }
+}
+
+/// Whether moving a per-machine install may install `version`/`number` into `destination`: only
+/// when no Windows client is there, or the one there reports an older build. A per-user install
+/// that cannot be inspected or queried stops the move rather than risking a downgrade.
+fn may_replace(
+    destination: &Path,
+    version: &str,
+    number: u64,
+    installed: impl FnOnce(&Path) -> Result<update_manifest::build::Build>,
+) -> Result<bool> {
+    let client = destination.join(update_manifest::runtime::executable("CLIENT", "windows"));
+    match fs::metadata(&client) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        Err(error) => return Err(error).context("inspect the per-user install"),
+        Ok(_) => {}
+    }
+    let installed = installed(destination).context("read the per-user install's build")?;
+    Ok(update_manifest::select::compare_builds(
+        version,
+        number,
+        &installed.version,
+        installed.number,
+    )?
+    .is_gt())
 }
 
 /// Keeps the most recently downloaded previous MSI for manual repair, without copying Program Files.

@@ -469,6 +469,9 @@ func TestAuthEventsRequiresCacheAndIsMutuallyExclusive(t *testing.T) {
 		{"-auth-events"},
 		{"-auth-events", "-auth-cache", "token.json", "-upstream", "example.test:19132"},
 		{"-auth-events", "-auth-cache", "token.json", "-catalog-file", "catalog.json"},
+		{"-ownership", "-auth-cache", "token.json"},
+		{"-auth-events", "-auth-cache", "token.json", "-ownership-sign-in"},
+		{"-auth-events", "-auth-cache", "token.json", "-ownership-client-id", "id"},
 	} {
 		err := run(context.Background(), args, io.Discard, io.Discard,
 			func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
@@ -485,10 +488,27 @@ func TestAuthEventsRequiresCacheAndIsMutuallyExclusive(t *testing.T) {
 	}
 }
 
+// Without a client ID the ownership helper reports unverifiable instead of calling any service.
+func TestOwnershipWithoutClientIDIsUnverifiable(t *testing.T) {
+	var output bytes.Buffer
+	err := run(context.Background(), []string{"-auth-events", "-ownership", "-auth-cache", filepath.Join(t.TempDir(), "license.json")}, &output, io.Discard,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+			t.Fatal("playing-account source called in ownership mode")
+			return nil, nil
+		}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"result":"unverifiable"`) {
+		t.Fatalf("ownership output = %s", output.String())
+	}
+}
+
 // Only helpers the client starts with a null stdin skip the stdin-EOF shutdown trigger.
 func TestOnlyNullStdinHelpersIgnoreStdin(t *testing.T) {
 	for _, args := range [][]string{
 		{"-auth-events", "-auth-cache", "token.json"},
+		{"-auth-events", "-ownership", "-auth-cache", "license.json"},
 	} {
 		if bindsStdin(args) {
 			t.Fatalf("bindsStdin(%v) = true", args)

@@ -1,7 +1,9 @@
 # Cinnabar
 
-> An independent, unofficial client compatible with Minecraft: Bedrock Edition. Not approved by
-> or associated with Mojang or Microsoft. Minecraft is a trademark of Microsoft Corporation.
+> NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+> Cinnabar is an independent client compatible with Minecraft: Bedrock Edition. Minecraft is a
+> trademark of Microsoft Corporation; its code and assets belong to Mojang and Microsoft under the
+> [Minecraft EULA](https://www.minecraft.net/eula).
 
 > [!WARNING]
 > Cinnabar is a non-vanilla client and still in development. Its movement and combat may not yet
@@ -22,6 +24,12 @@ client.
 | <img alt="Sunset with a shader pack" src="https://github.com/user-attachments/assets/25a2e8fa-23d8-4aeb-8e80-aca9d09dcee3" /> | <img alt="Moonlit river with a shader pack" src="https://github.com/user-attachments/assets/c0a8cdd8-03f2-4188-ae3c-36f516260060" /> |
 | <img alt="Light shafts in a cave with a shader pack" src="https://github.com/user-attachments/assets/1622104f-7ea2-4dde-a433-219a5f09103b" /> | <img alt="PvP on iOS" src="https://github.com/user-attachments/assets/b6135da0-ff6a-4b75-ade0-56439be56ca0" /> |
 
+## What you need
+
+**Your own copy of Minecraft.** Cinnabar is for players who own the game. It ships no Minecraft
+files: on first launch it downloads Mojang's public resource pack after you accept the Minecraft
+EULA.
+
 ## Download
 
 - **Stable:** [latest release](https://github.com/cinnabar-mc/cinnabar/releases/latest)
@@ -30,8 +38,7 @@ client.
 Linux downloads include x86_64 and Raspberry Pi Linux (64-bit ARM). Raspberry Pi Linux targets
 64-bit Raspberry Pi OS Bookworm or newer, with Vulkan graphics drivers.
 
-On first launch, Cinnabar downloads the vanilla resource pack after you accept the Minecraft EULA.
-No Mojang assets are bundled. The release notes explain how to open unsigned builds.
+The release notes explain how to open unsigned builds.
 No sound? See [docs/audio-troubleshooting.md](docs/audio-troubleshooting.md).
 
 ## Build and run

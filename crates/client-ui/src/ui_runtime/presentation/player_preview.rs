@@ -93,6 +93,10 @@ impl UiPresentationRuntime {
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
     ) {
         super::dynamic_textures::observe_session(self, runtime.session_id());
+        // Held items read the session's wearable slots before this frame's dressing and capture.
+        self.gui_models
+            .trim_icons
+            .observe_session_items(runtime.session_items());
         super::publish::prepare_shield_art(player_runtime, runtime, self, world, &resolve);
         use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);

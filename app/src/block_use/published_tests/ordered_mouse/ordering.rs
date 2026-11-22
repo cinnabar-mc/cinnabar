@@ -97,6 +97,27 @@ fn ordered_mouse_attack_select_attack_uses_each_slots_descriptor_in_order() {
     assert!(captured.drain().is_empty());
 }
 
+/// An ordered Use tap on the actor ahead interacts with it, except while eating, which ignores
+/// the press entirely.
+#[test]
+fn ordered_mouse_use_while_eating_does_not_interact_with_the_actor() {
+    for eating in [false, true] {
+        let (mut world, mut captured) = mouse_fixture();
+        if eating {
+            attack_while_using_tests::start_eating(&mut world);
+        } else {
+            item_use_tests::hold_air_item(&mut world, "minecraft:golden_apple", 2, [].into());
+        }
+        tap(&mut world, MouseButton::Right);
+        mouse_frame(&mut world, MouseButton::Left, &[]);
+        let interactions = actor_order(&mut captured)
+            .into_iter()
+            .filter(|(action, _)| *action == ActorUseAction::Interact)
+            .count();
+        assert_eq!(interactions, usize::from(!eating), "eating {eating}");
+    }
+}
+
 #[test]
 fn ordered_mouse_use_before_attack_is_not_replaced_by_a_frame_wide_attack_veto() {
     let (mut world, mut captured) = mouse_fixture();

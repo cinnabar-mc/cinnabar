@@ -121,6 +121,19 @@ pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> 
             translated(translate, "gui.cancel", "Cancel"),
             MenuAction::ConfirmRemoveShaderPack(index, revision),
         ),
+        MenuDialog::RemoveLicenseAccount => (
+            "Remove ownership account?".into(),
+            // Only builds with an account source show this, so the platform's store is the one to name.
+            match crate::ownership::LOCAL_STORE {
+                Some(crate::ownership::Store::Microsoft) => "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar needs Minecraft installed from the Microsoft Store or the Xbox app, or a new sign-in, the next time it starts.",
+                Some(crate::ownership::Store::Android) => "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar needs Minecraft installed from Google Play, or a new sign-in, the next time it starts.",
+                None => "Cinnabar uses this Microsoft account only to confirm that you own Minecraft. Without it, Cinnabar asks you to sign in again the next time it starts.",
+            }
+            .into(),
+            "Remove".into(),
+            translated(translate, "gui.cancel", "Cancel"),
+            MenuAction::ConfirmRemoveLicenseAccount,
+        ),
         MenuDialog::LeaveRealm(id) => (
             translated(translate, "playscreen.confirmLeaveTitle", "Confirm Leave"),
             translated(
@@ -324,6 +337,14 @@ mod tests {
         ] {
             assert_eq!(realm("R", &target, true).leave_id(), None, "{target}");
         }
+    }
+
+    #[test]
+    fn removing_the_ownership_account_asks_first() {
+        let view = MenuView::new(true, "Steve".to_owned());
+        let popup = dialog(&view, MenuDialog::RemoveLicenseAccount, &|_| None);
+        assert_eq!(popup.confirm, MenuAction::ConfirmRemoveLicenseAccount);
+        assert_eq!(popup.dismiss, MenuAction::DismissDialog);
     }
 
     #[test]

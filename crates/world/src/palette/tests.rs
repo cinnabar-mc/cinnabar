@@ -333,6 +333,44 @@ fn index_repair_invalidates_counts_without_changing_equality() {
     }
 }
 
+/// Decoder repair zeroes exactly the cells past the palette at every width; padding bits,
+/// surplus words and cells whose word is missing keep their bits.
+#[test]
+fn index_repair_matches_a_cell_reference_at_every_width() {
+    let mut state = 0x853c_49e6_748f_ea9b_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    for bits in PACKED_BITS {
+        let complete = word_count(bits);
+        for word_len in [complete, complete - 3, complete + 2] {
+            for palette_len in [1_usize, 2, 3, 9, 40, 257, 4000] {
+                let palette_len = palette_len.min(1 << bits);
+                let words: Vec<u32> = (0..word_len).map(|_| next() as u32).collect();
+                let mut expected = words.clone();
+                let mut storage = PalettedStorage::new(bits, words, vec![0; palette_len]);
+                for linear in 0..BLOCKS_PER_SUB_CHUNK {
+                    if storage
+                        .palette_index(linear)
+                        .is_some_and(|index| index >= palette_len)
+                    {
+                        write_palette_index(&mut expected, bits, linear, 0);
+                    }
+                }
+                storage.zero_indices_at_or_above(palette_len);
+                assert_eq!(
+                    storage.words.as_ref(),
+                    expected,
+                    "bits={bits} words={word_len} palette={palette_len}"
+                );
+            }
+        }
+    }
+}
+
 /// Cache warmth is ignored while distinct palettes, words and widths remain structurally unequal.
 #[test]
 fn equality_ignores_only_derived_counts() {

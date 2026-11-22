@@ -251,3 +251,69 @@ fn published_outline(world: &mut World) -> Option<[[f32; 3]; 2]> {
     });
     Some([min.to_array(), max.to_array()])
 }
+
+/// An interactive block reached through the downward ledge pick takes the use from the held item,
+/// as vanilla's block branch treats an indirect hit like any block hit.
+#[test]
+fn an_indirect_interactive_block_takes_the_use_from_the_item() {
+    let pitch = -0.9601;
+    let (mut world, _captured) = ledge_fixture(pitch);
+    let table = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .iter()
+    .find(|record| record.name.as_ref() == "minecraft:crafting_table")
+    .unwrap()
+    .sequential_id;
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream
+            .submit(
+                5,
+                protocol::WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
+                    dimension: 0,
+                    position: [4, 0, 6],
+                    layer: 0,
+                    network_id: table,
+                }]),
+            )
+            .unwrap();
+        test_time::eventually("crafting table decode", || {
+            stream.poll([4.5, 2.620_01, 6.1], 0);
+            stream.committed_sequence() >= 5
+        });
+    }
+    let origin = frame_origin(
+        &world,
+        Vec3::from_array([4.5, 2.620_01, 6.1]),
+        Quat::from_rotation_x(pitch),
+    );
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    retain_pick(&mut world, &origin);
+    let pick = world
+        .resource::<BlockUseRuntime>()
+        .pick(world.resource::<MovementTicker>())
+        .and_then(|pick| pick.hits.ordinary);
+    assert!(
+        matches!(
+            pick,
+            Some(gameplay::block_use::PickResult::Block(block))
+                if block.indirect && block.position == [4, 0, 6]
+        ),
+        "the ledge pick reaches the table indirectly: {pick:?}"
+    );
+    let takes = world
+        .run_system_cached(
+            |target: crate::block_use::UsePressTarget, movement: Res<MovementTicker>| {
+                target.block_takes_press(&movement)
+            },
+        )
+        .unwrap();
+    assert!(
+        takes,
+        "the indirect crafting table left the use to the item"
+    );
+}

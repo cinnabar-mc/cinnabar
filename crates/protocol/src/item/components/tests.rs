@@ -519,6 +519,27 @@ fn custom_content_stack_component_retains_its_own_value_with_property_precedence
 }
 
 #[test]
+fn plain_item_stack_component_reads_only_the_low_byte_of_a_direct_int() {
+    let parse = |entry: Vec<u8>| {
+        parse_components(&compound("", &[compound("components", &[entry])]))
+            .unwrap()
+            .max_stack_size_component
+    };
+    assert_eq!(parse(int("minecraft:max_stack_size", 1)), Some(1));
+    assert_eq!(parse(int("minecraft:max_stack_size", 257)), Some(1));
+    assert_eq!(parse(int("minecraft:max_stack_size", 256)), None);
+    assert_eq!(parse(byte("minecraft:max_stack_size", 16)), None);
+    assert_eq!(
+        parse(compound("minecraft:max_stack_size", &[byte("value", 16)])),
+        None
+    );
+    assert_eq!(
+        parse(compound("minecraft:max_stack_size", &[int("value", 16)])),
+        None
+    );
+}
+
+#[test]
 fn intrinsic_glint_flags_distinguish_false_missing_and_malformed_data() {
     let payload = |flag: Option<Vec<u8>>| {
         compound(

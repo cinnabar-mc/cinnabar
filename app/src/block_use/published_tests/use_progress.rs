@@ -29,6 +29,7 @@ fn eating_app() -> (App, client_session::CapturedPackets) {
         inventory_revision: Some(1),
         charge_projectile: None,
         press_consumed: false,
+        target_takes_use: false,
     };
     let mut runtime = world.resource_mut::<client_interaction::item_use::ItemUseRuntime>();
     runtime.synchronize(7);

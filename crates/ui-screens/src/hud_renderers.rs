@@ -102,7 +102,8 @@ pub struct HudPaint {
     pub effects: MobEffects,
     /// The Java rows `java_mob_effects_renderer` draws, relative to its control's top-right corner.
     pub java_effects: Vec<Cell>,
-    /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
+    /// Jump-bar background and fill over the XP bar, with the filled fraction of the bar's
+    /// width in `0.0..=1.0`, so a bar widened for the touch hotbar still fills completely.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub locator: Option<LocatorPaint>,
     pub hotbar_cooldowns: [f32; 9],
@@ -288,13 +289,13 @@ fn paint(
         }
         "horse_jump_renderer" => {
             if let Some((background, fill, filled)) = hud.mount_jump {
-                let px = canvas.px();
                 sheet(canvas, background, dest, alpha);
-                let width = (filled * px).min(dest[2] - dest[0]);
+                let fraction = filled.clamp(0.0, 1.0);
+                let width = (dest[2] - dest[0]) * fraction;
                 if width > 0.0 {
                     let mut uv = fill.uv;
                     let span = f32::from(uv[2] - uv[0]);
-                    uv[2] = uv[0] + (span * filled / 182.0).round() as u16;
+                    uv[2] = uv[0] + (span * fraction).round() as u16;
                     let clipped = SheetSprite { uv, ..fill };
                     sheet(
                         canvas,

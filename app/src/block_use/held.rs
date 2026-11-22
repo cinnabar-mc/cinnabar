@@ -70,6 +70,16 @@ pub(super) fn maintain_block_use(
         use_phase.pressed = false;
         use_phase.released = false;
     }
+    // Eating or another item use ignores block and actor use, held repeats included. A press
+    // it ignores does nothing at all: it stops no held action and is never kept for later.
+    let vetoed = item_use.vetoes_build_action(
+        &player_runtime,
+        &context.ui,
+        context.client_world.stream.as_ref(),
+    );
+    if vetoed {
+        use_phase.pressed = false;
+    }
     let attacking = crate::ordered_interactions::build_held(
         context.ordered.as_deref(),
         &context.input,
@@ -91,6 +101,10 @@ pub(super) fn maintain_block_use(
         attacking,
         movement.accepts_block_interactions(),
     ) {
+        return;
+    }
+    if vetoed {
+        runtime.clear_press();
         return;
     }
     // An attack in the same frame is handled first: the use waits until melee resolves it,

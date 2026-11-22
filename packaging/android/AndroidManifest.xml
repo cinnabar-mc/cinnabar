@@ -6,6 +6,12 @@
     android:versionName="@VERSION_NAME@">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
+    <!-- The ownership gate reads the game's and Google Play's signers and the game's installer;
+         Android 11+ hides packages, and installers, the manifest doesn't name. -->
+    <queries>
+        <package android:name="com.mojang.minecraftpe" />
+        <package android:name="com.android.vending" />
+    </queries>
     <application
         android:label="@PRODUCT_NAME@"
         android:icon="@mipmap/ic_launcher"

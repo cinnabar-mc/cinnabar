@@ -12,9 +12,10 @@ pub(crate) struct UsePressTarget<'w> {
 }
 
 impl UsePressTarget<'_> {
-    /// Whether a use press now goes to the aimed block's own use instead of the held item's,
-    /// so block use sends it and the item's use, such as opening a book, never starts.
-    /// Missing picks, misses, actors and unloaded cells leave the press to the item.
+    /// Whether a use press or held repeat now goes to the aimed block's own use instead of the
+    /// held item's, so block use sends it and the item's use, such as opening a book or eating,
+    /// does not run. An indirect ledge hit counts like any block hit, as in vanilla's block
+    /// branch. Missing picks, misses, actors and unloaded cells leave the use to the item.
     pub(crate) fn block_takes_press(&self, movement: &MovementTicker) -> bool {
         let (Some(runtime), Some(client_world), Some(collisions)) = (
             self.runtime.as_deref(),
@@ -33,9 +34,6 @@ impl UsePressTarget<'_> {
         else {
             return false;
         };
-        if block.indirect {
-            return false;
-        }
         let mode = stream.network_id_mode();
         let world = PaletteWorld::new(
             stream.collision_store(),
