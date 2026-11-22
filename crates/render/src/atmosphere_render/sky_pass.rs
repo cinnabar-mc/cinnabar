@@ -1,4 +1,5 @@
-//! The sky is the first draw on scene colour, in the first pass that opens it.
+//! The sky draws in the first pass that opens scene colour: first in that pass when a pack
+//! skybox needs it, otherwise after the pass's opaque geometry so covered pixels skip it.
 
 use super::{AtmosphereGpu, AtmospherePipelineKey};
 use bevy::prelude::IntoScheduleConfigs;
@@ -60,9 +61,9 @@ pub(crate) enum SkyHost {
     Opaque,
 }
 
-/// Picks the first pass that opens `view`'s scene colour, so the sky stays the first draw
-/// on that attachment without paying for a render pass of its own. Opaque-category GPU
-/// profiling splits the opaque pass and keeps the sky's own timed pass.
+/// Picks the first pass that opens `view`'s scene colour, so the sky draws there without
+/// paying for a render pass of its own. Opaque-category GPU profiling splits the opaque pass
+/// and keeps the sky's own timed pass.
 pub(crate) fn host(world: &World, view: Entity) -> SkyHost {
     if crate::chunk::terrain_pass_draws_color(world, view) {
         SkyHost::Terrain
@@ -73,6 +74,15 @@ pub(crate) fn host(world: &World, view: Entity) -> SkyHost {
     } else {
         SkyHost::Own
     }
+}
+
+/// Whether the sky must be drawn before world geometry: the pack skybox writes depth nearer
+/// than the far plane, so geometry has to overwrite it. Without it every sky layer sits at the
+/// far plane and its depth test leaves covered pixels unshaded.
+pub(crate) fn precedes_geometry(world: &World) -> bool {
+    world
+        .get_resource::<AtmosphereGpu>()
+        .is_none_or(|gpu| gpu.skybox_active)
 }
 
 /// Opens the sky's own pass only for views whose sky no scene pass hosts.
