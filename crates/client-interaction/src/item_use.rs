@@ -44,12 +44,13 @@ impl ItemUseRuntime {
         self.0.is_using()
     }
 
-    /// Whether an item in use makes the attack button do nothing now, as vanilla's build
-    /// action handler returns while the player uses an item. Derived from current state at each
+    /// Whether an item in use makes the attack and use buttons do nothing now, as vanilla's
+    /// build action handler returns before any attack, block use or actor use while the player
+    /// uses an item. Derived from current state at each
     /// admission point: the veto holds only while the selected slot still holds the item the
     /// use started with, so any slot change, local or server-driven, ends it at once. A held
     /// charged item, fishing rod or brush never vetoes, matching vanilla's exceptions.
-    pub fn vetoes_attack(
+    pub fn vetoes_build_action(
         &self,
         player_runtime: &client_state::PlayerRuntime,
         stream: Option<&WorldStream>,

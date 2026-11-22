@@ -130,7 +130,7 @@ fn a_same_frame_slot_change_ends_the_attack_veto() {
     attack(&mut world);
     let vetoed = world
         .resource::<client_interaction::item_use::ItemUseRuntime>()
-        .vetoes_attack(
+        .vetoes_build_action(
             world.resource::<client_state::PlayerRuntime>(),
             world
                 .resource::<crate::runtime::world::ClientWorld>()

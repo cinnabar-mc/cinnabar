@@ -25,7 +25,10 @@ pub(crate) fn press(
         {
             return false;
         }
-        if !pressed || context.melee.blocks_use_at(now) {
+        if !pressed
+            || context.melee.blocks_use_at(now)
+            || item_use.vetoes_build_action(&player, context.client_world.stream.as_ref())
+        {
             return true;
         }
         if !movement.accepts_block_interactions()

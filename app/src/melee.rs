@@ -192,7 +192,7 @@ pub(crate) fn prepare_melee(
     if let Err(reason) = press_admission(
         focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),
-        item_use.vetoes_attack(&player_runtime, context.client_world.stream.as_ref()),
+        item_use.vetoes_build_action(&player_runtime, context.client_world.stream.as_ref()),
     ) {
         drop(reason);
         runtime.cancel();
@@ -345,7 +345,7 @@ fn maintain_attacks(
     // An item in use ignores a held Attack as it ignores a press, so no held mining starts or
     // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
-        && !item_use.vetoes_attack(&player, context.client_world.stream.as_ref())
+        && !item_use.vetoes_build_action(&player, context.client_world.stream.as_ref())
         && (context
             .mod_interaction
             .as_ref()
