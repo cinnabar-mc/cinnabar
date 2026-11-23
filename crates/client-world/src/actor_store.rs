@@ -604,13 +604,25 @@ pub enum LocalItemUse {
 /// a different value, except the rig's local frame fractions (see
 /// [`actor_animation::PresentationRevision`]); a value may also change when nothing observable
 /// did. Frame samples also read the camera, which [`ActorStore::view_revision`] identifies.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct ActorPresentationRevision {
     /// The actor's runtime id with its process-wide stamp, so revisions of different actors or
     /// stores never compare equal.
     runtime_id: u64,
     actor: u64,
     rig: Option<actor_animation::PresentationRevision>,
+}
+
+/// Shows the owning actor and rig; the process-wide stamps identify moments, not state, so equal
+/// states print alike.
+impl std::fmt::Debug for ActorPresentationRevision {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorPresentationRevision")
+            .field("runtime_id", &self.runtime_id)
+            .field("rig", &self.rig)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Sparse session state, including immutable prepared appearances; GPU resources stay in presentation.
