@@ -147,6 +147,8 @@ impl CellProjection {
 /// Retains source allocations and resolves only invalidated cells or projections.
 pub struct InventoryProjectionCache {
     snapshot: Option<InventoryPresentationSnapshot>,
+    /// Advances whenever [`Self::stacks`] may yield different stacks.
+    stacks_epoch: u64,
     animation: ProjectionAnimation,
     inventory_open: bool,
     player: [CellProjection; protocol::PLAYER_INVENTORY_SLOTS as usize],
@@ -173,6 +175,7 @@ impl Default for InventoryProjectionCache {
     fn default() -> Self {
         Self {
             snapshot: None,
+            stacks_epoch: 0,
             animation: Default::default(),
             inventory_open: false,
             player: std::array::from_fn(|_| CellProjection::default()),
@@ -208,7 +211,11 @@ impl InventoryProjectionCache {
             self.read_cells(ledger);
             self.snapshot = Some(ledger.presentation_snapshot());
         }
+        if first || cells_changed || open_changed {
+            self.stacks_epoch = self.stacks_epoch.wrapping_add(1);
+        }
         if inventory_open && (first || cells_changed || refresh.recipes || open_changed) {
+            self.stacks_epoch = self.stacks_epoch.wrapping_add(1);
             let output = crafting_output(ledger, crafting_match());
             self.output_is_ghost = output.as_ref().is_some_and(|(_, ghost)| *ghost);
             self.output
@@ -222,6 +229,12 @@ impl InventoryProjectionCache {
         self.pending.refresh.names |= refresh.names;
         self.pending.refresh.recipes |= refresh.recipes;
         self.inventory_open = inventory_open;
+    }
+
+    /// Changes whenever [`Self::stacks`] may yield different stacks: a stack-reading owner that
+    /// saw this value already saw them.
+    pub const fn stacks_epoch(&self) -> u64 {
+        self.stacks_epoch
     }
 
     /// Borrows the prepared artwork sources, including the visible crafting result.
