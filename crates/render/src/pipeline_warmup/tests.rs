@@ -372,3 +372,60 @@ fn a_view_added_after_steady_frames_warms_every_owner() {
     world.run_schedule(Render);
     assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
 }
+
+#[derive(Resource, Default)]
+struct OwnerRuns(usize);
+
+/// Counts the frames in which the owner set does any work.
+fn count_owner_run(mut runs: ResMut<OwnerRuns>) {
+    runs.0 += 1;
+}
+
+/// Once every owner has warmed the views, frames with the same views run no owner work, until
+/// the views change.
+#[test]
+fn settled_frames_run_no_owner_work() {
+    let mut app = two_owner_app();
+    let render = app.sub_app_mut(RenderApp);
+    render
+        .init_resource::<OwnerRuns>()
+        .add_systems(Render, count_owner_run.in_set(WarmupSet::Owners));
+    let world = render.world_mut();
+    world.insert_resource(LateOwner {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    compiled_frame(world);
+    let settled = world.resource::<OwnerRuns>().0;
+    for _ in 0..4 {
+        compiled_frame(world);
+        assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+    }
+    assert_eq!(world.resource::<OwnerRuns>().0, settled);
+    world.spawn((
+        crate::render_test_support::camera(false),
+        Msaa::Sample4,
+        Camera3d::default(),
+    ));
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<OwnerRuns>().0, settled + 1);
+}
+
+/// Removing an owner after the views settle drops its variants from readiness.
+#[test]
+fn a_removed_owner_leaves_the_settled_variants() {
+    let mut app = two_owner_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(LateOwner {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    for _ in 0..3 {
+        compiled_frame(world);
+    }
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 3);
+    world.remove_resource::<LateOwner>();
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+}
