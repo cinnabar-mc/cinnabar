@@ -264,3 +264,111 @@ fn warmup_queues_after_the_blocking_blit_and_before_render() {
     render.world_mut().run_schedule(Render);
     assert_eq!(render.world().resource::<Queued>().0, [0, 2]);
 }
+
+/// A second owner that counts its specializations.
+#[derive(Resource)]
+struct LateOwner {
+    shader: Handle<Shader>,
+    calls: usize,
+}
+
+impl PrewarmPipelines for LateOwner {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: WarmView,
+        ids: &mut WarmupIds,
+    ) -> Result<(), BevyError> {
+        self.calls += 1;
+        let mut descriptor = descriptor(self.shader.clone(), ColorWrites::BLUE);
+        descriptor.multisample.count = view.msaa.samples();
+        ids.push(cache.queue_render_pipeline(descriptor));
+        Ok(())
+    }
+}
+
+/// A render app with both owners registered and one camera; only `TwoModes` exists yet.
+fn two_owner_app() -> App {
+    let mut app = App::new();
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    register::<TwoModes>(&mut app);
+    register::<LateOwner>(&mut app);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(cache());
+    world.insert_resource(TwoModes {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    world.spawn((
+        crate::render_test_support::camera(false),
+        Msaa::Off,
+        Camera3d::default(),
+    ));
+    app
+}
+
+/// Runs a frame and compiles whatever it queued.
+fn compiled_frame(world: &mut World) {
+    world.run_schedule(Render);
+    world.resource_mut::<PipelineCache>().process_queue();
+}
+
+/// Steady frames reuse the collected variants, but an owner created after the views settled
+/// still warms its own before the world counts as ready again.
+#[test]
+fn an_owner_created_after_the_views_settle_still_warms() {
+    let mut app = two_owner_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    for _ in 0..3 {
+        compiled_frame(world);
+    }
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
+    world.insert_resource(LateOwner {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<LateOwner>().calls, 1);
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 3);
+    assert!(
+        !world.resource::<PipelineWarmupReadiness>().is_ready(),
+        "the late owner's variant is still queued"
+    );
+    world.resource_mut::<PipelineCache>().process_queue();
+    for _ in 0..3 {
+        world.run_schedule(Render);
+        assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+        assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 3);
+    }
+    assert_eq!(world.resource::<TwoModes>().calls, 1);
+    assert_eq!(world.resource::<LateOwner>().calls, 1);
+}
+
+/// Once every owner has warmed the views, a new view configuration still warms them again.
+#[test]
+fn a_view_added_after_steady_frames_warms_every_owner() {
+    let mut app = two_owner_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(LateOwner {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    for _ in 0..3 {
+        compiled_frame(world);
+    }
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+    world.spawn((
+        crate::render_test_support::camera(false),
+        Msaa::Sample4,
+        Camera3d::default(),
+    ));
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<TwoModes>().calls, 2);
+    assert_eq!(world.resource::<LateOwner>().calls, 2);
+    assert!(!world.resource::<PipelineWarmupReadiness>().is_ready());
+    world.resource_mut::<PipelineCache>().process_queue();
+    world.run_schedule(Render);
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+}
