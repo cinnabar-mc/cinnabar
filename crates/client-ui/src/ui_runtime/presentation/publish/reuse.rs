@@ -82,6 +82,12 @@ impl UiPresentationRuntime {
         self.frame_reuse = reuse;
     }
 
+    /// Frames publication built rather than repeated.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn frames_built(&self) -> u64 {
+        self.frames_built
+    }
+
     /// Repeated frames whose check build drew something else.
     pub fn frame_reuse_mismatches(&self) -> u64 {
         self.frame_reuse_mismatches
@@ -101,7 +107,8 @@ impl UiPresentationRuntime {
         holds && !self.collect_async_work()
     }
 
-    /// Collects finished background work a build reads; whether any arrived or waits.
+    /// Collects finished background work a build reads; whether any arrived, waits or still
+    /// needs builds to finish.
     fn collect_async_work(&mut self) -> bool {
         // Evaluated in full: each poll installs what it collected, as the build would.
         let artwork = self.menu_artwork_loader.poll();
@@ -110,7 +117,10 @@ impl UiPresentationRuntime {
             .engine
             .as_deref()
             .is_some_and(ui_engine::engine::FormEngine::texture_completions_waiting);
-        artwork | images | decodes | self.session_icons.packing()
+        // Closed-inventory preparation runs on a worker that only builds service; it finishes
+        // during idle frames rather than on the frame that opens the inventory.
+        let preparing = self.engine_inventory_preparation_pending();
+        artwork | images | decodes | preparing | self.session_icons.packing()
     }
 
     /// Records the frame just built from `inputs` for later repeats.

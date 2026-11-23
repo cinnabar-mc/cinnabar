@@ -1,5 +1,6 @@
 use super::*;
 use resource_pack::test_support::{layered_pack_view, pack_view};
+use crate::sources::RemoteImage;
 use std::sync::Mutex;
 
 /// An installed vanilla pack held in memory.
@@ -561,4 +562,38 @@ fn a_decode_collected_by_another_request_changes_the_atlas_revision() {
     atlas.require(["textures/ui/absent"]);
     assert!(atlas.placement("textures/ui/w0").is_none());
     assert_ne!(atlas.revision(), before);
+}
+
+/// A download whose state the test sets.
+struct Download(Mutex<RemoteImage>);
+
+impl RemoteSource for Download {
+    fn state(&self, _url: &str) -> RemoteImage {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+// A paint that asked for a still-loading download drew without it; once the download settles a
+// retained frame must not outlive it.
+#[test]
+fn a_download_a_paint_found_loading_counts_once_it_settles() {
+    let download = Arc::new(Download(Mutex::new(RemoteImage::Loading)));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let url = "https://example.invalid/crosshair.png";
+    atlas.begin_frame();
+    atlas.require([url]);
+    assert!(atlas.placement(url).is_none());
+    assert!(
+        !atlas.completions_waiting(),
+        "a loading download has nothing to collect yet"
+    );
+    *download.0.lock().unwrap() = RemoteImage::Ready(png(16, 16).into());
+    assert!(
+        atlas.completions_waiting(),
+        "the finished download makes the next frame build"
+    );
+    atlas.begin_frame();
+    atlas.require([url]);
+    assert!(atlas.placement(url).is_some());
+    assert!(!atlas.completions_waiting());
 }
