@@ -38,7 +38,7 @@ pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
 pub(crate) use tick_cache::{convert_bones, convert_bones_with};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ActorRigPresentation {
     pub submission: ActorRigSubmission,
     pub skin_rgba8: Option<SkinRgba8>,

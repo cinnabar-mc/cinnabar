@@ -87,10 +87,13 @@ fn readiness_and_prepare_reuse_sampling_without_allocating() {
             HandCaches {
                 source: &mut ready,
                 key: &key,
+                keyed: None,
+                session: 0,
                 java_hand: &mut cache,
                 equipment: Some(&mut equipment),
             },
         )
+        .0
         .unwrap();
         assert_eq!(
             test_alloc::thread_allocations(),

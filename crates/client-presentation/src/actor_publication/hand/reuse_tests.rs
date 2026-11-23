@@ -1,0 +1,188 @@
+use super::*;
+use bevy::ecs::system::SystemState;
+use bevy::prelude::{PerspectiveProjection, Projection, Time, Transform, World};
+use bevy::time::Real;
+use native_tests::fixture_with_clock;
+
+/// Runs the production readiness and final publication owners frame by frame.
+struct Frames {
+    world: World,
+    stream: WorldStream,
+    entities: Arc<assets::RuntimeEntityAssets>,
+    input: ActorEquipmentInput,
+    params: SystemState<super::super::ActorFramePublication<'static, 'static>>,
+}
+
+impl Frames {
+    fn new(main: Option<&str>) -> Self {
+        let ((stream, equipment, artwork, input), entities) = fixture_with_clock(main, false);
+        let mut world = World::new();
+        world.insert_resource(Time::<Real>::default());
+        world.insert_resource(equipment);
+        world.insert_resource(render_scene::ActorArtworkResource(artwork));
+        world.insert_resource(
+            render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap(),
+        );
+        world
+            .insert_resource(super::super::HandRigBuilder::from_runtime_assets(&entities).unwrap());
+        world.init_resource::<super::super::ActorFrameState>();
+        world.init_resource::<super::super::PreparedActorPublication>();
+        world.init_resource::<super::super::ActorFramePartialTick>();
+        world.init_resource::<render_scene::HandRigScene>();
+        let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+        avatar.begin_session(
+            simulation_clock::identity::SessionGeneration::new(
+                stream.authority().actor_session_id(),
+            ),
+            1,
+        );
+        world.insert_resource(avatar);
+        world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
+        let mut settings = crate::camera::CameraSettingsAuthority::default();
+        let mut user = ui::UserSettings::default();
+        user.gameplay.default_perspective = semantic_input::PerspectiveMode::FirstPerson;
+        user.video.java_animations = false;
+        settings.replace(1, &user).unwrap();
+        world.insert_resource(settings);
+        world.insert_resource(crate::local_player::LocalViewPose::default());
+        world.spawn((
+            Transform::default(),
+            Projection::Perspective(PerspectiveProjection::default()),
+            crate::camera::FlyCamera::default(),
+        ));
+        let params = SystemState::new(&mut world);
+        Self {
+            world,
+            stream,
+            entities,
+            input,
+            params,
+        }
+    }
+
+    /// One rendered frame advancing `millis` with an optional admitted swing.
+    fn frame(&mut self, millis: u64, swing: Option<actor_animation::LocalSwingProgress>) {
+        self.world
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_millis(millis));
+        let mut prepared_artwork = None;
+        super::super::advance_actor_frame(
+            super::super::ActorWorld {
+                stream: Some(&mut self.stream),
+                collisions: None,
+                entity_assets: Some(&self.entities),
+                pack_entities: None,
+                session_items: None,
+                prepared_actor_artwork: &mut prepared_artwork,
+            },
+            super::super::ActorFrameInput {
+                cosmetics: Vec::new(),
+                local_feed: None,
+                predicted_eye: Some([0.0, 65.62, 0.0]),
+                predicted_feet: Some([0.0, 64.0, 0.0]),
+                local_equipment: self.input.clone(),
+                swing_progress: None,
+                renders_game: true,
+                hide_hand: false,
+                remote_emotes: Vec::new(),
+                remote_hats: Vec::new(),
+                custom_emote: None,
+            },
+            |_| {},
+            |_, _| (None, None),
+            self.params.get_mut(&mut self.world).unwrap(),
+        );
+        super::super::prepare_actor_render_frame(
+            super::super::ActorWorld {
+                stream: Some(&mut self.stream),
+                collisions: None,
+                entity_assets: Some(&self.entities),
+                pack_entities: None,
+                session_items: None,
+                prepared_actor_artwork: &mut prepared_artwork,
+            },
+            swing,
+            |_, _, _, _| false,
+            None,
+            self.params.get_mut(&mut self.world).unwrap(),
+        );
+    }
+
+    fn reuses(&self) -> u64 {
+        self.world
+            .resource::<super::super::ActorFrameState>()
+            .hand_reuse
+            .reuses
+    }
+
+    /// The published hand's camera-space draws.
+    fn published(&self) -> Vec<render_model::ActorGpuInstance> {
+        self.world
+            .resource::<render_scene::HandRigScene>()
+            .frame
+            .as_ref()
+            .expect("the hand draws")
+            .rig
+            .instances
+            .to_vec()
+    }
+}
+
+/// An idle empty hand keeps its source across frames whose frame fraction differs, and the
+/// debug rebuild inside readiness proves each reuse matches a fresh source.
+#[test]
+fn idle_empty_hand_reuses_its_source_across_frames() {
+    let mut frames = Frames::new(None);
+    frames.frame(7, None);
+    let first = frames.published();
+    for millis in [3, 11, 5] {
+        frames.frame(millis, None);
+    }
+    assert_eq!(
+        frames.reuses(),
+        3,
+        "every idle frame after the first reuses the source"
+    );
+    let instance = |instances: Vec<render_model::ActorGpuInstance>| {
+        instances
+            .into_iter()
+            .map(|instance| (instance.world_from_actor, instance.geometry_id))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(instance(frames.published()), instance(first));
+}
+
+/// While the arm swings across ticks its phases move with the frame fraction, so no source is
+/// kept; the debug rebuild checks the frames that do reuse one.
+#[test]
+fn swinging_arm_is_rebuilt_every_frame() {
+    let mut frames = Frames::new(None);
+    frames.frame(7, None);
+    frames.frame(7, None);
+    assert_eq!(frames.reuses(), 1);
+    let swing = |previous, current| {
+        Some(actor_animation::LocalSwingProgress {
+            bedrock: [previous, current],
+            java: [previous, current],
+            frame_alpha: Some(0.5),
+        })
+    };
+    frames.frame(60, swing(0.0, 0.25));
+    frames.frame(60, swing(0.25, 0.5));
+    frames.frame(60, swing(0.5, 0.75));
+    assert_eq!(
+        frames.reuses(),
+        1,
+        "a moving swing reads the frame fraction"
+    );
+}
+
+/// A held item's source samples the native parent pose at the frame fraction and is rebuilt.
+#[test]
+fn held_items_are_rebuilt_every_frame() {
+    let mut frames = Frames::new(Some("minecraft:shield"));
+    for millis in [7, 3, 11] {
+        frames.frame(millis, None);
+    }
+    assert_eq!(frames.reuses(), 0);
+}

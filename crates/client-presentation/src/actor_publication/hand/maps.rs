@@ -68,8 +68,8 @@ impl MapCache {
 /// Paper and pixels use separate submissions and bindings, preserving pack resolution.
 #[derive(Default)]
 pub(in super::super) struct MapLayers {
-    pub(super) paper: [Option<(ActorRigSubmission, Mat4)>; 2],
-    pub(super) background: Option<HandItemAtlas>,
+    pub(in super::super) paper: [Option<(ActorRigSubmission, Mat4)>; 2],
+    pub(in super::super) background: Option<HandItemAtlas>,
 }
 
 /// Selects map images independently for the displayed main stack and the owner's offhand.

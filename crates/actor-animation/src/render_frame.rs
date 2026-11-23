@@ -563,6 +563,19 @@ impl ActorAnimationStore {
             .is_some_and(|state| state.may_use_occlusion_bypass_material)
     }
 
+    /// Whether the rig's sampled visibility may differ between frames that share its
+    /// [`PresentationRevision`] and both have a positive frame fraction, for instance with that
+    /// fraction or the camera. A zero fraction may draw the completed tick's visibility instead.
+    /// Unknown counts as differing; a rig proves otherwise when it never samples its frame, or
+    /// once a sample has planned gates that read only its tick state.
+    pub fn visibility_reads_frame(&self, actor: &dyn AnimatedActor) -> bool {
+        self.runtime_to_lifetime
+            .get(&actor.runtime_id())
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision())
+            .and_then(|lifetime| self.rigs.get(lifetime))
+            .is_none_or(|state| visibility::reads_frame(state, actor))
+    }
+
     /// Whether admission needs a frame scale rather than the completed tick's scale.
     pub fn samples_rig_scale(&self, actor: &dyn AnimatedActor) -> bool {
         self.runtime_to_lifetime

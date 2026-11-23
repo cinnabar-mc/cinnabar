@@ -24,6 +24,8 @@ mod native_tests;
 #[cfg(test)]
 mod remote_body_tests;
 #[cfg(test)]
+mod reuse_tests;
+#[cfg(test)]
 mod shield_tests;
 #[cfg(test)]
 mod spear_tests;
@@ -112,7 +114,7 @@ pub(super) fn publish_hand_rig(
     builder: &mut ActorRigFrameBuilder,
     scene: &mut HandRigScene,
     revision: &mut u64,
-    source: Option<HandSource>,
+    source: Option<&HandSource>,
     fov_radians: Option<f32>,
     mut light: HandRigLight,
     (partial_tick, glint): (f32, Option<&render_scene::UiGlintSettings>),
@@ -134,18 +136,18 @@ pub(super) fn publish_hand_rig(
         }),
     );
     let mut atlases = [None, None];
-    for (index, entry) in source.items.into_iter().enumerate() {
+    for (index, entry) in source.items.iter().enumerate() {
         if let Some((layer, atlas)) = entry {
             light.java_normal_axes[index + 1] = layer.java_normal_axis.extend(0.0).to_array();
             light.emitted_light[index + 1] = u32::from(layer.emitted_light);
-            atlases[index] = Some(atlas);
+            atlases[index] = Some(atlas.clone());
         }
     }
     *revision = revision.wrapping_add(1).max(1);
     if scene.publish(frame, skin, light, fov, *revision) {
         scene.set_item_atlases(atlases);
-        scene.set_item_glint(source.item_glint);
-        scene.set_map_background(source.maps.background);
+        scene.set_item_glint(source.item_glint.clone());
+        scene.set_map_background(source.maps.background.clone());
     }
 }
 
