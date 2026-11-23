@@ -604,8 +604,11 @@ pub enum LocalItemUse {
 /// a different value, except the rig's local frame fractions (see
 /// [`actor_animation::PresentationRevision`]); a value may also change when nothing observable
 /// did. Frame samples also read the camera, which [`ActorStore::view_revision`] identifies.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ActorPresentationRevision {
+    /// The actor's runtime id with its process-wide stamp, so revisions of different actors or
+    /// stores never compare equal.
+    runtime_id: u64,
     actor: u64,
     rig: Option<actor_animation::PresentationRevision>,
 }
@@ -694,7 +697,7 @@ pub(crate) struct ActorStore {
     local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     /// Advances whenever the camera rotation or position frame samples read changes.
-    view_revision: u64,
+    view_revision: tracked_actors::ViewStamp,
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
     camera_position: [f32; 3],

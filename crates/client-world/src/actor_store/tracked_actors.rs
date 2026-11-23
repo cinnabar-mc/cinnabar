@@ -5,11 +5,35 @@ use std::collections::HashMap;
 /// Actors by runtime id. Reads go through `Deref`; every mutable access gives the actor a new
 /// presentation revision, so a reader holding an older revision knows the actor may differ.
 /// Setters that run every frame use [`Self::update`] and stamp only real changes.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(super) struct TrackedActors {
     actors: HashMap<u64, ActorSnapshot>,
     revisions: FastHashMap<u64, u64>,
-    last_revision: u64,
+}
+
+/// A process-wide stamp for when the camera frame samples read last changed. Debug output omits
+/// its value, so equal stores print alike.
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+pub(super) struct ViewStamp(pub(super) u64);
+
+impl std::fmt::Debug for ViewStamp {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ViewStamp")
+    }
+}
+
+/// A revision no actor or view in any store has held before, so revisions from different
+/// stores never compare equal.
+pub(super) fn next_revision() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Revisions identify when an actor last changed, not what it holds, so debug output omits them.
+impl std::fmt::Debug for TrackedActors {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.actors.fmt(formatter)
+    }
 }
 
 impl std::ops::Deref for TrackedActors {
@@ -27,12 +51,6 @@ impl actor_animation::AnimatedActors for TrackedActors {
 }
 
 impl TrackedActors {
-    /// A revision no actor has held before.
-    fn next_revision(&mut self) -> u64 {
-        self.last_revision = self.last_revision.wrapping_add(1).max(1);
-        self.last_revision
-    }
-
     /// The actor's current presentation revision: equal values mean the snapshot is unchanged.
     pub(super) fn revision(&self, runtime_id: u64) -> Option<u64> {
         self.revisions.get(&runtime_id).copied()
@@ -41,8 +59,7 @@ impl TrackedActors {
     /// Borrows one actor for mutation, assuming it changes.
     pub(super) fn get_mut(&mut self, runtime_id: &u64) -> Option<&mut ActorSnapshot> {
         let actor = self.actors.get_mut(runtime_id)?;
-        self.last_revision = self.last_revision.wrapping_add(1).max(1);
-        self.revisions.insert(*runtime_id, self.last_revision);
+        self.revisions.insert(*runtime_id, next_revision());
         Some(actor)
     }
 
@@ -56,7 +73,7 @@ impl TrackedActors {
         let actor = self.actors.get_mut(&runtime_id)?;
         let (changed, result) = update(actor);
         if changed {
-            let revision = self.next_revision();
+            let revision = next_revision();
             self.revisions.insert(runtime_id, revision);
         }
         Some(result)
@@ -69,7 +86,7 @@ impl TrackedActors {
 
     /// Borrows every actor for mutation, assuming each changes.
     pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = (&u64, &mut ActorSnapshot)> {
-        let revision = self.next_revision();
+        let revision = next_revision();
         for stamp in self.revisions.values_mut() {
             *stamp = revision;
         }
@@ -81,7 +98,7 @@ impl TrackedActors {
         runtime_id: u64,
         actor: ActorSnapshot,
     ) -> Option<ActorSnapshot> {
-        let revision = self.next_revision();
+        let revision = next_revision();
         self.revisions.insert(runtime_id, revision);
         self.actors.insert(runtime_id, actor)
     }

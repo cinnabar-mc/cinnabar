@@ -8,7 +8,8 @@ use render_model::{ActorRigSubmission, EquipmentRaster, HandItemAtlas, HandRigLi
 /// geometry catalog are the same. Glint scrolling changes the draws themselves.
 #[derive(Default)]
 pub(super) struct PublishedHand {
-    frame: Option<Inputs>,
+    /// The recorded inputs and the scene revision they were published under.
+    frame: Option<(Inputs, u64)>,
     /// Republications skipped since the state was created.
     #[cfg(test)]
     pub(super) kept: u64,
@@ -94,9 +95,13 @@ impl Inputs {
 }
 
 impl PublishedHand {
-    /// Whether the scene already holds a frame built from `inputs`.
-    pub(super) fn holds(&mut self, inputs: &Inputs) -> bool {
-        let held = self.frame.as_ref().is_some_and(|frame| inputs.same(frame));
+    /// Whether the scene, whose frame carries `held_revision`, still holds the recorded frame and
+    /// that frame was built from `inputs`. A scene cleared or republished by anyone else since
+    /// carries no revision or another one.
+    pub(super) fn holds(&mut self, inputs: &Inputs, held_revision: Option<u64>) -> bool {
+        let held = self.frame.as_ref().is_some_and(|(frame, revision)| {
+            held_revision == Some(*revision) && inputs.same(frame)
+        });
         #[cfg(test)]
         {
             self.kept += u64::from(held);
@@ -104,9 +109,11 @@ impl PublishedHand {
         held
     }
 
-    /// Records the inputs of the frame just published, or forgets them.
-    pub(super) fn record(&mut self, inputs: Option<Inputs>) {
-        self.frame = inputs.filter(|inputs| inputs.still);
+    /// Records the inputs of the frame just published under `revision`, or forgets them.
+    pub(super) fn record(&mut self, inputs: Option<Inputs>, revision: u64) {
+        self.frame = inputs
+            .filter(|inputs| inputs.still)
+            .map(|inputs| (inputs, revision));
     }
 }
 

@@ -138,6 +138,7 @@ fn advancing_frame_inputs_reuse_nonempty_layer_storage() {
             false,
             false,
             Some("query.frame_alpha > 0.5"),
+            None,
         );
         let mut cache = java::HandCache::default();
         let initial = hand_source_for_mode(

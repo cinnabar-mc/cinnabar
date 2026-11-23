@@ -8,7 +8,24 @@ use super::*;
 #[derive(Debug, Default)]
 pub(super) struct RigMap {
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
-    last_revision: u64,
+}
+
+/// A process-wide presentation stamp. It identifies when a rig or catalog last changed, not
+/// what it holds, so debug output omits its value and equal states print alike.
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+pub(super) struct Stamp(pub(super) u64);
+
+impl std::fmt::Debug for Stamp {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Stamp")
+    }
+}
+
+/// A stamp no rig or catalog in any store has held before, so revisions from different stores
+/// never compare equal.
+pub(super) fn next_revision() -> Stamp {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    Stamp(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
 
 impl std::ops::Deref for RigMap {
@@ -20,17 +37,10 @@ impl std::ops::Deref for RigMap {
 }
 
 impl RigMap {
-    /// A revision no rig has held before.
-    fn next_revision(&mut self) -> u64 {
-        self.last_revision = self.last_revision.wrapping_add(1).max(1);
-        self.last_revision
-    }
-
     /// Borrows one rig for mutation, assuming it changes.
     pub(super) fn get_mut(&mut self, lifetime: &ActorLifetimeId) -> Option<&mut ActorRigState> {
-        let revision = self.next_revision();
         let state = self.rigs.get_mut(lifetime)?;
-        state.presentation_revision = revision;
+        state.presentation_revision = next_revision();
         Some(state)
     }
 
@@ -40,12 +50,10 @@ impl RigMap {
         lifetime: &ActorLifetimeId,
         update: impl FnOnce(&mut ActorRigState) -> (bool, R),
     ) -> Option<R> {
-        let revision = self.last_revision.wrapping_add(1).max(1);
         let state = self.rigs.get_mut(lifetime)?;
         let (changed, result) = update(state);
         if changed {
-            state.presentation_revision = revision;
-            self.last_revision = revision;
+            state.presentation_revision = next_revision();
         }
         Some(result)
     }
@@ -54,7 +62,7 @@ impl RigMap {
     pub(super) fn iter_mut(
         &mut self,
     ) -> impl Iterator<Item = (&ActorLifetimeId, &mut ActorRigState)> {
-        let revision = self.next_revision();
+        let revision = next_revision();
         self.rigs.iter_mut().map(move |(lifetime, state)| {
             state.presentation_revision = revision;
             (lifetime, state)
@@ -68,7 +76,7 @@ impl RigMap {
     }
 
     pub(super) fn insert(&mut self, lifetime: ActorLifetimeId, mut state: ActorRigState) {
-        state.presentation_revision = self.next_revision();
+        state.presentation_revision = next_revision();
         self.rigs.insert(lifetime, state);
     }
 
