@@ -317,5 +317,7 @@ fn ordered_mouse_unfocused_taps_do_not_replay_after_focus_returns() {
     assert_eq!(attack_count(&mut captured), 1);
 }
 
+#[path = "ordered_mouse/idle.rs"]
+mod idle;
 #[path = "ordered_mouse/ordering.rs"]
 mod ordering;
