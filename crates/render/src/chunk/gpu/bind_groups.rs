@@ -474,6 +474,8 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
                 query_tables: &biome_tints.query_tables,
             },
         );
+        // A refused bake binding releases the cache; this rebuild then binds the alias.
+        buffers.tint_cache = arena.tint_cache.id();
     }
     if !rebuilding {
         return;

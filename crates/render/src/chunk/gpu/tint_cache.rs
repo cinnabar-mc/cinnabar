@@ -160,9 +160,9 @@ impl TintCacheState {
         }
     }
 
-    /// Frees the cache for required terrain storage. It is not recreated until the arena's quad
-    /// capacity or the tint tables change, and bind groups fall back to the never-valid alias.
-    /// Returns whether there was a cache to release.
+    /// Frees the cache for required terrain storage, or after the device refused its bake
+    /// bindings. It is not recreated until the arena's quad capacity or the tint tables change,
+    /// and bind groups fall back to the never-valid alias. Returns whether there was a cache.
     pub(in crate::chunk) fn release_for_required_storage(&mut self) -> bool {
         let Some(cache) = self.cache.take() else {
             return false;
@@ -226,6 +226,35 @@ impl TintCacheState {
         layouts: (&BindGroupLayout, &BindGroupLayout),
         sources: &BakeSources<'_>,
     ) {
+        self.prepare_bake_with(
+            device,
+            rebuilding,
+            layouts,
+            sources,
+            |label, layout, entries| {
+                crate::gpu_allocation::checked(device, label, 0, || {
+                    device.create_bind_group(label, layout, entries)
+                })
+            },
+        );
+    }
+
+    /// [`Self::prepare_bake`] with `create_group` making each bind group or reporting that the
+    /// device refused it. A refused source group, or output group of a new cache, releases the
+    /// cache so the opaque group binds the never-valid alias. A refused output group for a grown
+    /// job buffer keeps the current buffer and group and leaves the growth owed.
+    fn prepare_bake_with(
+        &mut self,
+        device: &RenderDevice,
+        rebuilding: bool,
+        layouts: (&BindGroupLayout, &BindGroupLayout),
+        sources: &BakeSources<'_>,
+        mut create_group: impl FnMut(
+            &'static str,
+            &BindGroupLayout,
+            &[BindGroupEntry],
+        ) -> Option<BindGroup>,
+    ) {
         if !rebuilding {
             return;
         }
@@ -234,55 +263,79 @@ impl TintCacheState {
             return;
         };
         let capacity = plan::grown_job_capacity(cache.job_capacity, wanted, &device.limits());
-        if capacity > cache.job_capacity
-            && let Some(jobs) = create(
+        let mut grown = None;
+        if capacity > cache.job_capacity && cache.output_group.is_some() {
+            grown = create(
                 device,
                 "terrain tint bake jobs",
                 plan::job_buffer_bytes(capacity),
             )
-        {
-            cache.jobs = jobs;
-            cache.job_capacity = capacity;
-            cache.output_group = None;
+            .and_then(|jobs| {
+                create_group(
+                    "terrain tint bake output",
+                    layouts.1,
+                    &output_entries(&jobs, &cache.buffer),
+                )
+                .map(|group| (jobs, group))
+            });
         }
+        let growth_owed = capacity > cache.job_capacity && grown.is_none();
         let ids = sources.ids();
-        if cache
+        let source_group = if cache
             .source_group
             .as_ref()
             .is_none_or(|(bound, _)| *bound != ids)
         {
-            let group = device.create_bind_group(
-                "terrain tint bake sources",
-                layouts.0,
-                &sources
-                    .storage()
-                    .map(|buffer| buffer.as_entire_binding())
-                    .into_iter()
-                    .zip(plan::SOURCE_STORAGE_BINDINGS)
-                    .chain([(
-                        sources.query_tables.as_entire_binding(),
-                        crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-                    )])
-                    .map(|(resource, binding)| BindGroupEntry { binding, resource })
-                    .collect::<Vec<_>>(),
-            );
+            let entries: Vec<_> = sources
+                .storage()
+                .map(|buffer| buffer.as_entire_binding())
+                .into_iter()
+                .zip(plan::SOURCE_STORAGE_BINDINGS)
+                .chain([(
+                    sources.query_tables.as_entire_binding(),
+                    crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                )])
+                .map(|(resource, binding)| BindGroupEntry { binding, resource })
+                .collect();
+            match create_group("terrain tint bake sources", layouts.0, &entries) {
+                Some(group) => Some(group),
+                None => {
+                    self.release_for_required_storage();
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let output_group = match (&grown, &cache.output_group) {
+            (None, None) => {
+                match create_group(
+                    "terrain tint bake output",
+                    layouts.1,
+                    &output_entries(&cache.jobs, &cache.buffer),
+                ) {
+                    Some(group) => Some(group),
+                    None => {
+                        self.release_for_required_storage();
+                        return;
+                    }
+                }
+            }
+            _ => None,
+        };
+        if let Some(group) = source_group {
             cache.source_group = Some((ids, group));
         }
-        if cache.output_group.is_none() {
-            cache.output_group = Some(device.create_bind_group(
-                "terrain tint bake output",
-                layouts.1,
-                &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: cache.jobs.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: cache.buffer.as_entire_binding(),
-                    },
-                ],
-            ));
+        if let Some(group) = output_group {
+            cache.output_group = Some(group);
+        }
+        if let Some((jobs, group)) = grown {
+            cache.jobs = jobs;
+            cache.job_capacity = capacity;
+            cache.output_group = Some(group);
+        }
+        if growth_owed {
+            self.wanted_jobs = wanted;
         }
     }
 
@@ -419,6 +472,20 @@ fn plan_owed(
         }
     }
     batch
+}
+
+/// Group 1 of the bake: `jobs`, then the `cache` it writes.
+fn output_entries<'a>(jobs: &'a Buffer, cache: &'a Buffer) -> [BindGroupEntry<'a>; 2] {
+    [
+        BindGroupEntry {
+            binding: 0,
+            resource: jobs.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 1,
+            resource: cache.as_entire_binding(),
+        },
+    ]
 }
 
 /// A zeroed storage buffer of `bytes`, or `None` when the device refuses the allocation.
@@ -581,80 +648,170 @@ mod tests {
         }
     }
 
+    /// A noop device with every table a bake binds, and a cache prepared over them.
+    struct BakeFixture {
+        device: RenderDevice,
+        layouts: (BindGroupLayout, BindGroupLayout),
+        tables: [Buffer; 5],
+        query_tables: Buffer,
+    }
+
+    impl BakeFixture {
+        fn new() -> Self {
+            let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+            let device = RenderDevice::from(device);
+            let tables = ["quads", "origins", "materials", "records", "tints"]
+                .map(|label| create(&device, label, 64).unwrap());
+            let query_tables = device.create_buffer(&BufferDescriptor {
+                label: Some("query tables"),
+                size: 64,
+                usage: BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            });
+            let layouts = (
+                device.create_bind_group_layout(None, &plan::source_layout_entries()),
+                device.create_bind_group_layout(None, &plan::output_layout_entries()),
+            );
+            Self {
+                device,
+                layouts,
+                tables,
+                query_tables,
+            }
+        }
+
+        fn state(&self) -> TintCacheState {
+            let mut state = TintCacheState::default();
+            state.prepare(
+                &self.device,
+                64,
+                TintInputs {
+                    materials: self.tables[2].id(),
+                    biome_tints: self.tables[4].id(),
+                    biome_tint_table: ChunkBiomeTintResourceIdentity {
+                        pointer: 1,
+                        table: meshing::ChunkBiomeTintIdentity::new(1, 1),
+                    },
+                },
+            );
+            assert!(state.cache.is_some());
+            state
+        }
+
+        /// The fixture's tables, with `quads` in place of its own when given.
+        fn sources<'a>(&'a self, quads: Option<&'a Buffer>) -> BakeSources<'a> {
+            let [own_quads, origins, materials, biome_records, biome_tints] = &self.tables;
+            BakeSources {
+                quads: quads.unwrap_or(own_quads),
+                origins,
+                materials,
+                biome_records,
+                biome_tints,
+                query_tables: &self.query_tables,
+            }
+        }
+
+        fn prepare(&self, state: &mut TintCacheState, rebuilding: bool, quads: Option<&Buffer>) {
+            state.prepare_bake(
+                &self.device,
+                rebuilding,
+                (&self.layouts.0, &self.layouts.1),
+                &self.sources(quads),
+            );
+        }
+
+        /// Prepares with the device refusing the bind group labelled `refused`.
+        fn prepare_refusing(&self, state: &mut TintCacheState, refused: &str) {
+            state.prepare_bake_with(
+                &self.device,
+                true,
+                (&self.layouts.0, &self.layouts.1),
+                &self.sources(None),
+                |label, layout, entries| {
+                    (label != refused)
+                        .then(|| self.device.create_bind_group(label, layout, entries))
+                },
+            );
+        }
+    }
+
+    fn identity(
+        state: &TintCacheState,
+    ) -> (
+        BufferId,
+        bevy::render::render_resource::BindGroupId,
+        bevy::render::render_resource::BindGroupId,
+    ) {
+        let cache = state.cache.as_ref().unwrap();
+        (
+            cache.jobs.id(),
+            cache.source_group.as_ref().unwrap().1.id(),
+            cache.output_group.as_ref().unwrap().id(),
+        )
+    }
+
     #[test]
     fn bakes_reuse_buffers_and_bind_groups_until_one_is_replaced() {
-        let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-        let device = RenderDevice::from(device);
-        let storage = |label| create(&device, label, 64).unwrap();
-        let tables = device.create_buffer(&BufferDescriptor {
-            label: Some("query tables"),
-            size: 64,
-            usage: BufferUsages::UNIFORM,
-            mapped_at_creation: false,
-        });
-        let (quads, origins, materials, records, tints) = (
-            storage("quads"),
-            storage("origins"),
-            storage("materials"),
-            storage("records"),
-            storage("tints"),
-        );
-        let mut state = TintCacheState::default();
-        state.prepare(
-            &device,
-            64,
-            TintInputs {
-                materials: materials.id(),
-                biome_tints: tints.id(),
-                biome_tint_table: ChunkBiomeTintResourceIdentity {
-                    pointer: 1,
-                    table: meshing::ChunkBiomeTintIdentity::new(1, 1),
-                },
-            },
-        );
-        let layouts = (
-            device.create_bind_group_layout(None, &plan::source_layout_entries()),
-            device.create_bind_group_layout(None, &plan::output_layout_entries()),
-        );
-        let sources = |quads| BakeSources {
-            quads,
-            origins: &origins,
-            materials: &materials,
-            biome_records: &records,
-            biome_tints: &tints,
-            query_tables: &tables,
-        };
-        let identity = |state: &TintCacheState| {
-            let cache = state.cache.as_ref().unwrap();
-            (
-                cache.jobs.id(),
-                cache.source_group.as_ref().unwrap().1.id(),
-                cache.output_group.as_ref().unwrap().id(),
-            )
-        };
-        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&quads));
+        let fixture = BakeFixture::new();
+        let mut state = fixture.state();
+        fixture.prepare(&mut state, true, None);
         let first = identity(&state);
-        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&quads));
+        fixture.prepare(&mut state, true, None);
         assert_eq!(identity(&state), first, "unchanged inputs create nothing");
         state.wanted_jobs = plan::INITIAL_JOB_CAPACITY as usize + 1;
-        // Growth waits while the terrain bind groups are stable.
-        state.prepare_bake(&device, false, (&layouts.0, &layouts.1), &sources(&quads));
+        fixture.prepare(&mut state, false, None);
         assert_eq!(
             identity(&state),
             first,
             "stable terrain groups defer growth"
         );
         assert_eq!(state.wanted_jobs, plan::INITIAL_JOB_CAPACITY as usize + 1);
-        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&quads));
+        fixture.prepare(&mut state, true, None);
         let grown = identity(&state);
         assert_ne!(grown.0, first.0, "an overflowing bake grows the job buffer");
         assert_eq!(grown.1, first.1, "the source tables were not replaced");
         assert_ne!(grown.2, first.2);
-        let moved = storage("migrated quads");
-        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&moved));
+        let moved = create(&fixture.device, "migrated quads", 64).unwrap();
+        fixture.prepare(&mut state, true, Some(&moved));
         let rebound = identity(&state);
         assert_eq!(rebound.0, grown.0);
         assert_ne!(rebound.1, grown.1, "a replaced table rebinds the sources");
+    }
+
+    #[test]
+    fn refused_bake_bindings_release_the_cache_or_keep_the_current_jobs() {
+        let fixture = BakeFixture::new();
+        for refused in ["terrain tint bake sources", "terrain tint bake output"] {
+            let mut state = fixture.state();
+            state.queue_bake(entity(1));
+            fixture.prepare_refusing(&mut state, refused);
+            assert!(
+                state.cache.is_none(),
+                "{refused}: a new cache without bindings is released"
+            );
+            assert!(!state.has_work() && state.id().is_none());
+            fixture.prepare(&mut state, true, None);
+            assert!(
+                state.cache.is_none(),
+                "{refused}: not recreated for the same inputs"
+            );
+        }
+        let mut state = fixture.state();
+        fixture.prepare(&mut state, true, None);
+        let before = identity(&state);
+        let wanted = plan::INITIAL_JOB_CAPACITY as usize + 1;
+        state.wanted_jobs = wanted;
+        fixture.prepare_refusing(&mut state, "terrain tint bake output");
+        assert_eq!(
+            identity(&state),
+            before,
+            "a refused growth keeps the paired buffer and group"
+        );
+        assert_eq!(
+            state.cache.as_ref().unwrap().job_capacity,
+            plan::INITIAL_JOB_CAPACITY
+        );
+        assert_eq!(state.wanted_jobs, wanted, "the growth stays owed");
     }
 
     #[test]
