@@ -227,6 +227,11 @@ pub struct MiningAdmission {
 }
 
 impl MiningAdmission {
+    /// Whether [`Self::settle_inventory`] has nothing to apply.
+    pub fn is_empty(&self) -> bool {
+        self.cancelled_requests.is_empty() && self.slot_changes.is_empty()
+    }
+
     /// Applies accepted slot changes and forgets mining requests without a carrier.
     pub fn settle_inventory(self, ledger: &mut inventory::PlayerInventoryLedger) {
         for request in self.cancelled_requests {

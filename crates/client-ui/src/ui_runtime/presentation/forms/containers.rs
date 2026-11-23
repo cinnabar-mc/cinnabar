@@ -479,7 +479,7 @@ impl UiPresentationRuntime {
         });
         let mut source = ContainerAuthority::new(player_runtime, runtime);
         if !prepare {
-            let now = self.menu_seconds;
+            let now = self.clock.seconds();
             let blink = &mut self.screens.container_caret;
             source.show_caret(|revision| blink.shown(revision, now));
         }
@@ -509,7 +509,7 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut renderers,

@@ -328,7 +328,7 @@ impl UiPresentationRuntime {
                 ]
                 .into_iter()
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
-                now: self.menu_seconds,
+                now: self.clock.seconds(),
                 splash_epoch: &self.screens.splash_epoch,
             };
             let mut preview = PreviewRenderer {
@@ -346,7 +346,7 @@ impl UiPresentationRuntime {
                 content: [width, height],
                 translate: &translate,
                 language: runtime.text_generation(),
-                now: self.menu_seconds,
+                now: self.clock.seconds(),
                 nodes: &mut *nodes,
                 next: &mut *next,
                 renderers: &mut [&mut menu, &mut preview],
@@ -554,7 +554,7 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes: &mut *nodes,
             next: &mut *next,
             renderers: &mut [],

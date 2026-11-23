@@ -312,6 +312,11 @@ impl ModUi {
         Some(&self.mod_screens.as_ref()?.icon_keys)
     }
 
+    /// Whether mod screens are set, which their paint draws.
+    pub fn has_mod_screens(&self) -> bool {
+        self.mod_screens.is_some()
+    }
+
     /// Draws the mod's view and overlay over the `container` screen this build drew, from node
     /// `container_start` on; the container's held stack and tooltips move above them.
     /// `reference` names that container's screen, and `id_aux` holds the icons of

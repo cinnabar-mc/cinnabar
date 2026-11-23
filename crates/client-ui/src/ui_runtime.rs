@@ -191,8 +191,9 @@ impl UiRuntime {
     }
 
     /// Shows or hides the client-owned cover used while global packs are replaced in-session.
-    pub fn set_resource_pack_loading(&mut self, loading: bool) {
-        self.resource_pack_loading = loading;
+    /// Whether the cover changed.
+    pub fn set_resource_pack_loading(&mut self, loading: bool) -> bool {
+        std::mem::replace(&mut self.resource_pack_loading, loading) != loading
     }
 
     /// Whether the global resource-pack replacement currently owns the screen.
@@ -368,6 +369,15 @@ impl UiRuntime {
         &self.session.data_driven
     }
 
+    /// Whether [`Self::note_stream_dimension`] with `dimension` would change nothing.
+    pub fn stream_dimension_noted(&self, dimension: i32) -> bool {
+        self.session.forms.stream_dimension_noted(dimension)
+            && self
+                .session
+                .block_cracks
+                .dimension_synchronized(Some(dimension))
+    }
+
     pub fn note_stream_dimension(&mut self, dimension: i32) {
         self.session.forms.note_stream_dimension(dimension);
         self.session
@@ -395,12 +405,14 @@ impl UiRuntime {
     }
 
     /// Keeps the screen aligned with the retained intent while timed-out controls recover.
+    /// Whether anything changed.
     pub fn poll_inventory_timeout(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         now_millis: u64,
-    ) {
-        if player_runtime.inventory.poll_inventory_timeout(now_millis) {
+    ) -> bool {
+        let timed_out = player_runtime.inventory.poll_inventory_timeout(now_millis);
+        if timed_out {
             self.session.inventory_open = player_runtime
                 .inventory
                 .ledger()
@@ -414,6 +426,7 @@ impl UiRuntime {
                 self.session.inventory_pointer_gui = None;
             }
         }
+        timed_out
     }
 
     pub fn inventory_transport_closed(&mut self, player_runtime: &mut player_state::PlayerState) {
@@ -457,6 +470,11 @@ impl UiRuntime {
 
     pub fn chat_usage_hint(&self) -> Option<&str> {
         self.session.chat_usage_hint.as_deref()
+    }
+
+    /// Whether a chat autocomplete request waits for [`Self::service_pending_chat_autocomplete`].
+    pub fn chat_autocomplete_requested(&self) -> bool {
+        self.session.pending_chat_autocomplete_request.is_some()
     }
 
     pub fn take_chat_autocomplete_request(&mut self) -> Option<ChatAutocompleteRequest> {
@@ -534,11 +552,16 @@ impl UiRuntime {
         true
     }
 
-    pub fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {
+    /// Publishes this frame's crack overlays; whether anything changed.
+    pub fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) -> bool {
+        if self.session.block_cracks.snapshot() == Some(&snapshot) {
+            return false;
+        }
         self.session.block_cracks.project(snapshot);
         self.session
             .block_cracks
             .report_status(self.session.session_id, self.block_cracks_status());
+        true
     }
 
     pub fn block_crack_snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
@@ -791,26 +814,65 @@ impl UiRuntime {
 pub mod tests;
 
 impl UiRuntime {
+    /// UI gesture state the app input system tracks.
+    pub fn inventory_keys(&self) -> &interaction::InventoryKeys {
+        &self.inventory_keys
+    }
+
+    /// Clears the container's pointer state for a frame it reads no input; whether anything
+    /// changed.
+    pub fn release_container_pointer(&mut self) -> bool {
+        let screen = &self.session.screen;
+        if !screen.container_close_armed
+            && screen.container_scroll_drag.is_none()
+            && self.session.inventory_pointer_gui.is_none()
+            && screen.hover.is_none()
+            && screen.pointer.is_idle()
+            && (self.inventory_open() || screen.book.is_none())
+        {
+            return false;
+        }
+        let open = self.inventory_open();
+        let screen = &mut self.session.screen;
+        screen.container_close_armed = false;
+        screen.container_scroll_drag = None;
+        screen.hover = None;
+        screen.pointer.reset();
+        if !open {
+            screen.book = None;
+        }
+        self.session.inventory_pointer_gui = None;
+        true
+    }
+
     /// Borrows UI gesture state for the existing app input system.
     pub fn inventory_keys_mut(&mut self) -> &mut interaction::InventoryKeys {
         &mut self.inventory_keys
     }
     /// Applies the toast preference even when this frame cannot publish a viewport.
-    pub fn set_toast_lifetime(&mut self, lifetime: u64) {
-        self.toast_display_millis = lifetime;
+    /// Whether the lifetime changed.
+    pub fn set_toast_lifetime(&mut self, lifetime: u64) -> bool {
+        std::mem::replace(&mut self.toast_display_millis, lifetime) != lifetime
     }
 
     /// Names controls in server text received from now on with these bindings.
+    /// Whether the settings changed.
     pub fn set_control_settings(
         &mut self,
         settings: Arc<launcher::menu::settings_options::SettingsOptions>,
-    ) {
+    ) -> bool {
+        if Arc::ptr_eq(&self.control_settings, &settings) {
+            return false;
+        }
+        let changed = *self.control_settings != *settings;
         self.control_settings = settings;
+        changed
     }
 
     /// Names controls in server text received from now on for this input mode.
-    pub fn set_input_mode(&mut self, mode: semantic_input::InputMode) {
-        self.input_mode = mode;
+    /// Whether the mode changed.
+    pub fn set_input_mode(&mut self, mode: semantic_input::InputMode) -> bool {
+        std::mem::replace(&mut self.input_mode, mode) != mode
     }
 
     /// Stops drawing toasts for the session (developer `--hide-toasts`); they still queue

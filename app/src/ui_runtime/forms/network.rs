@@ -17,23 +17,31 @@ pub(crate) fn flush_server_form_network(
     if network.closed_command_has_pending_control() {
         return;
     }
-    let _ = runtime.flush_boss_responses(|packet| {
-        network
-            .send_form_packet(session, packet)
-            .map_err(|error| match error {
-                PacketSendError::Full(_) => FormTransportError::Full,
-                PacketSendError::Closed(_) => FormTransportError::Closed,
-            })
-    });
+    // Each step borrows the runtime mutably only with something to send, so idle frames leave
+    // it unchanged for the UI frame's revision.
+    if runtime.has_boss_responses() {
+        let _ = runtime.flush_boss_responses(|packet| {
+            network
+                .send_form_packet(session, packet)
+                .map_err(|error| match error {
+                    PacketSendError::Full(_) => FormTransportError::Full,
+                    PacketSendError::Closed(_) => FormTransportError::Closed,
+                })
+        });
+    }
     let runtime_id = runtime.local_runtime_id(&player);
-    let credits_completed = runtime.credits_mut().flush(runtime_id, |packet| {
-        network
-            .send_form_packet(session, packet)
-            .map_err(|error| match error {
-                PacketSendError::Full(_) => FormTransportError::Full,
-                PacketSendError::Closed(_) => FormTransportError::Closed,
-            })
-    });
+    let credits_completed = if runtime.credits().has_pending() {
+        runtime.credits_mut().flush(runtime_id, |packet| {
+            network
+                .send_form_packet(session, packet)
+                .map_err(|error| match error {
+                    PacketSendError::Full(_) => FormTransportError::Full,
+                    PacketSendError::Closed(_) => FormTransportError::Closed,
+                })
+        })
+    } else {
+        Ok(false)
+    };
     if matches!(credits_completed, Ok(true)) {
         bevy::log::info!(session, ?runtime_id, "credits completion queued for server");
     }
@@ -44,19 +52,23 @@ pub(crate) fn flush_server_form_network(
     let in_settings = menu.as_ref().is_some_and(|menu| {
         menu.is_visible() && menu.screen() == launcher::menu::MenuScreen::Settings
     });
-    let store = runtime.server_forms_mut();
-    store.select_settings_form(
-        in_settings
-            && menu.as_ref().is_some_and(|menu| {
-                menu.settings_section()
-                    == Some(launcher::menu::settings_sections::SettingSection::Server)
-            }),
-    );
-    store.flush_settings_request(in_settings, || {
-        network
-            .send_form_packet(session, protocol::server_settings_request_packet())
-            .is_ok()
+    let selected = in_settings
+        && menu.as_ref().is_some_and(|menu| {
+            menu.settings_section()
+                == Some(launcher::menu::settings_sections::SettingSection::Server)
+        });
+    client_shell::ui_resources::update(&mut runtime, |runtime| {
+        let store = runtime.server_forms_mut();
+        store.select_settings_form(selected)
+            | store.flush_settings_request(in_settings, || {
+                network
+                    .send_form_packet(session, protocol::server_settings_request_packet())
+                    .is_ok()
+            })
     });
+    if !runtime.server_forms().has_responses() {
+        return;
+    }
     let _ = flush_form_response(
         &mut runtime,
         |actor| {

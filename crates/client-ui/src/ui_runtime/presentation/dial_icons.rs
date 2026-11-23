@@ -10,8 +10,9 @@ impl UiPresentationRuntime {
     }
 
     /// Replaces the strip frames dial icons show from now on.
-    pub fn set_dial_frames(&mut self, frames: inventory::DialFrames) {
-        self.dial_frames = frames;
+    /// Whether the frames changed.
+    pub fn set_dial_frames(&mut self, frames: inventory::DialFrames) -> bool {
+        std::mem::replace(&mut self.dial_frames, frames) != frames
     }
 
     /// The strip frame dial item `identifier` shows, as an icon identity. A pack's own complete

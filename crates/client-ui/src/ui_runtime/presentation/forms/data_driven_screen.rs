@@ -43,7 +43,7 @@ impl UiPresentationRuntime {
             content: size,
             translate: &|_| None,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],

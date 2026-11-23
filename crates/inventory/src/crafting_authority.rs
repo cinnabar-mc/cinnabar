@@ -239,12 +239,13 @@ impl CraftingAuthority {
         })
     }
 
-    pub(super) fn synchronize(&mut self, identity: Option<(u64, u64, Option<u64>)>) {
+    /// Follows the stream's committed frontier; whether anything changed.
+    pub(super) fn synchronize(&mut self, identity: Option<(u64, u64, Option<u64>)>) -> bool {
         observation::synchronize(self.session, identity);
         let Some((stream, epoch, Some(through))) = identity else {
             self.through = None;
             self.lose(self.observed, ALL_DOMAINS);
-            return;
+            return true;
         };
         if stream == 0 || epoch > through || self.stream.is_some_and(|old| old != stream) {
             self.lose(through, ALL_DOMAINS);
@@ -255,14 +256,16 @@ impl CraftingAuthority {
         {
             self.through = None;
             self.lose(through, ALL_DOMAINS);
-            return;
+            return true;
         }
-        self.stream = Some(stream);
-        self.through = Some(through);
+        let mut changed = self.stream.replace(stream) != Some(stream);
+        changed |= self.through.replace(through) != Some(through);
         if epoch != self.epoch {
             self.epoch = epoch;
             self.clear_cells();
+            changed = true;
         }
+        changed
     }
 
     fn registry_owner(
@@ -420,24 +423,23 @@ impl CraftingAuthority {
         }
     }
 
-    pub(super) fn advance(&mut self) {
+    /// Applies queued observations through the frontier; whether anything changed.
+    pub(super) fn advance(&mut self) -> bool {
         if self.exhausted {
-            return;
+            return false;
         }
         let Some(through) = self.through else {
-            return;
+            return false;
         };
         let Some(queue) = self.queue.take() else {
-            self.match_if_changed();
-            return;
+            return self.match_if_changed();
         };
         let split = queue
             .records
             .partition_point(|record| record.sequence <= through);
         if split == 0 {
             self.queue = Some(queue);
-            self.match_if_changed();
-            return;
+            return self.match_if_changed();
         }
         for record in &queue.records[..split] {
             self.consumed = self.consumed.max(record.sequence);
@@ -505,7 +507,7 @@ impl CraftingAuthority {
             observation::discard(record.sequence);
             if self.exhausted {
                 self.lose(self.observed, ALL_DOMAINS);
-                return;
+                return true;
             }
         }
         if split < queue.records.len() {
@@ -522,9 +524,11 @@ impl CraftingAuthority {
             }
         }
         self.match_if_changed();
+        true
     }
 
-    fn match_if_changed(&mut self) {
+    /// Matches the grid again when its inputs changed; whether anything changed.
+    fn match_if_changed(&mut self) -> bool {
         if self.exhausted
             || self.authority != Some(InventoryAuthority::Server)
             || self
@@ -534,13 +538,10 @@ impl CraftingAuthority {
             || self.grid.iter().any(Option::is_none)
             || self.catalog_lost
         {
-            self.preview = None;
-            self.cache_key = None;
-            return;
+            return self.preview.take().is_some() | self.cache_key.take().is_some();
         }
         let Some(registry) = self.registry.as_ref() else {
-            self.preview = None;
-            return;
+            return self.preview.take().is_some();
         };
         let key = (
             self.epoch,
@@ -549,14 +550,14 @@ impl CraftingAuthority {
             self.revision,
         );
         if self.cache_key == Some(key) {
-            return;
+            return false;
         }
         let Some(permit) = self
             .credits
             .reserve(std::mem::size_of::<PreviewOwner>() + 128)
         else {
             self.lose(self.observed, 0);
-            return;
+            return true;
         };
         let verified = self.grid.each_ref().map(|cell| {
             let stack = &cell.as_ref().expect("known grid gate").stack;
@@ -597,6 +598,7 @@ impl CraftingAuthority {
             _permit: permit,
         }));
         self.cache_key = Some(key);
+        true
     }
 }
 

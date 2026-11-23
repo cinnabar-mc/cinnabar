@@ -107,6 +107,34 @@ impl RetainedPaint {
         self.last = Some(painted);
     }
 
+    /// Whether the last paint was kept and, its other inputs unchanged, would be reused at any
+    /// later time: no animation it drew or ticked is still running.
+    /// Whether the last paint was kept and, its other inputs unchanged, would be reused: every
+    /// animation it drew has settled. Animations it only ticked may still run; repeating the
+    /// paint's bookkeeping each frame (see [`Self::repeat`]) keeps them advancing.
+    pub(super) fn settled(&self, animator: &std::sync::Mutex<json_ui::Animator>) -> bool {
+        self.last.as_ref().is_some_and(|last| {
+            animator
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .can_replay(&last.animation)
+        })
+    }
+
+    /// Repeats the kept paint's animation bookkeeping at `now` for a frame that is not painted,
+    /// as reusing it would; `false` when the paint would now draw differently: a ticked
+    /// animation fired an event or destroyed a control.
+    pub(super) fn repeat(&self, animator: &std::sync::Mutex<json_ui::Animator>, now: f64) -> bool {
+        let Some(last) = self.last.as_ref() else {
+            return false;
+        };
+        let mut animator = animator.lock().unwrap_or_else(|poison| poison.into_inner());
+        let events = animator.pending_events();
+        animator.can_replay(&last.animation)
+            && animator.replay(&last.animation, now)
+            && animator.pending_events() == events
+    }
+
     /// Appends the last paint's output to `frame` and repeats its bookkeeping, when `render`
     /// is the layout it painted and nothing else it read has changed; `None` paints afresh.
     pub(super) fn replay(

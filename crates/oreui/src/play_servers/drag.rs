@@ -91,8 +91,9 @@ impl DragState {
         }
     }
 
-    pub(in super::super) fn cancel(&mut self) {
-        self.capture = None;
+    /// Drops any capture; whether there was one.
+    pub(in super::super) fn cancel(&mut self) -> bool {
+        self.capture.take().is_some()
     }
 
     pub(in super::super) fn dragged_group(&self) -> Option<ServerGroup> {
@@ -194,8 +195,9 @@ impl DragState {
 }
 
 impl super::super::OreUiScreen {
-    pub fn cancel_server_list_input(&mut self) {
-        self.transitions.server_list.cancel();
+    /// Whether a capture was dropped.
+    pub fn cancel_server_list_input(&mut self) -> bool {
+        self.transitions.server_list.cancel()
     }
 
     /// Section capture suppresses click activation until release, including outside the list;

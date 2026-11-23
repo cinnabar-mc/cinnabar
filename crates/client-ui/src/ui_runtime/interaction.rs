@@ -8,18 +8,21 @@ use inventory::inventory_ledger::CellGesture;
 use inventory::inventory_ledger::{DropSource, InventoryGestureError};
 use ui_screens::container_actions::InventoryCellHit;
 
-/// Admits every ready inventory packet in queue order, stopping at the first
-/// transport refusal. Returns whether anything was admitted.
+/// Retires timed-out requests and admits every ready inventory packet in queue order, stopping
+/// at the first transport refusal; whether either the runtime or the player changed. An error
+/// may follow changes.
 pub fn flush_inventory_send<E>(
     player_runtime: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
     now_millis: u64,
     send: impl FnMut(Packet) -> Result<(), E>,
 ) -> Result<bool, E> {
-    runtime.poll_inventory_timeout(player_runtime, now_millis);
+    let timed_out = runtime.poll_inventory_timeout(player_runtime, now_millis);
+    let ready = player_runtime.inventory.inventory_send_ready();
     player_runtime
         .inventory
         .flush_pending_inventory_send(now_millis, send)
+        .map(|admitted| admitted || ready || timed_out)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -106,6 +109,21 @@ impl InventoryKeys {
         self.modifier_sides[index] = pressed;
         self.shift = self.modifier_sides[0] || self.modifier_sides[1];
         self.control = self.modifier_sides[2] || self.modifier_sides[3];
+    }
+
+    /// Whether a press waits for [`Self::take_frame`].
+    pub fn has_presses(&self) -> bool {
+        !self.presses.is_empty()
+    }
+
+    /// The held Shift and Control state.
+    pub const fn modifiers(&self) -> (bool, bool) {
+        (self.shift, self.control)
+    }
+
+    /// Whether [`Self::release_modifiers`] would change nothing.
+    pub fn modifiers_released(&self) -> bool {
+        self.modifier_sides == [false; 4] && !self.shift && !self.control
     }
 
     /// Releases every tracked modifier, for when key releases can no longer be observed.

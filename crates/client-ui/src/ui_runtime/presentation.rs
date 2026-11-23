@@ -22,6 +22,7 @@ mod dial_icons;
 pub mod dynamic_textures;
 pub mod forms;
 mod frame;
+pub mod frame_clock;
 pub mod gui_models;
 pub use gui_models::{GuiModelPreparation, PreparedGuiModels};
 pub mod gui_scale_settings;
@@ -68,9 +69,10 @@ use primitives::rect;
 #[cfg(any(test, feature = "test-support"))]
 pub use publish::commit::refresh_hud_frame;
 pub use publish::{
-    capture_hud_frame,
+    HudCapture, capture_hud_frame,
     commit::{PendingUiPublication, PreviewCapture, render_prepared_ui},
     item_icons::ItemIconFrames,
+    reuse::FrameReuse,
 };
 use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::StartupPresentationState;
@@ -135,6 +137,12 @@ pub struct UiPresentationRuntime {
     obfuscation: ObfuscationGlyphs, // same-width pools for the per-frame §k swap
     revision: u64,
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
+    /// Whether publication repeats unchanged frames without building them.
+    frame_reuse: publish::reuse::FrameReuse,
+    /// The last built frame, while a later one may repeat it.
+    built_frame: Option<publish::reuse::BuiltFrame>,
+    /// Repeats whose check build differed, counted in [`FrameReuse::Verify`].
+    frame_reuse_mismatches: u64,
     /// What the last frame was built from; later frames re-emit only changed and `§k` nodes.
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.
@@ -166,6 +174,10 @@ pub struct UiPresentationRuntime {
     inventory_preparation_revision: std::sync::atomic::AtomicU64,
     /// Semantic HUD content retained before binding construction.
     hud_cache: forms::hud::SemanticHud,
+    /// Counts changes to the player model's dressing and live pose.
+    player_model_revision: u64,
+    /// Which of the engine HUD and its crosshair overlay the last build painted.
+    hud_painted: [bool; 2],
     /// What the presentation's renderers drew the engine HUD and its crosshair overlay from.
     hud_renderers: [forms::hud::HudRendererInputs; 2],
     /// Owner-scoped extension globals layered over the gameplay HUD's retained data.
@@ -221,8 +233,8 @@ pub struct UiPresentationRuntime {
     frame_oversized: std::collections::BTreeSet<String>,
     mod_menu_branding: Option<Arc<menu_branding::PreparedMenuBranding>>,
     menu_artwork_loader: menu_artwork::ArtworkLoader,
-    /// This frame's clock in seconds, which engine screen animations paint at.
-    menu_seconds: f64,
+    /// This frame's clock, which screens and their animations read.
+    clock: frame_clock::FrameClock,
     scene_clocks: super::scene_stack::SceneClocks,
     /// The drawing scene's transition event clocks.
     scene_clock: std::collections::BTreeMap<String, f64>,

@@ -11,9 +11,11 @@ use ui_engine::{engine::screen::PaintFrame, pages, text_metrics::TextMetrics};
 use super::super::UiPresentationRuntime;
 use crate::ui_runtime::UiRuntime;
 
-/// A paint frame over the runtime's text caches, painting at time zero with no renderers.
+/// A paint frame over the runtime's text caches with no renderers. It reads the frame's clock only
+/// when `$drawn` and paints at time zero otherwise: a surface with nothing set paints nothing at
+/// any time.
 macro_rules! paint_frame {
-    ($runtime:ident, $ui:expr, $nodes:expr, $next:expr, $metrics:expr, $content:expr, $translate:expr) => {
+    ($runtime:ident, $ui:expr, $nodes:expr, $next:expr, $metrics:expr, $content:expr, $translate:expr, $drawn:expr) => {
         PaintFrame {
             layouts: &mut $runtime.layouts,
             font: &$runtime.font,
@@ -23,7 +25,11 @@ macro_rules! paint_frame {
             content: $content,
             translate: $translate,
             language: $ui.text_generation(),
-            now: $runtime.menu_seconds,
+            now: if $drawn {
+                $runtime.clock.seconds()
+            } else {
+                0.0
+            },
             nodes: $nodes,
             next: $next,
             renderers: &mut [],
@@ -123,7 +129,17 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.engine.as_deref() else {
             return;
         };
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+        let drawn = self.screens.mod_ui.has_mod_hud();
+        let mut paint = paint_frame!(
+            self,
+            runtime,
+            nodes,
+            next,
+            metrics,
+            content,
+            &|_| None,
+            drawn
+        );
         self.screens.mod_ui.paint_mod_hud(renderer, &mut paint);
     }
 
@@ -154,7 +170,10 @@ impl UiPresentationRuntime {
                 metadata,
             )
         };
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
+        let drawn = self.screens.mod_ui.has_hud_surfaces();
+        let mut paint = paint_frame!(
+            self, runtime, nodes, next, metrics, content, &translate, drawn
+        );
         self.screens
             .mod_ui
             .paint_hud_surfaces(self.engine.as_deref(), &mut paint, &icon);
@@ -208,7 +227,10 @@ impl UiPresentationRuntime {
                 metadata,
             )
         };
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
+        let drawn = self.screens.mod_ui.mod_panel_painting();
+        let mut paint = paint_frame!(
+            self, runtime, nodes, next, metrics, content, &translate, drawn
+        );
         self.screens
             .mod_ui
             .paint_mod_panel_with_icons(self.engine.as_deref(), &mut paint, &icon);
@@ -237,7 +259,10 @@ impl UiPresentationRuntime {
         };
         let translate = |key: &str| runtime.translation(key);
         let hud_frame = &self.hud_frame;
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
+        let drawn = self.screens.mod_ui.has_experience_modal();
+        let mut paint = paint_frame!(
+            self, runtime, nodes, next, metrics, content, &translate, drawn
+        );
         self.screens.mod_ui.paint_experience_modal(
             self.engine.as_deref(),
             &mut paint,
@@ -256,7 +281,17 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+        let drawn = self.screens.mod_ui.has_experience_chrome();
+        let mut paint = paint_frame!(
+            self,
+            runtime,
+            nodes,
+            next,
+            metrics,
+            content,
+            &|_| None,
+            drawn
+        );
         self.screens
             .mod_ui
             .paint_experience_chrome(self.engine.as_deref(), &mut paint);
@@ -286,7 +321,10 @@ impl UiPresentationRuntime {
         });
         let translate = |key: &str| runtime.translation(key);
         let container = self.projections.container.as_ref().map(|(frame, _)| frame);
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
+        let drawn = self.screens.mod_ui.has_mod_screens();
+        let mut paint = paint_frame!(
+            self, runtime, nodes, next, metrics, content, &translate, drawn
+        );
         self.screens.mod_ui.paint_mod_screens(
             self.engine.as_deref(),
             container,

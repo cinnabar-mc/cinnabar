@@ -106,6 +106,7 @@ pub(crate) fn drive_command_block(
     }
     let mut opened = false;
     if let Some(stream) = client_world.stream.as_mut()
+        && runtime.command_block().has_request()
         && let Some(position @ [x, y, z]) = runtime.command_block_mut().take_request()
     {
         let key = world::BlockEntityKey::new(stream.current_dimension(), x, y, z);

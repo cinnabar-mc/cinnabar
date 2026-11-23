@@ -17,9 +17,13 @@ pub struct ChatSettings {
 
 impl ChatSettings {
     /// Keeps gameplay chat bound to current settings without opening the launcher menu.
-    pub fn set_snapshot(&mut self, snapshot: (Arc<SettingsOptions>, Option<u16>)) {
+    /// Whether the options or the open dropdown changed.
+    pub fn set_snapshot(&mut self, snapshot: (Arc<SettingsOptions>, Option<u16>)) -> bool {
+        let changed = (!Arc::ptr_eq(&self.options, &snapshot.0) && *self.options != *snapshot.0)
+            || self.dropdown != snapshot.1;
         self.options = snapshot.0;
         self.dropdown = snapshot.1;
+        changed
     }
 
     /// Opens or closes only the native chat settings popup, retaining the chat draft.

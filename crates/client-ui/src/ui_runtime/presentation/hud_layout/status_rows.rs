@@ -7,6 +7,7 @@ use crate::ui_runtime::gameplay_hud::HeartVariant;
 use assets::HudTextureRole;
 
 use super::{
+    super::frame_clock::FrameClock,
     HudFrame, HudTexturePages, UiRuntime,
     pinned::{
         MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role, heart_role,
@@ -76,13 +77,21 @@ pub(in super::super) fn capture(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
     frame: &HudFrame,
+    clock: &FrameClock,
     sheet: Option<&HudTexturePages>,
     options: &launcher::menu::settings_options::SettingsOptions,
 ) -> HudPaint {
     use launcher::menu::settings_options::{
         INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION,
     };
-    let now_tick = runtime.estimated_server_tick(frame.now_millis);
+    // Only effects and the survival rows read the tick; without them it draws nothing.
+    let now_tick = if player_runtime.facts.survival_stats_visible()
+        || !runtime.gameplay_hud().effects().is_empty()
+    {
+        runtime.estimated_server_tick_at(clock)
+    } else {
+        None
+    };
     let mode_allows_hotbar = player_runtime
         .facts
         .player_game_mode()
@@ -96,10 +105,7 @@ pub(in super::super) fn capture(
             .filter(|_| {
                 mode_allows_hotbar
                     && frame.mount_jump.is_none()
-                    && runtime
-                        .session
-                        .locator
-                        .visible(frame.dimension, frame.now_millis)
+                    && runtime.session.locator.visible_at(frame.dimension, clock)
             })
             .map(|view| runtime.session.locator.paint(view, frame.dimension)),
         // The third-person preference never overrides the spectator gate.
@@ -120,7 +126,7 @@ pub(in super::super) fn capture(
         return paint;
     }
     if let Some(rows) = heart_rows(runtime) {
-        paint.hearts = hearts(runtime, frame, &rows, now_tick);
+        paint.hearts = hearts(runtime, clock, &rows, now_tick);
         paint.armor = armor(runtime, &rows);
         // The effect column's top band counts health and absorption at full maximum.
         paint.effects.status_rows = (rows.maximum + rows.absorption)
@@ -162,7 +168,7 @@ fn sheet_sprite(sheet: &HudTexturePages, role: HudTextureRole) -> SheetSprite {
 /// Retains heart totals and sprite variants without allocating offscreen cells.
 fn hearts(
     runtime: &UiRuntime,
-    frame: &HudFrame,
+    clock: &FrameClock,
     rows: &HeartRows,
     now_tick: Option<u64>,
 ) -> HeartPaint {
@@ -196,7 +202,7 @@ fn hearts(
         absorption: rows.absorption,
         health_hearts: rows.health_hearts,
         total: rows.total,
-        tick: now_tick.unwrap_or(frame.now_millis / 50),
+        tick: now_tick.unwrap_or_else(|| clock.steps_since(0, 50)),
         regenerating: runtime.gameplay_hud().regeneration_active(now_tick),
         sprites: [
             Some(Cell::icon(

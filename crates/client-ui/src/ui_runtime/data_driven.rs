@@ -91,9 +91,19 @@ impl DataDrivenUi {
     pub(super) fn take_packet(&mut self) -> Option<Packet> {
         self.outgoing.pop_front()
     }
+
+    /// Whether a packet waits for [`Self::take_packet`].
+    pub(super) fn has_packet(&self) -> bool {
+        !self.outgoing.is_empty()
+    }
 }
 
 impl UiRuntime {
+    /// The host's screens [`Self::observe_host_screens`] last recorded.
+    pub fn observed_host_screens(&self) -> SceneHost {
+        self.session.data_driven.host
+    }
+
     /// Records the host's screens as this frame starts, which screen requests answered from UI
     /// events read along with the runtime's own screens.
     pub fn observe_host_screens(&mut self, host: SceneHost) {

@@ -49,7 +49,9 @@ fn publish(
         clock.time.elapsed_secs(),
         clock.partial.0,
         &clock.view,
-        &mut presentation,
+        // Debug text writes only its own rasterizer and the shared text-layout cache, neither of
+        // which the UI frame draws from, so the frame's revision is left alone.
+        presentation.bypass_change_detection(),
         &runtime,
         publisher,
     );

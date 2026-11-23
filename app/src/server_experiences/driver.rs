@@ -182,6 +182,36 @@ fn drive(
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let world = &drawing.world;
     let generation = runtime.session_id();
+    // Without an experience, every step below changes nothing but these: skip it so an idle
+    // frame leaves the UI runtime and presentation unchanged for the UI frame's revision.
+    let idle = &runtime.session.experiences;
+    let idle_state = match idle.session.state {
+        State::Inert => {
+            !(fatal_error.0.is_some()
+                || world.transfer_notice.is_some()
+                || network.experience_failed())
+        }
+        State::Disabled => true,
+        _ => false,
+    };
+    if idle_state
+        && service.generation == generation
+        && service.live.is_none()
+        && service.download.is_none()
+        && (idle.handled_marker || idle.marker.is_none())
+        && !idle.active
+        && idle.incoming.is_empty()
+        && !idle.session.outbound_pending()
+        && !presentation.mod_ui().has_experience_surfaces()
+    {
+        service.hotbar = None;
+        wheel.clear();
+        buttons.clear();
+        keyboard.clear();
+        ownership.0 = false;
+        network.set_experience_enabled(false);
+        return;
+    }
     let extension = &mut runtime.session.experiences;
     if service.generation != generation {
         service.generation = generation;

@@ -18,16 +18,12 @@ impl UiPresentationRuntime {
         nodes: &mut Vec<UiNode>,
         next_id: &mut u32,
         geometry: Option<HudGeometry>,
-        now_millis: u64,
         container: bool,
     ) -> Result<(), UiPresentationError> {
         let (Some(hud_textures), Some(geometry)) = (self.hud_textures.as_ref(), geometry) else {
             return Ok(());
         };
-        // The retained frame carries this frame's clock while the layout appends, rather than a
-        // copy of every item fact.
-        let captured = std::mem::replace(&mut self.hud_frame.now_millis, now_millis);
-        let appended = HudLayout::new(
+        HudLayout::new(
             nodes,
             next_id,
             hud_textures,
@@ -36,9 +32,15 @@ impl UiPresentationRuntime {
             self.solid_texture_page,
             geometry,
         )
-        .and_then(|mut layout| layout.append(player_runtime, runtime, &self.hud_frame, container));
-        self.hud_frame.now_millis = captured;
-        appended
+        .and_then(|mut layout| {
+            layout.append(
+                player_runtime,
+                runtime,
+                &self.hud_frame,
+                &self.clock,
+                container,
+            )
+        })
     }
 
     /// Builds the frame from its retained UI authority.
@@ -50,6 +52,8 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        self.clock = super::frame_clock::FrameClock::new(now_millis);
+        self.hud_painted = [false; 2];
         self.hud_elements.hide_all();
         self.hud_frame.mount_equipment = runtime.screen_state().mount_equipment;
         #[cfg(feature = "tracy")]
@@ -68,13 +72,11 @@ impl UiPresentationRuntime {
             self.rebuild_dynamic_textures();
         }
         self.poll_server_ui_images();
-        self.menu_seconds = now_millis as f64 / 1_000.0;
-        self.nametag_atlas.set_animation_seed(now_millis);
         self.configure_oreui_settings();
         if let Some(view) = &self.menu_view {
             self.menu_scrolls.configure_motion(
                 view.settings_options.value(SettingId::ScreenAnimations) != 0,
-                self.menu_seconds,
+                self.clock.seconds(),
             );
         }
         let frame = (physical_size, dpi_scale.get(), self.safe_area);
@@ -111,6 +113,9 @@ impl UiPresentationRuntime {
             let host = self.scene_host();
             let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
             let scenes = stack.visible(false);
+            if !scenes.iter().all(|scene| scene.repeats_from_inputs()) {
+                self.clock.changes_every_frame();
+            }
             // Every cursor style belongs to gameplay input, including pack image
             // replacements. Personal modal surfaces own input outside the scene stack.
             let crosshair_visible = stack.receives_input(Scene::Gameplay)
@@ -128,7 +133,8 @@ impl UiPresentationRuntime {
             }
             self.begin_form_frame();
             let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
-            self.scene_clocks.observe(&open, self.menu_seconds);
+            let clock = &self.clock;
+            self.scene_clocks.observe(&open, || clock.seconds());
             let mut menu_hit_targets = Vec::new();
             // The HUD's own player doll keeps its pose while a screen shows another one.
             let mut hud_nodes = 0..0;
@@ -143,7 +149,6 @@ impl UiPresentationRuntime {
                             nodes,
                             next,
                             hud_geometry,
-                            now_millis,
                             false,
                         )?;
                         self.prewarm_engine_inventory(
@@ -170,7 +175,6 @@ impl UiPresentationRuntime {
                             } else {
                                 content
                             },
-                            now_millis,
                             crosshair,
                         )?;
                         if crosshair {
@@ -219,7 +223,14 @@ impl UiPresentationRuntime {
                         }
                     }
                     Scene::Bed => {
-                        self.append_bed_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                        self.append_bed_screen(
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                            self.clock.millis(),
+                        )?;
                     }
                     Scene::Container => {
                         self.append_java_hud(
@@ -228,7 +239,6 @@ impl UiPresentationRuntime {
                             nodes,
                             next,
                             hud_geometry,
-                            now_millis,
                             true,
                         )?;
                         let container_start = nodes.len();
@@ -253,17 +263,32 @@ impl UiPresentationRuntime {
                     }
                     Scene::Chat => {
                         self.append_chat_screen(
-                            runtime, nodes, next, metrics, content, now_millis,
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                            self.clock.millis(),
                         )?;
                     }
                     Scene::Emote => {
                         self.append_emote_screen(
-                            runtime, nodes, next, metrics, content, now_millis,
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                            self.clock.millis(),
                         )?;
                     }
                     Scene::MobEffects => {
                         self.append_mob_effect_screen(
-                            runtime, nodes, next, metrics, content, now_millis,
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                            self.clock.millis(),
                         )?;
                     }
                     Scene::Loading => {
@@ -311,7 +336,7 @@ impl UiPresentationRuntime {
                             metrics,
                             content_width,
                             content_height,
-                            now_millis,
+                            self.clock.millis(),
                         )?;
                     }
                     Scene::CommandBlock => {
@@ -353,7 +378,12 @@ impl UiPresentationRuntime {
                     }
                     Scene::Credits => {
                         self.append_credits_screen(
-                            runtime, nodes, next, metrics, content, now_millis,
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                            self.clock.millis(),
                         )?;
                     }
                 }
@@ -390,14 +420,7 @@ impl UiPresentationRuntime {
             );
             // Toasts live on their own stack, drawn last over every scene.
             self.scene_clock.clear();
-            self.append_toast_screen(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                content,
-                now_millis,
-            )?;
+            self.append_toast_screen(runtime, &mut nodes, &mut next_id, metrics, content)?;
             self.append_experience_chrome(
                 runtime,
                 &mut nodes,
@@ -430,7 +453,12 @@ impl UiPresentationRuntime {
             let palette = self.formatting_palette().copied();
             let effects = TextEffects {
                 palette: palette.as_ref(),
-                obfuscation_seed: now_millis,
+                obfuscation_seed: if nodes.iter().any(obfuscated) {
+                    self.clock.millis()
+                } else {
+                    // No `§k` text reads the seed.
+                    0
+                },
                 obfuscation: Some(&self.obfuscation),
             };
             self.apply_gui_models_in(&mut nodes, viewport, safe_area, effects, hud_nodes);
@@ -519,6 +547,14 @@ impl UiPresentationRuntime {
             );
         }
         result
+    }
+}
+
+/// Whether the node draws `§k` text, which re-rolls its glyphs from the frame's clock.
+fn obfuscated(node: &UiNode) -> bool {
+    match node.visual() {
+        UiVisual::Text { layout, .. } | UiVisual::RotatedText { layout, .. } => layout.obfuscated(),
+        _ => false,
     }
 }
 

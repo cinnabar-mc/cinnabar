@@ -10,7 +10,7 @@ use ui_engine::test_support::fixture_font;
 use ui_engine::text_metrics::TextMetrics;
 
 fn frame(runtime: &mut UiPresentationRuntime, view: &MenuView, seconds: f64) -> Vec<UiNode> {
-    runtime.menu_seconds = seconds;
+    runtime.set_menu_seconds(seconds);
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
     let mut nodes = Vec::new();
     runtime.menu_hit_targets = runtime

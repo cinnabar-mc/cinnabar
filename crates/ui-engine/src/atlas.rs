@@ -29,6 +29,7 @@ pub mod jobs;
 mod local_sources;
 mod outlines;
 mod oversized;
+mod pending_work;
 pub use oversized::{OversizedFrame, OversizedTextures};
 mod client_rasters;
 pub use client_rasters::LOCAL_PLAYER_HEAD;
@@ -332,6 +333,8 @@ struct Decodes {
     bytes: usize,
     failed: VecDeque<String>,
     jobs: fitted::FittedDecodes,
+    /// A miss of the last require was left for a later frame's inline budget.
+    deferred: bool,
 }
 
 /// Where a missing texture's decode runs this frame.
@@ -398,7 +401,10 @@ impl Decodes {
                 self.store(key.to_owned(), decode(&source.bytes, source.packed));
                 return self.pixels.get(key).cloned();
             }
-            DecodeOn::Later => return None,
+            DecodeOn::Later => {
+                self.deferred = true;
+                return None;
+            }
             DecodeOn::Worker => {}
         }
         self.jobs.request(key, source);
@@ -739,6 +745,7 @@ impl ServerAtlas {
 
     /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
     pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
+        self.decodes.deferred = false;
         self.decodes.collect();
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page

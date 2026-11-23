@@ -48,13 +48,16 @@ impl LocalPlayerFacts {
 
     /// Missing, failed or replaced streams retire evidence, without minting a new binding.
     pub fn synchronize_local_abilities(&mut self, session: u64, stream: Option<u64>) {
-        if self
-            .local_abilities
-            .binding
-            .is_some_and(|binding| binding.session != session || Some(binding.stream) != stream)
-        {
+        if !self.local_abilities_synchronized(session, stream) {
             self.clear_local_abilities();
         }
+    }
+
+    /// Whether [`Self::synchronize_local_abilities`] with these arguments would change nothing.
+    pub fn local_abilities_synchronized(&self, session: u64, stream: Option<u64>) -> bool {
+        self.local_abilities
+            .binding
+            .is_none_or(|binding| binding.session == session && Some(binding.stream) == stream)
     }
 
     /// Retains only newer evidence matching the accepted session, stream and actor.

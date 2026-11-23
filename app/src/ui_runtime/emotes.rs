@@ -133,8 +133,10 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.keyboard.clear();
         input.runtime.emotes_mut().close();
         input.runtime.emotes_mut().stop();
-        if let Some(presentation) = input.presentation.as_deref_mut() {
-            presentation.set_emote_pointer(None);
+        if let Some(presentation) = input.presentation.as_mut() {
+            client_shell::ui_resources::update(presentation, |presentation| {
+                presentation.set_emote_pointer(None)
+            });
         }
         return;
     }
@@ -158,8 +160,10 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.observed.pointer = None;
         input.consumed.0 = owned;
         set_cursor_capture(&mut input.window.1, false);
-        if let Some(presentation) = input.presentation.as_deref_mut() {
-            presentation.set_emote_pointer(None);
+        if let Some(presentation) = input.presentation.as_mut() {
+            client_shell::ui_resources::update(presentation, |presentation| {
+                presentation.set_emote_pointer(None)
+            });
         }
         return;
     }

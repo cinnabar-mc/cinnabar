@@ -324,10 +324,13 @@ impl GameplayHudState {
     /// Drops effects that expired on the authoritative clock. The vanilla
     /// client counts durations down locally; the server's Remove stays the
     /// final authority for early clears.
-    pub fn expire_effects(&mut self, now_tick: Option<u64>) {
-        let Some(now) = now_tick else { return };
+    /// Whether any expired.
+    pub fn expire_effects(&mut self, now_tick: Option<u64>) -> bool {
+        let Some(now) = now_tick else { return false };
+        let before = self.effects.len();
         self.effects
             .retain(|effect| effect.visible_at_tick(Some(now)));
+        self.effects.len() != before
     }
 
     /// Counts one semantically odd attribute value that was skipped.

@@ -45,7 +45,7 @@ fn menu_paper_dolls_animate_without_a_world_or_texture_rebuilds() {
         })
         .collect();
     let crown_before = runtime.gui_models.cosmetics.items[&crown].vertices.clone();
-    runtime.menu_seconds = 0.7;
+    runtime.set_menu_seconds(0.7);
     runtime.sync_cosmetic_previews(true);
     assert_ne!(
         before.vertices(),

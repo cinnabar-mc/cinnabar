@@ -33,7 +33,7 @@ fn frame(
     view.settings.section = section;
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let (mut nodes, mut next) = (Vec::new(), 1);
-    runtime.menu_seconds = seconds;
+    runtime.set_menu_seconds(seconds);
     runtime
         .append_oreui_screen(
             &view,

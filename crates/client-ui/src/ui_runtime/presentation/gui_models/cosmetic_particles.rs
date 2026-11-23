@@ -116,7 +116,13 @@ impl UiPresentationRuntime {
             }
         }
         let page = (self.textures.dynamic_start() + render_model::UI_PARTICLE_PAGE_OFFSET) as u16;
-        if previews.sync(self.menu_seconds, page) {
+        // Without placements the previews only reset, reading no time.
+        let now = if previews.placements.is_empty() {
+            0.0
+        } else {
+            self.clock.seconds()
+        };
+        if previews.sync(now, page) {
             self.rebuild_dynamic_textures();
         }
     }

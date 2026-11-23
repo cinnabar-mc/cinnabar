@@ -470,7 +470,13 @@ fn review_carried_item_draws_after_the_recipe_panel() {
     )
     .unwrap();
     layout
-        .append(&player_runtime, &runtime, &frame, true)
+        .append(
+            &player_runtime,
+            &runtime,
+            &frame,
+            &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
+            true,
+        )
         .unwrap();
     let cursor = nodes
         .iter()

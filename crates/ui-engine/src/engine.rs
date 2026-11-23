@@ -249,6 +249,18 @@ impl FormEngine {
         }
     }
 
+    /// Whether texture decodes the next paint would collect are waiting; see
+    /// [`ServerAtlas::completions_waiting`](crate::atlas::ServerAtlas::completions_waiting).
+    pub fn texture_completions_waiting(&self) -> bool {
+        self.textures.lock().completions_waiting()
+    }
+
+    /// See [`ServerAtlas::image_work_in_flight`](crate::atlas::ServerAtlas::image_work_in_flight).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn image_work_in_flight(&self) -> bool {
+        self.textures.lock().image_work_in_flight()
+    }
+
     /// The atlas page images when they changed since the last call.
     pub fn take_server_pages(&mut self) -> Option<&[render_model::UiTexturePage]> {
         let atlas = self.textures.atlas_mut();

@@ -221,6 +221,13 @@ impl UiRuntime {
             .or_else(|| self.session.data_driven.take_packet())
     }
 
+    /// Whether [`Self::take_client_packet`] would return a packet.
+    pub fn has_client_packet(&self) -> bool {
+        !self.session.client_packets.is_empty()
+            || !self.session.book_packets.is_empty()
+            || self.session.data_driven.has_packet()
+    }
+
     pub fn requeue_client_packet(&mut self, packet: Packet) {
         self.session.client_packets.push_front(packet);
     }

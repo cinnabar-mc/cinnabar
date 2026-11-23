@@ -148,6 +148,8 @@ pub(super) struct GuiModels {
     /// A screen's live renderer draws beside the HUD doll with its own head turn.
     pub(super) screen_model: std::sync::Mutex<hud_model::HudModel>,
     live_renderer_shown: std::sync::atomic::AtomicBool,
+    /// Whether the last build drew the player model in any preview.
+    player_model_drawn: std::sync::atomic::AtomicBool,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     pub(super) wearing_elytra: bool,
@@ -341,6 +343,9 @@ impl UiPresentationRuntime {
         self.gui_models
             .live_renderer_shown
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.gui_models
+            .player_model_drawn
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         // Node identities change between frames, so no doll keeps another frame's controls.
         for in_hud in [true, false] {
             self.gui_models
@@ -420,6 +425,9 @@ impl UiPresentationRuntime {
         {
             return;
         }
+        self.gui_models
+            .player_model_drawn
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let live_renderer = matches!(view, player_preview::PreviewView::Live { .. });
         if live_renderer {
             self.gui_models

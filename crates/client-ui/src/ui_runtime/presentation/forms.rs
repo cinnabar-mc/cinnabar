@@ -417,15 +417,16 @@ impl UiPresentationRuntime {
         }
     }
 
-    /// Publishes completed original images before a saved menu frame can be reused.
-    pub(super) fn poll_server_ui_images(&mut self) {
+    /// Publishes completed original images before a saved menu frame can be reused; whether
+    /// any arrived.
+    pub(super) fn poll_server_ui_images(&mut self) -> bool {
         use ui_engine::engine::ImageUpdate;
         let update = self
             .engine
             .as_mut()
             .map_or(ImageUpdate::None, |engine| engine.poll_native_images());
         if update == ImageUpdate::None {
-            return;
+            return false;
         }
         self.retained_menu = None;
         if update == ImageUpdate::Metadata {
@@ -435,6 +436,7 @@ impl UiPresentationRuntime {
             self.screens.containers.refresh_artwork();
         }
         self.sync_server_ui_pages();
+        true
     }
 
     /// Ends a built frame after its screens drew, before it publishes: records the large server
@@ -625,8 +627,9 @@ impl UiPresentationRuntime {
     }
 
     /// Hands the runtime this frame's loading cover and the catalog's screen settings.
-    pub fn publish_scene_inputs(&self, runtime: &mut UiRuntime) {
-        runtime.observe_presentation(self.loading_stage, self.screen_settings());
+    /// Whether the runtime's copy changed.
+    pub fn publish_scene_inputs(&self, runtime: &mut UiRuntime) -> bool {
+        runtime.observe_presentation(self.loading_stage, self.screen_settings())
     }
 
     fn refresh_screen_settings(&mut self) {
@@ -813,7 +816,7 @@ impl UiPresentationRuntime {
                             content: [width, height],
                             translate: &translate,
                             language: runtime.text_generation(),
-                            now: self.menu_seconds,
+                            now: self.clock.seconds(),
                             nodes: &mut *nodes,
                             next: &mut *next,
                             renderers: &mut [&mut items],

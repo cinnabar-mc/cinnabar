@@ -20,8 +20,49 @@ pub struct PendingUiPublication {
     pub dpi_scale: DpiScale,
 }
 
-/// Renders the captured UI without observing this frame's post-capture inventory changes.
+/// Renders the captured UI without observing this frame's post-capture inventory changes, or
+/// returns `None` when the last frame repeats unchanged. `inputs_unchanged` is the caller's word
+/// that neither `runtime`, `player_runtime` nor any presentation input written outside
+/// publication changed since the last call.
 pub fn render_prepared_ui(
+    player_runtime: &player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    presentation: &mut UiPresentationRuntime,
+    prepared: PendingUiPublication,
+    inputs_unchanged: bool,
+) -> Result<Option<UiRenderInput>, UiPresentationError> {
+    // Name tags draw outside the frame and animate whether or not it is built.
+    presentation
+        .nametag_atlas
+        .set_animation_seed(prepared.now_millis);
+    let inputs = super::reuse::CapturedInputs::of(&prepared);
+    let repeats = presentation.frame_reuse != super::reuse::FrameReuse::Off
+        && inputs_unchanged
+        && presentation.repeats_frame(&inputs, prepared.now_millis);
+    if repeats
+        && presentation.frame_reuse == super::reuse::FrameReuse::Skip
+        && presentation.repeat_built_frame(prepared.now_millis)
+    {
+        return Ok(None);
+    }
+    let repeated = repeats.then(|| presentation.last_input.clone()).flatten();
+    match build_prepared_ui(player_runtime, runtime, presentation, prepared) {
+        Ok(input) => {
+            if repeats {
+                presentation.check_repeat(repeated.as_ref(), &input);
+            }
+            presentation.remember_built(inputs);
+            Ok(Some(input))
+        }
+        Err(error) => {
+            presentation.forget_built_frame();
+            Err(error)
+        }
+    }
+}
+
+/// Builds the captured UI at the captured clock.
+fn build_prepared_ui(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
@@ -37,6 +78,8 @@ pub fn render_prepared_ui(
             prepared.now_millis as f64 / 1000.0,
         );
     }
+    // A shown preview sways with the time.
+    let preview_sways = preview.ready && preview.shown;
     let icon = presentation.player_preview_icon();
     let (left, right) = presentation.player_hand_icons();
     presentation.hud_frame.player_preview = icon;
@@ -48,19 +91,25 @@ pub fn render_prepared_ui(
         Arc::make_mut(menu).profile_icon = icon;
     }
     publish_item_viewmodels(presentation, prepared.item_icons);
-    runtime.with_presentation_inventory(
-        player_runtime,
-        prepared.inventory,
-        |runtime, player_runtime| {
-            presentation.build(
-                player_runtime,
-                runtime,
-                prepared.now_millis,
-                prepared.physical_size,
-                prepared.dpi_scale,
-            )
-        },
-    )
+    runtime
+        .with_presentation_inventory(
+            player_runtime,
+            prepared.inventory,
+            |runtime, player_runtime| {
+                presentation.build(
+                    player_runtime,
+                    runtime,
+                    prepared.now_millis,
+                    prepared.physical_size,
+                    prepared.dpi_scale,
+                )
+            },
+        )
+        .inspect(|_| {
+            if preview_sways {
+                presentation.clock.changes_every_frame();
+            }
+        })
 }
 
 /// Renders the captured held-item icons and updates the frame's raster references.
@@ -97,7 +146,13 @@ pub fn refresh_hud_frame(
         perspective,
         now_millis,
         ItemIconFrames::default(),
-    );
+    )
+    .icons;
+    presentation.hud_frame.player_preview = presentation.player_preview_icon();
+    (
+        presentation.hud_frame.left_hand,
+        presentation.hud_frame.right_hand,
+    ) = presentation.player_hand_icons();
     publish_item_viewmodels(presentation, icons);
 }
 

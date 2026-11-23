@@ -69,9 +69,10 @@ impl MenuPreviewModel {
 
 impl super::UiPresentationRuntime {
     /// Updates headwear without reloading skin geometry or regenerating skin textures.
-    pub fn set_preview_cosmetics(&mut self, items: &[cosmetics::Item]) {
+    /// Whether the cosmetics changed.
+    pub fn set_preview_cosmetics(&mut self, items: &[cosmetics::Item]) -> bool {
         if self.menu_preview_model.cosmetics == items {
-            return;
+            return false;
         }
         self.menu_preview_model.cosmetics = items.to_vec();
         let mut bounds = self
@@ -91,6 +92,19 @@ impl super::UiPresentationRuntime {
         self.last_frame = None;
         self.player_preview_source_hash = None;
         self.sync_equipped_cosmetic_artwork();
+        true
+    }
+
+    /// Whether [`Self::set_menu_preview_skin`] would change nothing and report the model ready:
+    /// the model already shows `skin` with no other preparation pending.
+    pub fn menu_preview_skin_shown(&self, skin: &render_api::StandardSkin) -> bool {
+        let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
+        self.menu_preview_model
+            .pending
+            .as_ref()
+            .is_none_or(|pending| same_source(pending.source.as_ref(), skin.geometry.as_ref()))
+            && self.menu_preview_model.body_matches(skin)
+            && super::cape::same(self.menu_preview_model.cape.as_ref(), cape)
     }
 
     /// Publishes a worker-built model, retaining the previous preview while a changed source prepares.

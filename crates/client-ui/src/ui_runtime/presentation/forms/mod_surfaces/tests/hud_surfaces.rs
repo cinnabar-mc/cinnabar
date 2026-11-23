@@ -186,7 +186,6 @@ fn crosshair_bounds_follow_the_safe_hud_root_even_when_hidden() {
                     &mut 0,
                     metrics,
                     physical.map(|axis| axis as f32 / dpi),
-                    0,
                     true,
                 )
                 .unwrap();

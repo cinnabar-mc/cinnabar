@@ -203,9 +203,10 @@ impl UiRuntime {
 
     /// Prefills the name box with the target's name whenever a different target is placed,
     /// as the native anvil does, and clears it when the target is taken out.
-    pub fn sync_anvil_name(&mut self, player_runtime: &player_state::PlayerState) {
+    /// Whether anything changed.
+    pub fn sync_anvil_name(&mut self, player_runtime: &player_state::PlayerState) -> bool {
         if self.inventory_ledger(player_runtime).window_kind() != Some(WindowKind::Anvil) {
-            return;
+            return false;
         }
         let ledger = self.inventory_ledger(player_runtime);
         let target = InventoryTarget::Craft(ANVIL_TARGET_SLOT);
@@ -222,10 +223,15 @@ impl UiRuntime {
                     .map(|entry| entry.identifier.clone()),
             });
         let Some(identity) = identity else {
+            if self.screen_state().anvil_target.is_none()
+                && self.screen_state().anvil_name.is_empty()
+            {
+                return false;
+            }
             let state = self.screen_state_mut();
             state.anvil_target = None;
             state.anvil_name.clear();
-            return;
+            return true;
         };
         let stated_name = ledger
             .presented_target_overlay(target)
@@ -245,7 +251,7 @@ impl UiRuntime {
         if same_facts
             && previous.is_some_and(|previous| previous.names_generation == names_generation)
         {
-            return;
+            return false;
         }
         let untouched = previous.is_some_and(|previous| state.anvil_name == previous.prefilled);
         let name = self.anvil_target_name(player_runtime).unwrap_or_default();
@@ -261,6 +267,7 @@ impl UiRuntime {
         if !same_target || untouched || changed_target_name {
             state.anvil_name = name;
         }
+        true
     }
 
     /// Rebuilds the prediction after an input, name or calculation rule changes.

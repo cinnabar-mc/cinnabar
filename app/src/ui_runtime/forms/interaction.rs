@@ -275,8 +275,11 @@ pub(crate) fn drive_server_form_input(
         .as_ref()
         .map(|time| u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
     let had_active_form = runtime.server_forms().active().is_some();
-    let handoff_expired =
-        handoff_now_millis.is_some_and(|now_millis| runtime.advance_form_handoff(now_millis));
+    let handoff_expired = handoff_now_millis.is_some_and(|now_millis| {
+        client_shell::ui_resources::update(&mut runtime, |runtime| {
+            runtime.advance_form_handoff(now_millis)
+        })
+    });
     if handoff_expired && let Some(focus) = focus.as_deref_mut() {
         focus.authorize_screen_return();
     }

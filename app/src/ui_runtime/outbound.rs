@@ -1,5 +1,6 @@
 //! Shared outbound UI intent for native and browser session hosts.
 use crate::runtime::network::resource_packs::PackApplication;
+use bevy::prelude::DetectChangesMut;
 use bevy::{
     prelude::{Res, ResMut, Time},
     time::Real,
@@ -30,15 +31,23 @@ pub(crate) fn flush_inventory_network(
         revoked.settle_inventory(player_runtime.inventory.ledger_mut());
     }
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    match flush_inventory_send(&mut player_runtime, &mut runtime, now_millis, |packet| {
-        network.send_inventory_packet(packet)
-    }) {
-        Ok(_) | Err(client_session::PacketSendError::Full(_)) => {}
-        Err(client_session::PacketSendError::Closed(_)) => {
-            runtime.inventory_transport_closed(&mut player_runtime);
-        }
+    let flushed = flush_inventory_send(
+        player_runtime.bypass_change_detection(),
+        runtime.bypass_change_detection(),
+        now_millis,
+        |packet| network.send_inventory_packet(packet),
+    );
+    // An idle flush changes neither resource, so the UI frame may repeat.
+    if !matches!(flushed, Ok(false)) {
+        runtime.set_changed();
+        player_runtime.set_changed();
     }
-    while let Some(packet) = runtime.take_client_packet() {
+    if let Err(client_session::PacketSendError::Closed(_)) = flushed {
+        runtime.inventory_transport_closed(&mut player_runtime);
+    }
+    while runtime.has_client_packet()
+        && let Some(packet) = runtime.take_client_packet()
+    {
         match network.send_inventory_packet(packet) {
             Ok(()) => {}
             Err(client_session::PacketSendError::Full(packet)) => {
@@ -57,26 +66,33 @@ pub(crate) fn flush_chat_network(
     network: Res<NetworkHandle<PackApplication>>,
     mut fatal_error: ResMut<crate::runtime::shutdown::FatalError>,
 ) {
-    runtime.service_pending_chat_autocomplete(&player_runtime);
+    if runtime.chat_autocomplete_requested() {
+        runtime.service_pending_chat_autocomplete(&player_runtime);
+    }
     if network.closed_command_has_pending_control() {
         return;
     }
     let runtime_id = runtime.local_runtime_id(&player_runtime);
-    runtime.flush_wake_request(runtime_id, |packet| network.send_inventory_packet(packet));
-    match flush_chat_sends(
-        &mut runtime,
-        8,
-        |session, sequence, action, packet| match network
-            .send_chat_packet(session, sequence, action, packet)
-        {
+    if runtime.wake_requested() {
+        runtime.flush_wake_request(runtime_id, |packet| network.send_inventory_packet(packet));
+    }
+    // Without an unsent request the flush changes nothing.
+    let unsent = runtime.pending_chat_sends().len() > runtime.in_flight_chat_sends();
+    let chat: &mut client_ui::ui_runtime::UiRuntime = if unsent {
+        &mut runtime
+    } else {
+        runtime.bypass_change_detection()
+    };
+    match flush_chat_sends(chat, 8, |session, sequence, action, packet| {
+        match network.send_chat_packet(session, sequence, action, packet) {
             Err(client_session::PacketSendError::Closed(packet))
                 if network.closed_command_has_pending_control() =>
             {
                 Err(client_session::PacketSendError::Full(packet))
             }
             result => result,
-        },
-    ) {
+        }
+    }) {
         Ok(_) | Err(ChatFlushError::Transport(client_session::PacketSendError::Full(_))) => {}
         Err(ChatFlushError::Transport(client_session::PacketSendError::Closed(_))) => {
             crate::runtime::shutdown::record_fatal_error(

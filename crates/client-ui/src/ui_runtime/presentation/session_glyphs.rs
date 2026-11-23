@@ -136,14 +136,14 @@ pub(super) struct SessionGlyphPages {
 pub(super) fn observe(
     runtime: &mut UiPresentationRuntime,
     sheets: Option<&Arc<SessionGlyphSheets>>,
-) {
+) -> bool {
     let unchanged = match (&runtime.session_glyphs.source, sheets) {
         (Some(current), Some(next)) => Arc::ptr_eq(current, next),
         (None, None) => true,
         _ => false,
     };
     if unchanged {
-        return;
+        return false;
     }
     let prepared = sheets.map(|sheets| sheets.prepared());
     let pages = prepared
@@ -156,6 +156,7 @@ pub(super) fn observe(
     runtime.font = font(runtime);
     runtime.nametag_atlas.reset();
     dynamic_textures::rebuild(runtime);
+    true
 }
 
 /// Reconstructs current server fonts and the private alias without moving atlas ownership.

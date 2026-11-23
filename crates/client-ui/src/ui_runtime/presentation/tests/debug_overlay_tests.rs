@@ -568,7 +568,9 @@ fn overlay_paint_refreshes_when_its_presentation_inputs_change() {
             "grid" => {}
             "dpi" => dpi = 2.0,
             "solid" => presentation.solid_texture_page += 1,
-            "safe" => presentation.set_safe_area(ui::SafeArea::new(4.0, 2.0, 0.0, 0.0).unwrap()),
+            "safe" => {
+                presentation.set_safe_area(ui::SafeArea::new(4.0, 2.0, 0.0, 0.0).unwrap());
+            }
             "engine" => presentation
                 .enable_json_ui(crate::test_support::mini_carrier())
                 .unwrap(),
