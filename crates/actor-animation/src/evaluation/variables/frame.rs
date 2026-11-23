@@ -22,6 +22,18 @@ impl FrameVariables {
         }
     }
 
+    /// The expression results the next lease starts from.
+    pub(crate) fn expressions(&self) -> Option<&crate::evaluation::frame_cache::Expressions> {
+        self.0.last()?.frame.as_ref()?.cache.as_ref()
+    }
+
+    /// Mutable access to the expression results the next lease starts from.
+    pub(crate) fn expressions_mut(
+        &mut self,
+    ) -> Option<&mut crate::evaluation::frame_cache::Expressions> {
+        self.0.last_mut()?.frame.as_mut()?.cache.as_mut()
+    }
+
     /// Seeds storage from a tick baseline, then restores only writes between samples.
     pub(crate) fn lease<'a>(&'a mut self, source: &MolangVariables) -> FrameVariableLease<'a> {
         let mut variables = self.0.pop().unwrap_or_else(|| source.clone());

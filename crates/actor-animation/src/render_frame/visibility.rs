@@ -28,16 +28,19 @@ pub(super) struct Plan {
     gate_reads: Option<cache::Inputs>,
     /// The most ops the gates can charge together; `None` when that cannot be bounded.
     gate_ops: Option<usize>,
+    /// Each distinct gate expression once, however many layers share it.
+    gate_expressions: Vec<usize>,
     memo: Option<Memo>,
 }
 
 /// The last gate result with the exact values its gates read. Gates that read only queries and
 /// tick-baseline variables give the same result for the same values, so an unchanged read set
-/// reuses the result instead of evaluating the gates again.
+/// reuses the result instead of evaluating the gates again. Full sampling shares the gates'
+/// expression results, so reuse also reinstalls the results that read left behind.
 #[derive(Debug)]
 struct Memo {
     inputs: cache::Inputs,
-    visibility: Option<RenderVisibility>,
+    result: Option<(RenderVisibility, evaluation::frame_cache::ExpressionSlots)>,
 }
 
 impl Plan {
@@ -337,6 +340,12 @@ pub(super) fn sample(
                 gate_reads(assets, evaluator.layout, &gates)
             },
             gate_ops: worst_case_ops(assets, gates.iter().copied()),
+            gate_expressions: {
+                let mut unique: Vec<usize> = gates.iter().map(|&gate| gate as usize).collect();
+                unique.sort_unstable();
+                unique.dedup();
+                unique
+            },
             memo: None,
         });
     }
@@ -365,17 +374,21 @@ pub(super) fn sample(
             plan.memo.take().or_else(|| {
                 plan.gate_reads.as_ref().map(|reads| Memo {
                     inputs: reads.fresh(),
-                    visibility: None,
+                    result: None,
                 })
             })
         }
         _ => None,
     };
-    let reused = memo.as_mut().and_then(|memo| {
-        let unchanged = memo
-            .inputs
-            .update(evaluator, &frame.motion.variables, budget);
-        unchanged.then_some(memo.visibility).flatten()
+    let unchanged = memo.as_mut().is_some_and(|memo| {
+        memo.inputs
+            .update(evaluator, &frame.motion.variables, budget)
+    });
+    // A read would leave the gates' expression results as the memo's own read did.
+    let reused = memo.as_ref().filter(|_| unchanged).and_then(|memo| {
+        let (visibility, slots) = memo.result.as_ref()?;
+        scratch.variables.expressions_mut()?.restore(slots);
+        Some(*visibility)
     });
     if let Some(visibility) = reused {
         scratch.visibility.as_mut()?.memo = memo;
@@ -428,11 +441,26 @@ pub(super) fn sample(
         hide_held_items,
     };
     drop(variables);
+    let FrameSamplingCache {
+        variables,
+        visibility: plan,
+        ..
+    } = &mut *scratch;
     if let Some(mut memo) = memo
-        && let Some(plan) = scratch.visibility.as_mut()
+        && let Some(plan) = plan.as_mut()
     {
-        memo.visibility = Some(visibility);
-        plan.memo = Some(memo);
+        let mut slots = memo
+            .result
+            .take()
+            .map(|(_, slots)| slots)
+            .unwrap_or_default();
+        if variables
+            .expressions()
+            .is_some_and(|expressions| expressions.copy_ran(&plan.gate_expressions, &mut slots))
+        {
+            memo.result = Some((visibility, slots));
+            plan.memo = Some(memo);
+        }
     }
     Some(visibility)
 }
