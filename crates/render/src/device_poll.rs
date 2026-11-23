@@ -39,7 +39,7 @@ impl FramesInFlight {
     /// before it returns.
     ///
     /// The frame's own submission index bounds it, so the poll makes no submission: an empty one
-    /// still costs a driver submission (about 20 µs of render-thread time on RADV).
+    /// still costs a full driver submission on RADV.
     pub(crate) fn finish_frame(
         &mut self,
         device: &wgpu::Device,
