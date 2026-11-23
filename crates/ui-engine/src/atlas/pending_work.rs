@@ -11,8 +11,18 @@ impl ServerAtlas {
 
     /// Whether decode work a later require would collect, or a decode left for a later frame,
     /// is waiting: a frame drawn without it may draw differently once it lands.
+    /// A download a paint found still loading counts once it settles, ready or failed.
     pub fn completions_waiting(&self) -> bool {
-        self.decodes.deferred || self.decodes.jobs.completion_waiting()
+        self.decodes.deferred
+            || self.decodes.jobs.completion_waiting()
+            || self.remote.as_ref().is_some_and(|remote| {
+                self.loading_remote.borrow().iter().any(|url| {
+                    matches!(
+                        remote.state(url),
+                        crate::sources::RemoteImage::Ready(_) | crate::sources::RemoteImage::Failed
+                    )
+                })
+            })
     }
 
     /// Whether background image work this atlas submitted has not finished yet, for tests that

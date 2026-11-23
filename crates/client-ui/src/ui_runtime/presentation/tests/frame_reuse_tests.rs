@@ -17,13 +17,51 @@ use crate::ui_runtime::presentation::{
 /// A presentation over fixture artwork, the minimal UI carrier and a small HUD screen drawing
 /// the HUD's own renderers and bindings, which needs no local files.
 fn fixture_presentation() -> Option<UiPresentationRuntime> {
+    fixture_presentation_with(Arc::new(Download::failed()))
+}
+
+/// The HUD image the fixture downloads.
+const HUD_IMAGE_URL: &str = "https://example.invalid/hud.png";
+
+/// A download whose progress a test sets, shared by every presentation that reads it.
+struct Download(std::sync::Mutex<ui_engine::sources::RemoteImage>);
+
+impl Download {
+    fn failed() -> Self {
+        Self(std::sync::Mutex::new(
+            ui_engine::sources::RemoteImage::Failed,
+        ))
+    }
+
+    fn set(&self, state: ui_engine::sources::RemoteImage) {
+        *self.0.lock().unwrap() = state;
+    }
+}
+
+impl ui_engine::sources::RemoteSource for Download {
+    fn state(&self, _url: &str) -> ui_engine::sources::RemoteImage {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// [`fixture_presentation`] downloading [`HUD_IMAGE_URL`] through `downloads`.
+fn fixture_presentation_with(
+    downloads: Arc<dyn ui_engine::sources::RemoteSource>,
+) -> Option<UiPresentationRuntime> {
     use json_ui::vanilla::Reference;
     use serde_json::json;
     let mut presentation =
         UiPresentationRuntime::with_hud(fixture_font(), crate::test_support::fixture_hud())
             .unwrap();
     presentation
-        .enable_json_ui_inline(crate::test_support::mini_carrier())
+        .enable_prepared_json_ui_with_sources(
+            crate::ui_runtime::presentation::PreparedJsonUi::new(
+                crate::test_support::mini_carrier(),
+            )
+            .unwrap(),
+            downloads,
+            ui_engine::sources::ImageWork::inline(),
+        )
         .unwrap();
     let bottom = |name: &str, renderer: &str, offset: [i32; 2]| {
         json!({name: {"type": "custom", "renderer": renderer, "size": [81, 9],
@@ -61,6 +99,8 @@ fn fixture_presentation() -> Option<UiPresentationRuntime> {
             {"effects": {"type": "custom", "renderer": "java_mob_effects_renderer",
                 "size": [120, 30], "anchor_from": "top_right", "anchor_to": "top_right"}},
             label("level", "#level_number", "bottom_middle"),
+            {"downloaded": {"type": "image", "texture": HUD_IMAGE_URL, "size": [16, 16],
+                "anchor_from": "top_left", "anchor_to": "top_left", "offset": [0, 20]}},
             {"entrance": {"type": "label", "text": "Entrance", "localize": false,
                 "anchor_from": "top_left", "anchor_to": "top_left",
                 "anims": ["@hud.fixture_entrance"]}},
@@ -459,6 +499,37 @@ fn hud_changes_and_fades_draw_as_fresh_builds_while_unchanged_frames_repeat() {
 fn repeated_frames_match_fresh_builds_without_local_carriers() {
     let mut harness = Harness::new(fixture_presentation, FrameReuse::Skip).unwrap();
     script(&mut harness, false);
+}
+
+/// A HUD image whose download finishes while frames repeat draws on the next frame.
+#[test]
+fn a_download_finishing_while_frames_repeat_draws_next_frame() {
+    let download = Arc::new(Download(std::sync::Mutex::new(
+        ui_engine::sources::RemoteImage::Loading,
+    )));
+    let shared = Arc::clone(&download);
+    let mut harness = Harness::new(
+        move || fixture_presentation_with(shared.clone()),
+        FrameReuse::Skip,
+    )
+    .unwrap();
+    assert!(harness.frame());
+    harness.run(1_000, 16);
+    let repeats = harness.repeats;
+    harness.run(200, 16);
+    assert!(
+        harness.repeats > repeats + 10,
+        "idle frames repeat while it loads"
+    );
+    let mut bytes = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([200, 30, 30, 255]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    download.set(ui_engine::sources::RemoteImage::Ready(bytes.into()));
+    harness.assert_changes("downloaded HUD image", true);
 }
 
 /// A capture of unchanged inputs reports no change, whichever first-person state the HUD draws

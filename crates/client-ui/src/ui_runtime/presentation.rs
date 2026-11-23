@@ -143,6 +143,8 @@ pub struct UiPresentationRuntime {
     built_frame: Option<publish::reuse::BuiltFrame>,
     /// Repeats whose check build differed, in the debug checking modes.
     frame_reuse_mismatches: u64,
+    /// Frames publication built rather than repeated.
+    frames_built: u64,
     /// Repeats in a row since `FrameReuse::Audit` last checked one.
     #[cfg(debug_assertions)]
     repeats_since_check: u32,

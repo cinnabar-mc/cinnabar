@@ -588,9 +588,9 @@ impl UiPresentationRuntime {
             || self.screens.containers.retains_prepared_inventory_inputs()
     }
 
-    /// Whether the closed inventory still owns unfinished preparation work.
-    #[cfg(test)]
-    pub fn engine_inventory_preparation_pending(&self) -> bool {
+    /// Whether the closed inventory still owns unfinished preparation work, which only builds
+    /// service.
+    pub(in crate::ui_runtime::presentation) fn engine_inventory_preparation_pending(&self) -> bool {
         self.screens.containers.inventory_preparation_pending()
     }
 

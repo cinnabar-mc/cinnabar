@@ -52,6 +52,21 @@ impl FrameClock {
         }
     }
 
+    /// Starts this clock over at `now_millis`, as [`Self::new`] would, keeping its allocations: a
+    /// clock restarted every build allocates nothing after the first.
+    pub fn restart(&mut self, now_millis: u64) {
+        self.now = now_millis;
+        self.now_seconds = now_millis as f64 / 1_000.0;
+        *self.holds_until.get_mut() = u64::MAX;
+        #[cfg(debug_assertions)]
+        {
+            *self
+                .changed_by
+                .get_mut()
+                .unwrap_or_else(|poison| poison.into_inner()) = None;
+        }
+    }
+
     /// The time itself. Whatever reads it may draw differently next frame.
     #[track_caller]
     pub fn millis(&self) -> u64 {

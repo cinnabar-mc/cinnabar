@@ -55,6 +55,7 @@ pub fn render_prepared_ui(
                 presentation.check_repeat(repeated.as_ref(), &input);
             }
             presentation.remember_built(inputs);
+            presentation.frames_built += 1;
             Ok(Some(input))
         }
         Err(error) => {

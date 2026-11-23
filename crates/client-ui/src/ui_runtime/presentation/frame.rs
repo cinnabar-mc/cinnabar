@@ -52,7 +52,7 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
-        self.clock = super::frame_clock::FrameClock::new(now_millis);
+        self.clock.restart(now_millis);
         // A texture change while this frame paints, such as a decode a later request collects,
         // may leave an earlier paint drawn against the old textures: the next frame rebuilds.
         let textures = self.engine.as_deref_mut().map(|engine| {

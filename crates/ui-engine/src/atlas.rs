@@ -21,8 +21,9 @@ use json_ui::{TextureMeta, parse_texture_meta};
 use render_model::UiTexturePage;
 
 use crate::revision::{AtlasRevision, Revision};
-use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
+use crate::sources::{ImageWork, LocalPack, RemoteSource, is_remote};
 
+mod fallbacks;
 pub(crate) mod fitted;
 mod frame_sidecars;
 pub mod jobs;
@@ -298,6 +299,8 @@ pub struct ServerAtlas {
     carrier: Option<Arc<assets::RuntimeUiAssets>>,
     builtin: BuiltinImages,
     remote: Option<Arc<dyn RemoteSource>>,
+    /// Downloaded URLs a paint asked for while they were still loading.
+    loading_remote: RefCell<std::collections::BTreeSet<String>>,
     resident: BTreeMap<String, ServerTexture>,
     pages: Vec<Page>,
     images: Vec<UiTexturePage>,
@@ -692,35 +695,6 @@ impl ServerAtlas {
             extra.pop_first();
         }
         extra.insert(key.to_owned(), found);
-        found
-    }
-
-    /// The vanilla image or downloaded URL behind `key`. A vanilla miss is
-    /// remembered; a URL still loading is asked again next time.
-    fn fallback(&self, key: &str) -> Option<Source> {
-        if let Some(found) = self.extra.borrow().get(key) {
-            return found.clone();
-        }
-        let (found, settled) = if is_remote(key) {
-            match self.remote.as_ref()?.load(key) {
-                RemoteImage::Ready(bytes) => (source(bytes), true),
-                RemoteImage::Failed => (None, true),
-                RemoteImage::Loading | RemoteImage::ReadyWithoutBody => (None, false),
-            }
-        } else {
-            self.local_source(key)
-        };
-        if settled {
-            let mut extra = self.extra.borrow_mut();
-            // Cache admission also bounds diagnostics when misses churn.
-            if found.is_none() && extra.len() < MAX_EXTRA {
-                tracing::debug!(target: "server_form", key, "UI texture unresolved");
-            }
-            if extra.len() >= MAX_EXTRA {
-                extra.pop_first();
-            }
-            extra.insert(key.to_owned(), found.clone());
-        }
         found
     }
 

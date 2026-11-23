@@ -68,6 +68,7 @@ impl UiPresentationRuntime {
             frame_reuse: Default::default(),
             built_frame: None,
             frame_reuse_mismatches: 0,
+            frames_built: 0,
             #[cfg(debug_assertions)]
             repeats_since_check: 0,
             last_frame: None,
