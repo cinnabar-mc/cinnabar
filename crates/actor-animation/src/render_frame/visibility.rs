@@ -22,6 +22,22 @@ pub(super) struct Plan {
     mode: Mode,
     clips: Vec<usize>,
     controllers: Vec<usize>,
+    /// Whether a gate reads the swing or spear variables the engine writes before gates run.
+    engine_reads: bool,
+    /// The gates' reads when the gates are a pure function of them; `None` disables [`Memo`].
+    gate_reads: Option<cache::Inputs>,
+    /// The most ops the gates can charge together; `None` when that cannot be bounded.
+    gate_ops: Option<usize>,
+    memo: Option<Memo>,
+}
+
+/// The last gate result with the exact values its gates read. Gates that read only queries and
+/// tick-baseline variables give the same result for the same values, so an unchanged read set
+/// reuses the result instead of evaluating the gates again.
+#[derive(Debug)]
+struct Memo {
+    inputs: cache::Inputs,
+    visibility: Option<RenderVisibility>,
 }
 
 impl Plan {
@@ -207,6 +223,82 @@ fn ops(assets: &RuntimeEntityAssets, expression: u32) -> Option<&[MolangOp]> {
         .get(start..start + usize::from(expression.op_count))
 }
 
+#[cfg(test)]
+thread_local! { static MEMO_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+#[cfg(test)]
+thread_local! { static MEMO_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+/// Production samples always may reuse gate results; tests can run the same path without it.
+fn memo_enabled() -> bool {
+    #[cfg(test)]
+    {
+        !MEMO_OFF.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
+
+/// Runs `sample` with gate-result reuse disabled on this thread, keeping every other cache.
+#[cfg(test)]
+pub(crate) fn without_memo<T>(sample: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            MEMO_OFF.with(|off| off.set(self.0));
+        }
+    }
+    let _restore = Restore(MEMO_OFF.with(|off| off.replace(true)));
+    sample()
+}
+
+/// Takes this test thread's count of gate results reused from [`Memo`].
+#[cfg(test)]
+pub(crate) fn take_memo_hits() -> usize {
+    MEMO_HITS.with(|hits| hits.replace(0))
+}
+
+/// Whether a gate reads the attack time or a completed spear variable, the only variables the
+/// engine writes over the tick baseline before gates run; unreadable bytecode counts as a read.
+fn reads_engine_writes(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    gates: &[u32],
+) -> bool {
+    gates.iter().any(|&expression| {
+        ops(assets, expression).is_none_or(|ops| {
+            ops.iter().any(|op| {
+                matches!(op, MolangOp::LoadVariable(symbol)
+                if layout.variable_slot(*symbol).is_some_and(|slot| {
+                    layout.engine.attack_time == Some(slot) || layout.engine.spear.writes(slot)
+                }))
+            })
+        })
+    })
+}
+
+/// The gates' read set when every variable they load is a persistent tick-baseline slot and
+/// their queries are pure, so equal read values give an equal result.
+fn gate_reads(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    gates: &[u32],
+) -> Option<cache::Inputs> {
+    for &expression in gates {
+        for op in ops(assets, expression)? {
+            if let MolangOp::LoadVariable(symbol) = op
+                && layout.variable_slot(*symbol).is_none()
+            {
+                return None;
+            }
+        }
+    }
+    let inputs = cache::Inputs::new(assets, gates.iter().copied());
+    inputs.pure().then_some(inputs)
+}
+
 /// Evaluates independent gates using the same prepared variables as the full sampler.
 pub(super) fn sample(
     evaluator: &Evaluator<'_>,
@@ -224,6 +316,12 @@ pub(super) fn sample(
         .as_ref()
         .is_none_or(|plan| !plan.matches(state, frame))
     {
+        let gates: Vec<u32> = layers
+            .iter()
+            .filter_map(|layer| layer.condition)
+            .chain(rig.hide_held_items)
+            .collect();
+        let engine_reads = reads_engine_writes(assets, evaluator.layout, &gates);
         scratch.visibility = Some(Plan {
             mode: plan(assets, evaluator.layout, state, frame).unwrap_or(Mode::Full),
             clips: frame.motion.clips.iter().map(|clip| clip.clip).collect(),
@@ -232,9 +330,18 @@ pub(super) fn sample(
                 .iter()
                 .map(|state| state.controller)
                 .collect(),
+            engine_reads,
+            gate_reads: if engine_reads {
+                None
+            } else {
+                gate_reads(assets, evaluator.layout, &gates)
+            },
+            gate_ops: worst_case_ops(assets, gates.iter().copied()),
+            memo: None,
         });
     }
-    let mode = match scratch.visibility.as_ref()?.mode {
+    let plan = scratch.visibility.as_mut()?;
+    let mode = match plan.mode {
         Mode::Gates { reserve } if budget.actor_left < reserve || *budget.world_left < reserve => {
             Mode::Variables
         }
@@ -246,6 +353,36 @@ pub(super) fn sample(
     {
         return None;
     }
+    let engine_reads = plan.engine_reads;
+    // Only these modes run the gates on the unmodified tick baseline the memo reads. A result is
+    // reused only when evaluating the gates would certainly finish within this sample's budget;
+    // otherwise exhaustion, which depends on the expression cache, decides the fallback.
+    let admitted = plan
+        .gate_ops
+        .is_some_and(|ops| budget.actor_left >= ops && *budget.world_left >= ops);
+    let mut memo = match mode {
+        Mode::Queries | Mode::Gates { .. } if cache::enabled() && memo_enabled() && admitted => {
+            plan.memo.take().or_else(|| {
+                plan.gate_reads.as_ref().map(|reads| Memo {
+                    inputs: reads.fresh(),
+                    visibility: None,
+                })
+            })
+        }
+        _ => None,
+    };
+    let reused = memo.as_mut().and_then(|memo| {
+        let unchanged = memo
+            .inputs
+            .update(evaluator, &frame.motion.variables, budget);
+        unchanged.then_some(memo.visibility).flatten()
+    });
+    if let Some(visibility) = reused {
+        scratch.visibility.as_mut()?.memo = memo;
+        #[cfg(test)]
+        MEMO_HITS.with(|hits| hits.set(hits.get() + 1));
+        return Some(visibility);
+    }
     let mut variables = scratch.variables.lease(&frame.motion.variables);
     match mode {
         Mode::Variables => {
@@ -255,10 +392,11 @@ pub(super) fn sample(
                 })
                 .ok()?;
         }
-        Mode::Gates { .. } => {
+        // The lease is dropped after the gates, so writes no gate reads change nothing.
+        Mode::Gates { .. } if engine_reads => {
             sampling::prepare_engine_variables(evaluator, state, swing, &mut variables)
         }
-        Mode::Queries | Mode::Full => {}
+        Mode::Gates { .. } | Mode::Queries | Mode::Full => {}
     }
     let mut active = false;
     for layer in layers {
@@ -279,7 +417,7 @@ pub(super) fn sample(
         ),
         None => None,
     };
-    Some(RenderVisibility {
+    let visibility = RenderVisibility {
         controllers: if layers.is_empty() {
             ControllerActivity::NoControllers
         } else if active {
@@ -288,5 +426,13 @@ pub(super) fn sample(
             ControllerActivity::Inactive
         },
         hide_held_items,
-    })
+    };
+    drop(variables);
+    if let Some(mut memo) = memo
+        && let Some(plan) = scratch.visibility.as_mut()
+    {
+        memo.visibility = Some(visibility);
+        plan.memo = Some(memo);
+    }
+    Some(visibility)
 }
