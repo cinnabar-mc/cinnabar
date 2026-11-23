@@ -629,3 +629,74 @@ fn variable_visibility_retains_downstream_animation_and_render_writes() {
         }
     }
 }
+
+#[test]
+fn engine_variable_gates_skip_independent_setup_scripts() {
+    use MolangOp::*;
+    for setup_writes_gate in [false, true] {
+        let mut compiled = variable_fixture();
+        // The pre-animation script writes `is_first_person` (9); the swing gate reads only the
+        // engine's `attack_time` (5) unless the control gate also reads the setup's write.
+        let mut gate = vec![
+            LoadVariable(5),
+            Push(crate::test_support::scalar(0.5)),
+            Greater,
+        ];
+        if setup_writes_gate {
+            gate.extend([LoadVariable(9), Not, Multiply]);
+        }
+        let gate = expression(&mut compiled, gate);
+        for layer in &mut compiled.render.layers {
+            layer.condition = Some(gate);
+        }
+        compiled.rig_bindings[0].hide_held_items =
+            Some(expression(&mut compiled, vec![LoadQuery(3), Not]));
+        let setup = [
+            compiled.rig_bindings[0].held_item_scale.unwrap() as usize,
+            compiled.rig_bindings[0].pre_animation.unwrap() as usize,
+        ];
+        let (mut store, actor) = store(compiled);
+        store.sync_local_swing(
+            actor.runtime_id,
+            LocalSwingProgress {
+                bedrock: [0.1, 0.9],
+                java: [0.1, 0.9],
+                frame_alpha: None,
+            },
+        );
+        advance(&mut store, &actor, true);
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut storage = Vec::new();
+        for alpha in [0.25, 0.75, 0.25, 0.75] {
+            let camera = [
+                actor.position[0],
+                actor.position[1],
+                actor.position[2] + 9.0,
+            ];
+            evaluation::take_expression_work();
+            let visibility = ActorRenderFrame::new(&store, &actors, [0.0; 2], camera, alpha)
+                .into_layers_reusing(actor.runtime_id, false, true, &mut storage)
+                .unwrap()
+                .visibility;
+            let work = evaluation::take_expression_work();
+            let full = ActorRenderFrame::new(&store, &actors, [0.0; 2], camera, alpha)
+                .into_layers_reusing(actor.runtime_id, false, false, &mut storage)
+                .unwrap()
+                .visibility;
+            assert_eq!(
+                visibility, full,
+                "alpha {alpha}, control {setup_writes_gate}"
+            );
+            // The swing interpolates 0.1 to 0.9, so only the later fraction passes the gate.
+            assert_eq!(visibility.hides_body(), alpha < 0.5);
+            assert!(!visibility.hides_held_items());
+            assert_eq!(
+                setup
+                    .iter()
+                    .any(|&index| work.get(index).is_some_and(|&runs| runs > 0)),
+                setup_writes_gate,
+                "alpha {alpha}: setup work {work:?}"
+            );
+        }
+    }
+}

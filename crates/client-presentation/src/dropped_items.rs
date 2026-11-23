@@ -100,6 +100,9 @@ pub(crate) struct PublishScratch {
     dropped: Vec<client_world::DroppedItemView>,
     candidates: Vec<client_world::BlockEntityCandidate>,
     ropes: Vec<client_world::RopeView>,
+    /// The unspent budget for the current render device, whose limits never change; read
+    /// again only when the device resource is replaced.
+    device_budget: Option<render_model::dropped_item::ItemModelBudget>,
 }
 
 fn tint_rgba(flags: u32) -> u32 {
@@ -623,6 +626,7 @@ impl DroppedItemPublisher<'_, '_> {
             dropped,
             candidates,
             ropes,
+            device_budget,
         } = &mut *self.scratch;
         cache.sync(
             stream.authority().actor_session_id(),
@@ -640,19 +644,27 @@ impl DroppedItemPublisher<'_, '_> {
             .and_then(|scene| scene.0.held_models());
         stream.authority().dropped_items_into(partial_tick, dropped);
         let mut dial_models = dials::DialModels::default();
-        let budget = self.device.as_ref().map_or_else(
-            render_model::dropped_item::ItemModelBudget::default,
-            |device| {
-                let limits = device.limits();
-                render_model::dropped_item::ItemModelBudget::new(
-                    assets::texture::policy::TexturePolicy::for_device(
-                        limits.max_texture_dimension_2d,
-                    ),
-                    limits.max_texture_array_layers as usize,
-                    limits.max_buffer_size,
-                )
-            },
-        );
+        let budget = match self.device.as_ref() {
+            Some(device) => {
+                if bevy::prelude::DetectChanges::is_changed(device) {
+                    *device_budget = None;
+                }
+                *device_budget.get_or_insert_with(|| {
+                    let limits = device.limits();
+                    render_model::dropped_item::ItemModelBudget::new(
+                        assets::texture::policy::TexturePolicy::for_device(
+                            limits.max_texture_dimension_2d,
+                        ),
+                        limits.max_texture_array_layers as usize,
+                        limits.max_buffer_size,
+                    )
+                })
+            }
+            None => {
+                *device_budget = None;
+                render_model::dropped_item::ItemModelBudget::default()
+            }
+        };
         cache.budget = budget;
         placement_icons.clear();
         if let Some(placements) = self.placements.as_ref() {
