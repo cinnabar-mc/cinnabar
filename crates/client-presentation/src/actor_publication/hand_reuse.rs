@@ -100,7 +100,10 @@ impl HandReuse {
     /// Takes the retained source when it was built from `key`, with this frame's hand motion.
     pub(super) fn take(&mut self, key: &ReuseKey, motion: bevy::math::Mat4) -> Option<HandSource> {
         let (retained, source) = self.retained.take()?;
-        let source = (retained == *key).then(|| HandSource { motion, ..source })?;
+        if retained != *key {
+            return None;
+        }
+        let source = HandSource { motion, ..source };
         #[cfg(test)]
         {
             self.reuses += 1;
