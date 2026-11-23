@@ -12,6 +12,8 @@ mod flames;
 mod geometry;
 mod ground_effects;
 mod hand_frame;
+mod hand_publication;
+mod hand_reuse;
 mod hats;
 pub use ground_effects::{GroundEffectWearer, GroundEffectWearers};
 pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
@@ -255,7 +257,7 @@ pub fn prepare_actor_render_frame(
         client_world.pack_entities.as_deref(),
         artwork,
     );
-    let hand_source = hand_frame::prepare(
+    let (hand_source, hand_keyed) = hand_frame::prepare(
         stream,
         bodies.local_runtime_id,
         &bodies.canonical_local,
@@ -267,6 +269,8 @@ pub fn prepare_actor_render_frame(
         hand_frame::HandCaches {
             source: &mut state.hand_source,
             key: &state.hand_key,
+            keyed: state.ready_keyed.take(),
+            session: state.hand_reuse.session,
             java_hand: &mut state.java_hand,
             equipment: params.equipment.as_deref_mut(),
         },
@@ -507,15 +511,18 @@ pub fn prepare_actor_render_frame(
             },
         ),
     );
+    let hand_source = hand_source.filter(|_| !input.hide_hand);
     publish_hand_rig(
         &mut params.hand_builder.0,
         &mut params.hand_scene,
+        &mut state.hand_published,
         &mut state.hand_revision,
-        hand_source.filter(|_| !input.hide_hand),
+        hand_source.as_ref(),
         hand_camera_fov,
         hand_light,
         (step.partial_tick, params.glint_settings.as_deref()),
     );
+    state.hand_reuse.retain(hand_keyed, hand_source);
 }
 
 #[cfg(test)]

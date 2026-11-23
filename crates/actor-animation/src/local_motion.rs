@@ -41,6 +41,30 @@ impl State {
         }
     }
 
+    /// Whether [`Self::set_authority`] would change this state.
+    pub(super) fn changes_authority(
+        &self,
+        authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
+    ) -> bool {
+        self.authority != authority
+    }
+
+    /// Whether [`Self::apply`] would change more than the body's frame fraction.
+    pub(super) fn applies(
+        &self,
+        authority: (SessionGeneration, PositionAuthorityGeneration),
+        sample: &LocalSwingMotionSample,
+    ) -> bool {
+        self.authority == Some(authority)
+            && self.last.is_none_or(|last| {
+                sample.tick > last.tick
+                    || (sample.tick == last.tick
+                        && (sample.delta != last.delta
+                            || sample.yaw != last.yaw
+                            || sample.progress.java[1] != last.progress.java[1]))
+            })
+    }
+
     /// Physics-owned torso and leg cycles never advance on the independent actor clock.
     pub(super) fn active(&self) -> bool {
         self.authority.is_some()
@@ -164,28 +188,26 @@ impl super::ActorAnimationStore {
         runtime_id: u64,
         authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
     ) {
+        // Rebinding the same authority every frame keeps both rigs' revisions.
+        let set = |rigs: &mut super::RigMap, lifetime, authority| {
+            rigs.update(lifetime, |state: &mut super::ActorRigState| {
+                let changed = state.java.local_body.changes_authority(authority);
+                state
+                    .java
+                    .local_body
+                    .set_authority(authority, &mut state.java.motion);
+                (changed, ())
+            });
+        };
         if let Some((previous, _)) = self.local_motion_authority
             && previous != runtime_id
-            && let Some(state) = self
-                .runtime_to_lifetime
-                .get(&previous)
-                .and_then(|lifetime| self.rigs.get_mut(lifetime))
+            && let Some(lifetime) = self.runtime_to_lifetime.get(&previous)
         {
-            state
-                .java
-                .local_body
-                .set_authority(None, &mut state.java.motion);
+            set(&mut self.rigs, lifetime, None);
         }
         self.local_motion_authority = authority.map(|identity| (runtime_id, identity));
-        if let Some(state) = self
-            .runtime_to_lifetime
-            .get(&runtime_id)
-            .and_then(|lifetime| self.rigs.get_mut(lifetime))
-        {
-            state
-                .java
-                .local_body
-                .set_authority(authority, &mut state.java.motion);
+        if let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) {
+            set(&mut self.rigs, lifetime, authority);
         }
     }
 
@@ -199,22 +221,24 @@ impl super::ActorAnimationStore {
         if self.local_motion_authority != Some((runtime_id, authority)) {
             return false;
         }
-        let Some(state) = self
-            .runtime_to_lifetime
-            .get(&runtime_id)
-            .and_then(|lifetime| self.rigs.get_mut(lifetime))
-        else {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return false;
         };
-        let mut changed = false;
-        for sample in samples {
-            changed |= state.java.local_body.apply(
-                authority,
-                sample,
-                &mut state.java.motion,
-                &mut state.motion,
-            );
-        }
-        changed
+        // Repeating the latest tick moves only the body's frame fraction.
+        self.rigs
+            .update(lifetime, |state| {
+                let (mut applied, mut changed) = (false, false);
+                for sample in samples {
+                    applied |= state.java.local_body.applies(authority, &sample);
+                    changed |= state.java.local_body.apply(
+                        authority,
+                        sample,
+                        &mut state.java.motion,
+                        &mut state.motion,
+                    );
+                }
+                (applied, changed)
+            })
+            .unwrap_or(false)
     }
 }

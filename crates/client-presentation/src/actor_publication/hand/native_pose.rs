@@ -21,6 +21,8 @@ struct NativePoseInput {
 
 #[derive(PartialEq)]
 struct PoseKey {
+    /// Actor data such as metadata can change between ticks without touching the rig's tick.
+    revision: Option<client_world::ActorPresentationRevision>,
     source: Option<SourceKey>,
     tick: (u32, u64, u64),
     actor_alpha: u32,
@@ -35,6 +37,7 @@ impl NativePoseInput {
     fn key(self, stream: &WorldStream, runtime_id: u64) -> Option<PoseKey> {
         let rig = stream.authority().actor_rig(runtime_id)?;
         Some(PoseKey {
+            revision: stream.authority().actor_presentation_revision(runtime_id),
             source: source_key(stream, self.consume, self.animation, self.alpha),
             tick: (rig.rig.0, rig.completed_tick, rig.reset_generation),
             actor_alpha: self.alpha.to_bits(),

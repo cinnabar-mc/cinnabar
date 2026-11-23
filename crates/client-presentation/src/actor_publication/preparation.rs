@@ -27,6 +27,7 @@ pub struct ActorFrameState {
     pub(super) coverage_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
     pub(super) hand_revision: u64,
+    pub(super) hand_published: super::hand_publication::PublishedHand,
     pub(super) java_hand: java::HandCache,
     pub(super) java_poses: java::PoseScratch,
     pub(super) body_scratch: super::bodies::BodyScratch,
@@ -35,6 +36,9 @@ pub struct ActorFrameState {
     motion_step: Option<crate::actor_clock::ActorFrameStep>, // Taken by early remote motion.
     pub(super) hand_source: Option<HandSource>,
     pub(super) hand_key: Option<hand::SourceKey>,
+    /// The readiness source's reuse key, and the published source kept for the next frame.
+    pub(super) ready_keyed: Option<super::hand_reuse::KeyedSource>,
+    pub(super) hand_reuse: super::hand_reuse::HandReuse,
     hand_ready: bool,
     pub(super) captured_view: LocalViewPose,
     pub(super) captured_sampling_camera: Option<([f32; 2], [f32; 3])>,
@@ -155,6 +159,8 @@ pub fn advance_actor_frame(
         java_poses,
         hand_source,
         hand_key,
+        ready_keyed,
+        hand_reuse,
         hand_ready,
         input: captured_input,
         step: captured_step,
@@ -196,6 +202,12 @@ pub fn advance_actor_frame(
         *hat_state = Default::default();
         *published_session = session_id;
     }
+    if equipment
+        .as_ref()
+        .is_some_and(|equipment| equipment.is_added())
+    {
+        hand_reuse.invalidate();
+    }
     let speed = input.local_feed.as_ref().map_or(0.0, |feed| {
         render_model::hats::forward_speed(feed.velocity, feed.yaw)
     });
@@ -224,6 +236,7 @@ pub fn advance_actor_frame(
         let _setup = profiler
             .as_deref()
             .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorSessionSetup));
+        hand_reuse.invalidate();
         *published_pack = pack.clone();
         *published_items = items.clone();
         *published_artwork = prepared.clone();
@@ -423,6 +436,10 @@ pub fn advance_actor_frame(
             })
         })
         .flatten();
+    let motion = hand_motion
+        .as_deref()
+        .map_or(Mat4::IDENTITY, hand_motion_matrix);
+    *ready_keyed = None;
     *hand_source = if hand_visible {
         canonical_local.and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
@@ -439,29 +456,58 @@ pub fn advance_actor_frame(
                     ..input
                 });
             *captured_hand_use = (consume_ticks, item_animation);
+            let key = super::hand_reuse::ReuseKey::new(
+                stream,
+                &presentation,
+                &equipment_input,
+                (consume_ticks, item_animation),
+                (step.partial_tick, aspect, java_mode, hand_reuse.session),
+            );
+            let inputs = hand::HandInputs {
+                stream,
+                presentation,
+                equipment_input: &equipment_input,
+                owner_equipment: &equipment_input,
+                consume_ticks,
+                item_animation,
+                alpha: step.partial_tick,
+                artwork,
+                sampling_camera,
+                aspect,
+                motion,
+            };
+            if let Some(reuse_key) = key.as_ref()
+                && let Some(source) = hand_reuse.take(reuse_key, motion)
+            {
+                #[cfg(any(test, debug_assertions))]
+                {
+                    equipment.begin_hand_readiness();
+                    let fresh = hand::source(inputs, java_mode, equipment, java_hand);
+                    equipment.end_hand_readiness();
+                    assert!(
+                        fresh
+                            .as_ref()
+                            .is_some_and(|fresh| super::hand_reuse::same_output(&source, fresh)),
+                        "a reused first-person source must match a fresh build"
+                    );
+                }
+                *hand_key = None;
+                *ready_keyed = key.map(|key| super::hand_reuse::KeyedSource {
+                    key,
+                    reusable: true,
+                });
+                return Some(source);
+            }
             *hand_key = hand::source_key(stream, consume_ticks, item_animation, step.partial_tick);
             equipment.begin_hand_readiness();
-            let source = hand::source(
-                hand::HandInputs {
-                    stream,
-                    presentation,
-                    equipment_input: &equipment_input,
-                    owner_equipment: &equipment_input,
-                    consume_ticks,
-                    item_animation,
-                    alpha: step.partial_tick,
-                    artwork,
-                    sampling_camera,
-                    aspect,
-                    motion: hand_motion
-                        .as_deref()
-                        .map_or(Mat4::IDENTITY, hand_motion_matrix),
-                },
-                java_mode,
-                equipment,
-                java_hand,
-            );
+            let source = hand::source(inputs, java_mode, equipment, java_hand);
             equipment.end_hand_readiness();
+            *ready_keyed = key.map(|key| super::hand_reuse::KeyedSource {
+                reusable: source
+                    .as_ref()
+                    .is_some_and(|source| key.reusable(stream, source)),
+                key,
+            });
             source
         })
     } else {

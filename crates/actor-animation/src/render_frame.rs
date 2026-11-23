@@ -563,6 +563,35 @@ impl ActorAnimationStore {
             .is_some_and(|state| state.may_use_occlusion_bypass_material)
     }
 
+    /// Whether the rig's sampled visibility, read alone from a fresh [`ActorRenderFrame`], may
+    /// differ between frames that share its [`PresentationRevision`] and both have a positive
+    /// frame fraction, for instance with that fraction or the camera. A zero fraction may draw
+    /// the completed tick's visibility instead. Unknown counts as differing; a rig proves
+    /// otherwise when it never samples its frame, or once a sample has planned gates that read
+    /// only its tick state and certainly finish within the rig's frame budget.
+    pub fn visibility_reads_frame(&self, actor: &dyn AnimatedActor) -> bool {
+        let Some(state) = self
+            .runtime_to_lifetime
+            .get(&actor.runtime_id())
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision())
+            .and_then(|lifetime| self.rigs.get(lifetime))
+        else {
+            return true;
+        };
+        let assets = if state.pack {
+            self.pack.as_ref().map(|pack| pack.assets.as_ref())
+        } else {
+            self.assets.as_deref()
+        };
+        let Some(assets) = assets else {
+            return true;
+        };
+        // The budget the layer sampler gives one rig in a fresh frame.
+        let budget = (FRAME_PASSES_PER_ACTOR * molang_tick_budget(assets, state.rig_binding))
+            .min(MAX_MOLANG_OPS_PER_RENDER_FRAME);
+        visibility::reads_frame(state, actor, budget)
+    }
+
     /// Whether admission needs a frame scale rather than the completed tick's scale.
     pub fn samples_rig_scale(&self, actor: &dyn AnimatedActor) -> bool {
         self.runtime_to_lifetime
