@@ -26,6 +26,8 @@ pub(super) struct Plan {
     engine_reads: bool,
     /// The gates' reads when the gates are a pure function of them; `None` disables [`Memo`].
     gate_reads: Option<cache::Inputs>,
+    /// The most ops the gates can charge together; `None` when that cannot be bounded.
+    gate_ops: Option<usize>,
     memo: Option<Memo>,
 }
 
@@ -224,6 +226,34 @@ fn ops(assets: &RuntimeEntityAssets, expression: u32) -> Option<&[MolangOp]> {
 #[cfg(test)]
 thread_local! { static MEMO_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
+#[cfg(test)]
+thread_local! { static MEMO_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+/// Production samples always may reuse gate results; tests can run the same path without it.
+fn memo_enabled() -> bool {
+    #[cfg(test)]
+    {
+        !MEMO_OFF.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
+
+/// Runs `sample` with gate-result reuse disabled on this thread, keeping every other cache.
+#[cfg(test)]
+pub(crate) fn without_memo<T>(sample: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            MEMO_OFF.with(|off| off.set(self.0));
+        }
+    }
+    let _restore = Restore(MEMO_OFF.with(|off| off.replace(true)));
+    sample()
+}
+
 /// Takes this test thread's count of gate results reused from [`Memo`].
 #[cfg(test)]
 pub(crate) fn take_memo_hits() -> usize {
@@ -306,6 +336,7 @@ pub(super) fn sample(
             } else {
                 gate_reads(assets, evaluator.layout, &gates)
             },
+            gate_ops: worst_case_ops(assets, gates.iter().copied()),
             memo: None,
         });
     }
@@ -323,14 +354,21 @@ pub(super) fn sample(
         return None;
     }
     let engine_reads = plan.engine_reads;
-    // Only these modes run the gates on the unmodified tick baseline the memo reads.
+    // Only these modes run the gates on the unmodified tick baseline the memo reads. A result is
+    // reused only when evaluating the gates would certainly finish within this sample's budget;
+    // otherwise exhaustion, which depends on the expression cache, decides the fallback.
+    let admitted = plan
+        .gate_ops
+        .is_some_and(|ops| budget.actor_left >= ops && *budget.world_left >= ops);
     let mut memo = match mode {
-        Mode::Queries | Mode::Gates { .. } if cache::enabled() => plan.memo.take().or_else(|| {
-            plan.gate_reads.as_ref().map(|reads| Memo {
-                inputs: reads.fresh(),
-                visibility: None,
+        Mode::Queries | Mode::Gates { .. } if cache::enabled() && memo_enabled() && admitted => {
+            plan.memo.take().or_else(|| {
+                plan.gate_reads.as_ref().map(|reads| Memo {
+                    inputs: reads.fresh(),
+                    visibility: None,
+                })
             })
-        }),
+        }
         _ => None,
     };
     let reused = memo.as_mut().and_then(|memo| {

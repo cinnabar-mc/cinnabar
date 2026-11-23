@@ -15,7 +15,7 @@ pub(super) mod sampling;
 mod schedule;
 mod visibility;
 #[cfg(test)]
-pub(crate) use visibility::take_memo_hits;
+pub(crate) use visibility::{take_memo_hits, without_memo};
 
 use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 
