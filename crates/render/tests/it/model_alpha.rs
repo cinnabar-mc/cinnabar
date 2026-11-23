@@ -131,7 +131,7 @@ fn displaced_models_preserve_opaque_texels_and_cutout_thresholds() {
             "fn ordinary_world_model_colour(",
             "fn original_world_model_colour(",
         );
-    production.push_str("\nfn ordinary_world_model_colour(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> { return sampled; }\n");
+    production.push_str("\nfn ordinary_world_model_colour(in: VertexOutput, sampled: vec4<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> { return sampled; }\n");
     let source = format!(
         "{production}\n{}",
         VERTEX

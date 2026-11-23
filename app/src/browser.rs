@@ -113,6 +113,7 @@ impl Jobs {
             |jobs, now| jobs.world.run_one(now),
             |jobs, _| jobs.images.run_one(),
             |_, _| client_world::browser_jobs::run_one(),
+            |_, _| actor_animation::run_browser_job(),
             |jobs, _| jobs.ui.run_one(),
             |_, _| render::browser_jobs::run_one(),
             |_, _| client_runtime::browser_jobs::run_one(),

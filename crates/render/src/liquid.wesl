@@ -457,10 +457,11 @@ fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f3
 
 @fragment
 fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
-    if (in.depth_write_route == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
+    // Derivatives come first: after a non-uniform discard, browsers reject them.
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
+    if (in.depth_write_route == 0u) { discard; }
+    if (!front_facing && in.two_sided == 0u) { discard; }
     let current_sample = sample_texture_ref(in.textures.x, in.uv, dx, dy);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
