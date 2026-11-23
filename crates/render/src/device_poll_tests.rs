@@ -1,5 +1,11 @@
-use super::{FramesInFlight, MAX_FRAMES_IN_FLIGHT};
-use bevy::render::renderer::{RenderDevice, RenderQueue};
+use super::{FrameSubmissions, FramesInFlight, MAX_FRAMES_IN_FLIGHT, submission_marker};
+use bevy::{
+    prelude::{IntoScheduleConfigs, Res, ResMut},
+    render::{
+        Render, RenderSystems,
+        renderer::{PendingCommandBuffers, RenderDevice, RenderQueue},
+    },
+};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -79,16 +85,58 @@ fn frames_without_a_swap_chain_stay_within_the_in_flight_bound() {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        queue.submit([encoder.finish()]);
+        let submission = queue.submit([encoder.finish()]);
         let receipt = Arc::clone(&completed);
         queue.on_submitted_work_done(move || {
             receipt.fetch_add(1, Ordering::AcqRel);
         });
-        frames.finish_frame(gpu, &queue).expect("frame poll");
+        frames
+            .finish_frame(gpu, Some(submission))
+            .expect("frame poll");
         let queued = submitted - completed.load(Ordering::Acquire);
         assert!(
             queued <= MAX_FRAMES_IN_FLIGHT,
             "{queued} frames still queued after frame {submitted}"
+        );
+    }
+}
+
+/// Stands in for the render graph: records one command and submits the frame.
+fn submit_frame(
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    mut pending: ResMut<PendingCommandBuffers>,
+) {
+    pending
+        .command_encoder(&device)
+        .insert_debug_marker("frame");
+    pending.submit(&queue);
+}
+
+/// The poll bounds a frame by the frame's own submission. An empty submission to obtain an index
+/// would cost a driver submission on every frame.
+#[test]
+fn polling_a_frame_makes_no_submission_of_its_own() {
+    let (mut app, _) = crate::queue_review_support::app();
+    app.add_schedule(Render::base_schedule())
+        .init_resource::<PendingCommandBuffers>();
+    super::install(app.main_mut());
+    app.add_systems(
+        Render,
+        submit_frame
+            .in_set(RenderSystems::Render)
+            .before(FrameSubmissions),
+    );
+    let queue = app.world().resource::<RenderQueue>().clone();
+    for frame in 0..2 * MAX_FRAMES_IN_FLIGHT {
+        let before = submission_marker(&queue);
+        app.world_mut().run_schedule(Render);
+        // The frame's submission and the marker read itself.
+        assert_eq!(submission_marker(&queue) - before, 2, "frame {frame}");
+        assert_eq!(
+            app.world().resource::<FramesInFlight>().0.len(),
+            (frame + 1).min(MAX_FRAMES_IN_FLIGHT),
+            "frame {frame} is bounded by its own submission"
         );
     }
 }
