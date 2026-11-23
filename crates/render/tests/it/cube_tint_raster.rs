@@ -697,8 +697,11 @@ fn bake(fixture: &Fixture, cache: &wgpu::Buffer) {
             cache: None,
         });
     let limit = gpu.device.limits().max_compute_workgroups_per_dimension;
-    let (jobs, deferred) = tint_bake_plan::plan(&fixture_jobs(cache), limit);
-    assert!(deferred.is_empty());
+    let jobs: Vec<_> = fixture_jobs(cache)
+        .into_iter()
+        .flat_map(|job| tint_bake_plan::split(job, limit))
+        .collect();
+    assert!(jobs.len() <= tint_bake_plan::reach(limit));
     let job_buffer = gpu.words(
         &jobs.iter().flatten().copied().collect::<Vec<_>>(),
         wgpu::BufferUsages::STORAGE,

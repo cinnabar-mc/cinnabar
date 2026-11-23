@@ -39,17 +39,21 @@ const _: () = assert!(
         && crate::chunk::FALLBACK_BIOME_RECORD[3] != 1
 );
 
-/// Whether the cache fits a device: the separate terrain layout with one vertex storage slot
-/// beyond `required_vertex_storage_buffers` (the opaque group plus the slot terrain units add,
-/// so the cache never costs unit batching its binding), and everything the bake kernel needs.
+/// Whether the cache fits a device: a native backend, the separate terrain layout with one
+/// vertex storage slot beyond `required_vertex_storage_buffers` (the opaque group plus the slot
+/// terrain units add, so the cache never costs unit batching its binding), room for its binding
+/// number in the opaque group, and everything the bake kernel needs.
 pub(in crate::chunk) fn supported(
     compact: bool,
     downlevel: wgpu::DownlevelFlags,
     limits: &wgpu::Limits,
     required_vertex_storage_buffers: u32,
 ) -> bool {
-    !compact
+    // Browsers report allocation failures asynchronously, so an optional cache cannot fall back.
+    !cfg!(target_arch = "wasm32")
+        && !compact
         && limits.max_storage_buffers_per_shader_stage > required_vertex_storage_buffers
+        && limits.max_bindings_per_bind_group > crate::material_shader::TERRAIN_TINT_CACHE_BINDING
         && plan::kernel_supported(downlevel, limits)
 }
 
@@ -93,18 +97,40 @@ struct TintCache {
 #[derive(Default)]
 pub(in crate::chunk) struct TintCacheState {
     cache: Option<TintCache>,
-    /// The capacity and inputs whose allocation last failed, retried only when they change.
+    /// The capacity and inputs whose cache last failed or was released, retried only on change.
     failed: Option<(usize, TintInputs)>,
-    pending: Vec<Entity>,
+    /// Allocations owed a bake, with how many of their quads earlier frames already baked.
+    pending: HashMap<Entity, u32>,
     bake_all: bool,
 }
 
+/// One frame's bake: jobs one dispatch reaches, entries still waiting to be cleared, and the
+/// progress to record once the jobs are recorded.
+struct Batch {
+    jobs: Vec<Job>,
+    waiting: Vec<Job>,
+    progress: Vec<(Entity, Option<u32>)>,
+}
+
 impl TintCacheState {
-    /// Records that `entity`'s allocation was uploaded and must be baked before it draws.
+    /// Records that `entity`'s allocation was uploaded and must be baked from its first quad.
     pub(in crate::chunk) fn queue_bake(&mut self, entity: Entity) {
         if self.cache.is_some() && !self.bake_all {
-            self.pending.push(entity);
+            self.pending.insert(entity, 0);
         }
+    }
+
+    /// Frees the cache for required terrain storage. It is not recreated until the arena's quad
+    /// capacity or the tint tables change, and bind groups fall back to the never-valid alias.
+    /// Returns whether there was a cache to release.
+    pub(in crate::chunk) fn release_for_required_storage(&mut self) -> bool {
+        let Some(cache) = self.cache.take() else {
+            return false;
+        };
+        self.failed = Some((cache.quad_capacity, cache.inputs));
+        self.pending.clear();
+        self.bake_all = false;
+        true
     }
 
     /// Keeps a cache for `quad_capacity` quads built from `inputs`, replacing one built for
@@ -167,41 +193,108 @@ impl TintCacheState {
     }
 
     /// Whether a bake is owed.
-    fn has_work(&self) -> bool {
+    pub(in crate::chunk) fn has_work(&self) -> bool {
         self.cache.is_some() && (self.bake_all || !self.pending.is_empty())
     }
 
-    /// Bake jobs for the pending allocations, or every resident one after a replacement, clipped
-    /// to the cache's entries. Allocations replaced or removed since they were queued bake as
-    /// they are now, or not at all.
-    fn jobs(&self, allocations: &HashMap<Entity, super::types::ArenaAllocation>) -> Vec<Job> {
-        let Some(cache) = &self.cache else {
-            return Vec::new();
+    /// Plans this frame's bake within `limit` workgroups per axis. Allocations that departed,
+    /// hold no cube quads or lie beyond the cache are dropped from the queue now; the others bake
+    /// in queue order up to what one dispatch reaches, and the rest wait with cleared entries.
+    fn plan_batch(
+        &mut self,
+        allocations: &HashMap<Entity, super::types::ArenaAllocation>,
+        limit: u32,
+    ) -> Batch {
+        let Some(entries) = self.cache.as_ref().map(|cache| cache.entries) else {
+            return Batch {
+                jobs: Vec::new(),
+                waiting: Vec::new(),
+                progress: Vec::new(),
+            };
         };
-        let job = |resident: &super::types::ArenaAllocation| {
-            plan::job(
-                resident.gpu.quad_range.clone(),
-                resident.gpu.metadata_index,
-                cache.entries,
-            )
-        };
-        if self.bake_all {
-            return allocations.values().filter_map(job).collect();
+        if std::mem::take(&mut self.bake_all) {
+            self.pending = allocations.keys().map(|&entity| (entity, 0)).collect();
         }
-        let mut pending = self.pending.clone();
-        pending.sort_unstable();
-        pending.dedup();
-        pending
-            .iter()
-            .filter_map(|entity| allocations.get(entity))
-            .filter_map(job)
-            .collect()
+        plan_owed(
+            &mut self.pending,
+            |entity| {
+                allocations
+                    .get(&entity)
+                    .map(|resident| (resident.gpu.quad_range.clone(), resident.gpu.metadata_index))
+            },
+            entries,
+            limit,
+        )
     }
 
-    fn settle(&mut self) {
-        self.pending.clear();
-        self.bake_all = false;
+    /// Retires the work `batch` recorded: finished allocations leave the queue and partial ones
+    /// keep their progress.
+    fn commit(&mut self, batch: &Batch) {
+        for &(entity, progress) in &batch.progress {
+            match progress {
+                Some(done) => {
+                    self.pending.insert(entity, done);
+                }
+                None => {
+                    self.pending.remove(&entity);
+                }
+            }
+        }
     }
+}
+
+/// Plans one dispatch over `pending`, where `resident` gives each live allocation's quads and
+/// origin slot. Entries that departed, hold no quads or lie beyond `entries` leave `pending`;
+/// the rest bake in entity order up to what one dispatch reaches within `limit`, from the quads
+/// earlier frames already baked, and the remainder waits.
+fn plan_owed(
+    pending: &mut HashMap<Entity, u32>,
+    resident: impl Fn(Entity) -> Option<(std::ops::Range<u32>, u32)>,
+    entries: u64,
+    limit: u32,
+) -> Batch {
+    let remaining = |entity: Entity, done: u32| {
+        resident(entity).and_then(|(quads, metadata)| {
+            plan::job(
+                quads.start.saturating_add(done)..quads.end,
+                metadata,
+                entries,
+            )
+        })
+    };
+    pending.retain(|&entity, &mut done| remaining(entity, done).is_some());
+    let mut owed: Vec<_> = pending
+        .iter()
+        .map(|(&entity, &done)| (entity, done))
+        .collect();
+    owed.sort_unstable();
+    let mut batch = Batch {
+        jobs: Vec::new(),
+        waiting: Vec::new(),
+        progress: Vec::new(),
+    };
+    let reach = plan::reach(limit);
+    for (entity, done) in owed {
+        let Some(job) = remaining(entity, done) else {
+            continue;
+        };
+        let mut baked = 0;
+        for piece in plan::split(job, limit) {
+            if batch.jobs.len() < reach {
+                baked += piece[1];
+                batch.jobs.push(piece);
+            } else {
+                batch.waiting.push(piece);
+            }
+        }
+        if baked > 0 {
+            let finished = baked == job[1];
+            batch
+                .progress
+                .push((entity, (!finished).then_some(done + baked)));
+        }
+    }
+    batch
 }
 
 /// The bake kernel, queued only when the opaque pipelines read the cache.
@@ -244,7 +337,13 @@ impl FromWorld for TintBakePipeline {
     }
 }
 
-/// Bakes, or else clears, the pending allocations' entries ahead of every camera pass.
+/// Whether [`record_tint_bake`] has work: idle frames skip the system and its parameters.
+pub(in crate::chunk) fn tint_bake_owed(arena: Option<Res<crate::chunk::ChunkGpuArena>>) -> bool {
+    arena.is_some_and(|arena| arena.tint_cache.has_work())
+}
+
+/// Bakes the owed entries one dispatch reaches ahead of every camera pass, and clears the rest
+/// and any whose bake cannot be recorded, so the vertex stage computes them until they bake.
 pub(in crate::chunk) fn record_tint_bake(
     arena: Option<ResMut<crate::chunk::ChunkGpuArena>>,
     pipeline: Option<Res<TintBakePipeline>>,
@@ -256,43 +355,47 @@ pub(in crate::chunk) fn record_tint_bake(
     ),
     mut context: RenderContext,
 ) {
-    let (Some(mut arena), Some(pipeline)) = (arena, pipeline) else {
+    let Some(mut arena) = arena else {
         return;
     };
-    if !arena.tint_cache.has_work() {
-        return;
-    }
     let arena = &mut *arena;
-    let jobs = arena.tint_cache.jobs(&arena.allocations);
+    let (device, queue) = gpu;
+    let limit = device.limits().max_compute_workgroups_per_dimension;
+    let batch = arena.tint_cache.plan_batch(&arena.allocations, limit);
     let Some(target) = arena.tint_cache.cache.as_ref().map(|cache| &cache.buffer) else {
         return;
     };
-    let (device, queue) = gpu;
-    let limit = device.limits().max_compute_workgroups_per_dimension;
-    let (planned, deferred) = plan::plan(&jobs, limit);
+    if batch.jobs.is_empty() {
+        // Every owed allocation was dropped as departed, empty or beyond the cache.
+        return;
+    }
     let encoder = context.command_encoder();
-    // Entries a bake cannot reach this frame compute in the vertex stage until it does.
-    plan::clear(encoder, target, &deferred);
+    plan::clear(encoder, target, &batch.waiting);
     let (textures, tints) = sources;
     let kernel = pipeline
-        .id
-        .and_then(|id| cache.get_compute_pipeline(id))
+        .as_deref()
+        .and_then(|pipeline| pipeline.id.and_then(|id| cache.get_compute_pipeline(id)))
         .zip(
             textures
                 .as_deref()
                 .and_then(|textures| textures.prepared.as_ref()),
         )
         .zip(tints.as_deref().and_then(|tints| tints.prepared.as_ref()));
-    let words: Vec<u32> = planned.iter().flatten().copied().collect();
-    let job_buffer = kernel.and(crate::gpu_allocation::buffer_with_data(
-        &device,
-        &queue,
-        "terrain tint bake jobs",
-        bytemuck::cast_slice(&words),
-        BufferUsages::STORAGE,
-    ));
-    let (Some(((kernel, textures), tints)), Some(job_buffer)) = (kernel, job_buffer) else {
-        plan::clear(encoder, target, &planned);
+    let job_buffer = kernel.and_then(|_| {
+        let words: Vec<u32> = batch.jobs.iter().flatten().copied().collect();
+        crate::gpu_allocation::buffer_with_data(
+            &device,
+            &queue,
+            "terrain tint bake jobs",
+            bytemuck::cast_slice(&words),
+            BufferUsages::STORAGE,
+        )
+    });
+    let (Some(pipeline), Some(((kernel, textures), tints)), Some(job_buffer)) =
+        (pipeline, kernel, job_buffer)
+    else {
+        // The queue keeps the work; its entries stay cleared until a bake can be recorded.
+        plan::clear(encoder, target, &batch.jobs);
         return;
     };
     let source_group = device.create_bind_group(
@@ -336,16 +439,72 @@ pub(in crate::chunk) fn record_tint_bake(
         pass.set_pipeline(kernel);
         pass.set_bind_group(0, &source_group, &[]);
         pass.set_bind_group(1, &output_group, &[]);
-        plan::dispatch(&mut pass, &planned, limit);
+        plan::dispatch(&mut pass, &batch.jobs, limit);
     }
-    if deferred.is_empty() {
-        arena.tint_cache.settle();
-    }
+    arena.tint_cache.commit(&batch);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entity(index: u32) -> Entity {
+        Entity::from_raw_u32(index).unwrap()
+    }
+
+    /// Applies `batch` to `pending` as a recorded bake does.
+    fn commit(pending: &mut HashMap<Entity, u32>, batch: &Batch) {
+        for &(entity, progress) in &batch.progress {
+            match progress {
+                Some(done) => pending.insert(entity, done),
+                None => pending.remove(&entity),
+            };
+        }
+    }
+
+    #[test]
+    fn owed_work_drops_departed_empty_and_uncached_allocations_without_a_dispatch() {
+        let mut pending = HashMap::from([(entity(1), 0), (entity(2), 0), (entity(3), 0)]);
+        let resident = |e: Entity| match e.index_u32() {
+            2 => Some((10..10, 0)),
+            3 => Some((200..210, 1)),
+            _ => None,
+        };
+        let batch = plan_owed(&mut pending, resident, 100, 65_535);
+        assert!(batch.jobs.is_empty() && batch.waiting.is_empty());
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn deferred_work_advances_every_frame_and_retires_when_baked() {
+        // Two workgroups per axis: at most four 128-quad pieces per dispatch.
+        let mut pending = HashMap::from([(entity(1), 0), (entity(2), 0)]);
+        let resident = |e: Entity| match e.index_u32() {
+            1 => Some((0..600, 0)),
+            2 => Some((1000..1010, 1)),
+            _ => None,
+        };
+        let mut baked = Vec::new();
+        for _frame in 0..4 {
+            if pending.is_empty() {
+                break;
+            }
+            let batch = plan_owed(&mut pending, resident, 4096, 2);
+            assert!(!batch.jobs.is_empty() && batch.jobs.len() <= 4);
+            assert!(batch.jobs.iter().all(|job| job[1] <= 128));
+            for &[start, count, metadata, _] in &batch.jobs {
+                baked.extend((start..start + count).map(|quad| (quad, metadata)));
+            }
+            commit(&mut pending, &batch);
+        }
+        assert!(pending.is_empty(), "the queue drains");
+        baked.sort_unstable();
+        let expected: Vec<_> = (0..600)
+            .map(|quad| (quad, 0))
+            .chain((1000..1010).map(|quad| (quad, 1)))
+            .collect();
+        assert_eq!(baked, expected, "every quad bakes exactly once");
+    }
 
     #[test]
     fn the_cache_needs_a_slot_beside_the_unit_binding_and_the_kernel() {

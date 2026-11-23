@@ -413,22 +413,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         arena.bind_group_buffers = None;
         return;
     };
-    let tint_cache = if pipeline.tint_cache {
-        let quad_capacity = arena.quad_capacity;
-        arena.tint_cache.prepare(
-            &render_device,
-            quad_capacity,
-            super::tint_cache::TintInputs {
-                materials: texture_assets.material_buffer.id(),
-                biome_tints: biome_tints.buffer.id(),
-                biome_tint_table: biome_tints.identity,
-            },
-        );
-        arena.tint_cache.id()
-    } else {
-        None
-    };
-    let buffers = ChunkBindGroupBuffers {
+    let mut buffers = ChunkBindGroupBuffers {
         view: view_buffer.id(),
         quads: arena.quad_buffer.id(),
         origins: arena.origin_buffer.id(),
@@ -444,8 +429,21 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         atmosphere: atmosphere.buffer.id(),
         biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
-        tint_cache,
+        tint_cache: None,
     };
+    if pipeline.tint_cache {
+        let quad_capacity = arena.quad_capacity;
+        arena.tint_cache.prepare(
+            &render_device,
+            quad_capacity,
+            super::tint_cache::TintInputs {
+                materials: buffers.materials,
+                biome_tints: buffers.biome_tints,
+                biome_tint_table: buffers.biome_tint_table,
+            },
+        );
+        buffers.tint_cache = arena.tint_cache.id();
+    }
     if !bind_group_needs_rebuild(
         arena.bind_group.is_some() && arena.transparent_bind_group.is_some(),
         arena.bind_group_buffers.as_ref(),

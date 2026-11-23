@@ -234,6 +234,7 @@ impl Plugin for ChunkRenderPlugin {
                 |_, schedule| {
                     schedule.add_systems(
                         super::gpu::tint_cache::record_tint_bake
+                            .run_if(super::gpu::tint_cache::tint_bake_owed)
                             .after(crate::upload_staging::BufferUploads)
                             .before(bevy::core_pipeline::schedule::camera_driver)
                             .in_set(bevy::render::renderer::RenderGraphSystems::Render),

@@ -67,11 +67,13 @@ pub(crate) fn output_layout_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
 }
 
 /// Whether a device can create and run the kernel: compute shaders, a workgroup of
-/// [`WORKGROUP_SIZE`] lanes, both groups' storage buffers, the uniform and one cache entry.
+/// [`WORKGROUP_SIZE`] x 1 x 1 lanes, both groups' storage buffers, the uniform and one entry.
 pub(crate) fn kernel_supported(downlevel: wgpu::DownlevelFlags, limits: &wgpu::Limits) -> bool {
     downlevel.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
         && limits.max_bind_groups >= 2
         && limits.max_compute_workgroup_size_x >= WORKGROUP_SIZE
+        && limits.max_compute_workgroup_size_y >= 1
+        && limits.max_compute_workgroup_size_z >= 1
         && limits.max_compute_invocations_per_workgroup >= WORKGROUP_SIZE
         && limits.max_compute_workgroups_per_dimension >= 1
         && limits.max_storage_buffers_per_shader_stage
@@ -95,23 +97,19 @@ pub(crate) fn job(quads: Range<u32>, metadata: u32, entries: u64) -> Option<Job>
     (start < end).then_some([start, end - start, metadata, 0])
 }
 
-/// Splits `jobs` so none spans more workgroups along `x` than `limit` allows, then keeps the
-/// prefix one dispatch can reach along `y` and `z`; the rest return separately.
-pub(crate) fn plan(jobs: &[Job], limit: u32) -> (Vec<Job>, Vec<Job>) {
-    let limit = limit.max(1);
-    let span = limit.saturating_mul(WORKGROUP_SIZE);
-    let mut split = Vec::with_capacity(jobs.len());
-    for &[start, count, metadata, _] in jobs {
-        let mut offset = 0;
-        while offset < count {
-            let len = (count - offset).min(span);
-            split.push([start + offset, len, metadata, 0]);
-            offset += len;
-        }
-    }
-    let reach = (limit as usize).saturating_mul(limit as usize);
-    let deferred = split.split_off(split.len().min(reach));
-    (split, deferred)
+/// Pieces of `job` that each span at most `limit` workgroups along `x`.
+pub(crate) fn split(job: Job, limit: u32) -> impl Iterator<Item = Job> {
+    let [start, count, metadata, _] = job;
+    let span = limit.max(1).saturating_mul(WORKGROUP_SIZE);
+    (0..count.div_ceil(span)).map(move |piece| {
+        let offset = piece * span;
+        [start + offset, (count - offset).min(span), metadata, 0]
+    })
+}
+
+/// Jobs one dispatch reaches along `y` and `z` within `limit` workgroups per axis.
+pub(crate) fn reach(limit: u32) -> usize {
+    (limit.max(1) as usize).saturating_mul(limit.max(1) as usize)
 }
 
 /// Workgroups covering planned `jobs`: `x` runs over a job's quads and `y + z * rows` selects
@@ -194,33 +192,39 @@ mod tests {
                 max_compute_workgroups_per_dimension: 0,
                 ..limits.clone()
             },
+            wgpu::Limits {
+                max_compute_workgroup_size_y: 0,
+                ..limits.clone()
+            },
+            wgpu::Limits {
+                max_compute_workgroup_size_z: 0,
+                ..limits.clone()
+            },
         ] {
             assert!(!kernel_supported(compute, &narrowed));
         }
     }
 
     #[test]
-    fn plans_reach_every_quad_within_each_axis_limit() {
-        let jobs = [[0, 130, 0, 0], [200, 1, 1, 0], [300, 64, 2, 0]];
-        let (planned, deferred) = plan(&jobs, 65_535);
-        assert_eq!(planned, jobs);
-        assert!(deferred.is_empty());
-        assert_eq!(dispatch_size(&planned, 65_535), [3, 3, 1]);
-        // Two workgroups per axis: 128-quad pieces, four jobs per dispatch.
-        let (planned, deferred) = plan(&jobs, 2);
+    fn pieces_and_dispatches_stay_within_each_axis_limit() {
         assert_eq!(
-            planned,
-            [
-                [0, 128, 0, 0],
-                [128, 2, 0, 0],
-                [200, 1, 1, 0],
-                [300, 64, 2, 0]
-            ]
+            split([0, 130, 7, 0], 65_535).collect::<Vec<_>>(),
+            [[0, 130, 7, 0]]
         );
-        assert!(deferred.is_empty());
-        assert!(dispatch_size(&planned, 2).iter().all(|&axis| axis <= 2));
-        let (planned, deferred) = plan(&[[0, 1, 0, 0]; 5], 2);
-        assert_eq!((planned.len(), deferred.len()), (4, 1));
+        // Two workgroups per axis: 128-quad pieces, four jobs per dispatch.
+        assert_eq!(
+            split([0, 130, 7, 0], 2).collect::<Vec<_>>(),
+            [[0, 128, 7, 0], [128, 2, 7, 0]]
+        );
+        assert_eq!(reach(2), 4);
+        let jobs = [
+            [0, 128, 0, 0],
+            [128, 2, 0, 0],
+            [200, 1, 1, 0],
+            [300, 64, 2, 0],
+        ];
+        assert!(dispatch_size(&jobs, 2).iter().all(|&axis| axis <= 2));
+        assert_eq!(dispatch_size(&jobs[..3], 65_535), [2, 3, 1]);
     }
 
     #[test]
