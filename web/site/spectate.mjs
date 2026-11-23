@@ -34,6 +34,16 @@ export function spectatorParams(search) {
   return { assets, stream, parent };
 }
 
+/** Returns the validated `parent` origin for notices, or null, even when other values are invalid. */
+export function noticeOrigin(search) {
+  try {
+    const value = new URLSearchParams(search).get("parent");
+    if (!value) return null;
+    const origin = new URL(value);
+    return secure(origin) ? origin.origin : null;
+  } catch { return null; }
+}
+
 /**
  * Returns the stream a message asks for, or null unless it came from the configured parent
  * origin and the embedding window itself (`parentWindow`, absent for a top-level page).

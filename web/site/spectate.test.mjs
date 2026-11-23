@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spectatorParams, requestedStream, STREAM_MESSAGE } from "./spectate.mjs";
+import { spectatorParams, requestedStream, noticeOrigin, STREAM_MESSAGE } from "./spectate.mjs";
 
 const query = (values) => "?" + new URLSearchParams(values).toString();
 
@@ -45,4 +45,11 @@ test("stream switches are accepted only from the configured parent window", () =
   assert.equal(requestedStream(from(parent, frame), null, frame), null);
   assert.equal(requestedStream(from(parent, frame, { type: "other", stream: message.stream }), parent, frame), null);
   assert.equal(requestedStream(from(parent, frame, { type: STREAM_MESSAGE, stream: 7 }), parent, frame), null);
+});
+
+test("notices reach a valid parent even when the other values are invalid", () => {
+  assert.equal(noticeOrigin(query({ parent: "https://example.com/watch", assets: "bad" })), "https://example.com");
+  assert.equal(noticeOrigin(query({ parent: "http://example.com" })), null);
+  assert.equal(noticeOrigin(query({ parent: "not a url" })), null);
+  assert.equal(noticeOrigin(""), null);
 });

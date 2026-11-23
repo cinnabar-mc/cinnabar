@@ -12,14 +12,16 @@ canvas { display: block; width: 100%; height: 100%; }
 <canvas id="game" aria-label="Spectator view"></canvas>
 <p id="status" role="status">Loading spectator…</p>
 <script type="module">
-import init, { Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit } from "./pkg/web_client.js";
-import { boundedBytes, downloadCarriers } from "./edges.mjs";
-import { openSoundBank } from "./audio.mjs";
-import { spectatorParams, requestedStream, NOTICE_MESSAGE } from "./spectate.mjs";
+import { spectatorParams, requestedStream, noticeOrigin, NOTICE_MESSAGE } from "./spectate.mjs";
 
 const canvas = document.getElementById("game");
 const status = document.getElementById("status");
+// Notices reach a valid parent even when another query value is invalid.
+const notify = noticeOrigin(location.search);
 let params;
+// The client modules load inside the startup handler below, so their failures are reported.
+let Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit;
+let boundedBytes, downloadCarriers, openSoundBank;
 
 /** Shows state and errors as text and forwards them to the configured parent page. */
 function observe(json) {
@@ -27,7 +29,7 @@ function observe(json) {
   if (event.error) status.textContent = event.error;
   else if (event.state === "joining") status.textContent = "";
   else if (event.state === "disconnected") status.textContent = "The stream ended.";
-  if (params?.parent) window.parent.postMessage({ type: NOTICE_MESSAGE, ...event }, params.parent);
+  if (notify && window.parent !== window) window.parent.postMessage({ type: NOTICE_MESSAGE, ...event }, notify);
 }
 
 /** Sends same-origin credentials, so a host may keep the bundle behind its own session. */
@@ -78,7 +80,11 @@ try {
     requested = stream;
     if (game) { try { game.spectate(stream, observe); } catch (error) { fail(error); } }
   });
-  await init();
+  const client = await import("./pkg/web_client.js");
+  ({ Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit } = client);
+  ({ boundedBytes, downloadCarriers } = await import("./edges.mjs"));
+  ({ openSoundBank } = await import("./audio.mjs"));
+  await client.default();
   resize();
   new ResizeObserver(resize).observe(canvas);
   // Spectators never send gameplay input: this frame source stays empty.
