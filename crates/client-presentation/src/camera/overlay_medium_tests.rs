@@ -137,3 +137,46 @@ fn cached_eye_probe_follows_the_eye_the_terrain_and_registry_edits() {
     );
     assert_eq!(fresh(&store, &registry, inside), HeadMedium::Solid);
 }
+
+#[test]
+fn cached_eye_probe_matches_a_fresh_probe_across_liquid_surfaces_residency_and_dimensions() {
+    let fresh = |store: &ChunkStore, registry: &CollisionRegistry, dimension, eye: Vec3| {
+        probe_head_medium(
+            &sim::PaletteWorld::new(store, registry, dimension, Default::default()),
+            eye,
+        )
+    };
+    let below = Vec3::new(0.5, 0.25, 0.5);
+    let above = Vec3::new(0.5, 0.75, 0.5);
+    let (mut store, registry) = fixture(1, Some(0.5));
+    let mut cache = HeadMediumCache::default();
+    let check = |cache: &mut HeadMediumCache, store: &ChunkStore, dimension, eye| {
+        let expected = fresh(store, &registry, dimension, eye);
+        assert_eq!(
+            cache.probe(store, &registry, false, dimension, eye),
+            expected
+        );
+        expected
+    };
+
+    // Both sides of a partial water surface inside one block.
+    assert_eq!(check(&mut cache, &store, 0, below), HeadMedium::Water);
+    assert_eq!(check(&mut cache, &store, 0, above), HeadMedium::Air);
+    assert_eq!(check(&mut cache, &store, 0, below), HeadMedium::Water);
+
+    // Another dimension at the same eye.
+    check(&mut cache, &store, 1, below);
+    check(&mut cache, &store, 0, below);
+
+    // Unloading the column under a still eye, then loading it again.
+    store.evict_chunk(SubChunkKey::new(0, 0, 0, 0).chunk());
+    assert_eq!(check(&mut cache, &store, 0, below), HeadMedium::Air);
+    let (reloaded, _) = fixture(1, Some(0.5));
+    store = reloaded;
+    assert_eq!(check(&mut cache, &store, 0, below), HeadMedium::Water);
+
+    // A different store with the same eye and registry.
+    let (stone, _) = fixture(2, None);
+    assert_eq!(check(&mut cache, &stone, 0, below), HeadMedium::Solid);
+    assert_eq!(check(&mut cache, &store, 0, below), HeadMedium::Water);
+}
