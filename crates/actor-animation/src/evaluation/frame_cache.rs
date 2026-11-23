@@ -35,6 +35,15 @@ impl Expression {
 #[derive(Debug, Default)]
 pub(crate) struct Expressions(BTreeMap<usize, Occurrences>);
 
+#[cfg(test)]
+thread_local! { static COPY_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+/// Takes this test thread's count of expressions [`Expressions::copy_ran`] visited.
+#[cfg(test)]
+pub(crate) fn take_copy_work() -> usize {
+    COPY_WORK.with(|work| work.replace(0))
+}
+
 /// The results one read left in the occurrences it ran of some pure expressions.
 #[derive(Debug, Default)]
 pub(crate) struct ExpressionSlots(Vec<(usize, bool, Vec<Expression>)>);
@@ -75,18 +84,14 @@ impl Expressions {
         }
     }
 
-    /// Copies the occurrences of `indices` the current read ran into `slots`, before the next
-    /// lease rewinds them, reusing its buffers; false unless every one is a pure, evaluated result.
-    pub(crate) fn copy_ran(
-        &self,
-        indices: impl IntoIterator<Item = usize>,
-        slots: &mut ExpressionSlots,
-    ) -> bool {
+    /// Copies the occurrences of the distinct expressions `indices` the current read ran into
+    /// `slots`, before the next lease rewinds them, reusing its buffers; false unless every one
+    /// is a pure, evaluated result. Work is linear in `indices` and the occurrences copied.
+    pub(crate) fn copy_ran(&self, indices: &[usize], slots: &mut ExpressionSlots) -> bool {
         let mut used = 0;
-        for index in indices {
-            if slots.0[..used].iter().any(|(known, ..)| *known == index) {
-                continue;
-            }
+        for &index in indices {
+            #[cfg(test)]
+            COPY_WORK.with(|work| work.set(work.get() + 1));
             let Some(occurrences) = self.0.get(&index) else {
                 return false;
             };
