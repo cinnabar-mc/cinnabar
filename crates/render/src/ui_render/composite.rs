@@ -707,7 +707,7 @@ pub(super) fn composite_load(
     outside: LoadOp<wgpu::Color>,
     scissor: Option<render_model::UiScissor>,
 ) -> LoadOp<wgpu::Color> {
-    if scissor.is_some() || crate::device_settings::strict_webgpu_compliance() {
+    if scissor.is_some() || crate::strict_webgpu::enabled() {
         return outside;
     }
     // SAFETY: the composite pipelines draw a full-target triangle with no blending, full write

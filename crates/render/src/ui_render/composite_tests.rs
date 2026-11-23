@@ -271,7 +271,7 @@ fn unscissored_composites_skip_the_destination_load() {
     for outside in [clear, LoadOp::Load] {
         assert_eq!(
             matches!(composite_load(outside, None), LoadOp::DontCare(_)),
-            !crate::device_settings::strict_webgpu_compliance()
+            !crate::strict_webgpu::enabled()
         );
         let scissor = UiScissor::new(4, 8, 16, 32);
         assert_eq!(composite_load(outside, Some(scissor)), outside);
