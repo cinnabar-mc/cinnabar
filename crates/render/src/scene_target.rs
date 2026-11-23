@@ -1,5 +1,7 @@
 //! Main-pass colour retains sample coverage until the final resolve before post-processing.
 
+#[path = "scene_target/clear.rs"]
+pub(crate) mod clear;
 #[path = "scene_target/nodes.rs"]
 pub(crate) mod nodes;
 #[cfg(test)]

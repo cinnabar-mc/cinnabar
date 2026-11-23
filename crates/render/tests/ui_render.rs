@@ -88,11 +88,18 @@ mod atmosphere_render {
         pub(crate) fn precedes_geometry(_: &bevy::prelude::World) -> bool {
             true
         }
-        pub(crate) fn draw(
+        pub(crate) fn draw_with_alpha(
             _: &bevy::prelude::World,
             _: bevy::prelude::Entity,
             _: &mut bevy::render::render_phase::TrackedRenderPass,
+            _: bool,
         ) {
+        }
+        pub(crate) fn covers_with_opaque_alpha(
+            _: &bevy::prelude::World,
+            _: bevy::prelude::Entity,
+        ) -> bool {
+            false
         }
     }
 }
