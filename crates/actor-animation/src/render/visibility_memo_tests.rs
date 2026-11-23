@@ -355,3 +355,39 @@ fn memo_copies_each_distinct_gate_once_however_many_layers_share_it() {
         );
     }
 }
+
+/// Gates whose worst case exceeds one rig's frame budget may fall back to the tick's policy
+/// depending on the branches they take and the expression cache, so equal revisions cannot
+/// prove the visibility unchanged even when the gates read only tick state.
+#[test]
+fn over_budget_gates_keep_visibility_frame_dependent() {
+    use MolangOp::*;
+    let check = |heavy: bool| {
+        let mut compiled = fixture(false);
+        if heavy {
+            let first = heavy_gate(&mut compiled, 4, 41.0, GreaterEqual);
+            let second = heavy_gate(&mut compiled, 4, 42.0, GreaterEqual);
+            compiled.render.layers[0].condition = Some(first);
+            compiled.render.layers[1].condition = Some(second);
+        }
+        compiled.rig_bindings[0].hide_held_items = None;
+        // A tint that reads the frame fraction makes the rig sample every frame.
+        let tint = expression(&mut compiled, vec![LoadQuery(1)]);
+        compiled.render.layers[0].color = Some([tint; 4]);
+        let (mut store, mut actor) = store(compiled);
+        // The heavy gates' cheap branches let the tick finish; their expensive ones could not.
+        mark(&mut actor, 0);
+        advance(&mut store, &actor, true);
+        let revision = store.presentation_revision(1);
+        let samples = [0.25, 0.75].map(|alpha| visibility(&store, &actor, alpha, true));
+        assert_eq!(store.presentation_revision(1), revision);
+        (store.visibility_reads_frame(&actor), samples)
+    };
+    let (light, _) = check(false);
+    assert!(
+        !light,
+        "affordable tick-only gates prove the visibility unchanged"
+    );
+    let (heavy, _) = check(true);
+    assert!(heavy, "gates that can exhaust the budget may fall back");
+}

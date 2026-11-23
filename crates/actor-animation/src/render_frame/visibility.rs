@@ -308,8 +308,10 @@ fn gate_reads(
 /// tick state, for instance with the frame fraction or camera. A rig that never samples its
 /// frame draws its completed tick visibility. Otherwise unknown counts as differing: only a
 /// retained plan whose gates run on the tick baseline without reading frame, camera or swing
-/// inputs proves otherwise.
-pub(super) fn reads_frame(state: &ActorRigState, actor: &dyn AnimatedActor) -> bool {
+/// inputs, and which certainly finishes within `budget` ops, proves otherwise. A plan that could
+/// exhaust the budget falls back to the tick's visibility depending on which branches ran and
+/// what the expression cache holds.
+pub(super) fn reads_frame(state: &ActorRigState, actor: &dyn AnimatedActor, budget: usize) -> bool {
     let Some(frame) = state.render_frame.as_ref() else {
         return false;
     };
@@ -337,9 +339,12 @@ pub(super) fn reads_frame(state: &ActorRigState, actor: &dyn AnimatedActor) -> b
     }
     let scratch = frame.cache.lock().unwrap();
     scratch.visibility.as_ref().is_none_or(|plan| {
-        !plan.frame_independent
-            || !matches!(plan.mode, Mode::Queries | Mode::Gates { .. })
-            || !plan.matches(state, frame)
+        let affordable = match plan.mode {
+            Mode::Queries => plan.gate_ops.is_some_and(|ops| ops <= budget),
+            Mode::Gates { reserve } => reserve <= budget,
+            Mode::Variables | Mode::Full => false,
+        };
+        !plan.frame_independent || !affordable || !plan.matches(state, frame)
     })
 }
 
