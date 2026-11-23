@@ -100,6 +100,25 @@ pub(crate) struct PublishScratch {
     dropped: Vec<client_world::DroppedItemView>,
     candidates: Vec<client_world::BlockEntityCandidate>,
     ropes: Vec<client_world::RopeView>,
+    /// The unspent budget for the render device it was read from, whose limits never change.
+    device_budget: Option<(
+        bevy::render::renderer::RenderDevice,
+        render_model::dropped_item::ItemModelBudget,
+    )>,
+}
+
+/// Returns the budget cached for `device`, reading `budget` again whenever `same` finds a
+/// different device, so a replacement made while publication was skipped is still noticed.
+fn cached_device_budget<D: Clone, B: Copy>(
+    cache: &mut Option<(D, B)>,
+    device: &D,
+    same: impl Fn(&D, &D) -> bool,
+    budget: impl FnOnce() -> B,
+) -> B {
+    match cache {
+        Some((cached, value)) if same(cached, device) => *value,
+        _ => cache.insert((device.clone(), budget())).1,
+    }
 }
 
 fn tint_rgba(flags: u32) -> u32 {
@@ -623,6 +642,7 @@ impl DroppedItemPublisher<'_, '_> {
             dropped,
             candidates,
             ropes,
+            device_budget,
         } = &mut *self.scratch;
         cache.sync(
             stream.authority().actor_session_id(),
@@ -640,19 +660,27 @@ impl DroppedItemPublisher<'_, '_> {
             .and_then(|scene| scene.0.held_models());
         stream.authority().dropped_items_into(partial_tick, dropped);
         let mut dial_models = dials::DialModels::default();
-        let budget = self.device.as_ref().map_or_else(
-            render_model::dropped_item::ItemModelBudget::default,
-            |device| {
-                let limits = device.limits();
-                render_model::dropped_item::ItemModelBudget::new(
-                    assets::texture::policy::TexturePolicy::for_device(
-                        limits.max_texture_dimension_2d,
-                    ),
-                    limits.max_texture_array_layers as usize,
-                    limits.max_buffer_size,
-                )
-            },
-        );
+        let budget = match self.device.as_ref() {
+            Some(device) => cached_device_budget(
+                device_budget,
+                device,
+                |cached, device| cached.wgpu_device() == device.wgpu_device(),
+                || {
+                    let limits = device.limits();
+                    render_model::dropped_item::ItemModelBudget::new(
+                        assets::texture::policy::TexturePolicy::for_device(
+                            limits.max_texture_dimension_2d,
+                        ),
+                        limits.max_texture_array_layers as usize,
+                        limits.max_buffer_size,
+                    )
+                },
+            ),
+            None => {
+                *device_budget = None;
+                render_model::dropped_item::ItemModelBudget::default()
+            }
+        };
         cache.budget = budget;
         placement_icons.clear();
         if let Some(placements) = self.placements.as_ref() {

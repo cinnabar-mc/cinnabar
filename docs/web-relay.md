@@ -80,6 +80,9 @@ Separate pack streams, gameplay datagrams and deployment/browser acceptance rema
 
 ## Browser entry preview
 
+Read-only spectator streams use the same bundle without the relay; see
+[browser spectator streams](web-spectator.md).
+
 From the workspace root, install the Rust `wasm32-unknown-unknown` target and Node.js,
 then build a fresh static directory:
 

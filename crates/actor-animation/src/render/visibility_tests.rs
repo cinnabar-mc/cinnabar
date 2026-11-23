@@ -3,7 +3,7 @@ use assets::{CompiledEntityAssets, CompiledMolangExpression, MolangSymbol, Molan
 use protocol_ids::ActorDataKey;
 
 /// Appends one original scalar program to the fixture's expression table.
-fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>) -> u32 {
+pub(super) fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>) -> u32 {
     let mut expressions = compiled.molang_expressions.to_vec();
     let mut ops = compiled.molang_ops.to_vec();
     let index = expressions.len() as u32;
@@ -19,7 +19,7 @@ fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>) -> u3
 }
 
 /// Two player controllers select arbitrary metadata ranges; held visibility is independent.
-fn fixture(frame_gate: bool) -> CompiledEntityAssets {
+pub(super) fn fixture(frame_gate: bool) -> CompiledEntityAssets {
     use MolangOp::*;
     let scalar = crate::test_support::scalar;
     let mut compiled = crate::test_support::counting_random_compiled("minecraft:player");
@@ -94,7 +94,7 @@ fn fixture(frame_gate: bool) -> CompiledEntityAssets {
 }
 
 /// Installs a player without requiring any external pack or account.
-fn store(compiled: CompiledEntityAssets) -> (ActorAnimationStore, TestActor) {
+pub(super) fn store(compiled: CompiledEntityAssets) -> (ActorAnimationStore, TestActor) {
     let mut actor = crate::tests::actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Player {
         uuid: [1; 16],
@@ -108,7 +108,7 @@ fn store(compiled: CompiledEntityAssets) -> (ActorAnimationStore, TestActor) {
 }
 
 /// Replaces the actor's metadata through the same query input used by all render expressions.
-fn mark(actor: &mut TestActor, value: i32) {
+pub(super) fn mark(actor: &mut TestActor, value: i32) {
     actor.metadata.insert(
         ActorDataKey::MarkVariant.wire_value(),
         ActorMetadataValue::Int(value),
@@ -116,7 +116,7 @@ fn mark(actor: &mut TestActor, value: i32) {
 }
 
 /// Completes world and independent UI evaluations with explicit local identity.
-fn advance(store: &mut ActorAnimationStore, actor: &TestActor, local: bool) {
+pub(super) fn advance(store: &mut ActorAnimationStore, actor: &TestActor, local: bool) {
     store.advance_tick(
         &HashMap::from([(actor.runtime_id, actor.clone())]),
         None,
@@ -473,7 +473,7 @@ fn advancing_visibility_frames_reuse_owned_and_retained_layer_storage() {
 }
 
 /// Camera and swing drive poses, while pre-animation and engine variables drive visibility.
-fn variable_fixture() -> CompiledEntityAssets {
+pub(super) fn variable_fixture() -> CompiledEntityAssets {
     use MolangOp::*;
     let scalar = crate::test_support::scalar;
     let mut compiled = fixture(false);
@@ -626,6 +626,190 @@ fn variable_visibility_retains_downstream_animation_and_render_writes() {
                 .visibility;
             assert_eq!(visibility, full);
             assert_eq!(visibility.hides_held_items(), alpha > 0.5);
+        }
+    }
+}
+
+#[test]
+fn engine_variable_gates_skip_independent_setup_scripts() {
+    use MolangOp::*;
+    for setup_writes_gate in [false, true] {
+        let mut compiled = variable_fixture();
+        // The pre-animation script writes `is_first_person` (9); the swing gate reads only the
+        // engine's `attack_time` (5) unless the control gate also reads the setup's write.
+        let mut gate = vec![
+            LoadVariable(5),
+            Push(crate::test_support::scalar(0.5)),
+            Greater,
+        ];
+        if setup_writes_gate {
+            gate.extend([LoadVariable(9), Not, Multiply]);
+        }
+        let gate = expression(&mut compiled, gate);
+        for layer in &mut compiled.render.layers {
+            layer.condition = Some(gate);
+        }
+        compiled.rig_bindings[0].hide_held_items =
+            Some(expression(&mut compiled, vec![LoadQuery(3), Not]));
+        // Loop-free setup with the shared fixture's writes, so its cost is bounded.
+        compiled.rig_bindings[0].pre_animation = Some(expression(
+            &mut compiled,
+            vec![
+                LoadQuery(1),
+                Push(crate::test_support::scalar(8.0)),
+                Less,
+                StoreVariable(9),
+                LoadVariable(8),
+                StoreVariable(7),
+                Push(crate::test_support::scalar(0.0)),
+            ],
+        ));
+        let setup = [
+            compiled.rig_bindings[0].held_item_scale.unwrap() as usize,
+            compiled.rig_bindings[0].pre_animation.unwrap() as usize,
+        ];
+        let (mut store, actor) = store(compiled);
+        store.sync_local_swing(
+            actor.runtime_id,
+            LocalSwingProgress {
+                bedrock: [0.1, 0.9],
+                java: [0.1, 0.9],
+                frame_alpha: None,
+            },
+        );
+        advance(&mut store, &actor, true);
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut storage = Vec::new();
+        for alpha in [0.25, 0.75, 0.25, 0.75] {
+            let camera = [
+                actor.position[0],
+                actor.position[1],
+                actor.position[2] + 9.0,
+            ];
+            evaluation::take_expression_work();
+            let visibility = ActorRenderFrame::new(&store, &actors, [0.0; 2], camera, alpha)
+                .into_layers_reusing(actor.runtime_id, false, true, &mut storage)
+                .unwrap()
+                .visibility;
+            let work = evaluation::take_expression_work();
+            let full = ActorRenderFrame::new(&store, &actors, [0.0; 2], camera, alpha)
+                .into_layers_reusing(actor.runtime_id, false, false, &mut storage)
+                .unwrap()
+                .visibility;
+            assert_eq!(
+                visibility, full,
+                "alpha {alpha}, control {setup_writes_gate}"
+            );
+            // The swing interpolates 0.1 to 0.9, so only the later fraction passes the gate.
+            assert_eq!(visibility.hides_body(), alpha < 0.5);
+            assert!(!visibility.hides_held_items());
+            assert_eq!(
+                setup
+                    .iter()
+                    .any(|&index| work.get(index).is_some_and(|&runs| runs > 0)),
+                setup_writes_gate,
+                "alpha {alpha}: setup work {work:?}"
+            );
+        }
+    }
+}
+
+/// A first-person gate on the frame fraction, with setup that writes only a temporary.
+/// `looping` setup spins nested loops past the actor budget once the fraction passes 0.5;
+/// otherwise setup is a long loop-free run of temporary writes.
+fn exhausting_setup_fixture(looping: bool) -> CompiledEntityAssets {
+    use MolangOp::*;
+    let scalar = crate::test_support::scalar;
+    let mut compiled = fixture(false);
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.extend([
+        MolangSymbol {
+            kind: MolangSymbolKind::Variable,
+            identifier: "variable.is_first_person".into(),
+        },
+        MolangSymbol {
+            kind: MolangSymbolKind::Temporary,
+            identifier: "temp.spin".into(),
+        },
+    ]);
+    compiled.molang_symbols = symbols.into();
+    let pre = if looping {
+        vec![
+            LoadQuery(1),
+            Push(scalar(0.5)),
+            Greater,
+            JumpIfFalse(12),
+            Push(scalar(1024.0)),
+            LoopStart(12),
+            Push(scalar(1024.0)),
+            LoopStart(11),
+            Push(scalar(1.0)),
+            StoreVariable(6),
+            LoopNext(8),
+            LoopNext(6),
+            Push(scalar(0.0)),
+        ]
+    } else {
+        let mut ops = Vec::new();
+        for _ in 0..60 {
+            ops.extend([Push(scalar(1.0)), StoreVariable(6)]);
+        }
+        ops.push(Push(scalar(0.0)));
+        ops
+    };
+    compiled.rig_bindings[0].pre_animation = Some(expression(&mut compiled, pre));
+    let gate = expression(
+        &mut compiled,
+        vec![
+            LoadVariable(5),
+            LoadQuery(1),
+            Push(scalar(0.5)),
+            Greater,
+            Multiply,
+        ],
+    );
+    for layer in &mut compiled.render.layers {
+        layer.condition = Some(gate);
+    }
+    compiled
+}
+
+#[test]
+fn engine_variable_gates_keep_the_full_samplers_budget_fallback() {
+    for (looping, remaining) in [(true, None), (false, Some(20))] {
+        let (mut store, actor) = store(exhausting_setup_fixture(looping));
+        store.advance_tick(
+            &HashMap::from([(actor.runtime_id, actor.clone())]),
+            None,
+            Some(actor.runtime_id),
+            true,
+            true,
+            |_| ActorTickContext {
+                is_local: true,
+                is_local_player: true,
+                is_local_first_person: true,
+                ..Default::default()
+            },
+        );
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut storage = Vec::new();
+        for alpha in [0.25, 0.75] {
+            let sample = |visibility_only: bool, storage: &mut Vec<_>| {
+                let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
+                if let Some(remaining) = remaining {
+                    frame.set_remaining_ops(remaining);
+                }
+                frame
+                    .into_layers_reusing(actor.runtime_id, false, visibility_only, storage)
+                    .unwrap()
+                    .visibility
+            };
+            let full = sample(false, &mut storage);
+            let visibility = sample(true, &mut storage);
+            assert_eq!(
+                visibility, full,
+                "looping {looping}, alpha {alpha}: visibility must keep the full fallback"
+            );
         }
     }
 }

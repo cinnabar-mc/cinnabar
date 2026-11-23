@@ -130,6 +130,16 @@ impl Game {
         Ok(())
     }
 
+    /// Starts a read-only spectator session from the stream at `url`, cancelling any previous
+    /// session. The stream supplies the whole world; the page should not forward gameplay
+    /// input. `observe` receives the same JSON state and error notices as relay joins.
+    pub fn spectate(&mut self, url: &str, observe: js_sys::Function) -> Result<(), JsError> {
+        let url = crate::spectate::stream_url(url).map_err(JsError::new)?;
+        self.disconnect();
+        self.play = Some(Task::spawn(spectate(Rc::clone(&self.host), observe, url)));
+        Ok(())
+    }
+
     /// Cancels the play lease, both I/O tasks and game authority together.
     pub fn disconnect(&mut self) {
         self.play = None;
@@ -245,4 +255,92 @@ async fn drive(
             cinnabar::browser::Event::Disconnected => return,
         }
     }
+}
+
+/// Runs one spectator session to its end. The stream needs no account, control channel or
+/// play Hello: the session's Connect frame is the first byte it receives.
+async fn spectate(
+    host: Rc<RefCell<cinnabar::browser::Host>>,
+    observe: js_sys::Function,
+    url: String,
+) {
+    let opened = bridge::tasks::until(
+        web_transport::browser::open_spectator(&url),
+        timer::sleep(crate::spectate::OPEN_TIMEOUT),
+    )
+    .await;
+    let Ok(Ok(web_transport::browser::SpectatorStream { transport, stream })) = opened else {
+        emit(
+            &observe,
+            serde_json::json!({"error":"Could not open the spectator stream"}),
+        );
+        return;
+    };
+    let stream = crate::spectate::FirstBytes::new(stream);
+    let received = stream.received();
+    let (read, write) = tokio::io::split(stream);
+    let (reader, frames, writer) = bridge::tasks::prepare_bounded_connection(
+        read,
+        write,
+        bridge::contract::MAX_FRAME_LEN,
+        bridge::contract::RELAY_QUEUED_FRAME_BYTES,
+    );
+    let work = host.borrow_mut().connect(
+        protocol::SessionIo {
+            reader,
+            frames,
+            timers: timers(),
+        },
+        crate::spectate::SPECTATOR_JOIN,
+        std::future::ready(Ok::<Option<web_transport::browser::BrowserStream>, _>(None)),
+        crate::spectate::stream_address(&url),
+        Executor,
+        Executor,
+    );
+    let Ok(work) = work else {
+        emit(
+            &observe,
+            serde_json::json!({"error":"Could not start the spectator session"}),
+        );
+        return;
+    };
+    emit(&observe, serde_json::json!({"state":"joining"}));
+    let silent = {
+        use futures::FutureExt;
+        let session = work.fuse();
+        let writer = writer.fuse();
+        // A host that opens the socket but never answers fails instead of waiting forever.
+        let deadline = timer::sleep(crate::spectate::FIRST_BYTES_TIMEOUT).fuse();
+        futures::pin_mut!(session, writer, deadline);
+        loop {
+            futures::select_biased! {
+                () = session => break false,
+                () = writer => {},
+                () = deadline => if !received.get() { break true },
+            }
+        }
+    };
+    drop(transport);
+    if silent {
+        host.borrow_mut().disconnect();
+        emit(
+            &observe,
+            serde_json::json!({"error":"The spectator stream did not respond"}),
+        );
+        return;
+    }
+    let event = loop {
+        if let Some(event) = host.borrow_mut().take_event() {
+            break event;
+        }
+        timer::sleep(Duration::from_millis(16)).await;
+    };
+    let notice = match event {
+        cinnabar::browser::Event::Transfer { .. } => {
+            serde_json::json!({"error":"Spectator streams cannot transfer to a server"})
+        }
+        cinnabar::browser::Event::Failed(error) => serde_json::json!({"error":error}),
+        cinnabar::browser::Event::Disconnected => serde_json::json!({"state":"disconnected"}),
+    };
+    emit(&observe, notice);
 }

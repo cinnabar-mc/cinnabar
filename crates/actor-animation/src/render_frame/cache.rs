@@ -1,7 +1,7 @@
 //! Exact dependencies for sampled work in one rig's immutable asset layout.
 use super::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Value {
     Unset,
     Number(u32),
@@ -28,6 +28,25 @@ pub(crate) struct Inputs {
     values: Vec<Value>,
     pure: bool,
     valid: bool,
+}
+
+impl Clone for Inputs {
+    fn clone(&self) -> Self {
+        Self {
+            symbols: Arc::clone(&self.symbols),
+            values: self.values.clone(),
+            pure: self.pure,
+            valid: self.valid,
+        }
+    }
+
+    /// Reuses the value allocation, so retained copies stay allocation-free once warm.
+    fn clone_from(&mut self, source: &Self) {
+        self.symbols = Arc::clone(&source.symbols);
+        self.values.clone_from(&source.values);
+        self.pure = source.pure;
+        self.valid = source.valid;
+    }
 }
 
 impl Inputs {
@@ -218,7 +237,7 @@ pub(crate) fn enabled() -> bool {
 
 /// Runs a behavior control while restoring the calling thread's cache setting on every exit.
 #[cfg(test)]
-pub(super) fn uncached<T>(sample: impl FnOnce() -> T) -> T {
+pub(crate) fn uncached<T>(sample: impl FnOnce() -> T) -> T {
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {

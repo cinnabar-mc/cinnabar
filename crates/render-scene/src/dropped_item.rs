@@ -85,7 +85,7 @@ impl DroppedItemScene {
     ) {
         self.terrain_session_id = Some(session_id);
         let count = instances.len().min(MAX_DROPPED_ITEM_INSTANCES);
-        self.terrain_instances = Arc::from(&instances[..count]);
+        replace_unless_both_empty(&mut self.terrain_instances, &instances[..count]);
     }
 
     #[must_use]

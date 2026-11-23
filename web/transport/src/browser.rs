@@ -52,6 +52,35 @@ impl BrowserTransport {
             .map_err(|_| CloseReason::Transport)
     }
 }
+impl BrowserTransport {
+    /// Creates a WebSocket-only transport whose play channel is the HTTP(S) URL of a read-only
+    /// spectator stream. The stream speaks the session endpoint framing directly: there is no
+    /// control channel, account or play Hello.
+    pub fn spectator(url: &str) -> Result<Self, CloseReason> {
+        let config = serde_json::json!({"transport": RELAY_TRANSPORT_PATH,
+            "controlPath": RELAY_CONTROL_PATH, "playPath": url,
+            "control": RELAY_CHANNEL_CONTROL, "protocol": RELAY_SOCKET_PROTOCOL,
+            "controlBytes": RELAY_CONTROL_BYTES, "playBytes": RELAY_PLAY_MESSAGE_BYTES, "chunks": bridge::contract::QUEUED_FRAMES});
+        create(url, false, &config.to_string())
+            .map(Self)
+            .map_err(|_| CloseReason::Transport)
+    }
+}
+
+/// One open spectator stream with the transport that owns its socket.
+pub struct SpectatorStream {
+    /// Dropping the transport closes the socket, so it lives as long as the stream.
+    pub transport: BrowserTransport,
+    pub stream: BrowserStream,
+}
+
+/// Opens the read-only spectator stream at an HTTP(S) URL; the caller validates the URL.
+pub async fn open_spectator(url: &str) -> Result<SpectatorStream, CloseReason> {
+    let mut transport = BrowserTransport::spectator(url)?;
+    let stream = transport.open(Channel::Play { join: 1 }).await?;
+    Ok(SpectatorStream { transport, stream })
+}
+
 impl RelayTransport for BrowserTransport {
     type Stream = BrowserStream;
     async fn open(&mut self, channel: Channel) -> Result<BrowserStream, CloseReason> {

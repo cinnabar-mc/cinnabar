@@ -33,6 +33,7 @@ const MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME: usize =
     FRAME_PASSES_PER_ACTOR * MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
 
+mod background;
 mod catalog;
 pub use catalog::ActorAnimationCatalog;
 
@@ -47,8 +48,10 @@ pub use head_rotation::HeadRotation;
 mod rig;
 pub use rig::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,
-    ItemAnimationState, LocalSwingProgress,
+    ItemAnimationState, LocalSwingProgress, PresentationRevision,
 };
+mod rig_map;
+use rig_map::RigMap;
 mod state;
 use state::{
     ActorRigState, ActorTickInput, AttachableRootFrame, ControllerState, EvalBudget, EvalError,
@@ -144,3 +147,5 @@ static TEST_ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAlloc
 
 /// Owner-bone placement shared by world and live UI equipment.
 pub mod attachment;
+
+pub use background::run_browser_job;

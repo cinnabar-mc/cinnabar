@@ -531,7 +531,7 @@ const RASTER_VERTEX: &str = r#"
 
 const REFERENCE_COLOUR: &str = r#"
 // Resolves each fragment's tint at its owning block before lighting and fog.
-fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {
+fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     var tint_gamma = vec3(1.0);
     let tint_kind = in.material_flags & 0x30u;
     if (tint_kind != 0u) {
@@ -550,15 +550,15 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
-    if (in.visibility.x == 0u) { discard; }
-    if (!front_facing && (in.visibility.x & MODEL_TWO_SIDED) == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && (in.visibility.x & MODEL_TWO_SIDED) == 0u) { discard; }
     var sampled = sample_model_ref(in, in.textures.x, dx, dy);
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.textures.y, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
-    return ordinary_world_model_colour(in, sampled);
+    return ordinary_world_model_colour(in, sampled, dx, dy);
 }
 "#;
