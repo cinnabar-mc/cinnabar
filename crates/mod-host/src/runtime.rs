@@ -272,6 +272,22 @@ impl cinnabar::extension::environment::Host for State {
         Ok(Ok(()))
     }
 
+    /// Stages fog suppression under the environment grant and the shared import budget.
+    ///
+    /// Suppression is a set the loaded mods combine, so it takes no part in the exclusive
+    /// ownership that time and weather use.
+    fn set_fog_suppression(
+        &mut self,
+        mediums: cinnabar::extension::environment::FogMediums,
+    ) -> Result<Result<(), String>> {
+        self.environment.write()?;
+        if !self.grants.environment {
+            return Ok(Err("environment capability denied".into()));
+        }
+        self.environment.stage_fog_suppression(mediums);
+        Ok(Ok(()))
+    }
+
     /// Stages a fixed visual clock only with explicit authority and a valid tick.
     fn set_time_override(&mut self, ticks: Option<u32>) -> Result<Result<(), String>> {
         self.environment.write()?;

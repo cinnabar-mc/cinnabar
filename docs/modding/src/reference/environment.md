@@ -6,7 +6,7 @@
 
 Local presentation only; no world mutation or outbound packets.
 
-**Grants:** `environment` for weather and time; `fullbright` for lighting.
+**Grants:** `environment` for weather, time and fog; `fullbright` for lighting.
 
 ## Types
 
@@ -29,6 +29,27 @@ enum weather {
 | `clear` |  |  |
 | `rain` |  |  |
 | `thunder` |  |  |
+
+<a id="type-fog-mediums"></a>
+
+### `fog-mediums`
+
+Camera mediums: `air` is the ordinary view outside liquid, in every dimension and weather;
+`water` and `lava` are the camera inside that liquid.
+
+```wit
+flags fog-mediums {
+    air,
+    water,
+    lava,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `air` |  |  |
+| `water` |  |  |
+| `lava` |  |  |
 
 ## Functions
 
@@ -63,3 +84,18 @@ set-fullbright: func(enabled: bool) -> result<_, string>;
 ```
 
 Retained local lighting override; requires the separate fullbright grant.
+
+<a id="set-fog-suppression"></a>
+
+### `set-fog-suppression`
+
+```wit
+set-fog-suppression: func(mediums: fog-mediums) -> result<_, string>;
+```
+
+Retained local fog suppression: the view skips the distance fog of each listed medium. The
+empty set restores native fog. While blindness or darkness is active the native fog range
+still applies, so the effect keeps limiting the view, and server boss fog still applies. The
+camera's medium itself is unchanged. Requires the environment grant.
+
+Types: [`fog-mediums`](environment.md#type-fog-mediums).

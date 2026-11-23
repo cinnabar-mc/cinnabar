@@ -3,6 +3,13 @@
 use super::*;
 use wasmtime::component::{HasSelf, Linker};
 
+impl Instance {
+    /// Reads the committed fog suppression without entering the component.
+    pub(crate) fn fog_suppression(&self) -> crate::FogSuppression {
+        self.store.data().environment.fog_suppression
+    }
+}
+
 impl State {
     /// Reads committed actor references without copying geometry or waiting for a snapshot.
     pub(crate) fn drawing_entity_keys(
@@ -38,6 +45,7 @@ impl State {
         self.environment.time_override = None;
         self.environment.weather_override = None;
         self.environment.fullbright = false;
+        self.environment.fog_suppression = Default::default();
     }
 
     /// Installs trusted native actor references before calling any guest import.
@@ -90,6 +98,7 @@ impl State {
         self.environment.pending_weather = None;
         self.environment.pending_time = None;
         self.environment.pending_fullbright = None;
+        self.environment.pending_fog_suppression = None;
     }
 
     /// Publishes geometry and environment together after a successful bundle callback.

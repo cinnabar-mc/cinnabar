@@ -28,7 +28,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | --- | --- | --- |
 | `player_state` | Player status | `player-state` reads other than the actor and actor-life reads; also the `facts` interface |
 | `clock` | Clock | `clock.read-local-time` |
-| `environment` | Environment | Visual time and weather overrides, local menu branding |
+| `environment` | Environment | Visual time and weather overrides, local fog suppression, local menu branding |
 | `fullbright` | Fullbright | `environment.set-fullbright`, separately from `environment` |
 | `players` | Player poses | Remote player rows in actor reads; `gameplay.read-frame` and `gameplay.read-camera`; per-actor presentation rows for players |
 | `entities` | Entities | Non-player actor rows in actor reads; per-actor presentation rows for other actors |

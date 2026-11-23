@@ -651,7 +651,7 @@ interface teleport-handling {
 }
 
 /// Local presentation only; no world mutation or outbound packets.
-/// Grants: `environment` for weather and time; `fullbright` for lighting.
+/// Grants: `environment` for weather, time and fog; `fullbright` for lighting.
 interface environment {
     /// Local visual weather target; none restores tracked server weather.
     enum weather { clear, rain, thunder }
@@ -661,6 +661,13 @@ interface environment {
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
     /// Retained local lighting override; requires the separate fullbright grant.
     set-fullbright: func(enabled: bool) -> result<_, string>;
+    /// Camera mediums: `air` is the ordinary view outside liquid, in every dimension and weather;
+    /// `water` and `lava` are the camera inside that liquid.
+    flags fog-mediums { air, water, lava }
+    /// Retained local fog suppression: the view skips the distance fog of each listed medium. The
+    /// empty set restores native fog. Blindness and darkness effects and server boss fog still
+    /// apply, and the camera's medium itself is unchanged. Requires the environment grant.
+    set-fog-suppression: func(mediums: fog-mediums) -> result<_, string>;
 }
 
 /// Explicit local gameplay capabilities; no raw packet access.

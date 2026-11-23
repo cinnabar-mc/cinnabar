@@ -67,6 +67,11 @@ impl ModHost {
         self.instance.fullbright()
     }
 
+    /// Successfully committed local fog suppression.
+    pub fn fog_suppression(&self) -> crate::FogSuppression {
+        self.instance.fog_suppression()
+    }
+
     /// Consumes the last successful frame's rotation once, without entering the guest.
     pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {
         self.instance.take_camera_delta()

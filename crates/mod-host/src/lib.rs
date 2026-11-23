@@ -115,6 +115,27 @@ pub struct GameplayFacts {
     pub block_target: Option<GameplayVector3>,
 }
 
+/// The camera mediums whose distance fog a mod switched off, as last committed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FogSuppression {
+    /// The ordinary view outside liquid.
+    pub air: bool,
+    pub water: bool,
+    pub lava: bool,
+}
+
+impl FogSuppression {
+    /// Every medium either side suppresses: with several mods loaded, any one may skip fog.
+    #[must_use]
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            air: self.air || other.air,
+            water: self.water || other.water,
+            lava: self.lava || other.lava,
+        }
+    }
+}
+
 /// Successfully committed local interaction requests, consumed once per frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InteractionOutput {

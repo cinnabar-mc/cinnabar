@@ -37,6 +37,7 @@ pub(crate) struct AtmospherePreferences<'w> {
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     weather: Option<Res<'w, super::VisualWeatherOverride>>,
+    fog: Option<Res<'w, super::VisualFogSuppression>>,
     server: Option<Res<'w, super::ClientPartEnvironment>>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
     cloud_distance: Option<ResMut<'w, render_scene::CloudDistanceChunks>>,
@@ -169,6 +170,7 @@ pub(crate) fn update_atmosphere_frame(
             EnvironmentProfileRoute::default(),
         ),
     };
+    let (blindness, darkness) = (vision.blindness, vision.darkness * darkness_scale);
     let next_frame = next_frame
         .with_camera_environment(*view_inputs)
         .with_cloud_renderer_ticks(renderer_ticks)
@@ -177,11 +179,17 @@ pub(crate) fn update_atmosphere_frame(
         } else {
             flash.level(elapsed)
         })
-        .with_vision_effects(
-            vision.blindness,
-            vision.darkness * darkness_scale,
-            vision.night_vision,
-        );
+        .with_vision_effects(blindness, darkness, vision.night_vision);
+    // After the vision effects, which keep closing the view in while they are active.
+    let next_frame = if preferences
+        .fog
+        .as_deref()
+        .is_some_and(|fog| fog.covers(medium.0))
+    {
+        next_frame.without_distance_fog(blindness, darkness)
+    } else {
+        next_frame
+    };
     let next_frame = match cloud_chunks {
         Some(chunks) => next_frame.with_cloud_fade_distance(
             render_scene::CloudDistanceChunks(chunks).fade_distance_blocks(),
