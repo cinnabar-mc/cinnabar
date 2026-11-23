@@ -1,5 +1,5 @@
 //! Uniform cube tints may skip fragment lookup; mixed and swamp grass retain per-block colour.
-use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source};
+use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source, tint_bake_plan};
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu};
 use meshing::{Face, PackedBiomeRecord, PackedQuad};
@@ -638,16 +638,31 @@ fn baked_one_block_tints_draw_the_uncached_blend() {
     gpu.queue
         .write_buffer(&cache, 0, bytemuck::cast_slice(&poisoned));
     assert!(render() != expected, "faces draw their valid cache entries");
+    // A reused slot whose bake cannot run yet is cleared, and the vertex stage computes it.
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    tint_bake_plan::clear(&mut encoder, &cache, &fixture_jobs(&cache));
+    gpu.queue.submit([encoder.finish()]);
+    assert!(
+        render() == expected,
+        "cleared entries draw the uncached blend"
+    );
 }
 
-/// Runs the production bake kernel over every fixture quad into `cache`.
+/// One job per fixture quad, as the renderer plans an allocation: each quad has its own origin.
+fn fixture_jobs(cache: &wgpu::Buffer) -> Vec<tint_bake_plan::Job> {
+    let entries = cache.size() / tint_bake_plan::ENTRY_BYTES;
+    (0..CASES as u32)
+        .filter_map(|quad| tint_bake_plan::job(quad..quad + 1, quad, entries))
+        .collect()
+}
+
+/// Runs the production bake kernel, layouts and dispatch over every fixture quad into `cache`.
 fn bake(fixture: &Fixture, cache: &wgpu::Buffer) {
-    const WORKGROUP: u32 = 64;
     let gpu = &fixture.gpu;
-    let source = shader_source::composed(
-        &include_str!("../../src/terrain_tint_bake.wesl")
-            .replace("TINT_BAKE_WORKGROUP_SIZE", &format!("{WORKGROUP}u")),
+    let source = shader_source::composed_prepared_with(
+        &tint_bake_plan::shader_source(include_str!("../../src/terrain_tint_bake.wesl")),
         &[],
+        Vec::new(),
     );
     let module = gpu
         .device
@@ -655,42 +670,58 @@ fn bake(fixture: &Fixture, cache: &wgpu::Buffer) {
             label: Some("terrain tint bake"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
+    let layout = |entries: &[wgpu::BindGroupLayoutEntry]| {
+        gpu.device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries,
+            })
+    };
+    let sources_layout = layout(&tint_bake_plan::source_layout_entries());
+    let output_layout = layout(&tint_bake_plan::output_layout_entries());
     let pipeline = gpu
         .device
         .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("terrain tint bake"),
-            layout: None,
+            layout: Some(
+                &gpu.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[Some(&sources_layout), Some(&output_layout)],
+                        immediate_size: 0,
+                    }),
+            ),
             module: &module,
             entry_point: Some("bake"),
             compilation_options: Default::default(),
             cache: None,
         });
-    // One job per quad: each fixture quad has its own origin slot.
-    let jobs = gpu.words(
-        &(0..CASES as u32)
-            .flat_map(|quad| [quad, 1, quad, 0])
-            .collect::<Vec<_>>(),
+    let limit = gpu.device.limits().max_compute_workgroups_per_dimension;
+    let (jobs, deferred) = tint_bake_plan::plan(&fixture_jobs(cache), limit);
+    assert!(deferred.is_empty());
+    let job_buffer = gpu.words(
+        &jobs.iter().flatten().copied().collect::<Vec<_>>(),
         wgpu::BufferUsages::STORAGE,
     );
     let sources = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &pipeline.get_bind_group_layout(0),
+        layout: &sources_layout,
         entries: &fixture
             .bindings(LIGHTMAP_BINDING)
             .into_iter()
             .filter(|entry| {
-                [1, 2, 3, 7, 8, material_shader::BIOME_QUERY_TABLES_BINDING]
-                    .contains(&entry.binding)
+                tint_bake_plan::SOURCE_STORAGE_BINDINGS.contains(&entry.binding)
+                    || entry.binding == material_shader::BIOME_QUERY_TABLES_BINDING
             })
             .collect::<Vec<_>>(),
     });
     let output = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &pipeline.get_bind_group_layout(1),
+        layout: &output_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: jobs.as_entire_binding(),
+                resource: job_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
@@ -704,7 +735,7 @@ fn bake(fixture: &Fixture, cache: &wgpu::Buffer) {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &sources, &[]);
         pass.set_bind_group(1, &output, &[]);
-        pass.dispatch_workgroups(1, CASES as u32, 1);
+        tint_bake_plan::dispatch(&mut pass, &jobs, limit);
     }
     gpu.queue.submit([encoder.finish()]);
 }

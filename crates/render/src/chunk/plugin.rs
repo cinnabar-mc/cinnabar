@@ -323,7 +323,7 @@ pub(crate) fn load_shaders(app: &mut App) {
         TINT_BAKE_SHADER_HANDLE,
         "../terrain_tint_bake.wesl",
         |source, path| crate::shader_safety::from_wesl(
-            super::gpu::tint_cache::bake_shader_source(source),
+            super::gpu::tint_bake_plan::shader_source(source),
             path
         )
     );

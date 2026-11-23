@@ -199,7 +199,7 @@ impl ChunkGpuArena {
             migration: None,
             growth_blocked: false,
             release_revision: 0,
-            tint_cache: super::tint_cache::TintCacheState::new(render_device)?,
+            tint_cache: Default::default(),
             memory: Default::default(),
             idle_completion: None,
         };

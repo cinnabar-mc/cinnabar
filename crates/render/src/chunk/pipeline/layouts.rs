@@ -48,14 +48,21 @@ impl FromWorld for ChunkPipeline {
         let compact = world.get_resource::<RenderDevice>().is_some_and(|device| {
             device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers()
         });
+        let downlevel = world
+            .get_resource::<bevy::render::renderer::RenderAdapter>()
+            .map(|adapter| adapter.get_downlevel_capabilities().flags);
         let tint_cache = crate::chunk::gpu::tint_cache::requested()
-            && world.get_resource::<RenderDevice>().is_some_and(|device| {
-                crate::chunk::gpu::tint_cache::supported(
-                    compact,
-                    device.limits().max_storage_buffers_per_shader_stage,
-                    required_vertex_storage_buffers(),
-                )
-            });
+            && world
+                .get_resource::<RenderDevice>()
+                .zip(downlevel)
+                .is_some_and(|(device, downlevel)| {
+                    crate::chunk::gpu::tint_cache::supported(
+                        compact,
+                        downlevel,
+                        &device.limits(),
+                        required_vertex_storage_buffers(),
+                    )
+                });
         let [
             descriptor,
             solid_descriptor,
@@ -565,20 +572,8 @@ mod review_tests {
             world.init_resource::<ChunkPipeline>();
             let pipeline = world.resource::<ChunkPipeline>();
             assert!(!pipeline.compact);
-            // The tint cache joins only where a slot remains beside terrain units' binding.
-            let mut opaque = opaque_chunk_bind_group_layout();
-            if available > required_vertex_storage_buffers()
-                && crate::chunk::gpu::tint_cache::requested()
-            {
-                opaque
-                    .entries
-                    .push(crate::chunk::gpu::tint_cache::layout_entry());
-            }
-            assert_eq!(pipeline.bind_group_layout, opaque);
-            assert!(
-                vertex_storage_buffers(&pipeline.bind_group_layout) < available,
-                "terrain units keep their storage slot"
-            );
+            // Without an adapter reporting compute support the tint cache stays out.
+            assert_eq!(pipeline.bind_group_layout, opaque_chunk_bind_group_layout());
             assert_eq!(
                 pipeline.transparent_bind_group_layout,
                 chunk_bind_group_layout()
