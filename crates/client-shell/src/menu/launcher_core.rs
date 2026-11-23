@@ -16,6 +16,13 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
+/// How often a running core is asked whether it exited. Each check is a `wait4` syscall, so it
+/// is not made every frame. An exit is noticed within this interval, which nothing needs sooner:
+/// restarts wait at least the backoff's 500 ms base delay, the backoff only distinguishes runs
+/// shorter than its 60 s stable run, and until the exit is noticed, requests to the dead core
+/// fail on their own. A newly spawned core is checked on the next drive.
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(16);
+
 /// Allows auth updates beside a separate direct game core, but protects games this core owns.
 pub(super) fn account_core_idle(
     launcher: bool,
@@ -54,6 +61,8 @@ pub struct LauncherCoreSlot {
     started: Option<Instant>,
     /// The earliest restart after such an exit.
     restart_at: Option<Instant>,
+    /// When the current core may next be checked for an exit; `None` checks at once.
+    next_exit_poll: Option<Instant>,
 }
 
 impl LauncherCoreSlot {
@@ -79,9 +88,14 @@ impl LauncherCoreSlot {
             }
             self.retiring = None;
         }
+        let exit_poll_due = self.next_exit_poll.is_none_or(|at| now >= at);
+        if exit_poll_due && self.core.is_some() {
+            self.next_exit_poll = Some(now + EXIT_POLL_INTERVAL);
+        }
         if let Some((status, authenticated)) = self
             .core
             .as_mut()
+            .filter(|_| exit_poll_due)
             .and_then(|core| Some((core._guard.exit_status()?, core.authenticated)))
         {
             let ran_for = self.started.map_or(Duration::ZERO, |started| {
@@ -184,6 +198,7 @@ impl LauncherCoreSlot {
                 ) {
                     Ok(core) => {
                         self.core = Some(core);
+                        self.next_exit_poll = None;
                         self.started = Some(now);
                         self.restart_at = None;
                         self.failed = None;

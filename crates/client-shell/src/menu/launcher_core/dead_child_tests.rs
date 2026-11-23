@@ -299,3 +299,28 @@ fn realm_membership_core_exit_retires_the_pending_dialog() {
         );
     }
 }
+
+#[test]
+fn an_exit_is_noticed_at_the_next_poll() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    // The last poll found the core running; it exited since.
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_some(),
+        "no exit check before the interval ends"
+    );
+    drive_at(
+        &mut slot,
+        &mut menu,
+        &mut world,
+        false,
+        start + EXIT_POLL_INTERVAL,
+    );
+    assert!(slot.core.is_none(), "the exit is noticed at the next poll");
+    assert!(
+        world.get_resource::<LauncherAccount>().is_none(),
+        "and the clients are detached"
+    );
+}
