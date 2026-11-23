@@ -174,7 +174,7 @@ pub(super) fn resolve_binding(
         fallback: rig.fallback,
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
         presentation_seeded: false,
-        presentation_revision: 0,
+        presentation_revision: Default::default(),
         query_context: ActorTickContext::default(),
         equipped_main: Default::default(),
         equipped_off: Default::default(),

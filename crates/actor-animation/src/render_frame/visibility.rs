@@ -28,8 +28,8 @@ pub(super) struct Plan {
     gate_reads: Option<cache::Inputs>,
     /// The most ops the gates can charge together; `None` when that cannot be bounded.
     gate_ops: Option<usize>,
-    /// Layer conditions, then the held-item gate.
-    gates: Vec<u32>,
+    /// Each distinct gate expression once, however many layers share it.
+    gate_expressions: Vec<usize>,
     /// Whether no gate reads a frame, camera or swing input, directly or through a variable.
     frame_independent: bool,
     memo: Option<Memo>,
@@ -386,7 +386,12 @@ pub(super) fn sample(
                     evaluator.layout.expression_inputs(gate as usize)
                         == evaluation::PresentationReads::default()
                 }),
-            gates,
+            gate_expressions: {
+                let mut unique: Vec<usize> = gates.iter().map(|&gate| gate as usize).collect();
+                unique.sort_unstable();
+                unique.dedup();
+                unique
+            },
             memo: None,
         });
     }
@@ -495,9 +500,10 @@ pub(super) fn sample(
             .take()
             .map(|(_, slots)| slots)
             .unwrap_or_default();
-        if variables.expressions().is_some_and(|expressions| {
-            expressions.copy_ran(plan.gates.iter().map(|&gate| gate as usize), &mut slots)
-        }) {
+        if variables
+            .expressions()
+            .is_some_and(|expressions| expressions.copy_ran(&plan.gate_expressions, &mut slots))
+        {
             memo.result = Some((visibility, slots));
             plan.memo = Some(memo);
         }

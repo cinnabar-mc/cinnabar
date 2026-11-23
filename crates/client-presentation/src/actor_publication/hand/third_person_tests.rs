@@ -46,6 +46,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     false,
                     false,
                     Some("math.abs(query.camera_rotation(1) - 90) < 0.01"),
+                    None,
                 )
             } else {
                 super::native_tests::fixture_with_appearance(

@@ -83,16 +83,22 @@ pub struct ActorRigSnapshot<'a> {
 /// sample can observe gives a different revision, except the local frame fractions
 /// ([`LocalSwingProgress::frame_alpha`], [`JavaMotion::local_swing_alpha`] and
 /// [`JavaMotion::body_frame_alpha`]), which consumers must treat like the frame's partial tick.
-/// A revision may also change when nothing observable did.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+/// A revision may also change when nothing observable did. Revisions carry the rig's lifetime
+/// and process-wide stamps, so revisions of different rigs or stores never compare equal.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PresentationRevision {
+    actor: Option<ActorLifetimeId>,
     catalog: u64,
     rig: u64,
 }
 
 impl PresentationRevision {
-    pub(crate) const fn new(catalog: u64, rig: u64) -> Self {
-        Self { catalog, rig }
+    pub(crate) const fn new(actor: ActorLifetimeId, catalog: u64, rig: u64) -> Self {
+        Self {
+            actor: Some(actor),
+            catalog,
+            rig,
+        }
     }
 }
 

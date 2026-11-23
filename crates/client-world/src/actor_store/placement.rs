@@ -389,7 +389,8 @@ impl ActorStore {
     pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
         if rotation.iter().all(|value| value.is_finite()) && self.camera_rotation != rotation {
             self.camera_rotation = rotation;
-            self.view_revision = self.view_revision.wrapping_add(1);
+            self.view_revision =
+                super::tracked_actors::ViewStamp(super::tracked_actors::next_revision());
         }
     }
 
@@ -401,7 +402,8 @@ impl ActorStore {
     pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
         if position.iter().all(|value| value.is_finite()) && self.camera_position != position {
             self.camera_position = position;
-            self.view_revision = self.view_revision.wrapping_add(1);
+            self.view_revision =
+                super::tracked_actors::ViewStamp(super::tracked_actors::next_revision());
         }
     }
 

@@ -2,7 +2,7 @@ use super::*;
 use bevy::ecs::system::SystemState;
 use bevy::prelude::{PerspectiveProjection, Projection, Time, Transform, World};
 use bevy::time::Real;
-use native_tests::fixture_with_clock;
+use native_tests::{fixture_with_clock, fixture_with_visibility};
 
 /// Runs the production readiness and final publication owners frame by frame.
 struct Frames {
@@ -15,7 +15,21 @@ struct Frames {
 
 impl Frames {
     fn new(main: Option<&str>) -> Self {
-        let ((stream, equipment, artwork, input), entities) = fixture_with_clock(main, false);
+        Self::with_fixture(fixture_with_clock(main, false))
+    }
+
+    /// Runs the production owners over an already built player fixture.
+    fn with_fixture(
+        ((stream, equipment, artwork, input), entities): (
+            (
+                WorldStream,
+                EquipmentRuntime,
+                render_model::ActorArtworkPages,
+                ActorEquipmentInput,
+            ),
+            Arc<assets::RuntimeEntityAssets>,
+        ),
+    ) -> Self {
         let mut world = World::new();
         world.insert_resource(Time::<Real>::default());
         world.insert_resource(equipment);
@@ -108,6 +122,13 @@ impl Frames {
         );
     }
 
+    /// Whether the last frame published a drawable hand.
+    fn drawn(&self) -> bool {
+        self.world
+            .resource::<render_scene::HandRigScene>()
+            .is_active()
+    }
+
     fn reuses(&self) -> u64 {
         self.world
             .resource::<super::super::ActorFrameState>()
@@ -185,4 +206,51 @@ fn held_items_are_rebuilt_every_frame() {
         frames.frame(millis, None);
     }
     assert_eq!(frames.reuses(), 0);
+}
+
+/// An empty hand whose render controller is drawn only past a camera pitch threshold changes
+/// its visibility when the camera crosses it, instead of keeping the earlier source.
+#[test]
+fn camera_gated_controller_rebuilds_when_the_pitch_crosses_its_threshold() {
+    let mut frames = Frames::with_fixture(fixture_with_visibility(
+        None,
+        false,
+        false,
+        true,
+        false,
+        false,
+        None,
+        Some("math.abs(query.camera_rotation(0)) > 10.0"),
+    ));
+    let look = |frames: &mut Frames, degrees: f32| {
+        frames
+            .world
+            .insert_resource(crate::local_player::LocalViewPose::new(
+                bevy::math::Vec3::new(0.0, 65.62, 0.0),
+                bevy::math::Quat::from_rotation_x(-degrees.to_radians()),
+            ));
+    };
+    look(&mut frames, 0.0);
+    for millis in [7, 60, 7] {
+        frames.frame(millis, None);
+    }
+    let level = frames.drawn();
+    look(&mut frames, 20.0);
+    for millis in [7, 60, 7] {
+        frames.frame(millis, None);
+    }
+    let lowered = frames.drawn();
+    assert!(
+        !level,
+        "a level camera leaves the gated controller inactive"
+    );
+    assert!(lowered, "crossing the camera threshold must draw the arm");
+    look(&mut frames, 0.0);
+    for millis in [7, 60, 7] {
+        frames.frame(millis, None);
+    }
+    assert!(
+        !frames.drawn(),
+        "returning below the threshold hides it again"
+    );
 }
