@@ -14,6 +14,7 @@
 //! optional: without one, the opaque group binds a view whose single entry is never valid.
 
 use super::tint_bake_plan::{self as plan, ENTRY_BYTES, Job};
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::{
     prelude::{Entity, FromWorld, Res, ResMut, Resource, World},
     render::{
@@ -102,7 +103,8 @@ struct TintCache {
 }
 
 /// The packed-chunk tables a bake reads, in [`plan::SOURCE_STORAGE_BINDINGS`] order, then the
-/// biome query tables.
+/// biome query tables. Every one is replaced only together with a buffer or table identity the
+/// terrain bind groups track, so their rebuild frames cover any replacement.
 pub(in crate::chunk) struct BakeSources<'a> {
     pub(in crate::chunk) quads: &'a Buffer,
     pub(in crate::chunk) origins: &'a Buffer,
@@ -211,16 +213,22 @@ impl TintCacheState {
         self.wanted_jobs = 0;
     }
 
-    /// Grows the job buffer toward what the last bake owed, then (re)builds the bake's bind
-    /// groups when a buffer they bind was replaced. Call where the terrain bind groups are
-    /// prepared: bakes themselves create no buffers or bind groups. A job buffer that cannot
-    /// grow keeps its capacity, and bakes spread over more frames.
+    /// On frames that rebuild the terrain bind groups (`rebuilding`), grows the job buffer
+    /// toward what bakes owed and (re)builds the bake's bind groups where a buffer they bind was
+    /// replaced; other frames create nothing, so descriptors are only allocated where the
+    /// renderer allocates them anyway, and owed growth waits. Bakes themselves create no buffers
+    /// or bind groups. A job buffer that cannot grow keeps its capacity, and bakes spread over
+    /// more frames.
     pub(in crate::chunk) fn prepare_bake(
         &mut self,
         device: &RenderDevice,
+        rebuilding: bool,
         layouts: (&BindGroupLayout, &BindGroupLayout),
         sources: &BakeSources<'_>,
     ) {
+        if !rebuilding {
+            return;
+        }
         let wanted = std::mem::take(&mut self.wanted_jobs);
         let Some(cache) = &mut self.cache else {
             return;
@@ -523,11 +531,22 @@ pub(in crate::chunk) fn record_tint_bake(
         plan::clear(encoder, &tint.buffer, &batch.jobs);
         return;
     };
-    queue.write_buffer(
-        &tint.jobs,
-        0,
-        bytemuck::cast_slice(&plan::job_words(&batch.jobs)),
+    let words = plan::job_words(&batch.jobs);
+    let written = crate::gpu_allocation::checked(
+        &device,
+        "terrain tint bake jobs",
+        (words.len() * 4) as u64,
+        || queue.profiled_write_buffer(&tint.jobs, 0, bytemuck::cast_slice(&words)),
     );
+    if written.is_none() {
+        // The buffer still holds an earlier batch: bake nothing, credit no progress, and keep
+        // this batch's entries cleared until a write succeeds.
+        plan::clear(encoder, &tint.buffer, &batch.jobs);
+        if owed > tint.job_capacity as usize {
+            state.wanted_jobs = owed;
+        }
+        return;
+    }
     {
         let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
             label: Some("terrain tint bake"),
@@ -613,18 +632,26 @@ mod tests {
                 cache.output_group.as_ref().unwrap().id(),
             )
         };
-        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&quads));
+        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&quads));
         let first = identity(&state);
-        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&quads));
+        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&quads));
         assert_eq!(identity(&state), first, "unchanged inputs create nothing");
         state.wanted_jobs = plan::INITIAL_JOB_CAPACITY as usize + 1;
-        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&quads));
+        // Growth waits while the terrain bind groups are stable.
+        state.prepare_bake(&device, false, (&layouts.0, &layouts.1), &sources(&quads));
+        assert_eq!(
+            identity(&state),
+            first,
+            "stable terrain groups defer growth"
+        );
+        assert_eq!(state.wanted_jobs, plan::INITIAL_JOB_CAPACITY as usize + 1);
+        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&quads));
         let grown = identity(&state);
         assert_ne!(grown.0, first.0, "an overflowing bake grows the job buffer");
         assert_eq!(grown.1, first.1, "the source tables were not replaced");
         assert_ne!(grown.2, first.2);
         let moved = storage("migrated quads");
-        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&moved));
+        state.prepare_bake(&device, true, (&layouts.0, &layouts.1), &sources(&moved));
         let rebound = identity(&state);
         assert_eq!(rebound.0, grown.0);
         assert_ne!(rebound.1, grown.1, "a replaced table rebinds the sources");
