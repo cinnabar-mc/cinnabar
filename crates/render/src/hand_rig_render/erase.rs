@@ -1,11 +1,11 @@
 //! Returns the private hand depth to its clear value after each draw, so the next frame loads
 //! the attachment instead of clearing every multisampled texel.
 //!
-//! The erase repeats the frame's draw through the same shaders with depth testing forced to
-//! pass, colour writes off and a viewport depth range of `[CLEARED_DEPTH, CLEARED_DEPTH]`. Every
-//! sample the draw wrote was covered by a fragment it did not discard, and the erase rasterizes
-//! and discards exactly the same fragments, so those samples, and only those, return to the clear
-//! value. Samples the draw never wrote already hold it.
+//! The erase repeats the frame's draw through the same vertex shader, whose position is
+//! `@invariant`, with depth testing forced to pass, colour writes off and a viewport depth range
+//! of `[CLEARED_DEPTH, CLEARED_DEPTH]`. Its fragment stage never discards, so it covers every
+//! sample the draw could have written and returns it to the clear value; any other sample it
+//! covers already held that value.
 
 use super::*;
 use bevy::render::{
@@ -52,9 +52,12 @@ impl DepthCleared {
     }
 }
 
-/// The draw pipeline with depth forced to pass and write, and colour writes disabled. Shaders,
-/// definitions, primitive and multisample state stay identical, so its coverage and discards
-/// match the draw's.
+/// Fragment entry point of the erase: no discards and no colour.
+pub(super) const ERASE_FRAGMENT: &str = "hand_depth_erase_fragment";
+
+/// The draw pipeline with depth forced to pass and write, colour writes disabled and the
+/// discard-free erase fragment. The vertex stage, primitive and multisample state stay
+/// identical, so it covers every sample the draw covers.
 pub(super) fn erase_pipeline(mut descriptor: RenderPipelineDescriptor) -> RenderPipelineDescriptor {
     descriptor.label = Some("first-person rig depth erase".into());
     if let Some(depth) = descriptor.depth_stencil.as_mut() {
@@ -62,6 +65,7 @@ pub(super) fn erase_pipeline(mut descriptor: RenderPipelineDescriptor) -> Render
         depth.depth_write_enabled = Some(true);
     }
     if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.entry_point = Some(ERASE_FRAGMENT.into());
         for target in fragment.targets.iter_mut().flatten() {
             target.write_mask = ColorWrites::empty();
         }
