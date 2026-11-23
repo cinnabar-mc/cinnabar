@@ -249,3 +249,78 @@ fn camera_gated_controller_rebuilds_when_the_pitch_crosses_its_threshold() {
         "the first frame past the threshold hides the arm"
     );
 }
+
+/// Sets the local actor's mark variant as a server metadata update between ticks.
+fn mark(frames: &mut Frames, value: i32) {
+    let sequence = frames.stream.authority().actor_sequence_frontier() + 1;
+    frames
+        .stream
+        .submit(
+            sequence,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    metadata: [protocol::ActorMetadata {
+                        key: protocol_ids::ActorDataKey::MarkVariant.wire_value(),
+                        value: protocol::ActorMetadataValue::Int(value),
+                    }]
+                    .into(),
+                    properties: [].into(),
+                    tick: 0,
+                },
+            )),
+        )
+        .unwrap();
+}
+
+/// A metadata change between ticks changes the actor's revision, so the next frame samples
+/// again even at a repeated frame fraction and camera instead of reusing the earlier sample, and
+/// no later frame keeps a source built from it.
+#[test]
+fn metadata_between_ticks_resamples_at_a_repeated_fraction() {
+    let mut frames = Frames::with_fixture(fixture_with_visibility(
+        None,
+        false,
+        false,
+        true,
+        true,
+        false,
+        None,
+        Some("query.mark_variant == 1"),
+    ));
+    mark(&mut frames, 1);
+    for millis in [7, 60, 3, 3] {
+        frames.frame(millis, None);
+    }
+    let samples = |frames: &Frames| {
+        frames
+            .world
+            .resource::<super::super::ActorFrameState>()
+            .java_hand
+            .native_pose
+            .layer_samples
+    };
+    frames.frame(0, None);
+    let repeated = samples(&frames);
+    frames.frame(0, None);
+    assert_eq!(
+        samples(&frames),
+        repeated,
+        "an unchanged frame reuses its sample"
+    );
+    let revision = frames.stream.authority().actor_presentation_revision(1);
+    mark(&mut frames, 0);
+    assert_ne!(
+        frames.stream.authority().actor_presentation_revision(1),
+        revision,
+        "metadata changes the actor's revision"
+    );
+    frames.frame(0, None);
+    assert!(
+        samples(&frames) > repeated,
+        "the same fraction and camera sample the changed actor again"
+    );
+    // The debug rebuild inside readiness checks any source kept from here on.
+    frames.frame(3, None);
+}
