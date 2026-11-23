@@ -71,3 +71,69 @@ fn scaffolding_keeps_the_embedded_view_clear_without_changing_water_or_stone() {
         );
     }
 }
+
+#[test]
+fn cached_eye_probe_follows_the_eye_the_terrain_and_registry_edits() {
+    let (mut store, mut registry) = fixture(2, None);
+    let fresh = |store: &ChunkStore, registry: &CollisionRegistry, eye: Vec3| {
+        probe_head_medium(
+            &sim::PaletteWorld::new(store, registry, 0, Default::default()),
+            eye,
+        )
+    };
+    let inside = Vec3::splat(0.5);
+    let above = Vec3::new(0.5, 1.5, 0.5);
+    let mut cache = HeadMediumCache::default();
+
+    assert_eq!(
+        cache.probe(&store, &registry, false, 0, inside),
+        HeadMedium::Solid
+    );
+    assert_eq!(
+        cache.probe(&store, &registry, false, 0, above),
+        fresh(&store, &registry, above)
+    );
+    assert_eq!(
+        cache.probe(&store, &registry, false, 0, inside),
+        HeadMedium::Solid
+    );
+
+    // A block change under a still eye is seen through the store's content revision.
+    store
+        .update_block(
+            SubChunkKey::new(0, 0, 0, 0),
+            BlockUpdate::new(0, 0, 0, 0, 3),
+            0,
+        )
+        .unwrap();
+    assert_eq!(
+        cache.probe(&store, &registry, false, 0, inside),
+        HeadMedium::Water
+    );
+    assert_eq!(fresh(&store, &registry, inside), HeadMedium::Water);
+
+    // Editing the registry in place keeps its identity, so only the caller's flag reveals it.
+    assert!(registry.remove_runtime_id(3));
+    registry
+        .register_physics(
+            3,
+            [Aabb::new(SimVec3::ZERO, SimVec3::ONE)],
+            sim::DEFAULT_SURFACE_FRICTION,
+            1.0,
+            1.0,
+            0.0,
+            BlockPhysicsFlags::default(),
+            SurfaceResponse::None,
+        )
+        .unwrap();
+    assert_eq!(
+        cache.probe(&store, &registry, false, 0, inside),
+        HeadMedium::Water,
+        "an unflagged registry edit reuses the last probe"
+    );
+    assert_eq!(
+        cache.probe(&store, &registry, true, 0, inside),
+        HeadMedium::Solid
+    );
+    assert_eq!(fresh(&store, &registry, inside), HeadMedium::Solid);
+}

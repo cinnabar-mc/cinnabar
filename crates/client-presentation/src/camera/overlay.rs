@@ -70,6 +70,57 @@ pub fn probe_head_medium(world: &impl CollisionWorld, eye: Vec3) -> HeadMedium {
     }
 }
 
+/// Everything [`HeadMediumCache::probe`] reads: the store's contents and collision revisions,
+/// the dimension, the registry and the eye position, bit for bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HeadMediumKey {
+    content: u64,
+    collision: u64,
+    dimension: i32,
+    registry: sim::CollisionRegistryIdentity,
+    eye: [u32; 3],
+}
+
+/// The last eye probe, so a still camera over unchanged terrain does not probe again.
+#[derive(Debug, Default)]
+pub struct HeadMediumCache {
+    last: Option<(HeadMediumKey, HeadMedium)>,
+}
+
+impl HeadMediumCache {
+    /// Returns [`probe_head_medium`] of `store` and `registry` at `eye`. The last result is
+    /// reused while the eye position, the store's content and collision revisions, the dimension
+    /// and the registry's identity are unchanged and `registry_changed` is false, so it returns
+    /// exactly what probing again would. Pass `registry_changed` when the registry may have been
+    /// modified since the previous call.
+    pub fn probe(
+        &mut self,
+        store: &world::ChunkStore,
+        registry: &sim::CollisionRegistry,
+        registry_changed: bool,
+        dimension: i32,
+        eye: Vec3,
+    ) -> HeadMedium {
+        let key = HeadMediumKey {
+            content: store.content_revision(),
+            collision: store.collision_generation(),
+            dimension,
+            registry: registry.identity(),
+            eye: eye.to_array().map(f32::to_bits),
+        };
+        if !registry_changed
+            && let Some((last, medium)) = self.last
+            && last == key
+        {
+            return medium;
+        }
+        let world = sim::PaletteWorld::new(store, registry, dimension, Default::default());
+        let medium = probe_head_medium(&world, eye);
+        self.last = Some((key, medium));
+        medium
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayKind {
     Suffocation,

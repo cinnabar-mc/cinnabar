@@ -59,6 +59,58 @@ fn count_precipitation_samples(samples: impl IntoIterator<Item = Option<bool>>) 
     known.then_some(count)
 }
 
+/// Fog profiles of every lattice sample, with the lattice's precipitation-eligible count.
+pub type FogLatticeSample = (
+    [Option<FogProfileIndex>; PRECIPITATION_SAMPLE_OFFSETS.len()],
+    Option<usize>,
+);
+
+/// Everything [`FogLatticeCache::sample`] reads: the lattice, the dimension, the session's biome
+/// registry and the fog bindings.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FogLatticeKey {
+    biomes: LatticeBiomes,
+    dimension: i32,
+    tints: meshing::ChunkBiomeTintIdentity,
+    bindings: u64,
+}
+
+/// The last lattice's fog profiles and precipitation count.
+#[derive(Default)]
+pub struct FogLatticeCache {
+    last: Option<(FogLatticeKey, FogLatticeSample)>,
+}
+
+impl FogLatticeCache {
+    /// Returns [`fog_biome_samples`] and [`fog_precipitation_count`] for `biomes`, reusing the
+    /// last result while the lattice, the dimension, the stream's biome registry and the
+    /// bindings' revision are unchanged, so it returns exactly what computing them again would.
+    pub fn sample(
+        &mut self,
+        stream: &WorldStream,
+        biomes: &LatticeBiomes,
+        bindings: &FogBindings,
+    ) -> FogLatticeSample {
+        let key = FogLatticeKey {
+            biomes: *biomes,
+            dimension: stream.current_dimension(),
+            tints: stream.biome_tint_identity(),
+            bindings: bindings.revision(),
+        };
+        if let Some((last, sample)) = &self.last
+            && *last == key
+        {
+            return *sample;
+        }
+        let sample = (
+            fog_biome_samples(biomes, key.dimension, bindings),
+            fog_precipitation_count(stream, biomes),
+        );
+        self.last = Some((key, sample));
+        sample
+    }
+}
+
 /// Counts precipitation-eligible lattice biomes in the session registry, as weather does.
 pub fn fog_precipitation_count(stream: &WorldStream, biomes: &LatticeBiomes) -> Option<usize> {
     let registry = stream.authority().resolved_biome_tints();

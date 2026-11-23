@@ -4,7 +4,7 @@ use client_presentation::{
     camera::FlyCamera,
     environment::{
         EnvironmentContext,
-        fog::{CameraBiomes, FogBindings, fog_biome_samples, fog_precipitation_count},
+        fog::{CameraBiomes, FogBindings, FogLatticeCache},
     },
 };
 use meshing::CameraMedium;
@@ -17,6 +17,7 @@ use crate::environment;
 pub(crate) struct CameraSamples {
     biomes: CameraBiomes,
     medium: TerrainSampleCache<[u32; 3], CameraMedium>,
+    fog: FogLatticeCache,
 }
 
 /// Samples the render camera's medium, biome and fog into the current environment.
@@ -59,19 +60,17 @@ pub(crate) fn update_camera_medium(
         });
     let camera_biome =
         raw_id.and_then(|raw_id| stream.authority().resolved_biome_tints().biome(raw_id));
+    let (fog_biomes, precipitation_sample_count) =
+        samples.fog.sample(stream, &lattice, &fog_bindings);
     *context = EnvironmentContext {
         dimension: stream.current_dimension(),
         fog_registry_generation: fog_bindings.atmosphere_generation,
-        fog_biomes: Some(fog_biome_samples(
-            &lattice,
-            stream.current_dimension(),
-            &fog_bindings,
-        )),
+        fog_biomes: Some(fog_biomes),
         camera_profile,
         camera_fog,
         profile_route,
         default_fog: fog_bindings.default_fog,
-        precipitation_sample_count: fog_precipitation_count(stream, &lattice),
+        precipitation_sample_count,
         camera_biome_identifier: fog_bindings.identifier(raw_id),
         camera_biome_temperature: camera_biome.map(|biome| biome.temperature),
         render_distance_blocks: Some(stream.render_distance_blocks()),
