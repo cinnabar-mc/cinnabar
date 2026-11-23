@@ -65,6 +65,11 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_work(ImageWork::inline())
+    }
+
+    /// The fixture with its engine's image reads and decodes scheduled by `work`.
+    fn with_work(work: ImageWork) -> Self {
         let bytes = assets::encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
         let engine = FormEngine::new(
             Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()),
@@ -72,7 +77,7 @@ impl Fixture {
             0,
             &REGISTRY,
             Arc::new(NoImages),
-            ImageWork::inline(),
+            work,
         );
         let doc = json!({"namespace":"fixture",
             "fade":{"anim_type":"alpha","from":0,"to":1,"duration":1},
@@ -249,7 +254,8 @@ fn replayed_frames_require_resolved_keys_and_resolve_again_after_changes() {
     let mut fixture = Fixture::new();
     fixture.engine.textures.set_atlas(atlas(), 8);
     fixture.reporter.0 = vec!["textures/ui/a"];
-    for now in [0.0, 0.5, 1.5] {
+    // A paint forgets the previous keys, so the first replay resolves them again.
+    for now in [0.0, 0.5, 1.5, 1.75] {
         fixture.frame(now, true, true);
     }
     assert!(resident(&fixture, "textures/ui/a"));
@@ -295,4 +301,66 @@ fn replayed_frames_require_resolved_keys_and_resolve_again_after_changes() {
     changed(&mut fixture, "a new atlas", "textures/ui/b");
     fixture.screen.invalidate_textures();
     changed(&mut fixture, "a new layout", "textures/ui/b");
+}
+
+/// A texture still decoding when the screen settles finishes through the keys a replayed frame
+/// requires, so reused keys are still required every frame.
+#[test]
+fn replayed_frames_finish_loading_a_texture_through_reused_keys() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let stalled = Arc::new(AtomicBool::new(true));
+    let ticks = Arc::new(AtomicU64::new(0));
+    // While stalled every reading jumps an hour, so each inline decode misses its budget and
+    // waits for a later frame.
+    let clock = {
+        let (stalled, ticks) = (Arc::clone(&stalled), Arc::clone(&ticks));
+        move || {
+            let step = u64::from(stalled.load(Ordering::Relaxed)) * 3_600;
+            std::time::Duration::from_secs(ticks.fetch_add(step, Ordering::Relaxed) + step)
+        }
+    };
+    let mut fixture = Fixture::with_work(ImageWork {
+        clock: Some(Arc::new(clock)),
+        workers: false,
+    });
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([255; 4]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    fixture.engine.textures.set_atlas(
+        ServerAtlas::new(&[("textures/ui/a.png".into(), png)], None, 2),
+        8,
+    );
+    fixture.reporter.0 = vec!["textures/ui/a"];
+    let resident = |fixture: &Fixture| {
+        fixture
+            .engine
+            .textures
+            .lock()
+            .placement("textures/ui/a")
+            .is_some()
+    };
+    for now in [0.0, 0.5, 1.5, 2.0] {
+        fixture.frame(now, true, true);
+    }
+    let (paints, resolutions) = (
+        fixture.retained.paints,
+        fixture.retained.required.resolutions,
+    );
+    fixture.frame(3.0, true, true);
+    assert_eq!(
+        fixture.retained.paints, paints,
+        "the settled screen replays"
+    );
+    assert_eq!(
+        fixture.retained.required.resolutions, resolutions,
+        "the replay reuses its keys"
+    );
+    assert!(!resident(&fixture), "the stalled decode is still pending");
+    stalled.store(false, Ordering::Relaxed);
+    fixture.frame(4.0, true, true);
+    assert!(
+        resident(&fixture),
+        "a replayed frame requires its reused keys"
+    );
 }

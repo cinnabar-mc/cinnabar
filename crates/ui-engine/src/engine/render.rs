@@ -1,6 +1,6 @@
 //! Layout and texture preparation, followed by painting only for visible screens.
 
-use std::{borrow::Borrow, cell::RefCell, ops::Range};
+use std::{borrow::Borrow, cell::RefCell, ops::Range, sync::Arc};
 
 use json_ui::{Draw, DrawNode, FormRender, HitRegion, LayoutEnv};
 use ui::FONT_DESIGN_PIXEL_TEXELS;
@@ -113,17 +113,18 @@ fn prepare_with<R: Borrow<FormRender>>(
         images: art.images,
     };
     match required {
-        // Keys depend only on the layout, the renderers' paths and the texture sources.
+        // Keys depend only on the layout, carrier, renderers' paths and texture sources.
         Some(required) => {
             let rendered = dependencies::renderer_paths(&base, frame.renderers);
-            let revision = textures.set.revision(&atlas);
-            if required
-                .current(&laid_render.nodes, revision, &rendered)
-                .is_none()
-            {
-                let paths = dependencies::paths(&base, art, frame.renderers);
+            let sources = dependencies::KeySources {
+                layout: Arc::as_ptr(&laid_render.nodes).cast::<DrawNode>().addr(),
+                carrier: std::ptr::from_ref(textures.assets).addr(),
+                revision: textures.set.revision(&atlas),
+            };
+            if !required.current(sources, &rendered) {
+                let paths = dependencies::paths_with_rendered(&base, &rendered);
                 let keys = view(&atlas).atlas_keys(paths.into_iter());
-                required.remember(&laid_render.nodes, revision, &rendered, &keys);
+                required.remember(sources, &rendered, &keys);
             }
             atlas.require(required.keys().iter().map(AsRef::as_ref));
         }

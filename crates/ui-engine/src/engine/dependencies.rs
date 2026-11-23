@@ -259,14 +259,37 @@ pub(super) fn renderer_paths<'a>(
     paths
 }
 
-/// The atlas keys one retained screen last resolved, reused while its layout, its renderers'
-/// reported paths and the texture sources the keys were resolved against are unchanged.
-/// The keys are still required every frame; only their resolution is skipped.
+/// The paths a layout without overlays draws: its retained base paths and the renderer paths
+/// already collected by [`renderer_paths`], so each callback reports once per frame.
+pub(super) fn paths_with_rendered<'a>(
+    base: &'a Dependencies<'_>,
+    rendered: &[&'a str],
+) -> HashSet<&'a str> {
+    let mut paths = HashSet::new();
+    base.append_paths(&mut paths);
+    paths.extend(rendered.iter().copied());
+    paths
+}
+
+/// What a set of required keys was resolved from: the layout's and carrier's addresses and the
+/// texture-set revision.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct KeySources {
+    pub(super) layout: usize,
+    pub(super) carrier: usize,
+    pub(super) revision: TextureRevision,
+}
+
+/// The atlas keys one retained screen last resolved, reused while its layout, carrier, its
+/// renderers' reported paths and the texture sources the keys were resolved against are
+/// unchanged. The keys are still required every frame; only their resolution is skipped.
+///
+/// Nothing here owns the layout: the owning [`super::RetainedPaint`] clears these keys whenever
+/// it forgets its paint, so they only outlive a frame beside a retained paint that holds the
+/// same layout, whose address therefore cannot be reused.
 #[derive(Default)]
 pub(super) struct RequiredKeys {
-    /// The layout the keys were resolved for; the weak reference keeps its address unique.
-    layout: Option<Weak<[DrawNode]>>,
-    revision: Option<TextureRevision>,
+    sources: Option<KeySources>,
     rendered: Vec<Box<str>>,
     keys: Box<[Box<str>]>,
     /// Key resolutions run, for tests bounding per-frame work.
@@ -275,25 +298,15 @@ pub(super) struct RequiredKeys {
 }
 
 impl RequiredKeys {
-    /// The keys resolved for `layout` and `rendered` under `revision`, when they were the last.
-    pub(super) fn current(
-        &self,
-        layout: &Arc<[DrawNode]>,
-        revision: TextureRevision,
-        rendered: &[&str],
-    ) -> Option<&[Box<str>]> {
-        (self.revision == Some(revision)
-            && self
-                .layout
-                .as_ref()
-                .is_some_and(|old| std::ptr::addr_eq(old.as_ptr(), Arc::as_ptr(layout)))
+    /// Whether the keys were resolved from `sources` and `rendered`.
+    pub(super) fn current(&self, sources: KeySources, rendered: &[&str]) -> bool {
+        self.sources == Some(sources)
             && self.rendered.len() == rendered.len()
             && self
                 .rendered
                 .iter()
                 .zip(rendered)
-                .all(|(old, current)| old.as_ref() == *current))
-        .then_some(&self.keys)
+                .all(|(old, current)| old.as_ref() == *current)
     }
 
     /// The keys last resolved.
@@ -301,11 +314,10 @@ impl RequiredKeys {
         &self.keys
     }
 
-    /// Records `keys` as resolved for `layout` and `rendered` under `revision`.
+    /// Records `keys` as resolved from `sources` and `rendered`.
     pub(super) fn remember(
         &mut self,
-        layout: &Arc<[DrawNode]>,
-        revision: TextureRevision,
+        sources: KeySources,
         rendered: &[&str],
         keys: &[std::borrow::Cow<'_, str>],
     ) {
@@ -313,12 +325,18 @@ impl RequiredKeys {
         {
             self.resolutions += 1;
         }
-        self.layout = Some(Arc::downgrade(layout));
-        self.revision = Some(revision);
+        self.sources = Some(sources);
         self.rendered.clear();
         self.rendered
             .extend(rendered.iter().map(|path| Box::from(*path)));
         self.keys = keys.iter().map(|key| Box::from(key.as_ref())).collect();
+    }
+
+    /// Drops the keys and what they were resolved from, keeping the test counter.
+    pub(super) fn clear(&mut self) {
+        self.sources = None;
+        self.rendered = Vec::new();
+        self.keys = Box::default();
     }
 }
 

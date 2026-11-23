@@ -98,9 +98,10 @@ pub(super) fn reusable(art: &ScreenArt<'_>) -> bool {
 }
 
 impl RetainedPaint {
-    /// Drops the last paint, so the next one runs in full.
+    /// Drops the last paint, so the next one runs in full, and the keys resolved for its layout.
     pub fn forget(&mut self) {
         self.last = None;
+        self.required.clear();
     }
 
     /// Keeps a completed paint whose animations have all settled.
