@@ -11,10 +11,11 @@ use ui::{DpiScale, FONT_DESIGN_PIXEL_TEXELS, SafeArea, TextLayoutCache, UiNode};
 
 use super::RetainedPaint;
 use crate::{
+    atlas::ServerAtlas,
     cached_screen::CachedScreen,
     engine::{
-        FormEngine, ScreenArt,
-        screen::{PaintFrame, ScreenRegistry},
+        Canvas, FormEngine, ScreenArt,
+        screen::{CustomDraw, CustomRenderer, PaintError, PaintFrame, ScreenRegistry},
     },
     sources::{ImageWork, RemoteImage, RemoteSource},
     test_support::fixture_font,
@@ -32,8 +33,26 @@ impl RemoteSource for NoImages {
     }
 }
 
+/// A caller renderer that draws nothing but reports the textures it may draw.
+#[derive(Default)]
+struct Reporter(Vec<&'static str>);
+
+impl CustomRenderer for Reporter {
+    /// Leaves every node to the engine's own renderers.
+    fn paint(&mut self, _: &CustomDraw<'_>, _: &mut Canvas<'_>) -> Result<bool, PaintError> {
+        Ok(false)
+    }
+
+    fn textures<'s>(&'s self, _: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
+        for path in &self.0 {
+            texture(path);
+        }
+    }
+}
+
 /// One screen whose rounded rectangle fades in over its first second.
 struct Fixture {
+    reporter: Reporter,
     engine: FormEngine,
     catalog: Arc<Catalog>,
     data: Arc<DataSource>,
@@ -74,6 +93,7 @@ impl Fixture {
         ])
         .unwrap();
         Self {
+            reporter: Reporter::default(),
             engine,
             catalog: Arc::new(catalog),
             data: Arc::new(DataSource::new()),
@@ -92,6 +112,7 @@ impl Fixture {
         let mut nodes = Vec::new();
         let mut next = 1;
         let Self {
+            reporter,
             engine,
             catalog,
             data,
@@ -113,7 +134,7 @@ impl Fixture {
             now,
             nodes: &mut nodes,
             next: &mut next,
-            renderers: &mut [],
+            renderers: &mut [reporter],
         };
         let context = Context::desktop();
         let at = |root| (root, px, [0; 3]);
@@ -203,4 +224,75 @@ fn unchanged_settled_frames_reuse_the_paint_and_each_change_paints_once() {
     changed(&mut fixture, "a fired event");
     fixture.screen.invalidate_textures();
     changed(&mut fixture, "a new layout");
+}
+
+/// A replayed screen reuses the atlas keys it resolved and still requires them each frame;
+/// changed renderer paths, texture sources or layout resolve them again.
+#[test]
+fn replayed_frames_require_resolved_keys_and_resolve_again_after_changes() {
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([255; 4]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let atlas = || {
+        ServerAtlas::new(
+            &[
+                ("textures/ui/a.png".into(), png.clone()),
+                ("textures/ui/b.png".into(), png.clone()),
+            ],
+            None,
+            2,
+        )
+    };
+    let resident =
+        |fixture: &Fixture, key: &str| fixture.engine.textures.lock().placement(key).is_some();
+    let mut fixture = Fixture::new();
+    fixture.engine.textures.set_atlas(atlas(), 8);
+    fixture.reporter.0 = vec!["textures/ui/a"];
+    for now in [0.0, 0.5, 1.5] {
+        fixture.frame(now, true, true);
+    }
+    assert!(resident(&fixture, "textures/ui/a"));
+    let (paints, resolutions) = (
+        fixture.retained.paints,
+        fixture.retained.required.resolutions,
+    );
+    for now in [2.0, 3.0, 4.0] {
+        fixture.frame(now, true, true);
+    }
+    assert_eq!(fixture.retained.paints, paints, "settled frames replay");
+    assert_eq!(
+        fixture.retained.required.resolutions, resolutions,
+        "replayed frames reuse their resolved keys"
+    );
+    assert!(resident(&fixture, "textures/ui/a"));
+
+    let mut now = 5.0;
+    let mut changed = |fixture: &mut Fixture, change: &str, key: &str| {
+        let resolutions = fixture.retained.required.resolutions;
+        fixture.frame(now, true, true);
+        assert!(
+            fixture.retained.required.resolutions > resolutions,
+            "{change} resolves its keys"
+        );
+        assert!(resident(fixture, key), "{change} requires {key}");
+        // Placing a newly required key changes the atlas once more.
+        fixture.frame(now + 1.0, true, true);
+        let resolutions = fixture.retained.required.resolutions;
+        for later in [2.0, 3.0] {
+            fixture.frame(now + later, true, true);
+        }
+        assert_eq!(
+            fixture.retained.required.resolutions, resolutions,
+            "{change} then reuses its keys"
+        );
+        assert!(resident(fixture, key));
+        now += 4.0;
+    };
+    fixture.reporter.0 = vec!["textures/ui/b"];
+    changed(&mut fixture, "a renderer path", "textures/ui/b");
+    fixture.engine.textures.set_atlas(atlas(), 8);
+    changed(&mut fixture, "a new atlas", "textures/ui/b");
+    fixture.screen.invalidate_textures();
+    changed(&mut fixture, "a new layout", "textures/ui/b");
 }

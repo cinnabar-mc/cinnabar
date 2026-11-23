@@ -19,6 +19,8 @@ pub struct RetainedPaint {
     last: Option<Painted>,
     /// Paints run rather than reused, for cache tests and profiling.
     pub paints: usize,
+    /// The atlas keys the screen last required, kept across paints and replays.
+    pub(super) required: super::dependencies::RequiredKeys,
 }
 
 /// A completed paint and everything it read that a later frame compares.

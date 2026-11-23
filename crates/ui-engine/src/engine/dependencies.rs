@@ -9,6 +9,7 @@ use std::{
 use json_ui::{Draw, DrawNode};
 
 use super::{ScreenArt, banner_renderer, screen::CustomRenderer, tooltip};
+use crate::textures::TextureRevision;
 
 // Keep a few screen/omission projections, not every layout visited by a long session.
 const MAX_ENTRIES: usize = 8;
@@ -242,6 +243,83 @@ pub(super) fn paths<'a>(
         });
     }
     paths
+}
+
+/// Lists the paths every live renderer callback reports for a layout without overlays, in
+/// callback order, so a retained screen can tell whether its resolved keys still apply.
+pub(super) fn renderer_paths<'a>(
+    base: &Dependencies<'_>,
+    renderers: &'a [&mut dyn CustomRenderer],
+) -> Vec<&'a str> {
+    let mut paths = Vec::new();
+    let drawn = |name: &str| base.has_renderer(name);
+    for renderer in renderers {
+        renderer.textures(&drawn, &mut |path| paths.push(path));
+    }
+    paths
+}
+
+/// The atlas keys one retained screen last resolved, reused while its layout, its renderers'
+/// reported paths and the texture sources the keys were resolved against are unchanged.
+/// The keys are still required every frame; only their resolution is skipped.
+#[derive(Default)]
+pub(super) struct RequiredKeys {
+    /// The layout the keys were resolved for; the weak reference keeps its address unique.
+    layout: Option<Weak<[DrawNode]>>,
+    revision: Option<TextureRevision>,
+    rendered: Vec<Box<str>>,
+    keys: Box<[Box<str>]>,
+    /// Key resolutions run, for tests bounding per-frame work.
+    #[cfg(test)]
+    pub(super) resolutions: usize,
+}
+
+impl RequiredKeys {
+    /// The keys resolved for `layout` and `rendered` under `revision`, when they were the last.
+    pub(super) fn current(
+        &self,
+        layout: &Arc<[DrawNode]>,
+        revision: TextureRevision,
+        rendered: &[&str],
+    ) -> Option<&[Box<str>]> {
+        (self.revision == Some(revision)
+            && self
+                .layout
+                .as_ref()
+                .is_some_and(|old| std::ptr::addr_eq(old.as_ptr(), Arc::as_ptr(layout)))
+            && self.rendered.len() == rendered.len()
+            && self
+                .rendered
+                .iter()
+                .zip(rendered)
+                .all(|(old, current)| old.as_ref() == *current))
+        .then_some(&self.keys)
+    }
+
+    /// The keys last resolved.
+    pub(super) fn keys(&self) -> &[Box<str>] {
+        &self.keys
+    }
+
+    /// Records `keys` as resolved for `layout` and `rendered` under `revision`.
+    pub(super) fn remember(
+        &mut self,
+        layout: &Arc<[DrawNode]>,
+        revision: TextureRevision,
+        rendered: &[&str],
+        keys: &[std::borrow::Cow<'_, str>],
+    ) {
+        #[cfg(test)]
+        {
+            self.resolutions += 1;
+        }
+        self.layout = Some(Arc::downgrade(layout));
+        self.revision = Some(revision);
+        self.rendered.clear();
+        self.rendered
+            .extend(rendered.iter().map(|path| Box::from(*path)));
+        self.keys = keys.iter().map(|key| Box::from(key.as_ref())).collect();
+    }
 }
 
 /// Captures the same texture dependencies as ordinary screens for one retained fragment.
