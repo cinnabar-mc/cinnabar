@@ -85,11 +85,22 @@ pub struct ActorRigSnapshot<'a> {
 /// [`JavaMotion::body_frame_alpha`]), which consumers must treat like the frame's partial tick.
 /// A revision may also change when nothing observable did. Revisions carry the rig's lifetime
 /// and process-wide stamps, so revisions of different rigs or stores never compare equal.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub struct PresentationRevision {
     actor: Option<ActorLifetimeId>,
     catalog: u64,
     rig: u64,
+}
+
+/// Shows the owning rig; the process-wide stamps identify moments, not state, so equal states
+/// print alike.
+impl std::fmt::Debug for PresentationRevision {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PresentationRevision")
+            .field("actor", &self.actor)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PresentationRevision {

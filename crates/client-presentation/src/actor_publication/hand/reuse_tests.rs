@@ -218,8 +218,9 @@ fn held_items_are_rebuilt_every_frame() {
     assert_eq!(frames.reuses(), 0);
 }
 
-/// An empty hand whose render controller is drawn only past a camera pitch threshold changes
-/// its visibility when the camera crosses it, instead of keeping the earlier source.
+/// An empty hand whose render controller is drawn only past a camera pitch threshold hides on
+/// the first frame after the camera crosses back, within one actor tick and with unchanged actor
+/// and rig revisions, instead of keeping the earlier source.
 #[test]
 fn camera_gated_controller_rebuilds_when_the_pitch_crosses_its_threshold() {
     let mut frames = Frames::with_fixture(fixture_with_visibility(
@@ -240,28 +241,22 @@ fn camera_gated_controller_rebuilds_when_the_pitch_crosses_its_threshold() {
                 bevy::math::Quat::from_rotation_x(-degrees.to_radians()),
             ));
     };
-    look(&mut frames, 0.0);
-    for millis in [7, 60, 7] {
-        frames.frame(millis, None);
-    }
-    let level = frames.drawn();
     look(&mut frames, 20.0);
-    for millis in [7, 60, 7] {
+    for millis in [7, 60, 3, 3] {
         frames.frame(millis, None);
     }
-    let lowered = frames.drawn();
-    assert!(
-        !level,
-        "a level camera leaves the gated controller inactive"
-    );
-    assert!(lowered, "crossing the camera threshold must draw the arm");
+    assert!(frames.drawn(), "a lowered camera draws the gated arm");
+    let revision = frames.stream.authority().actor_presentation_revision(1);
     look(&mut frames, 0.0);
-    for millis in [7, 60, 7] {
-        frames.frame(millis, None);
-    }
+    frames.frame(3, None);
+    assert_eq!(
+        frames.stream.authority().actor_presentation_revision(1),
+        revision,
+        "the turn stays within one actor tick"
+    );
     assert!(
         !frames.drawn(),
-        "returning below the threshold hides it again"
+        "the first frame past the threshold hides the arm"
     );
 }
 
