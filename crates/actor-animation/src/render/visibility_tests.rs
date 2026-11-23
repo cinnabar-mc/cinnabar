@@ -651,6 +651,19 @@ fn engine_variable_gates_skip_independent_setup_scripts() {
         }
         compiled.rig_bindings[0].hide_held_items =
             Some(expression(&mut compiled, vec![LoadQuery(3), Not]));
+        // Loop-free setup with the shared fixture's writes, so its cost is bounded.
+        compiled.rig_bindings[0].pre_animation = Some(expression(
+            &mut compiled,
+            vec![
+                LoadQuery(1),
+                Push(crate::test_support::scalar(8.0)),
+                Less,
+                StoreVariable(9),
+                LoadVariable(8),
+                StoreVariable(7),
+                Push(crate::test_support::scalar(0.0)),
+            ],
+        ));
         let setup = [
             compiled.rig_bindings[0].held_item_scale.unwrap() as usize,
             compiled.rig_bindings[0].pre_animation.unwrap() as usize,
@@ -696,6 +709,106 @@ fn engine_variable_gates_skip_independent_setup_scripts() {
                     .any(|&index| work.get(index).is_some_and(|&runs| runs > 0)),
                 setup_writes_gate,
                 "alpha {alpha}: setup work {work:?}"
+            );
+        }
+    }
+}
+
+/// A first-person gate on the frame fraction, with setup that writes only a temporary.
+/// `looping` setup spins nested loops past the actor budget once the fraction passes 0.5;
+/// otherwise setup is a long loop-free run of temporary writes.
+fn exhausting_setup_fixture(looping: bool) -> CompiledEntityAssets {
+    use MolangOp::*;
+    let scalar = crate::test_support::scalar;
+    let mut compiled = fixture(false);
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.extend([
+        MolangSymbol {
+            kind: MolangSymbolKind::Variable,
+            identifier: "variable.is_first_person".into(),
+        },
+        MolangSymbol {
+            kind: MolangSymbolKind::Temporary,
+            identifier: "temp.spin".into(),
+        },
+    ]);
+    compiled.molang_symbols = symbols.into();
+    let pre = if looping {
+        vec![
+            LoadQuery(1),
+            Push(scalar(0.5)),
+            Greater,
+            JumpIfFalse(12),
+            Push(scalar(1024.0)),
+            LoopStart(12),
+            Push(scalar(1024.0)),
+            LoopStart(11),
+            Push(scalar(1.0)),
+            StoreVariable(6),
+            LoopNext(8),
+            LoopNext(6),
+            Push(scalar(0.0)),
+        ]
+    } else {
+        let mut ops = Vec::new();
+        for _ in 0..60 {
+            ops.extend([Push(scalar(1.0)), StoreVariable(6)]);
+        }
+        ops.push(Push(scalar(0.0)));
+        ops
+    };
+    compiled.rig_bindings[0].pre_animation = Some(expression(&mut compiled, pre));
+    let gate = expression(
+        &mut compiled,
+        vec![
+            LoadVariable(5),
+            LoadQuery(1),
+            Push(scalar(0.5)),
+            Greater,
+            Multiply,
+        ],
+    );
+    for layer in &mut compiled.render.layers {
+        layer.condition = Some(gate);
+    }
+    compiled
+}
+
+#[test]
+fn engine_variable_gates_keep_the_full_samplers_budget_fallback() {
+    for (looping, remaining) in [(true, None), (false, Some(20))] {
+        let (mut store, actor) = store(exhausting_setup_fixture(looping));
+        store.advance_tick(
+            &HashMap::from([(actor.runtime_id, actor.clone())]),
+            None,
+            Some(actor.runtime_id),
+            true,
+            true,
+            |_| ActorTickContext {
+                is_local: true,
+                is_local_player: true,
+                is_local_first_person: true,
+                ..Default::default()
+            },
+        );
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut storage = Vec::new();
+        for alpha in [0.25, 0.75] {
+            let sample = |visibility_only: bool, storage: &mut Vec<_>| {
+                let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
+                if let Some(remaining) = remaining {
+                    frame.set_remaining_ops(remaining);
+                }
+                frame
+                    .into_layers_reusing(actor.runtime_id, false, visibility_only, storage)
+                    .unwrap()
+                    .visibility
+            };
+            let full = sample(false, &mut storage);
+            let visibility = sample(true, &mut storage);
+            assert_eq!(
+                visibility, full,
+                "looping {looping}, alpha {alpha}: visibility must keep the full fallback"
             );
         }
     }

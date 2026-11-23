@@ -6,8 +6,12 @@ use super::*;
 enum Mode {
     Queries,
     /// Gate variables come only from the tick baseline and engine writes, so the rig's setup
-    /// scripts cannot change a gate and need not be replayed.
-    Gates,
+    /// scripts cannot change a gate and need not be replayed. Setup and gates are loop-free,
+    /// so together they charge at most `reserve` ops; a sample with less budget left replays
+    /// setup, since the full sampler could exhaust its budget and keep the fallback.
+    Gates {
+        reserve: usize,
+    },
     Variables,
     Full,
 }
@@ -122,14 +126,53 @@ fn plan(
                 .iter()
                 .any(|&symbol| layout.variable_slot(symbol) == Some(slot))
         });
-    let setup = rig.held_item_scale.into_iter().chain(rig.pre_animation);
-    Some(
-        if !rotation_gate && independent(assets, &variables, setup)? {
-            Mode::Gates
-        } else {
-            Mode::Variables
-        },
-    )
+    let setup = || rig.held_item_scale.into_iter().chain(rig.pre_animation);
+    let gates = assets
+        .render_layers(state.rig_binding)
+        .iter()
+        .filter_map(|layer| layer.condition)
+        .chain(rig.hide_held_items);
+    let reserve = worst_case_ops(assets, setup())
+        .zip(worst_case_ops(assets, gates))
+        .map(|(setup, gates)| setup + gates);
+    Some(match reserve {
+        Some(reserve) if !rotation_gate && independent(assets, &variables, setup())? => {
+            Mode::Gates { reserve }
+        }
+        _ => Mode::Variables,
+    })
+}
+
+/// The most ops `expressions` can charge when every branch only jumps forward and none
+/// loops, so each op runs at most once; `None` when that cannot be shown.
+fn worst_case_ops(
+    assets: &RuntimeEntityAssets,
+    expressions: impl IntoIterator<Item = u32>,
+) -> Option<usize> {
+    let mut total = 0;
+    for expression in expressions {
+        let ops = ops(assets, expression)?;
+        for (pc, op) in ops.iter().enumerate() {
+            let target = match op {
+                MolangOp::Jump(target)
+                | MolangOp::JumpIfFalse(target)
+                | MolangOp::JumpIfTrue(target)
+                | MolangOp::Arrow(target)
+                | MolangOp::Coalesce(assets::MolangBranch { target, .. }) => *target,
+                MolangOp::LoopStart(_)
+                | MolangOp::LoopNext(_)
+                | MolangOp::LoopBreak(_)
+                | MolangOp::ForEachStart(_)
+                | MolangOp::ForEachNext(_) => return None,
+                _ => continue,
+            };
+            if usize::from(target) <= pc {
+                return None;
+            }
+        }
+        total += ops.len();
+    }
+    Some(total)
 }
 
 /// Whether `expressions` cannot write any of `variables`; `None` for invalid bytecode.
@@ -191,9 +234,14 @@ pub(super) fn sample(
                 .collect(),
         });
     }
-    let mode = scratch.visibility.as_ref()?.mode;
+    let mode = match scratch.visibility.as_ref()?.mode {
+        Mode::Gates { reserve } if budget.actor_left < reserve || *budget.world_left < reserve => {
+            Mode::Variables
+        }
+        mode => mode,
+    };
     if matches!(mode, Mode::Full)
-        || (matches!(mode, Mode::Variables | Mode::Gates)
+        || (matches!(mode, Mode::Variables | Mode::Gates { .. })
             && !frame.motion.server_effects.is_empty())
     {
         return None;
@@ -207,7 +255,9 @@ pub(super) fn sample(
                 })
                 .ok()?;
         }
-        Mode::Gates => sampling::prepare_engine_variables(evaluator, state, swing, &mut variables),
+        Mode::Gates { .. } => {
+            sampling::prepare_engine_variables(evaluator, state, swing, &mut variables)
+        }
         Mode::Queries | Mode::Full => {}
     }
     let mut active = false;
