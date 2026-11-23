@@ -17,6 +17,7 @@ pub(super) struct HandRigDepth {
     pub(super) view: TextureView,
     pub(super) size: [u32; 2],
     pub(super) samples: u32,
+    pub(super) cleared: super::erase::DepthCleared,
 }
 
 pub(super) struct HandRigAtlas {
@@ -73,6 +74,9 @@ pub(super) struct HandRigGpu {
     failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
+    /// The depth erase matching `pipeline`; see `erase`.
+    pub(super) erase_pipeline: Option<CachedRenderPipelineId>,
+    erase_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) geometry_revision: Option<u64>,
     pub(super) revision: Option<u64>,
@@ -139,6 +143,8 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         failed_depth: default(),
         bind_group: None,
         pipeline: None,
+        erase_pipeline: None,
+        erase_variants: [None; PIPELINE_VARIANTS],
         pipeline_variants: [None; PIPELINE_VARIANTS],
         geometry_revision: None,
         revision: None,
@@ -209,6 +215,10 @@ pub(super) fn prepare(
     let encoded = bindings::hand_uses_encoded_color(&frame.light, hdr);
     gpu.pipeline = memoized_pipeline(&mut gpu.pipeline_variants, samples, hdr, encoded, || {
         cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, hdr, encoded))
+    });
+    gpu.erase_pipeline = memoized_pipeline(&mut gpu.erase_variants, samples, hdr, encoded, || {
+        let draw = specialized_pipeline(layout.clone(), samples, hdr, encoded);
+        cache.queue_render_pipeline(super::erase::erase_pipeline(draw))
     });
     if gpu.bind_group.is_none() || gpu.pipeline.is_none() {
         gpu.maximum_vertex_count = 0;
@@ -644,6 +654,7 @@ pub(super) fn ensure_depth(
         view,
         size,
         samples,
+        cleared: default(),
     });
 }
 

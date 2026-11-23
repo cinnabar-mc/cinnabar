@@ -40,6 +40,7 @@ use {
 };
 
 pub(crate) mod bindings;
+mod erase;
 mod gpu;
 pub(crate) mod node;
 pub(crate) mod shaderpack_source;

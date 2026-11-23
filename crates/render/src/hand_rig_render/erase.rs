@@ -1,0 +1,88 @@
+//! Returns the private hand depth to its clear value after each draw, so the next frame loads
+//! the attachment instead of clearing every multisampled texel.
+//!
+//! The erase repeats the frame's draw through the same shaders with depth testing forced to
+//! pass, colour writes off and a viewport depth range of `[CLEARED_DEPTH, CLEARED_DEPTH]`. Every
+//! sample the draw wrote was covered by a fragment it did not discard, and the erase rasterizes
+//! and discards exactly the same fragments, so those samples, and only those, return to the clear
+//! value. Samples the draw never wrote already hold it.
+
+use super::*;
+use bevy::render::{
+    render_phase::TrackedRenderPass,
+    render_resource::{LoadOp, Operations, RenderPipeline, StoreOp},
+};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Reverse-Z far plane, the value the hand's depth attachment starts every draw with.
+pub(super) const CLEARED_DEPTH: f32 = 0.0;
+
+/// Whether a hand depth attachment holds only [`CLEARED_DEPTH`].
+#[derive(Default)]
+pub(super) struct DepthCleared(AtomicBool);
+
+impl DepthCleared {
+    /// Depth operations for a pass that ends with an erase when `erases`: an attachment already
+    /// at the clear value is loaded, and only an erased one is worth storing.
+    pub(super) fn operations(&self, erases: bool) -> Operations<f32> {
+        Operations {
+            load: if self.0.load(Ordering::Relaxed) {
+                LoadOp::Load
+            } else {
+                LoadOp::Clear(CLEARED_DEPTH)
+            },
+            store: if erases {
+                StoreOp::Store
+            } else {
+                StoreOp::Discard
+            },
+        }
+    }
+
+    /// Records whether the pass just encoded left the attachment at the clear value.
+    pub(super) fn record(&self, erased: bool) {
+        self.0.store(erased, Ordering::Relaxed);
+    }
+}
+
+/// The draw pipeline with depth forced to pass and write, and colour writes disabled. Shaders,
+/// definitions, primitive and multisample state stay identical, so its coverage and discards
+/// match the draw's.
+pub(super) fn erase_pipeline(mut descriptor: RenderPipelineDescriptor) -> RenderPipelineDescriptor {
+    descriptor.label = Some("first-person rig depth erase".into());
+    if let Some(depth) = descriptor.depth_stencil.as_mut() {
+        depth.depth_compare = Some(CompareFunction::Always);
+        depth.depth_write_enabled = Some(true);
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        for target in fragment.targets.iter_mut().flatten() {
+            target.write_mask = ColorWrites::empty();
+        }
+    }
+    descriptor
+}
+
+/// Repeats the pass's last draw with `pipeline`, writing [`CLEARED_DEPTH`] over everything it
+/// covered. The pass's bind groups stay bound; `extent` is its attachment size.
+pub(super) fn erase_draw<'w>(
+    pass: &mut TrackedRenderPass<'w>,
+    pipeline: &'w RenderPipeline,
+    extent: Extent3d,
+    vertices: std::ops::Range<u32>,
+    instances: std::ops::Range<u32>,
+) {
+    pass.set_render_pipeline(pipeline);
+    pass.set_viewport(
+        0.0,
+        0.0,
+        extent.width as f32,
+        extent.height as f32,
+        CLEARED_DEPTH,
+        CLEARED_DEPTH,
+    );
+    pass.draw(vertices, instances);
+}
+
+#[cfg(test)]
+#[path = "erase_tests.rs"]
+mod tests;
