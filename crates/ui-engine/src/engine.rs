@@ -60,6 +60,11 @@ use render::render_with;
 use screen::{CustomDraw, CustomRenderer, PaintError, PaintFrame, ScreenRegistry};
 use text_paint::TextPaint;
 
+/// A snapshot of [`FormEngine::texture_stamp`]; equal stamps mean paints resolve the same
+/// textures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextureStamp(crate::textures::TextureRevision);
+
 pub struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
     /// The carrier's vanilla catalog, before the built-in packs.
@@ -247,6 +252,18 @@ impl FormEngine {
         } else {
             ImageUpdate::None
         }
+    }
+
+    /// Starts a frame's texture requests; see
+    /// [`ServerAtlas::begin_frame`](crate::atlas::ServerAtlas::begin_frame).
+    pub fn begin_texture_frame(&mut self) {
+        self.textures.atlas_mut().begin_frame();
+    }
+
+    /// Everything paints resolve textures from, as a value that changes whenever any of it does:
+    /// residency, finished decodes, original sheets, outlines and the installed atlas.
+    pub fn texture_stamp(&self) -> TextureStamp {
+        TextureStamp(self.textures.revision(&self.textures.lock()))
     }
 
     /// Whether texture decodes the next paint would collect are waiting; see

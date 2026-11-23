@@ -3,6 +3,12 @@
 use super::ServerAtlas;
 
 impl ServerAtlas {
+    /// Starts a frame's texture requests: misses left for a later frame accumulate until the
+    /// next frame starts, whichever request left them.
+    pub fn begin_frame(&mut self) {
+        self.decodes.deferred = false;
+    }
+
     /// Whether decode work a later require would collect, or a decode left for a later frame,
     /// is waiting: a frame drawn without it may draw differently once it lands.
     pub fn completions_waiting(&self) -> bool {

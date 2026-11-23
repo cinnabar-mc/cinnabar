@@ -333,7 +333,7 @@ struct Decodes {
     bytes: usize,
     failed: VecDeque<String>,
     jobs: fitted::FittedDecodes,
-    /// A miss of the last require was left for a later frame's inline budget.
+    /// A miss of this frame's requires was left for a later frame's inline budget.
     deferred: bool,
 }
 
@@ -360,11 +360,14 @@ impl DecodeOn {
 }
 
 impl Decodes {
-    /// Files finished worker decodes.
-    fn collect(&mut self) {
+    /// Files finished worker decodes; whether any finished.
+    fn collect(&mut self) -> bool {
+        let mut collected = false;
         while let Some((key, pixels)) = self.jobs.collect() {
             self.store(key, pixels);
+            collected = true;
         }
+        collected
     }
 
     fn store(&mut self, key: String, pixels: Option<Vec<u8>>) {
@@ -745,8 +748,10 @@ impl ServerAtlas {
 
     /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
     pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
-        self.decodes.deferred = false;
-        self.decodes.collect();
+        // A finished decode changes what a paint resolves, even before its texture is placed.
+        if self.decodes.collect() {
+            self.revision.bump();
+        }
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page
         // this frame still draws.

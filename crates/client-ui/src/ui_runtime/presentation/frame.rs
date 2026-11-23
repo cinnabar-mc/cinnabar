@@ -53,6 +53,12 @@ impl UiPresentationRuntime {
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
         self.clock = super::frame_clock::FrameClock::new(now_millis);
+        // A texture change while this frame paints, such as a decode a later request collects,
+        // may leave an earlier paint drawn against the old textures: the next frame rebuilds.
+        let textures = self.engine.as_deref_mut().map(|engine| {
+            engine.begin_texture_frame();
+            engine.texture_stamp()
+        });
         self.hud_painted = [false; 2];
         self.hud_elements.hide_all();
         self.hud_frame.mount_equipment = runtime.screen_state().mount_equipment;
@@ -537,6 +543,14 @@ impl UiPresentationRuntime {
             Ok(input)
         })();
         self.assembly_nodes = nodes;
+        if self
+            .engine
+            .as_deref()
+            .map(ui_engine::engine::FormEngine::texture_stamp)
+            != textures
+        {
+            self.clock.changes_every_frame();
+        }
         let overflows = self.layouts.visual_overflow_count();
         if overflows > previous_overflows
             && overflows.checked_ilog2() != previous_overflows.checked_ilog2()
