@@ -31,6 +31,21 @@ fn erase_keeps_the_draws_shaders_and_rasterization_but_only_writes_depth() {
 }
 
 #[test]
+fn only_immediate_mode_desktop_backends_erase() {
+    for backend in [wgpu::Backend::Vulkan, wgpu::Backend::Dx12] {
+        assert_eq!(admitted(backend), !cfg!(target_os = "android"));
+    }
+    for backend in [
+        wgpu::Backend::Metal,
+        wgpu::Backend::Gl,
+        wgpu::Backend::BrowserWebGpu,
+        wgpu::Backend::Noop,
+    ] {
+        assert!(!admitted(backend));
+    }
+}
+
+#[test]
 fn hand_depth_is_loaded_only_after_an_erased_pass() {
     let cleared = DepthCleared::default();
     let first = cleared.operations(true);

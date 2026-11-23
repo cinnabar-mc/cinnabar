@@ -74,8 +74,9 @@ pub(super) struct HandRigGpu {
     failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
-    /// The depth erase matching `pipeline`; see `erase`.
+    /// The depth erase matching `pipeline`, on adapters `erase::admitted` accepts.
     pub(super) erase_pipeline: Option<CachedRenderPipelineId>,
+    erase_admitted: bool,
     erase_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) geometry_revision: Option<u64>,
@@ -84,7 +85,11 @@ pub(super) struct HandRigGpu {
 }
 
 /// Allocates persistent rig buffers, layouts and nearest-sampled artwork bindings.
-pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
+pub(super) fn init_gpu(
+    mut commands: Commands,
+    device: Res<RenderDevice>,
+    adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
+) {
     let mut layout = hand_rig_layout();
     if device.limits().max_storage_buffers_per_shader_stage
         < crate::device_settings::vertex_storage_buffers(&layout)
@@ -144,6 +149,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         bind_group: None,
         pipeline: None,
         erase_pipeline: None,
+        erase_admitted: adapter.is_some_and(|adapter| super::erase::admitted(adapter.backend)),
         erase_variants: [None; PIPELINE_VARIANTS],
         pipeline_variants: [None; PIPELINE_VARIANTS],
         geometry_revision: None,
@@ -216,10 +222,14 @@ pub(super) fn prepare(
     gpu.pipeline = memoized_pipeline(&mut gpu.pipeline_variants, samples, hdr, encoded, || {
         cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, hdr, encoded))
     });
-    gpu.erase_pipeline = memoized_pipeline(&mut gpu.erase_variants, samples, hdr, encoded, || {
-        let draw = specialized_pipeline(layout.clone(), samples, hdr, encoded);
-        cache.queue_render_pipeline(super::erase::erase_pipeline(draw))
-    });
+    gpu.erase_pipeline = if gpu.erase_admitted {
+        memoized_pipeline(&mut gpu.erase_variants, samples, hdr, encoded, || {
+            let draw = specialized_pipeline(layout.clone(), samples, hdr, encoded);
+            cache.queue_render_pipeline(super::erase::erase_pipeline(draw))
+        })
+    } else {
+        None
+    };
     if gpu.bind_group.is_none() || gpu.pipeline.is_none() {
         gpu.maximum_vertex_count = 0;
     }

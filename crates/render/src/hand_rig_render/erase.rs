@@ -14,6 +14,13 @@ use bevy::render::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Whether an erase is cheaper than a clear on `backend`. Desktop Vulkan and DirectX 12 GPUs
+/// render to memory, where a clear writes every texel. Tile-based GPUs, behind Metal, Android
+/// and browsers, clear in tile memory and would instead pay to load and store the attachment.
+pub(super) fn admitted(backend: wgpu::Backend) -> bool {
+    matches!(backend, wgpu::Backend::Vulkan | wgpu::Backend::Dx12) && !cfg!(target_os = "android")
+}
+
 /// Reverse-Z far plane, the value the hand's depth attachment starts every draw with.
 pub(super) const CLEARED_DEPTH: f32 = 0.0;
 
