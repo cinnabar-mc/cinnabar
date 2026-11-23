@@ -479,7 +479,6 @@ impl WorldAuthority {
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
         self.actors.ropes_into(partial_tick, ropes);
     }
-    /// Borrows one actor rig for presentation.
     /// Identifies the actor's snapshot and its rig; see [`crate::ActorPresentationRevision`].
     pub fn actor_presentation_revision(
         &self,
@@ -496,6 +495,7 @@ impl WorldAuthority {
     pub fn actor_visibility_reads_frame(&self, runtime_id: u64) -> bool {
         self.actors.visibility_reads_frame(runtime_id)
     }
+    /// Borrows one actor rig for presentation.
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }
