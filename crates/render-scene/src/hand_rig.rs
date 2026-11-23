@@ -10,6 +10,8 @@ pub struct HandRigFrame {
     pub light: HandRigLight,
     pub fov_radians: f32,
     pub revision: u64,
+    /// Assigned by [`HandRigScene::publish`]; no two frames a scene accepts share it.
+    pub publication: u64,
     pub item_atlases: [Option<HandItemAtlas>; 3],
     /// The held-item glint raster for item instances drawn with the glint material.
     pub item_glint: Option<EquipmentRaster>,
@@ -20,6 +22,8 @@ pub struct HandRigFrame {
 #[extract_app(bevy::render::RenderApp)]
 pub struct HandRigScene {
     pub frame: Option<HandRigFrame>,
+    /// The last publication token handed out.
+    publications: u64,
 }
 
 impl HandRigScene {
@@ -54,12 +58,14 @@ impl HandRigScene {
             self.clear();
             return false;
         }
+        self.publications = self.publications.wrapping_add(1);
         self.frame = Some(HandRigFrame {
             rig,
             skin,
             light,
             fov_radians,
             revision,
+            publication: self.publications,
             item_atlases: [None, None, None],
             item_glint: None,
         });
@@ -112,6 +118,12 @@ impl HandRigScene {
         if let Some(frame) = &mut self.frame {
             frame.item_glint = glint.filter(valid);
         }
+    }
+
+    /// The publication token of the frame the scene holds, if any.
+    #[must_use]
+    pub fn publication(&self) -> Option<u64> {
+        self.frame.as_ref().map(|frame| frame.publication)
     }
 
     #[must_use]

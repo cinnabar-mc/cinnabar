@@ -282,3 +282,31 @@ fn identical_frame_after_an_outside_clear_restores_the_hand() {
     frames.frame(7, None);
     assert_eq!(frames.kept(), kept + 1, "the restored frame is kept again");
 }
+
+/// A frame another owner publishes under the recorded revision gets its own token from the
+/// scene, so the hand republishes instead of keeping a frame it did not build.
+#[test]
+fn outside_publication_under_the_same_revision_is_not_kept() {
+    let mut frames = Frames::new(None);
+    frames.frame(7, None);
+    frames.frame(7, None);
+    let kept = frames.kept();
+    let held = frames
+        .world
+        .resource::<render_scene::HandRigScene>()
+        .frame
+        .clone()
+        .expect("the hand draws");
+    let mut scene = frames.world.resource_mut::<render_scene::HandRigScene>();
+    assert!(scene.publish(
+        held.rig,
+        held.skin,
+        held.light,
+        held.fov_radians,
+        held.revision
+    ));
+    frames.frame(7, None);
+    assert_eq!(frames.kept(), kept, "an outside frame is republished over");
+    frames.frame(7, None);
+    assert_eq!(frames.kept(), kept + 1);
+}

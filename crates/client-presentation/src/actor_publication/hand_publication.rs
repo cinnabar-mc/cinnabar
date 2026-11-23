@@ -8,7 +8,7 @@ use render_model::{ActorRigSubmission, EquipmentRaster, HandItemAtlas, HandRigLi
 /// geometry catalog are the same. Glint scrolling changes the draws themselves.
 #[derive(Default)]
 pub(super) struct PublishedHand {
-    /// The recorded inputs and the scene revision they were published under.
+    /// The recorded inputs and the scene's publication token for their frame.
     frame: Option<(Inputs, u64)>,
     /// Republications skipped since the state was created.
     #[cfg(test)]
@@ -95,13 +95,14 @@ impl Inputs {
 }
 
 impl PublishedHand {
-    /// Whether the scene, whose frame carries `held_revision`, still holds the recorded frame and
-    /// that frame was built from `inputs`. A scene cleared or republished by anyone else since
-    /// carries no revision or another one.
-    pub(super) fn holds(&mut self, inputs: &Inputs, held_revision: Option<u64>) -> bool {
-        let held = self.frame.as_ref().is_some_and(|(frame, revision)| {
-            held_revision == Some(*revision) && inputs.same(frame)
-        });
+    /// Whether the scene, holding the frame with publication token `held`, still holds the
+    /// recorded frame and that frame was built from `inputs`. The scene assigns every accepted
+    /// frame its own token, so a scene cleared or republished by anyone else since never matches.
+    pub(super) fn holds(&mut self, inputs: &Inputs, held: Option<u64>) -> bool {
+        let held = self
+            .frame
+            .as_ref()
+            .is_some_and(|(frame, publication)| held == Some(*publication) && inputs.same(frame));
         #[cfg(test)]
         {
             self.kept += u64::from(held);
@@ -109,11 +110,10 @@ impl PublishedHand {
         held
     }
 
-    /// Records the inputs of the frame just published under `revision`, or forgets them.
-    pub(super) fn record(&mut self, inputs: Option<Inputs>, revision: u64) {
-        self.frame = inputs
-            .filter(|inputs| inputs.still)
-            .map(|inputs| (inputs, revision));
+    /// Records the inputs of the frame the scene just accepted with publication token
+    /// `publication`, or forgets them.
+    pub(super) fn record(&mut self, inputs: Option<Inputs>, publication: Option<u64>) {
+        self.frame = inputs.filter(|inputs| inputs.still).zip(publication);
     }
 }
 
