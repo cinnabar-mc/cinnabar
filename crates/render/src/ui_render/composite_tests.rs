@@ -269,7 +269,10 @@ fn partial_replay_requires_matching_complete_full_target_content() {
 fn unscissored_composites_skip_the_destination_load() {
     let clear = LoadOp::Clear(wgpu::Color::BLACK);
     for outside in [clear, LoadOp::Load] {
-        assert!(matches!(composite_load(outside, None), LoadOp::DontCare(_)));
+        assert_eq!(
+            matches!(composite_load(outside, None), LoadOp::DontCare(_)),
+            !crate::device_settings::strict_webgpu_compliance()
+        );
         let scissor = UiScissor::new(4, 8, 16, 32);
         assert_eq!(composite_load(outside, Some(scissor)), outside);
     }

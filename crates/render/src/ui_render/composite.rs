@@ -701,12 +701,13 @@ struct CompositeSources<'a> {
 /// Chooses how a composite pass begins on its destination. Without a scissor the unblended
 /// composite triangle writes every pixel, so the previous contents are never observed and
 /// loading or clearing them would only cost a full-target memory pass. A scissored composite
-/// keeps `outside`, the load that defines the pixels it does not cover.
+/// keeps `outside`, the load that defines the pixels it does not cover, as does every composite
+/// under strict WebGPU compliance, which rejects `DontCare`.
 pub(super) fn composite_load(
     outside: LoadOp<wgpu::Color>,
     scissor: Option<render_model::UiScissor>,
 ) -> LoadOp<wgpu::Color> {
-    if scissor.is_some() {
+    if scissor.is_some() || crate::device_settings::strict_webgpu_compliance() {
         return outside;
     }
     // SAFETY: the composite pipelines draw a full-target triangle with no blending, full write

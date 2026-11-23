@@ -277,6 +277,9 @@ fn empty_nametag_layer_preserves_hdr_pixels_and_scene_alpha() {
 fn composite_without_a_load_overwrites_stale_destination_pixels() {
     let ui = [[0; 4], [64, 128, 192, 255], [32, 64, 96, 128], [0; 4]];
     let scene = [[0.125, 0.5, 0.875, 0.25]; 4];
+    if crate::device_settings::strict_webgpu_compliance() {
+        return;
+    }
     let load = super::composite_load(wgpu::LoadOp::Load, None);
     assert!(matches!(load, wgpu::LoadOp::DontCare(_)));
     let Some(skipped) = composite_over(&ui, &scene, "composite_fragment", load) else {

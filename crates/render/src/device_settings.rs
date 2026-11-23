@@ -62,6 +62,18 @@ pub fn configure(settings: &mut WgpuSettings) {
     settings.instance_flags = backend_labels(settings.instance_flags).with_env();
 }
 
+/// Whether wgpu's strict WebGPU compliance is on, under which a render pass may not begin with
+/// `LoadOp::DontCare`. Cinnabar sets that flag only through wgpu's environment override, which
+/// [`configure`] and the client's instance setup both reapply, so the same read answers here.
+pub(crate) fn strict_webgpu_compliance() -> bool {
+    static STRICT: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        wgpu::InstanceFlags::empty()
+            .with_env()
+            .contains(wgpu::InstanceFlags::STRICT_WEBGPU_COMPLIANCE)
+    });
+    *STRICT
+}
+
 /// Drops backend object names unless backend debugging or validation is on. A name costs a driver
 /// call (DX12 `SetName`, Metal `setLabel`) for every command list, pass encoder and resource,
 /// about fifty command lists a frame on DX12, and only graphics debuggers and validation layers
