@@ -3,6 +3,9 @@
 use crate::gpu_snapshot::Gpu;
 use wgpu::util::DeviceExt;
 
+/// Destination contents left from an earlier frame; no composite output can produce them.
+const STALE: [f32; 4] = [7.0, -3.0, 5.0, 9.0];
+
 /// Draws the production composite into float storage so color loss cannot hide in quantization.
 fn composite(ui: &[[u8; 4]], scene: &[[f32; 4]]) -> Option<Vec<[f32; 4]>> {
     composite_entry(ui, scene, "composite_fragment")
@@ -10,6 +13,22 @@ fn composite(ui: &[[u8; 4]], scene: &[[f32; 4]]) -> Option<Vec<[f32; 4]>> {
 
 /// Draws one production composite entry into float storage for exact colour and alpha checks.
 fn composite_entry(ui: &[[u8; 4]], scene: &[[f32; 4]], entry: &str) -> Option<Vec<[f32; 4]>> {
+    composite_over(
+        ui,
+        scene,
+        entry,
+        super::composite_load(Default::default(), None),
+    )
+}
+
+/// Draws a production composite entry over a destination holding [`STALE`] in every pixel,
+/// beginning its pass with `load`.
+fn composite_over(
+    ui: &[[u8; 4]],
+    scene: &[[f32; 4]],
+    entry: &str,
+    load: wgpu::LoadOp<wgpu::Color>,
+) -> Option<Vec<[f32; 4]>> {
     assert_eq!(ui.len(), scene.len());
     let gpu = Gpu::for_fixture("gamma-space UI composite pixels")?;
     let size = wgpu::Extent3d {
@@ -46,9 +65,21 @@ fn composite_entry(ui: &[[u8; 4]], scene: &[[f32; 4]], entry: &str) -> Option<Ve
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
+    gpu.queue.write_texture(
+        output.as_image_copy(),
+        bytemuck::cast_slice(&vec![STALE; size.width as usize]),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(size.width * 16),
+            rows_per_image: None,
+        },
+        size,
+    );
     let entries = [0, 1].map(|binding| wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -138,7 +169,7 @@ fn composite_entry(ui: &[[u8; 4]], scene: &[[f32; 4]], entry: &str) -> Option<Ve
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -240,4 +271,25 @@ fn empty_nametag_layer_preserves_hdr_pixels_and_scene_alpha() {
         return;
     };
     assert_eq!(pixels, scene);
+}
+
+#[test]
+fn composite_without_a_load_overwrites_stale_destination_pixels() {
+    let ui = [[0; 4], [64, 128, 192, 255], [32, 64, 96, 128], [0; 4]];
+    let scene = [[0.125, 0.5, 0.875, 0.25]; 4];
+    let load = super::composite_load(wgpu::LoadOp::Load, None);
+    assert!(matches!(load, wgpu::LoadOp::DontCare(_)));
+    let Some(skipped) = composite_over(&ui, &scene, "composite_fragment", load) else {
+        return;
+    };
+    let Some(cleared) = composite_over(
+        &ui,
+        &scene,
+        "composite_fragment",
+        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+    ) else {
+        return;
+    };
+    assert!(skipped.iter().all(|pixel| *pixel != STALE));
+    assert_eq!(skipped, cleared);
 }

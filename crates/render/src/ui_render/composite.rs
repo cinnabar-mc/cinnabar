@@ -530,31 +530,37 @@ impl FromWorld for UiCompositePipeline {
         };
         let layout =
             BindGroupLayoutDescriptor::new("UI composite layout", &[texture(0), texture(1)]);
-        let descriptor = RenderPipelineDescriptor {
-            label: Some("gamma-space UI composite".into()),
-            layout: vec![layout.clone()],
-            vertex: VertexState {
-                shader: UI_COMPOSITE_SHADER_HANDLE,
-                entry_point: Some("composite_vertex".into()),
-                ..default()
-            },
-            fragment: Some(FragmentState {
-                shader: UI_COMPOSITE_SHADER_HANDLE,
-                entry_point: Some("composite_fragment".into()),
-                targets: vec![Some(ColorTargetState {
-                    format: render_scene::SCENE_COLOR_FORMAT,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            ..default()
-        };
+        let descriptor = composite_pipeline_descriptor(layout.clone());
         Self {
             layout,
             variants: Variants::new(UiCompositeSpecializer, descriptor),
             clear: None,
         }
+    }
+}
+
+/// The composite draws one unblended full-target triangle writing every channel, which lets
+/// [`composite_load`] skip loading or clearing the destination it fully replaces.
+fn composite_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescriptor {
+    RenderPipelineDescriptor {
+        label: Some("gamma-space UI composite".into()),
+        layout: vec![layout],
+        vertex: VertexState {
+            shader: UI_COMPOSITE_SHADER_HANDLE,
+            entry_point: Some("composite_vertex".into()),
+            ..default()
+        },
+        fragment: Some(FragmentState {
+            shader: UI_COMPOSITE_SHADER_HANDLE,
+            entry_point: Some("composite_fragment".into()),
+            targets: vec![Some(ColorTargetState {
+                format: render_scene::SCENE_COLOR_FORMAT,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        ..default()
     }
 }
 
@@ -666,7 +672,7 @@ pub(crate) fn composite<'c>(
         depth_slice: None,
         resolve_target: None,
         ops: Operations {
-            load: LoadOp::Clear(Default::default()),
+            load: composite_load(LoadOp::Clear(Default::default()), None),
             store: StoreOp::Store,
         },
     };
@@ -690,6 +696,23 @@ struct CompositeSources<'a> {
     layer: &'a UiLayerTexture,
     scene: &'a TextureView,
     target: UiTarget<'a>,
+}
+
+/// Chooses how a composite pass begins on its destination. Without a scissor the unblended
+/// composite triangle writes every pixel, so the previous contents are never observed and
+/// loading or clearing them would only cost a full-target memory pass. A scissored composite
+/// keeps `outside`, the load that defines the pixels it does not cover.
+pub(super) fn composite_load(
+    outside: LoadOp<wgpu::Color>,
+    scissor: Option<render_model::UiScissor>,
+) -> LoadOp<wgpu::Color> {
+    if scissor.is_some() {
+        return outside;
+    }
+    // SAFETY: the composite pipelines draw a full-target triangle with no blending, full write
+    // mask and no discards before any other draw in the pass, so every pixel is written before
+    // it can be blended, read or stored.
+    LoadOp::DontCare(unsafe { wgpu::LoadOpDontCare::enabled() })
 }
 
 /// Clips a viewport to a destination `extent`, or `None` when nothing of it is visible.
@@ -804,7 +827,7 @@ pub(crate) fn ui_present(
                 ClearColorConfig::Custom(color) => Some(color.into()),
                 ClearColorConfig::None => None,
             };
-            if let Some(attachment) = target.out_texture_color_attachment(clear) {
+            if let Some(mut attachment) = target.out_texture_color_attachment(clear) {
                 // A viewport entirely outside the output draws nothing.
                 let scissor = match camera.and_then(|camera| camera.viewport.as_ref()) {
                     Some(viewport) => composite_scissor(
@@ -815,6 +838,7 @@ pub(crate) fn ui_present(
                     None => Some(None),
                 };
                 if let Some(scissor) = scissor {
+                    attachment.ops.load = composite_load(attachment.ops.load, scissor);
                     encode_composite(
                         &mut context,
                         world,

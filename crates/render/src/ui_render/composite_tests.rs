@@ -266,6 +266,30 @@ fn partial_replay_requires_matching_complete_full_target_content() {
 }
 
 #[test]
+fn unscissored_composites_skip_the_destination_load() {
+    let clear = LoadOp::Clear(wgpu::Color::BLACK);
+    for outside in [clear, LoadOp::Load] {
+        assert!(matches!(composite_load(outside, None), LoadOp::DontCare(_)));
+        let scissor = UiScissor::new(4, 8, 16, 32);
+        assert_eq!(composite_load(outside, Some(scissor)), outside);
+    }
+}
+
+#[test]
+fn composite_replaces_every_destination_pixel_without_blending() {
+    let layout = BindGroupLayoutDescriptor::new("UI composite layout", &[]);
+    let descriptor = composite_pipeline_descriptor(layout);
+    assert!(descriptor.vertex.buffers.is_empty());
+    assert_eq!(descriptor.multisample.count, 1);
+    assert!(descriptor.depth_stencil.is_none());
+    let fragment = descriptor.fragment.unwrap();
+    assert_eq!(fragment.targets.len(), 1);
+    let target = fragment.targets[0].clone().unwrap();
+    assert!(target.blend.is_none());
+    assert_eq!(target.write_mask, ColorWrites::ALL);
+}
+
+#[test]
 fn damage_clear_is_single_sample_unblended_and_depth_free() {
     let descriptor = clear_pipeline_descriptor();
     assert!(descriptor.layout.is_empty());
