@@ -102,6 +102,11 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
                 phases,
             },
         );
+    if let Some(scene) = scene {
+        scene
+            .skipped_clear
+            .store(opaque_sky, std::sync::atomic::Ordering::Relaxed);
+    }
     if opaque_sky {
         // SAFETY: `skips_clear` admitted this pass, so the stock sky with opaque alpha and the
         // queued geometry write every colour sample before anything reads or stores it.

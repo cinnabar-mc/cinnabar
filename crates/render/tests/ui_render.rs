@@ -74,6 +74,19 @@ mod screen_overlay_render {
     }
 }
 
+/// The standalone UI fixture prepares no actors.
+mod actor_render {
+    pub(crate) mod phase {
+        pub(crate) fn opaque_draws_replace_samples(
+            _: &bevy::prelude::World,
+            _: bevy::prelude::Entity,
+            _: impl Fn(bevy::render::render_resource::CachedRenderPipelineId) -> bool,
+        ) -> bool {
+            true
+        }
+    }
+}
+
 mod atmosphere_render {
     /// The standalone UI fixture draws no sky.
     pub(crate) mod sky_pass {

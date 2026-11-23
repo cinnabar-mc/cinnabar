@@ -52,10 +52,14 @@ pub(super) fn skips_clear(world: &World, view: Entity, pass: &OpaqueSkyPass<'_>)
     pass.phases.is_none_or(|(opaque, cutout)| {
         phase_replaces_samples(opaque, cache, |key| key.pipeline)
             && phase_replaces_samples(cutout, cache, |key| key.pipeline)
+    }) && crate::actor_render::phase::opaque_draws_replace_samples(world, view, |id| {
+        replaces_samples(cache, id)
     })
 }
 
-/// Whether every batch set queued in `phase` draws with a pipeline that replaces samples.
+/// Whether every batch set queued in `phase` draws with a pipeline that replaces samples. Draw
+/// commands that bind other pipelines, such as per-material actor variants, are checked
+/// separately.
 fn phase_replaces_samples<BPI: BinnedPhaseItem>(
     phase: &BinnedRenderPhase<BPI>,
     cache: &PipelineCache,

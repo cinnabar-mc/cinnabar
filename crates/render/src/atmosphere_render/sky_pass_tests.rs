@@ -327,6 +327,12 @@ fn skipped_scene_clear_matches_a_cleared_pass() {
                     app.update();
                 }
             }
+            let render = app.sub_app_mut(RenderApp).world_mut();
+            let skipped = render
+                .query::<&crate::scene_target::SceneTarget>()
+                .iter(render)
+                .any(crate::scene_target::SceneTarget::skipped_clear);
+            assert_eq!(skipped, !colour_only_probe, "{msaa:?} clear skip ran");
             pixels(&app, &image)
         });
         let width = SIZE[0] as usize;
