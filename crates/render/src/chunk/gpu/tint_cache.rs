@@ -18,10 +18,10 @@ use bevy::{
     prelude::{Entity, FromWorld, Res, ResMut, Resource, World},
     render::{
         render_resource::{
-            BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource,
-            BindingType, Buffer, BufferBinding, BufferBindingType, BufferDescriptor, BufferId,
-            BufferUsages, CachedComputePipelineId, ComputePassDescriptor,
-            ComputePipelineDescriptor, PipelineCache, ShaderStages,
+            BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding,
+            BufferBindingType, BufferDescriptor, BufferId, BufferUsages, CachedComputePipelineId,
+            ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache, ShaderStages,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
@@ -91,6 +91,42 @@ struct TintCache {
     entries: u64,
     quad_capacity: usize,
     inputs: TintInputs,
+    /// Persistent job buffer: a count header, then up to `job_capacity` jobs.
+    jobs: Buffer,
+    job_capacity: u32,
+    /// Group 0 of the bake over the tables it reads, by their identities; rebuilt only when
+    /// one of them is replaced.
+    source_group: Option<([BufferId; 6], BindGroup)>,
+    /// Group 1 over `jobs` and the cache; rebuilt only when the job buffer grows.
+    output_group: Option<BindGroup>,
+}
+
+/// The packed-chunk tables a bake reads, in [`plan::SOURCE_STORAGE_BINDINGS`] order, then the
+/// biome query tables.
+pub(in crate::chunk) struct BakeSources<'a> {
+    pub(in crate::chunk) quads: &'a Buffer,
+    pub(in crate::chunk) origins: &'a Buffer,
+    pub(in crate::chunk) materials: &'a Buffer,
+    pub(in crate::chunk) biome_records: &'a Buffer,
+    pub(in crate::chunk) biome_tints: &'a Buffer,
+    pub(in crate::chunk) query_tables: &'a Buffer,
+}
+
+impl BakeSources<'_> {
+    fn storage(&self) -> [&Buffer; 5] {
+        [
+            self.quads,
+            self.origins,
+            self.materials,
+            self.biome_records,
+            self.biome_tints,
+        ]
+    }
+
+    fn ids(&self) -> [BufferId; 6] {
+        let [a, b, c, d, e] = self.storage().map(Buffer::id);
+        [a, b, c, d, e, self.query_tables.id()]
+    }
 }
 
 /// The cache and the allocations awaiting a bake.
@@ -102,6 +138,8 @@ pub(in crate::chunk) struct TintCacheState {
     /// Allocations owed a bake, with how many of their quads earlier frames already baked.
     pending: HashMap<Entity, u32>,
     bake_all: bool,
+    /// Jobs the last bake owed beyond the job buffer, which the next preparation grows toward.
+    wanted_jobs: usize,
 }
 
 /// One frame's bake: jobs one dispatch reaches, entries still waiting to be cleared, and the
@@ -149,24 +187,95 @@ impl TintCacheState {
             return;
         }
         let entries = plan::entry_count(quad_capacity, &device.limits());
-        self.cache = crate::gpu_allocation::buffer(
-            device,
-            &BufferDescriptor {
-                label: Some("terrain tint cache"),
-                size: entries * ENTRY_BYTES,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
-        )
-        .map(|buffer| TintCache {
+        let buffer = create(device, "terrain tint cache", entries * ENTRY_BYTES);
+        let jobs = buffer.as_ref().and_then(|_| {
+            create(
+                device,
+                "terrain tint bake jobs",
+                plan::job_buffer_bytes(plan::INITIAL_JOB_CAPACITY),
+            )
+        });
+        self.cache = buffer.zip(jobs).map(|(buffer, jobs)| TintCache {
             buffer,
             entries,
             quad_capacity,
             inputs,
+            jobs,
+            job_capacity: plan::INITIAL_JOB_CAPACITY,
+            source_group: None,
+            output_group: None,
         });
         self.failed = self.cache.is_none().then_some((quad_capacity, inputs));
         self.pending.clear();
         self.bake_all = self.cache.is_some();
+        self.wanted_jobs = 0;
+    }
+
+    /// Grows the job buffer toward what the last bake owed, then (re)builds the bake's bind
+    /// groups when a buffer they bind was replaced. Call where the terrain bind groups are
+    /// prepared: bakes themselves create no buffers or bind groups. A job buffer that cannot
+    /// grow keeps its capacity, and bakes spread over more frames.
+    pub(in crate::chunk) fn prepare_bake(
+        &mut self,
+        device: &RenderDevice,
+        layouts: (&BindGroupLayout, &BindGroupLayout),
+        sources: &BakeSources<'_>,
+    ) {
+        let wanted = std::mem::take(&mut self.wanted_jobs);
+        let Some(cache) = &mut self.cache else {
+            return;
+        };
+        let capacity = plan::grown_job_capacity(cache.job_capacity, wanted, &device.limits());
+        if capacity > cache.job_capacity
+            && let Some(jobs) = create(
+                device,
+                "terrain tint bake jobs",
+                plan::job_buffer_bytes(capacity),
+            )
+        {
+            cache.jobs = jobs;
+            cache.job_capacity = capacity;
+            cache.output_group = None;
+        }
+        let ids = sources.ids();
+        if cache
+            .source_group
+            .as_ref()
+            .is_none_or(|(bound, _)| *bound != ids)
+        {
+            let group = device.create_bind_group(
+                "terrain tint bake sources",
+                layouts.0,
+                &sources
+                    .storage()
+                    .map(|buffer| buffer.as_entire_binding())
+                    .into_iter()
+                    .zip(plan::SOURCE_STORAGE_BINDINGS)
+                    .chain([(
+                        sources.query_tables.as_entire_binding(),
+                        crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                    )])
+                    .map(|(resource, binding)| BindGroupEntry { binding, resource })
+                    .collect::<Vec<_>>(),
+            );
+            cache.source_group = Some((ids, group));
+        }
+        if cache.output_group.is_none() {
+            cache.output_group = Some(device.create_bind_group(
+                "terrain tint bake output",
+                layouts.1,
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: cache.jobs.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: cache.buffer.as_entire_binding(),
+                    },
+                ],
+            ));
+        }
     }
 
     /// The cache's identity, for bind group rebuilds.
@@ -189,7 +298,9 @@ impl TintCacheState {
 
     /// Bytes of the cache, for arena telemetry.
     pub(in crate::chunk) fn capacity_bytes(&self) -> u64 {
-        self.cache.as_ref().map_or(0, |cache| cache.buffer.size())
+        self.cache
+            .as_ref()
+            .map_or(0, |cache| cache.buffer.size() + cache.jobs.size())
     }
 
     /// Whether a bake is owed.
@@ -205,7 +316,11 @@ impl TintCacheState {
         allocations: &HashMap<Entity, super::types::ArenaAllocation>,
         limit: u32,
     ) -> Batch {
-        let Some(entries) = self.cache.as_ref().map(|cache| cache.entries) else {
+        let Some((entries, job_capacity)) = self
+            .cache
+            .as_ref()
+            .map(|cache| (cache.entries, cache.job_capacity))
+        else {
             return Batch {
                 jobs: Vec::new(),
                 waiting: Vec::new(),
@@ -224,6 +339,7 @@ impl TintCacheState {
             },
             entries,
             limit,
+            plan::reach(limit).min(job_capacity as usize),
         )
     }
 
@@ -245,13 +361,14 @@ impl TintCacheState {
 
 /// Plans one dispatch over `pending`, where `resident` gives each live allocation's quads and
 /// origin slot. Entries that departed, hold no quads or lie beyond `entries` leave `pending`;
-/// the rest bake in entity order up to what one dispatch reaches within `limit`, from the quads
-/// earlier frames already baked, and the remainder waits.
+/// the rest bake in entity order, in pieces within `limit` workgroups per axis, up to
+/// `max_jobs` pieces from the quads earlier frames already baked, and the remainder waits.
 fn plan_owed(
     pending: &mut HashMap<Entity, u32>,
     resident: impl Fn(Entity) -> Option<(std::ops::Range<u32>, u32)>,
     entries: u64,
     limit: u32,
+    max_jobs: usize,
 ) -> Batch {
     let remaining = |entity: Entity, done: u32| {
         resident(entity).and_then(|(quads, metadata)| {
@@ -273,14 +390,13 @@ fn plan_owed(
         waiting: Vec::new(),
         progress: Vec::new(),
     };
-    let reach = plan::reach(limit);
     for (entity, done) in owed {
         let Some(job) = remaining(entity, done) else {
             continue;
         };
         let mut baked = 0;
         for piece in plan::split(job, limit) {
-            if batch.jobs.len() < reach {
+            if batch.jobs.len() < max_jobs {
                 baked += piece[1];
                 batch.jobs.push(piece);
             } else {
@@ -297,12 +413,38 @@ fn plan_owed(
     batch
 }
 
+/// A zeroed storage buffer of `bytes`, or `None` when the device refuses the allocation.
+fn create(device: &RenderDevice, label: &'static str, bytes: u64) -> Option<Buffer> {
+    crate::gpu_allocation::buffer(
+        device,
+        &BufferDescriptor {
+            label: Some(label),
+            size: bytes,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        },
+    )
+}
+
 /// The bake kernel, queued only when the opaque pipelines read the cache.
 #[derive(Resource)]
 pub(in crate::chunk) struct TintBakePipeline {
     id: Option<CachedComputePipelineId>,
     sources: BindGroupLayoutDescriptor,
     output: BindGroupLayoutDescriptor,
+}
+
+impl TintBakePipeline {
+    /// The kernel's group 0 and group 1 layouts.
+    pub(in crate::chunk) fn layouts(
+        &self,
+        cache: &PipelineCache,
+    ) -> (BindGroupLayout, BindGroupLayout) {
+        (
+            cache.get_bind_group_layout(&self.sources),
+            cache.get_bind_group_layout(&self.output),
+        )
+    }
 }
 
 impl FromWorld for TintBakePipeline {
@@ -342,17 +484,14 @@ pub(in crate::chunk) fn tint_bake_owed(arena: Option<Res<crate::chunk::ChunkGpuA
     arena.is_some_and(|arena| arena.tint_cache.has_work())
 }
 
-/// Bakes the owed entries one dispatch reaches ahead of every camera pass, and clears the rest
-/// and any whose bake cannot be recorded, so the vertex stage computes them until they bake.
+/// Bakes the owed entries one dispatch and the job buffer reach ahead of every camera pass,
+/// and clears the rest and any whose bake cannot be recorded, so the vertex stage computes them
+/// until they bake. It only writes jobs into the persistent buffer and records the dispatch.
 pub(in crate::chunk) fn record_tint_bake(
     arena: Option<ResMut<crate::chunk::ChunkGpuArena>>,
     pipeline: Option<Res<TintBakePipeline>>,
     cache: Res<PipelineCache>,
     gpu: (Res<RenderDevice>, Res<RenderQueue>),
-    sources: (
-        Option<Res<crate::chunk::ChunkGpuTextureAssets>>,
-        Option<Res<crate::chunk::ChunkGpuBiomeTints>>,
-    ),
     mut context: RenderContext,
 ) {
     let Some(mut arena) = arena else {
@@ -362,7 +501,8 @@ pub(in crate::chunk) fn record_tint_bake(
     let (device, queue) = gpu;
     let limit = device.limits().max_compute_workgroups_per_dimension;
     let batch = arena.tint_cache.plan_batch(&arena.allocations, limit);
-    let Some(target) = arena.tint_cache.cache.as_ref().map(|cache| &cache.buffer) else {
+    let state = &mut arena.tint_cache;
+    let Some(tint) = &state.cache else {
         return;
     };
     if batch.jobs.is_empty() {
@@ -370,66 +510,23 @@ pub(in crate::chunk) fn record_tint_bake(
         return;
     }
     let encoder = context.command_encoder();
-    plan::clear(encoder, target, &batch.waiting);
-    let (textures, tints) = sources;
+    plan::clear(encoder, &tint.buffer, &batch.waiting);
+    let owed = batch.jobs.len() + batch.waiting.len();
     let kernel = pipeline
         .as_deref()
-        .and_then(|pipeline| pipeline.id.and_then(|id| cache.get_compute_pipeline(id)))
-        .zip(
-            textures
-                .as_deref()
-                .and_then(|textures| textures.prepared.as_ref()),
-        )
-        .zip(tints.as_deref().and_then(|tints| tints.prepared.as_ref()));
-    let job_buffer = kernel.and_then(|_| {
-        let words: Vec<u32> = batch.jobs.iter().flatten().copied().collect();
-        crate::gpu_allocation::buffer_with_data(
-            &device,
-            &queue,
-            "terrain tint bake jobs",
-            bytemuck::cast_slice(&words),
-            BufferUsages::STORAGE,
-        )
-    });
-    let (Some(pipeline), Some(((kernel, textures), tints)), Some(job_buffer)) =
-        (pipeline, kernel, job_buffer)
+        .and_then(|pipeline| pipeline.id)
+        .and_then(|id| cache.get_compute_pipeline(id));
+    let (Some(kernel), Some((_, source_group)), Some(output_group)) =
+        (kernel, &tint.source_group, &tint.output_group)
     else {
         // The queue keeps the work; its entries stay cleared until a bake can be recorded.
-        plan::clear(encoder, target, &batch.jobs);
+        plan::clear(encoder, &tint.buffer, &batch.jobs);
         return;
     };
-    let source_group = device.create_bind_group(
-        "terrain tint bake sources",
-        &cache.get_bind_group_layout(&pipeline.sources),
-        &[
-            arena.quad_buffer.as_entire_binding(),
-            arena.origin_buffer.as_entire_binding(),
-            textures.material_buffer.as_entire_binding(),
-            arena.biome_buffer.as_entire_binding(),
-            tints.buffer.as_entire_binding(),
-        ]
-        .into_iter()
-        .zip(plan::SOURCE_STORAGE_BINDINGS)
-        .chain([(
-            tints.query_tables.as_entire_binding(),
-            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-        )])
-        .map(|(resource, binding)| BindGroupEntry { binding, resource })
-        .collect::<Vec<_>>(),
-    );
-    let output_group = device.create_bind_group(
-        "terrain tint bake output",
-        &cache.get_bind_group_layout(&pipeline.output),
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: job_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: target.as_entire_binding(),
-            },
-        ],
+    queue.write_buffer(
+        &tint.jobs,
+        0,
+        bytemuck::cast_slice(&plan::job_words(&batch.jobs)),
     );
     {
         let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
@@ -437,11 +534,14 @@ pub(in crate::chunk) fn record_tint_bake(
             timestamp_writes: None,
         });
         pass.set_pipeline(kernel);
-        pass.set_bind_group(0, &source_group, &[]);
-        pass.set_bind_group(1, &output_group, &[]);
+        pass.set_bind_group(0, source_group, &[]);
+        pass.set_bind_group(1, output_group, &[]);
         plan::dispatch(&mut pass, &batch.jobs, limit);
     }
-    arena.tint_cache.commit(&batch);
+    if owed > tint.job_capacity as usize {
+        state.wanted_jobs = owed;
+    }
+    state.commit(&batch);
 }
 
 #[cfg(test)]
@@ -463,6 +563,74 @@ mod tests {
     }
 
     #[test]
+    fn bakes_reuse_buffers_and_bind_groups_until_one_is_replaced() {
+        let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let device = RenderDevice::from(device);
+        let storage = |label| create(&device, label, 64).unwrap();
+        let tables = device.create_buffer(&BufferDescriptor {
+            label: Some("query tables"),
+            size: 64,
+            usage: BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
+        let (quads, origins, materials, records, tints) = (
+            storage("quads"),
+            storage("origins"),
+            storage("materials"),
+            storage("records"),
+            storage("tints"),
+        );
+        let mut state = TintCacheState::default();
+        state.prepare(
+            &device,
+            64,
+            TintInputs {
+                materials: materials.id(),
+                biome_tints: tints.id(),
+                biome_tint_table: ChunkBiomeTintResourceIdentity {
+                    pointer: 1,
+                    table: meshing::ChunkBiomeTintIdentity::new(1, 1),
+                },
+            },
+        );
+        let layouts = (
+            device.create_bind_group_layout(None, &plan::source_layout_entries()),
+            device.create_bind_group_layout(None, &plan::output_layout_entries()),
+        );
+        let sources = |quads| BakeSources {
+            quads,
+            origins: &origins,
+            materials: &materials,
+            biome_records: &records,
+            biome_tints: &tints,
+            query_tables: &tables,
+        };
+        let identity = |state: &TintCacheState| {
+            let cache = state.cache.as_ref().unwrap();
+            (
+                cache.jobs.id(),
+                cache.source_group.as_ref().unwrap().1.id(),
+                cache.output_group.as_ref().unwrap().id(),
+            )
+        };
+        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&quads));
+        let first = identity(&state);
+        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&quads));
+        assert_eq!(identity(&state), first, "unchanged inputs create nothing");
+        state.wanted_jobs = plan::INITIAL_JOB_CAPACITY as usize + 1;
+        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&quads));
+        let grown = identity(&state);
+        assert_ne!(grown.0, first.0, "an overflowing bake grows the job buffer");
+        assert_eq!(grown.1, first.1, "the source tables were not replaced");
+        assert_ne!(grown.2, first.2);
+        let moved = storage("migrated quads");
+        state.prepare_bake(&device, (&layouts.0, &layouts.1), &sources(&moved));
+        let rebound = identity(&state);
+        assert_eq!(rebound.0, grown.0);
+        assert_ne!(rebound.1, grown.1, "a replaced table rebinds the sources");
+    }
+
+    #[test]
     fn owed_work_drops_departed_empty_and_uncached_allocations_without_a_dispatch() {
         let mut pending = HashMap::from([(entity(1), 0), (entity(2), 0), (entity(3), 0)]);
         let resident = |e: Entity| match e.index_u32() {
@@ -470,7 +638,7 @@ mod tests {
             3 => Some((200..210, 1)),
             _ => None,
         };
-        let batch = plan_owed(&mut pending, resident, 100, 65_535);
+        let batch = plan_owed(&mut pending, resident, 100, 65_535, 256);
         assert!(batch.jobs.is_empty() && batch.waiting.is_empty());
         assert!(pending.is_empty());
     }
@@ -489,7 +657,7 @@ mod tests {
             if pending.is_empty() {
                 break;
             }
-            let batch = plan_owed(&mut pending, resident, 4096, 2);
+            let batch = plan_owed(&mut pending, resident, 4096, 2, plan::reach(2));
             assert!(!batch.jobs.is_empty() && batch.jobs.len() <= 4);
             assert!(batch.jobs.iter().all(|job| job[1] <= 128));
             for &[start, count, metadata, _] in &batch.jobs {

@@ -388,6 +388,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     biome_tints: Res<ChunkGpuBiomeTints>,
     atmosphere: Res<AtmosphereGpu>,
     mut arena: ResMut<ChunkGpuArena>,
+    tint_bake: Option<Res<super::tint_cache::TintBakePipeline>>,
 ) {
     if compact.release_if_idle(&arena) {
         arena.bind_group = None;
@@ -443,6 +444,22 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
             },
         );
         buffers.tint_cache = arena.tint_cache.id();
+        if let Some(tint_bake) = &tint_bake {
+            let layouts = tint_bake.layouts(&pipeline_cache);
+            let arena = &mut *arena;
+            arena.tint_cache.prepare_bake(
+                &render_device,
+                (&layouts.0, &layouts.1),
+                &super::tint_cache::BakeSources {
+                    quads: &arena.quad_buffer,
+                    origins: &arena.origin_buffer,
+                    materials: &texture_assets.material_buffer,
+                    biome_records: &arena.biome_buffer,
+                    biome_tints: &biome_tints.buffer,
+                    query_tables: &biome_tints.query_tables,
+                },
+            );
+        }
     }
     if !bind_group_needs_rebuild(
         arena.bind_group.is_some() && arena.transparent_bind_group.is_some(),

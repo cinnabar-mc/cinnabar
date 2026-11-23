@@ -696,15 +696,30 @@ fn bake(fixture: &Fixture, cache: &wgpu::Buffer) {
             compilation_options: Default::default(),
             cache: None,
         });
-    let limit = gpu.device.limits().max_compute_workgroups_per_dimension;
+    // Seven workgroups per axis: six layers of seven rows reach 42 job slots for 36 jobs, so
+    // the overshooting slots must stop at the header's count instead of baking stale jobs.
+    let limit = 7;
     let jobs: Vec<_> = fixture_jobs(cache)
         .into_iter()
         .flat_map(|job| tint_bake_plan::split(job, limit))
         .collect();
     assert!(jobs.len() <= tint_bake_plan::reach(limit));
+    let capacity = tint_bake_plan::INITIAL_JOB_CAPACITY;
+    assert!(jobs.len() < capacity as usize);
+    // A persistent buffer from an earlier bake: every slot holds a job naming the wrong origin.
+    let stale = tint_bake_plan::job_words(&vec![[0, CASES as u32, 0, 0]; capacity as usize]);
     let job_buffer = gpu.words(
-        &jobs.iter().flatten().copied().collect::<Vec<_>>(),
-        wgpu::BufferUsages::STORAGE,
+        &stale,
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+    );
+    assert_eq!(
+        job_buffer.size(),
+        tint_bake_plan::job_buffer_bytes(capacity)
+    );
+    gpu.queue.write_buffer(
+        &job_buffer,
+        0,
+        bytemuck::cast_slice(&tint_bake_plan::job_words(&jobs)),
     );
     let sources = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,

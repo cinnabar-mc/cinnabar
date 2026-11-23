@@ -15,6 +15,42 @@ const OUTPUT_STORAGE_BINDINGS: u32 = 2;
 
 /// One bake job: first packed quad, quad count, origin slot and padding.
 pub(crate) type Job = [u32; 4];
+/// Jobs the first job buffer of a cache holds; it doubles when a bake needs more.
+pub(crate) const INITIAL_JOB_CAPACITY: u32 = 256;
+
+/// Words of a job buffer recording `jobs`: a header holding the job count, then the jobs. The
+/// buffer persists across bakes, so the kernel reads the count rather than its length.
+pub(crate) fn job_words(jobs: &[Job]) -> Vec<u32> {
+    [[jobs.len() as u32, 0, 0, 0]]
+        .iter()
+        .chain(jobs)
+        .flatten()
+        .copied()
+        .collect()
+}
+
+/// Bytes of a job buffer holding `capacity` jobs after its header.
+pub(crate) fn job_buffer_bytes(capacity: u32) -> u64 {
+    (u64::from(capacity) + 1) * ENTRY_BYTES
+}
+
+/// The doubled job capacity covering `wanted` jobs, within what one dispatch reaches along `y`
+/// and `z` and what one buffer and binding may hold; `current` when it cannot grow.
+pub(crate) fn grown_job_capacity(current: u32, wanted: usize, limits: &wgpu::Limits) -> u32 {
+    let buffer_jobs = (limits
+        .max_buffer_size
+        .min(limits.max_storage_buffer_binding_size)
+        / ENTRY_BYTES)
+        .saturating_sub(1);
+    let ceiling = (reach(limits.max_compute_workgroups_per_dimension) as u64)
+        .min(buffer_jobs)
+        .min(u64::from(u32::MAX)) as u32;
+    let mut capacity = current.max(1);
+    while (capacity as usize) < wanted && capacity < ceiling {
+        capacity = capacity.saturating_mul(2).min(ceiling);
+    }
+    capacity.max(current)
+}
 
 /// The bake kernel with its generated constants resolved.
 pub(crate) fn shader_source(source: &str) -> String {
@@ -225,6 +261,28 @@ mod tests {
         ];
         assert!(dispatch_size(&jobs, 2).iter().all(|&axis| axis <= 2));
         assert_eq!(dispatch_size(&jobs[..3], 65_535), [2, 3, 1]);
+    }
+
+    #[test]
+    fn job_buffers_carry_their_count_and_grow_by_doubling_within_limits() {
+        assert_eq!(
+            job_words(&[[5, 2, 1, 0]]),
+            [1, 0, 0, 0, 5, 2, 1, 0],
+            "the header counts the jobs"
+        );
+        assert_eq!(job_buffer_bytes(2), 3 * ENTRY_BYTES);
+        let limits = wgpu::Limits::default();
+        assert_eq!(grown_job_capacity(256, 300, &limits), 512);
+        assert_eq!(grown_job_capacity(256, 100, &limits), 256);
+        let small = wgpu::Limits {
+            max_compute_workgroups_per_dimension: 20,
+            ..limits
+        };
+        assert_eq!(
+            grown_job_capacity(256, 1000, &small),
+            400,
+            "one dispatch reaches 400"
+        );
     }
 
     #[test]
