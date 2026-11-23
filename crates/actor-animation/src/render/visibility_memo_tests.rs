@@ -299,3 +299,59 @@ fn memoized_gates_leave_the_expression_results_full_sampling_shares() {
     );
     assert_eq!(reused, reference);
 }
+
+#[test]
+fn memo_copies_each_distinct_gate_once_however_many_layers_share_it() {
+    use MolangOp::*;
+    let scalar = crate::test_support::scalar;
+    // Every occurrence still fits the tick's own budget, so the tick evaluates visibility.
+    const DISTINCT: usize = 500;
+    let mut compiled = fixture(false);
+    let template = compiled.render.layers[0];
+    let (slot, candidate) = (compiled.render.slots[0], compiled.render.candidates[0]);
+    let mut layers = Vec::with_capacity(2 * DISTINCT);
+    for gate in 0..DISTINCT {
+        // Frame-fraction gates miss whenever the fraction changes; each is shared by two layers.
+        let condition = expression(
+            &mut compiled,
+            vec![
+                LoadQuery(1),
+                Push(scalar(gate as f32 / DISTINCT as f32)),
+                Greater,
+            ],
+        );
+        for _ in 0..2 {
+            let mut layer = template;
+            layer.condition = Some(condition);
+            layer.first_slot = layers.len() as u32;
+            layers.push(layer);
+        }
+    }
+    // Canonical render data gives every layer its own slot and candidate.
+    compiled.render.slots = (0..layers.len())
+        .map(|index| {
+            let mut slot = slot;
+            slot.first_candidate = index as u32;
+            slot
+        })
+        .collect();
+    compiled.render.candidates = vec![candidate; layers.len()].into();
+    compiled.render.layers = layers.into();
+    let (mut store, actor) = store(compiled);
+    advance(&mut store, &actor, true);
+    for (step, alpha) in [0.25, 0.75, 0.75, 0.5, 0.25].into_iter().enumerate() {
+        crate::evaluation::frame_cache::take_copy_work();
+        crate::render_frame::take_memo_hits();
+        let (cached, fresh, _) = samples(&store, &actor, alpha);
+        assert_eq!(cached, fresh, "step {step}");
+        let reused = crate::render_frame::take_memo_hits() == 1;
+        assert_eq!(reused, step == 2, "step {step}");
+        // A miss copies every distinct layer gate and the held-item gate exactly once.
+        let expected = if reused { 0 } else { DISTINCT + 1 };
+        assert_eq!(
+            crate::evaluation::frame_cache::take_copy_work(),
+            expected,
+            "step {step}"
+        );
+    }
+}
