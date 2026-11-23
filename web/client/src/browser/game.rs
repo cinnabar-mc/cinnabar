@@ -264,15 +264,20 @@ async fn spectate(
     observe: js_sys::Function,
     url: String,
 ) {
-    let Ok(web_transport::browser::SpectatorStream { transport, stream }) =
-        web_transport::browser::open_spectator(&url).await
-    else {
+    let opened = bridge::tasks::until(
+        web_transport::browser::open_spectator(&url),
+        timer::sleep(crate::spectate::OPEN_TIMEOUT),
+    )
+    .await;
+    let Ok(Ok(web_transport::browser::SpectatorStream { transport, stream })) = opened else {
         emit(
             &observe,
             serde_json::json!({"error":"Could not open the spectator stream"}),
         );
         return;
     };
+    let stream = crate::spectate::FirstBytes::new(stream);
+    let received = stream.received();
     let (read, write) = tokio::io::split(stream);
     let (reader, frames, writer) = bridge::tasks::prepare_bounded_connection(
         read,
@@ -300,19 +305,30 @@ async fn spectate(
         return;
     };
     emit(&observe, serde_json::json!({"state":"joining"}));
-    {
+    let silent = {
         use futures::FutureExt;
         let session = work.fuse();
         let writer = writer.fuse();
-        futures::pin_mut!(session, writer);
+        // A host that opens the socket but never answers fails instead of waiting forever.
+        let deadline = timer::sleep(crate::spectate::FIRST_BYTES_TIMEOUT).fuse();
+        futures::pin_mut!(session, writer, deadline);
         loop {
             futures::select_biased! {
-                () = session => break,
+                () = session => break false,
                 () = writer => {},
+                () = deadline => if !received.get() { break true },
             }
         }
-    }
+    };
     drop(transport);
+    if silent {
+        host.borrow_mut().disconnect();
+        emit(
+            &observe,
+            serde_json::json!({"error":"The spectator stream did not respond"}),
+        );
+        return;
+    }
     let event = loop {
         if let Some(event) = host.borrow_mut().take_event() {
             break event;

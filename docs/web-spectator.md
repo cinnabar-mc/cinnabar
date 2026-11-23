@@ -15,11 +15,14 @@ normal client. The client has no account, relay control channel or play Hello in
 | `stream` | HTTPS URL of the spectator stream |
 | `parent` | Optional HTTPS origin of an embedding page |
 
-Plain HTTP is accepted only on loopback hosts, for local development. The page forwards no
+Plain HTTP is accepted only on loopback hosts, for local development; sound still needs an
+HTTPS asset directory. Same-origin asset requests carry credentials, so a host may keep the
+bundle behind its own session. The page forwards no
 keyboard or mouse input. A click resumes audio. When `parent` is set, the page posts each
 state or error notice to that origin as `{type: "cinnabar-spectator-notice", state | error}`.
-That parent may switch streams with `{type: "cinnabar-spectate", stream}`. Messages from any
-other origin are ignored. Pages that embed the client directly call `Game.spectate(url, observe)`.
+Startup failures are reported the same way. The parent window itself may switch streams with
+`{type: "cinnabar-spectate", stream}`, including while the client loads; messages from any other
+window or origin are ignored. Pages that embed the client directly call `Game.spectate(url, observe)`.
 
 ## Stream contract
 
@@ -34,6 +37,9 @@ relay's Hello:
 3. The host sends Batch frames. The usual spawn prerequisites apply (`ChunkRadiusUpdated`,
    `PlayStatus` PlayerSpawn and terrain).
 4. A Disconnect frame ends the stream with a visible message. Transfers are refused.
+
+The client gives up when the socket does not open within 15 seconds or sends no bytes within
+20 seconds of opening.
 
 Client packets (movement, loading and initialization) still arrive. Spectator hosts read and
 discard them. WebSocket messages may split or join frames, as on relay play channels. Browser

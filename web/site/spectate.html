@@ -62,25 +62,34 @@ function resize() {
   canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
 }
 
+// The embedding window, or null for a top-level page, which accepts no stream switches.
+const parentWindow = window.parent !== window ? window.parent : null;
+/** Reports a failure on the page and to the parent. */
+const fail = (error) => observe(JSON.stringify({ error: error?.message || String(error) }));
+
 try {
   params = spectatorParams(location.search);
+  // Switches may arrive while the client loads; the latest one wins.
+  let requested = params.stream;
+  let game;
+  window.addEventListener("message", (event) => {
+    const stream = requestedStream(event, params.parent, parentWindow);
+    if (!stream) return;
+    requested = stream;
+    if (game) { try { game.spectate(stream, observe); } catch (error) { fail(error); } }
+  });
   await init();
   resize();
   new ResizeObserver(resize).observe(canvas);
   // Spectators never send gameplay input: this frame source stays empty.
   const input = new BrowserInput();
   status.textContent = "Loading the world…";
-  const game = await boot(params.assets, input);
+  game = await boot(params.assets, input);
   canvas.addEventListener("click", () => game.resume_audio().catch(() => {}));
-  window.addEventListener("message", (event) => {
-    const stream = requestedStream(event, params.parent);
-    if (!stream) return;
-    try { game.spectate(stream, observe); } catch (error) { status.textContent = error.message; }
-  });
   window.addEventListener("pagehide", (event) => {
     if (!event.persisted) { game.free(); input.free(); }
   });
-  game.spectate(params.stream, observe);
-} catch (error) { status.textContent = error.message; }
+  game.spectate(requested, observe);
+} catch (error) { fail(error); }
 </script>
 </html>

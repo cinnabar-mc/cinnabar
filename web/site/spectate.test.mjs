@@ -34,12 +34,15 @@ test("spectator page rejects missing values and asset paths without a trailing s
   assert.throws(() => spectatorParams(query({ assets: "https://example.com/assets/", stream: "not a url" })));
 });
 
-test("stream switches are accepted only from the configured parent", () => {
-  const parent = "https://example.com";
+test("stream switches are accepted only from the configured parent window", () => {
+  const parent = "https://example.com", frame = {}, sibling = {};
   const message = { type: STREAM_MESSAGE, stream: "https://example.com/stream?camera=orbit" };
-  assert.equal(requestedStream({ origin: parent, data: message }, parent), message.stream);
-  assert.equal(requestedStream({ origin: "https://evil.example", data: message }, parent), null);
-  assert.equal(requestedStream({ origin: parent, data: message }, null), null);
-  assert.equal(requestedStream({ origin: parent, data: { type: "other", stream: message.stream } }, parent), null);
-  assert.equal(requestedStream({ origin: parent, data: { type: STREAM_MESSAGE, stream: 7 } }, parent), null);
+  const from = (origin, source, data = message) => ({ origin, source, data });
+  assert.equal(requestedStream(from(parent, frame), parent, frame), message.stream);
+  assert.equal(requestedStream(from("https://evil.example", frame), parent, frame), null);
+  assert.equal(requestedStream(from(parent, sibling), parent, frame), null);
+  assert.equal(requestedStream(from(parent, frame), parent, null), null);
+  assert.equal(requestedStream(from(parent, frame), null, frame), null);
+  assert.equal(requestedStream(from(parent, frame, { type: "other", stream: message.stream }), parent, frame), null);
+  assert.equal(requestedStream(from(parent, frame, { type: STREAM_MESSAGE, stream: 7 }), parent, frame), null);
 });

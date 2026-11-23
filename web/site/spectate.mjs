@@ -34,9 +34,12 @@ export function spectatorParams(search) {
   return { assets, stream, parent };
 }
 
-/** Returns the stream a message asks for, or null unless it came from the configured parent. */
-export function requestedStream(event, parent) {
-  if (!parent || event.origin !== parent) return null;
+/**
+ * Returns the stream a message asks for, or null unless it came from the configured parent
+ * origin and the embedding window itself (`parentWindow`, absent for a top-level page).
+ */
+export function requestedStream(event, parent, parentWindow) {
+  if (!parent || !parentWindow || event.origin !== parent || event.source !== parentWindow) return null;
   const data = event.data;
   if (!data || data.type !== STREAM_MESSAGE || typeof data.stream !== "string") return null;
   return data.stream;

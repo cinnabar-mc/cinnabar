@@ -4,9 +4,9 @@
 pub mod browser;
 pub mod launcher;
 pub mod play;
-pub mod spectate;
 #[cfg(any(target_arch = "wasm32", test))]
 mod relay;
+pub mod spectate;
 
 use semantic_input::{KEYBOARD_USAGES, KeyboardKey, KeyboardMouseFrame, MAX_MOUSE_BUTTONS};
 #[cfg(target_arch = "wasm32")]
