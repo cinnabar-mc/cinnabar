@@ -9,6 +9,10 @@ use world::{DecodedBiomeColumn, RawBiomeIds};
 const COLUMNS: usize = 6;
 const ROWS: usize = 6;
 const CASES: usize = COLUMNS * ROWS;
+/// Group-0 slot the fixtures give the lightmap: the tint cache's, free in the uncached layout.
+const LIGHTMAP_BINDING: u32 = material_shader::TERRAIN_TINT_CACHE_BINDING;
+/// The lightmap's slot beside the tint cache.
+const CACHED_LIGHTMAP_BINDING: u32 = material_shader::TERRAIN_TINT_CACHE_BINDING + 1;
 
 /// Encodes normal, swamp/seasonal and mixed descriptors through the production biome packer.
 fn records() -> [PackedBiomeRecord; 3] {
@@ -147,6 +151,11 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 
 /// Replaces only the colour helper with its complete fragment-tint reference.
 fn source(reference: bool) -> String {
+    source_with(reference, &[], LIGHTMAP_BINDING)
+}
+
+/// [`source`] composed with `definitions`, moving the lightmap into group 0 at `lightmap`.
+fn source_with(reference: bool, definitions: &[&str], lightmap: u32) -> String {
     let mut module: wesl::syntax::TranslationUnit =
         crate::material_shader::source(include_str!("../../src/chunk.wesl"))
             .parse()
@@ -166,8 +175,10 @@ fn source(reference: bool) -> String {
             .expect("cube shade helper");
         *shade = replacement.global_declarations.remove(0);
     }
-    let mut source = shader_source::standalone(&module.to_string(), &[])
-        .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
+    let mut source = shader_source::standalone(&module.to_string(), definitions).replace(
+        "@group(1) @binding(0)",
+        &format!("@group(0) @binding({lightmap})"),
+    );
     source.push_str(
         &VERTEX
             .replace(
@@ -309,152 +320,186 @@ fn uniform_cube_cache_admits_only_position_independent_descriptors() {
     render_fixture(true);
 }
 
+/// Production-encoded terrain buffers drawing one independently visible cell per case.
+struct Fixture {
+    gpu: Gpu,
+    buffers: [wgpu::Buffer; 13],
+    native_atlas: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    native_sampler: wgpu::Sampler,
+}
+
+impl Fixture {
+    /// Gives every quad `extent` blocks along its width and height axes on `gpu`.
+    fn new(gpu: Gpu, extent: [u8; 2]) -> Self {
+        let storage = wgpu::BufferUsages::STORAGE;
+        let uniform = wgpu::BufferUsages::UNIFORM;
+        let mut biome_words = Vec::new();
+        let descriptors = records();
+        let mut offsets = descriptors
+            .iter()
+            .map(|record| {
+                let offset = biome_words.len() as u32;
+                biome_words.extend(record.words());
+                offset
+            })
+            .collect::<Vec<_>>();
+        for invalid_magic in [true, false] {
+            let mut words = descriptors[0].words().to_vec();
+            if invalid_magic {
+                words[0] = 0;
+            } else {
+                words[1] = u32::MAX - 1;
+            }
+            offsets.push(biome_words.len() as u32);
+            biome_words.extend(words);
+        }
+        offsets.push(u32::MAX);
+        assert_eq!(offsets.len(), ROWS);
+        let quads = (0..CASES)
+            .map(|index| {
+                PackedQuad::new(
+                    [0, (index % 8) as u8, 0],
+                    Face::ALL[index % COLUMNS],
+                    extent[0],
+                    extent[1],
+                    (index % COLUMNS) as u32,
+                )
+            })
+            .collect::<Vec<_>>();
+        let origins = (0..CASES)
+            .flat_map(|index| {
+                [
+                    (-320_i32) as u32,
+                    64,
+                    (-480_i32) as u32,
+                    offsets[index / COLUMNS],
+                    0,
+                    0,
+                    0,
+                    0,
+                ]
+            })
+            .collect::<Vec<_>>();
+        let materials = material_flags()
+            .into_iter()
+            .enumerate()
+            .flat_map(|(index, flags)| {
+                crate::material_records::plain_material(
+                    0,
+                    flags,
+                    if index % 2 == 0 {
+                        assets::NO_ANIMATION
+                    } else {
+                        0
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut atmosphere = [0.0; 40];
+        atmosphere[16..19].copy_from_slice(&[0.13, 0.22, 0.31]);
+        atmosphere[36..39]
+            .copy_from_slice(&render_model::celestial::rgb_to_gamma([0.13, 0.22, 0.31]));
+        atmosphere[20] = 64.0;
+        let buffers = [
+            gpu.buffer(
+                &gpu_snapshot::view(Mat4::IDENTITY, Vec3::new(-312.0, 68.0, -472.0)),
+                uniform,
+            ),
+            gpu.words(
+                &quads.iter().flat_map(PackedQuad::words).collect::<Vec<_>>(),
+                storage,
+            ),
+            gpu.words(&origins, storage),
+            gpu.words(&materials, storage),
+            gpu.words(&biome_words, storage),
+            gpu.words(&tint_words(), storage),
+            gpu.words(&meshing::biome_lattice::query_table_words(), uniform),
+            gpu.words(
+                &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
+                storage,
+            ),
+            gpu.words(&[0, 1], storage),
+            gpu.words(&[1, 0.25_f32.to_bits(), 0, 0], uniform),
+            gpu.words(&crate::solid_terrain_raster::lighting_words(CASES), storage),
+            gpu.buffer(&atmosphere, uniform),
+            gpu.lightmap(bytemuck::cast_slice(
+                &render_model::LightmapInputs::default().build(),
+            )),
+        ];
+        let native_atlas = atlas(&gpu);
+        let sampler = gpu.device.create_sampler(&Default::default());
+        let native_sampler = gpu
+            .device
+            .create_sampler(&material_shader::native_leaf_sampler_descriptor());
+        Self {
+            gpu,
+            buffers,
+            native_atlas,
+            sampler,
+            native_sampler,
+        }
+    }
+
+    /// The terrain group-0 entries, with the lightmap at `lightmap`.
+    fn bindings(&self, lightmap: u32) -> Vec<wgpu::BindGroupEntry<'_>> {
+        let [
+            view,
+            quads,
+            origins,
+            materials,
+            records,
+            tints,
+            query_tables,
+            animations,
+            frames,
+            clock,
+            streams,
+            atmosphere,
+            lightmap_buffer,
+        ] = &self.buffers;
+        let atlas = || wgpu::BindingResource::TextureView(&self.native_atlas);
+        [
+            (0, view.as_entire_binding()),
+            (1, quads.as_entire_binding()),
+            (2, origins.as_entire_binding()),
+            (3, materials.as_entire_binding()),
+            (6, wgpu::BindingResource::Sampler(&self.sampler)),
+            (7, records.as_entire_binding()),
+            (8, tints.as_entire_binding()),
+            (9, animations.as_entire_binding()),
+            (10, frames.as_entire_binding()),
+            (11, clock.as_entire_binding()),
+            (13, streams.as_entire_binding()),
+            (15, atmosphere.as_entire_binding()),
+            (
+                crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                query_tables.as_entire_binding(),
+            ),
+            (lightmap, lightmap_buffer.as_entire_binding()),
+            (material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0], atlas()),
+            (material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1], atlas()),
+            (material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[2], atlas()),
+            (material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[3], atlas()),
+            (material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[4], atlas()),
+            (
+                material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                wgpu::BindingResource::Sampler(&self.native_sampler),
+            ),
+        ]
+        .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource })
+        .into()
+    }
+}
+
 /// Checks either exact old pixels or observable admission without requiring the new varying in both.
 fn render_fixture(cache_admission: bool) {
     let Some(gpu) = Gpu::for_fixture("uniform cube tint raster") else {
         return;
     };
-    let storage = wgpu::BufferUsages::STORAGE;
-    let uniform = wgpu::BufferUsages::UNIFORM;
-    let mut biome_words = Vec::new();
-    let descriptors = records();
-    let mut offsets = descriptors
-        .iter()
-        .map(|record| {
-            let offset = biome_words.len() as u32;
-            biome_words.extend(record.words());
-            offset
-        })
-        .collect::<Vec<_>>();
-    for invalid_magic in [true, false] {
-        let mut words = descriptors[0].words().to_vec();
-        if invalid_magic {
-            words[0] = 0;
-        } else {
-            words[1] = u32::MAX - 1;
-        }
-        offsets.push(biome_words.len() as u32);
-        biome_words.extend(words);
-    }
-    offsets.push(u32::MAX);
-    assert_eq!(offsets.len(), ROWS);
-    let quads = (0..CASES)
-        .map(|index| {
-            PackedQuad::new(
-                [0, (index % 8) as u8, 0],
-                Face::ALL[index % COLUMNS],
-                16,
-                8,
-                (index % COLUMNS) as u32,
-            )
-        })
-        .collect::<Vec<_>>();
-    let origins = (0..CASES)
-        .flat_map(|index| {
-            [
-                (-320_i32) as u32,
-                64,
-                (-480_i32) as u32,
-                offsets[index / COLUMNS],
-                0,
-                0,
-                0,
-                0,
-            ]
-        })
-        .collect::<Vec<_>>();
-    let materials = material_flags()
-        .into_iter()
-        .enumerate()
-        .flat_map(|(index, flags)| {
-            crate::material_records::plain_material(
-                0,
-                flags,
-                if index % 2 == 0 {
-                    assets::NO_ANIMATION
-                } else {
-                    0
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    let view = gpu.buffer(
-        &gpu_snapshot::view(Mat4::IDENTITY, Vec3::new(-312.0, 68.0, -472.0)),
-        uniform,
-    );
-    let quads = gpu.words(
-        &quads.iter().flat_map(PackedQuad::words).collect::<Vec<_>>(),
-        storage,
-    );
-    let origins = gpu.words(&origins, storage);
-    let materials = gpu.words(&materials, storage);
-    let records = gpu.words(&biome_words, storage);
-    let tints = gpu.words(&tint_words(), storage);
-    let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
-    let animations = gpu.words(
-        &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
-        storage,
-    );
-    let frames = gpu.words(&[0, 1], storage);
-    let clock = gpu.words(&[1, 0.25_f32.to_bits(), 0, 0], uniform);
-    let streams = gpu.words(&crate::solid_terrain_raster::lighting_words(CASES), storage);
-    let mut atmosphere = [0.0; 40];
-    atmosphere[16..19].copy_from_slice(&[0.13, 0.22, 0.31]);
-    atmosphere[36..39].copy_from_slice(&render_model::celestial::rgb_to_gamma([0.13, 0.22, 0.31]));
-    atmosphere[20] = 64.0;
-    let atmosphere = gpu.buffer(&atmosphere, uniform);
-    let lightmap = gpu.lightmap(bytemuck::cast_slice(
-        &render_model::LightmapInputs::default().build(),
-    ));
-    let native_atlas = atlas(&gpu);
-    let sampler = gpu.device.create_sampler(&Default::default());
-    let native_sampler = gpu
-        .device
-        .create_sampler(&material_shader::native_leaf_sampler_descriptor());
-    let bindings = [
-        (0, view.as_entire_binding()),
-        (1, quads.as_entire_binding()),
-        (2, origins.as_entire_binding()),
-        (3, materials.as_entire_binding()),
-        (6, wgpu::BindingResource::Sampler(&sampler)),
-        (7, records.as_entire_binding()),
-        (8, tints.as_entire_binding()),
-        (9, animations.as_entire_binding()),
-        (10, frames.as_entire_binding()),
-        (11, clock.as_entire_binding()),
-        (13, streams.as_entire_binding()),
-        (15, atmosphere.as_entire_binding()),
-        (
-            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-            query_tables.as_entire_binding(),
-        ),
-        (27, lightmap.as_entire_binding()),
-        (
-            material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
-            wgpu::BindingResource::TextureView(&native_atlas),
-        ),
-        (
-            material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
-            wgpu::BindingResource::TextureView(&native_atlas),
-        ),
-        (
-            material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[2],
-            wgpu::BindingResource::TextureView(&native_atlas),
-        ),
-        (
-            material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[3],
-            wgpu::BindingResource::TextureView(&native_atlas),
-        ),
-        (
-            material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[4],
-            wgpu::BindingResource::TextureView(&native_atlas),
-        ),
-        (
-            material_shader::NATIVE_LEAF_SAMPLER_BINDING,
-            wgpu::BindingResource::Sampler(&native_sampler),
-        ),
-    ]
-    .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+    let fixture = Fixture::new(gpu, [16, 8]);
+    let gpu = &fixture.gpu;
+    let bindings = fixture.bindings(LIGHTMAP_BINDING);
     let draw = |fragment| Draw {
         fragment,
         vertices: 0..CASES as u32 * 6,
@@ -509,6 +554,124 @@ fn render_fixture(cache_admission: bool) {
             "case {case}: uniform admission and fallback"
         );
     }
+}
+
+/// One-block faces of mixed, swamp and invalid records take the vertex blend. With the per-quad
+/// tint cache they must draw exactly the uncached pixels whether the cache is cold, warm or holds
+/// entries of an earlier epoch, and a current entry must be what the face draws.
+#[test]
+fn one_block_tint_cache_draws_the_uncached_blend() {
+    let name = "one-block tint cache raster";
+    let features = wgpu::Features::VERTEX_WRITABLE_STORAGE;
+    let Some((_, adapter)) = Gpu::for_fixture_with_adapter(name, features, Default::default())
+    else {
+        return;
+    };
+    if !adapter.features().contains(features) {
+        eprintln!("skipping {name}: missing vertex-writable storage GPU fixture");
+        return;
+    }
+    // The cached layout takes a storage slot beyond the default limit; production devices
+    // take the adapter's.
+    let limits = wgpu::Limits {
+        max_storage_buffers_per_shader_stage: adapter.limits().max_storage_buffers_per_shader_stage,
+        ..Default::default()
+    };
+    let Some(gpu) = Gpu::for_fixture_with_limits(name, features, limits) else {
+        return;
+    };
+    let fixture = Fixture::new(gpu, [1, 1]);
+    let gpu = &fixture.gpu;
+    let draw = |bindings| Draw {
+        fragment: "fragment_solid",
+        vertices: 0..CASES as u32 * 6,
+        bindings,
+        blend: None,
+        write_depth: true,
+    };
+    let plain = fixture.bindings(LIGHTMAP_BINDING);
+    let expected = gpu.render_srgb(&source(false), "tint_cube_vertex", &[draw(&plain)]);
+    let cache = gpu.words(
+        &vec![0; (CASES + 1) * 4],
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+    );
+    let mut cached = fixture.bindings(CACHED_LIGHTMAP_BINDING);
+    cached.push(wgpu::BindGroupEntry {
+        binding: material_shader::TERRAIN_TINT_CACHE_BINDING,
+        resource: cache.as_entire_binding(),
+    });
+    let cached_source = source_with(false, &["TERRAIN_TINT_CACHE"], CACHED_LIGHTMAP_BINDING);
+    let render = |epoch: u32| {
+        gpu.queue
+            .write_buffer(&cache, 0, bytemuck::cast_slice(&[epoch, 0, 0, 0]));
+        gpu.render_srgb(&cached_source, "tint_cube_vertex", &[draw(&cached)])
+    };
+    assert!(
+        expected
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel != &expected[..4])
+    );
+    assert!(
+        render(1) == expected,
+        "cold cache must draw the uncached blend"
+    );
+    let stored = read_words(gpu, &cache)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .skip(1)
+        .filter(|entry| entry[3] == 1)
+        .count();
+    assert!(
+        stored >= COLUMNS,
+        "every mixed one-block face stores its blend"
+    );
+    assert!(
+        render(1) == expected,
+        "warm cache must draw the uncached blend"
+    );
+    let poison = |epoch: u32| {
+        let entry = [
+            0.5_f32.to_bits(),
+            0.0_f32.to_bits(),
+            1.0_f32.to_bits(),
+            epoch,
+        ];
+        let mut words = vec![0; 4];
+        words.extend(entry.repeat(CASES));
+        gpu.queue
+            .write_buffer(&cache, 0, bytemuck::cast_slice(&words));
+    };
+    poison(1);
+    assert!(
+        render(2) == expected,
+        "entries of an earlier epoch are recomputed"
+    );
+    poison(3);
+    assert!(
+        render(3) != expected,
+        "faces draw the entry stored under the current epoch"
+    );
+}
+
+/// Copies `buffer` back as words.
+fn read_words(gpu: &Gpu, buffer: &wgpu::Buffer) -> Vec<u32> {
+    let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("tint cache readback"),
+        size: buffer.size(),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    encoder.copy_buffer_to_buffer(buffer, 0, &readback, 0, buffer.size());
+    gpu.queue.submit([encoder.finish()]);
+    readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    bytemuck::cast_slice(&readback.slice(..).get_mapped_range().unwrap()).to_vec()
 }
 
 const VERTEX: &str = r#"

@@ -145,6 +145,7 @@ pub(in crate::chunk) fn begin_recovery(world: &mut World) {
     {
         geometry.invalidate_publication();
     }
+    world.resource::<ChunkGpuArena>().note_tint_input_write();
     let device = world.resource::<RenderDevice>();
     let queue = world.resource::<RenderQueue>();
     let result = crate::gpu_allocation::terrain_write(
@@ -215,6 +216,7 @@ impl ChunkGpuArena {
         self.free_biomes = default();
         self.shared_biome_ranges = default();
         self.uploaded_indirect_bytes.clear();
+        self.note_tint_input_write();
         self.bind_group = None;
         self.transparent_bind_group = None;
         self.bind_group_buffers = None;

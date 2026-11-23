@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn terrain_descriptors_preserve_model_liquid_and_blend_contracts() {
     for compact in [false, true] {
-        let [cutout, solid, model, transparent, liquid] = build(compact);
+        let [cutout, solid, model, transparent, liquid] = build(compact, false);
         assert_eq!(
             solid.primitive.cull_mode,
             Some(bevy::render::render_resource::Face::Back)
@@ -66,4 +66,39 @@ fn terrain_descriptors_preserve_model_liquid_and_blend_contracts() {
         );
         assert_eq!(liquid.layout.len(), model.layout.len());
     }
+}
+
+/// The cache joins only the separate layout's shared opaque group and only cube vertex programs,
+/// and every binding the cached cube program uses is declared for its stage.
+#[test]
+fn tint_cache_binds_the_shared_opaque_group_for_cube_vertices() {
+    let def = crate::chunk::gpu::tint_cache::SHADER_DEF;
+    let [cutout, solid, model, transparent, liquid] = build(false, true);
+    for cube in [&cutout, &solid] {
+        assert!(cube.vertex.shader_defs.contains(&def.into()));
+        assert!(
+            !cube
+                .fragment
+                .as_ref()
+                .unwrap()
+                .shader_defs
+                .contains(&def.into())
+        );
+    }
+    for other in [&model, &transparent, &liquid] {
+        assert!(!other.vertex.shader_defs.contains(&def.into()));
+    }
+    let cache = crate::chunk::gpu::tint_cache::layout_entry();
+    for shared in [&cutout, &solid, &model, &liquid] {
+        assert_eq!(shared.layout[0], cutout.layout[0]);
+        assert!(shared.layout[0].entries.contains(&cache));
+    }
+    assert!(!transparent.layout[0].entries.contains(&cache));
+    let [uncached, ..] = build(false, false);
+    assert!(!uncached.layout[0].entries.contains(&cache));
+    crate::shader_test_support::assert_binding_visibility(
+        &crate::shader_source::standalone(include_str!("../../../../chunk.wesl"), &[def]),
+        0,
+        &cutout.layout[0],
+    );
 }

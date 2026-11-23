@@ -31,6 +31,9 @@ pub(crate) struct ChunkPipeline {
     pub(in crate::chunk) unit_variants: [Variants<RenderPipeline, ChunkPipelineSpecializer>; 4],
     pub(in crate::chunk) unit_supported: bool,
     pub(in crate::chunk) compact: bool,
+    /// Whether the opaque layout binds the per-quad tint cache; see
+    /// [`crate::chunk::gpu::tint_cache`].
+    pub(in crate::chunk) tint_cache: bool,
     pub(in crate::chunk) solid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     /// Sorted transparent liquid and model draws, one pipeline so they never switch programs.
@@ -45,13 +48,22 @@ impl FromWorld for ChunkPipeline {
         let compact = world.get_resource::<RenderDevice>().is_some_and(|device| {
             device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers()
         });
+        let tint_cache = crate::chunk::gpu::tint_cache::requested()
+            && world.get_resource::<RenderDevice>().is_some_and(|device| {
+                crate::chunk::gpu::tint_cache::supported(
+                    device.features(),
+                    device.limits().max_storage_buffers_per_shader_stage,
+                    vertex_storage_buffers(&opaque_chunk_bind_group_layout()),
+                    compact,
+                )
+            });
         let [
             descriptor,
             solid_descriptor,
             model_descriptor,
             transparent_descriptor,
             depth_liquid_descriptor,
-        ] = descriptors::build(compact);
+        ] = descriptors::build(compact, tint_cache);
         let bind_group_layout = descriptor.layout[0].clone();
         let transparent_bind_group_layout = transparent_descriptor.layout[0].clone();
         let unit_variants = [
@@ -63,6 +75,7 @@ impl FromWorld for ChunkPipeline {
         .map(|descriptor| Variants::new(ChunkPipelineSpecializer, unit_descriptor(descriptor)));
         Self {
             compact,
+            tint_cache,
             unit_variants,
             unit_supported: false,
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),

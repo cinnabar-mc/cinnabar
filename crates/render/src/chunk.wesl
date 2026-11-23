@@ -378,6 +378,37 @@ fn cube_light_sample(lighting_record_index: u32, corner: u32) -> u32 {
     return select(lighting_word & 0xffffu, lighting_word >> 16u, (corner & 1u) != 0u);
 }
 
+// Per-quad blended tints of one-block faces: slot 0 holds the current epoch in `x`, slot
+// `quad + 1` the gamma RGB bits and the epoch they were computed under (`chunk/gpu/tint_cache.rs`).
+@if(TERRAIN_TINT_CACHE)
+@group(0) @binding(TERRAIN_TINT_CACHE_BINDING) var<storage, read_write> tint_cache: array<vec4<u32>>;
+
+/// Whether `corner` supplies its quad's flat outputs: both triangles of `STATIC_QUAD_INDICES`
+/// start at corner 0, and flat interpolation takes the first vertex. Only the cached build skips
+/// the other corners, so four invocations never race for one cache slot.
+fn provides_flat_outputs(corner: u32) -> bool {
+    @if(TERRAIN_TINT_CACHE) return corner == 0u;
+    @if(!TERRAIN_TINT_CACHE) return true;
+}
+
+/// Gamma tint of the one-block face of packed quad `quad_index`, the blend of its block. The
+/// cached build reuses the value stored under the current epoch, which is the value this same
+/// code computed from unchanged inputs, and otherwise computes and stores it.
+fn one_block_tint_gamma(quad_index: u32, tint_kind: u32, material_flags: u32, record: u32, block: vec3<f32>, chunk_origin: vec3<f32>) -> vec3<f32> {
+    @if(TERRAIN_TINT_CACHE) {
+        let slot = quad_index + 1u;
+        if (slot < arrayLength(&tint_cache)) {
+            let epoch = tint_cache[0].x;
+            let entry = tint_cache[slot];
+            if (entry.w == epoch) { return bitcast<vec3<f32>>(entry.xyz); }
+            let tint = blended_biome_tint_gamma(tint_kind, material_flags, record, block, chunk_origin).rgb;
+            tint_cache[slot] = vec4(bitcast<vec3<u32>>(tint), epoch);
+            return tint;
+        }
+    }
+    return blended_biome_tint_gamma(tint_kind, material_flags, record, block, chunk_origin).rgb;
+}
+
 /// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
 /// vertex_index / 4 selects its origin, and instance_index selects the packed quad.
 fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
@@ -433,14 +464,16 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     // A one-block face owns a single block's blend, so evaluate it here once rather than per
     // fragment. Mixed records mesh tinted faces one block wide for exactly this.
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
-    if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
-        out.uniform_tint_gamma = vec4(blended_biome_tint_gamma(
+    if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0
+        && provides_flat_outputs(corner)) {
+        out.uniform_tint_gamma = vec4(one_block_tint_gamma(
+            instance_index,
             material.flags & 0x30u,
             material.flags,
             out.biome_record,
             local_origin + vec3(0.5),
             vec3<f32>(cube.chunk_origin.xyz),
-        ).rgb, 1.0);
+        ), 1.0);
     }
     @if(ENHANCED)
     out.surface_class = material_class(cube.material_id);

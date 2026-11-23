@@ -14,5 +14,6 @@ pub(in crate::chunk) mod resource_geometry;
 pub(in crate::chunk) mod resource_sorts;
 pub(in crate::chunk) mod telemetry;
 pub(in crate::chunk) mod texture_upload;
+pub(in crate::chunk) mod tint_cache;
 pub(in crate::chunk) mod types;
 pub(in crate::chunk) mod upload;

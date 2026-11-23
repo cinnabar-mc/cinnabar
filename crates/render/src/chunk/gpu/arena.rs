@@ -157,6 +157,11 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) growth_blocked: bool,
     /// Advances only when owned ranges become reusable.
     pub(in crate::chunk) release_revision: u64,
+    /// Advances whenever quad, origin or biome-record contents may change in place, so the tint
+    /// cache starts a new epoch; see [`super::tint_cache`].
+    pub(in crate::chunk) tint_input_revision: std::sync::atomic::AtomicU64,
+    /// Present while the opaque pipelines bind the per-quad tint cache.
+    pub(in crate::chunk) tint_cache: Option<super::tint_cache::TintCache>,
     pub(in crate::chunk) memory: super::telemetry::ArenaMemoryTelemetry,
     /// Queue completion for an empty arena; new work cancels this release attempt.
     pub(in crate::chunk) idle_completion: Option<Arc<std::sync::atomic::AtomicBool>>,
@@ -170,6 +175,13 @@ pub(in crate::chunk) fn init_chunk_gpu_arena(
 }
 
 impl ChunkGpuArena {
+    /// Records that quad, origin or biome-record contents may have changed, so cached tints
+    /// computed from earlier contents are not reused.
+    pub(in crate::chunk) fn note_tint_input_write(&self) {
+        self.tint_input_revision
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Records for the model draw orders that `entity`'s resident allocation becomes `next`;
     /// call before changing `allocations`.
     pub(in crate::chunk) fn record_transparent_model_change(

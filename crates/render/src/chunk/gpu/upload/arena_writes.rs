@@ -237,6 +237,9 @@ impl ArenaWrites {
             if self.order.is_empty() {
                 continue;
             }
+            if stream != ArenaStream::GeometryStreams {
+                arena.note_tint_input_write();
+            }
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!(
                 "terrain.merge_upload_ranges",
