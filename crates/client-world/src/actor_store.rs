@@ -600,6 +600,16 @@ pub enum LocalItemUse {
     },
 }
 
+/// Identifies one state of an actor's snapshot and its rig. Any change those can observe gives
+/// a different value, except the rig's local frame fractions (see
+/// [`actor_animation::PresentationRevision`]); a value may also change when nothing observable
+/// did. Frame samples also read the camera, which [`ActorStore::view_revision`] identifies.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ActorPresentationRevision {
+    actor: u64,
+    rig: Option<actor_animation::PresentationRevision>,
+}
+
 /// Sparse session state, including immutable prepared appearances; GPU resources stay in presentation.
 #[derive(Debug)]
 pub(crate) struct ActorStore {
@@ -617,7 +627,7 @@ pub(crate) struct ActorStore {
     world_default_game_mode: Option<protocol::PlayerGameMode>,
     entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
     custom_actor_facts: HashMap<std::sync::Arc<str>, EntityFact>,
-    actors: HashMap<u64, ActorSnapshot>,
+    actors: tracked_actors::TrackedActors,
     hitbox_budget: hitbox::Budget,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: FastHashMap<i64, u64>,
@@ -683,6 +693,8 @@ pub(crate) struct ActorStore {
     local_bedrock_swing_ticks: i32,
     local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
+    /// Advances whenever the camera rotation or position frame samples read changes.
+    view_revision: u64,
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
     camera_position: [f32; 3],
@@ -750,6 +762,7 @@ mod spatial;
 pub use spatial::MIN_COLLISION_DIMENSION;
 mod synchronized_audio;
 mod terrain_interlock;
+mod tracked_actors;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
 pub use entities::{

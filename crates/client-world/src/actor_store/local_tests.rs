@@ -974,3 +974,49 @@ fn synthetic_show_name_default_survives_prediction_but_not_server_hides() {
     assert!(actor.flag(ActorFlag::Sneaking.wire_value()));
     assert!(actor.flag(ActorFlag::Sprinting.wire_value()));
 }
+
+/// Frames that feed the same local pose and camera keep the local actor's revisions; a moved
+/// pose, a turned camera or an actor tick changes them.
+#[test]
+fn repeated_local_feed_keeps_the_presentation_revision() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, 10, &feed);
+    store.set_camera_rotation([10.0, 20.0]);
+    store.set_camera_position([0.0, 65.6, 0.0]);
+    let revision = store.presentation_revision(1).unwrap();
+    let movement = store.get(1).unwrap().movement_revision;
+    for _ in 0..3 {
+        store.sync_local_player(1, 10, &feed);
+        store.set_camera_rotation([10.0, 20.0]);
+        store.set_camera_position([0.0, 65.6, 0.0]);
+        store.advance_interpolation_frame(0);
+        assert_eq!(store.presentation_revision(1), Some(revision));
+        assert_eq!(store.get(1).unwrap().movement_revision, movement);
+    }
+
+    feed.position[0] = 1.0;
+    store.sync_local_player(1, 10, &feed);
+    let moved = store.presentation_revision(1).unwrap();
+    assert_ne!(moved, revision);
+    assert!(store.get(1).unwrap().movement_revision > movement);
+    feed.sneaking = true;
+    store.sync_local_player(1, 10, &feed);
+    let sneaking = store.presentation_revision(1).unwrap();
+    assert_ne!(
+        sneaking, moved,
+        "a changed presentation flag changes the actor"
+    );
+    let view = store.view_revision();
+    store.set_camera_rotation([10.0, 20.0]);
+    assert_eq!(store.view_revision(), view);
+    store.set_camera_rotation([10.0, 21.0]);
+    assert_ne!(
+        store.view_revision(),
+        view,
+        "a turned camera changes the view"
+    );
+    assert_eq!(store.presentation_revision(1), Some(sneaking));
+    store.advance_interpolation_frame(1);
+    assert_ne!(store.presentation_revision(1), Some(sneaking));
+}

@@ -74,6 +74,26 @@ pub struct ActorRigSnapshot<'a> {
     pub java: JavaMotion,
     /// The main-hand item Java's first-person hand still draws while the equip dips.
     pub java_equipped: Option<&'a JavaHeldItem>,
+    /// Equal revisions mean every other field and every frame sample of this rig are unchanged,
+    /// apart from the local frame fractions.
+    pub presentation_revision: PresentationRevision,
+}
+
+/// Identifies one state of a rig and the store catalog it reads. Any change a snapshot or frame
+/// sample can observe gives a different revision, except the local frame fractions
+/// ([`LocalSwingProgress::frame_alpha`], [`JavaMotion::local_swing_alpha`] and
+/// [`JavaMotion::body_frame_alpha`]), which consumers must treat like the frame's partial tick.
+/// A revision may also change when nothing observable did.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct PresentationRevision {
+    catalog: u64,
+    rig: u64,
+}
+
+impl PresentationRevision {
+    pub(crate) const fn new(catalog: u64, rig: u64) -> Self {
+        Self { catalog, rig }
+    }
 }
 
 /// Local swing samples from the committed physics ticks, independent of the remote actor clock.

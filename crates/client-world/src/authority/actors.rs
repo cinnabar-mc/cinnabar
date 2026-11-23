@@ -480,6 +480,17 @@ impl WorldAuthority {
         self.actors.ropes_into(partial_tick, ropes);
     }
     /// Borrows one actor rig for presentation.
+    /// Identifies the actor's snapshot and its rig; see [`crate::ActorPresentationRevision`].
+    pub fn actor_presentation_revision(
+        &self,
+        runtime_id: u64,
+    ) -> Option<crate::ActorPresentationRevision> {
+        self.actors.presentation_revision(runtime_id)
+    }
+    /// Advances whenever the camera rotation or position that actor frame samples read changes.
+    pub fn actor_view_revision(&self) -> u64 {
+        self.actors.view_revision()
+    }
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }

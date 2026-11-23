@@ -9,7 +9,9 @@ pub struct ActorAnimationStore {
     /// The session's server-pack entity catalog, in its own index space; its entities win.
     pub(super) pack: Option<PackCatalog>,
     pub(super) server_compiler: Option<ServerAnimationCompiler>,
-    pub(super) rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
+    pub(super) rigs: RigMap,
+    /// Advances whenever the catalog snapshots and frame samples read may change.
+    pub(super) catalog_revision: u64,
     pub(super) skin_preparation: skin::SkinPreparationQueue,
     pub(super) runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     pub(super) mount_equipment: HashMap<u64, assets::entity::mount::MountEquipment>,
@@ -78,7 +80,8 @@ impl ActorAnimationStore {
             assets,
             pack: None,
             server_compiler: None,
-            rigs: BTreeMap::new(),
+            rigs: RigMap::default(),
+            catalog_revision: 0,
             skin_preparation: skin::SkinPreparationQueue::default(),
             runtime_to_lifetime: HashMap::new(),
             mount_equipment: HashMap::new(),
@@ -98,6 +101,7 @@ impl ActorAnimationStore {
 
     /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
     pub fn set_pack(&mut self, assets: Option<(Arc<RuntimeEntityAssets>, Vec<u32>)>) {
+        self.catalog_revision = self.catalog_revision.wrapping_add(1);
         self.pack = assets.map(|(assets, artwork)| {
             let mut layout = VariableLayout::new(&assets);
             if let Some(vanilla) = &self.assets {
@@ -112,10 +116,12 @@ impl ActorAnimationStore {
     }
 
     pub fn set_server_animation_compiler(&mut self, compiler: ServerAnimationCompiler) {
+        self.catalog_revision = self.catalog_revision.wrapping_add(1);
         self.server_compiler = Some(compiler);
     }
 
     pub fn clear(&mut self) {
+        self.catalog_revision = self.catalog_revision.wrapping_add(1);
         self.layout.plans.clear();
         if let Some(pack) = &self.pack {
             pack.layout.plans.clear();
@@ -276,28 +282,36 @@ impl ActorAnimationStore {
     }
 
     /// Installs authoritative local swing samples and requests evaluation only when they change.
+    /// A repeated sample that differs only in its frame fraction keeps the rig's revision.
     pub fn sync_local_swing(&mut self, runtime_id: u64, progress: LocalSwingProgress) -> bool {
-        let Some(state) = self
-            .runtime_to_lifetime
-            .get(&runtime_id)
-            .and_then(|id| self.rigs.get_mut(id))
-        else {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return false;
         };
-        let changed = state
-            .local_swing
-            .is_none_or(|old| old.bedrock != progress.bedrock || old.java != progress.java);
-        state.local_swing = Some(progress);
-        state.motion.set_local_swing(Some(progress.bedrock[1]));
-        state.java.motion.swing = progress.java;
-        state.java.motion.local_swing_alpha = progress.frame_alpha;
-        if state.java.local_body.active() {
-            state.java.motion.body_frame_alpha = progress.frame_alpha;
-        }
-        if let Some(input) = state.history.back_mut() {
-            input.attack_time = progress.bedrock[1];
-        }
-        changed
+        self.rigs
+            .update(lifetime, |state| {
+                let changed = state
+                    .local_swing
+                    .is_none_or(|old| old.bedrock != progress.bedrock || old.java != progress.java);
+                let observable = changed
+                    || state.motion.local_swing() != Some(progress.bedrock[1])
+                    || state.java.motion.swing != progress.java
+                    || state
+                        .history
+                        .back()
+                        .is_some_and(|input| input.attack_time != progress.bedrock[1]);
+                state.local_swing = Some(progress);
+                state.motion.set_local_swing(Some(progress.bedrock[1]));
+                state.java.motion.swing = progress.java;
+                state.java.motion.local_swing_alpha = progress.frame_alpha;
+                if state.java.local_body.active() {
+                    state.java.motion.body_frame_alpha = progress.frame_alpha;
+                }
+                if let Some(input) = state.history.back_mut() {
+                    input.attack_time = progress.bedrock[1];
+                }
+                (observable, changed)
+            })
+            .unwrap_or(false)
     }
 
     /// Advances tick state; only the frame's final tick evaluates visual controllers and poses.
@@ -367,6 +381,15 @@ impl ActorAnimationStore {
     pub fn frame_fallbacks(&self) -> u64 {
         self.frame_fallbacks
             .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The rig's [`PresentationRevision`], without building its snapshot.
+    pub fn presentation_revision(&self, runtime_id: u64) -> Option<PresentationRevision> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        Some(PresentationRevision::new(
+            self.catalog_revision,
+            state.presentation_revision,
+        ))
     }
 
     pub fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
@@ -533,6 +556,10 @@ impl ActorAnimationStore {
             .with_item_context(Some(&state.query_context), state.complete_spear_variables),
             java: state.java.motion,
             java_equipped: state.java.equipped(),
+            presentation_revision: PresentationRevision::new(
+                self.catalog_revision,
+                state.presentation_revision,
+            ),
         })
     }
 

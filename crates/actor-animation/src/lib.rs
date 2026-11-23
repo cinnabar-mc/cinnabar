@@ -48,8 +48,10 @@ pub use head_rotation::HeadRotation;
 mod rig;
 pub use rig::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,
-    ItemAnimationState, LocalSwingProgress,
+    ItemAnimationState, LocalSwingProgress, PresentationRevision,
 };
+mod rig_map;
+use rig_map::RigMap;
 mod state;
 use state::{
     ActorRigState, ActorTickInput, AttachableRootFrame, ControllerState, EvalBudget, EvalError,

@@ -387,8 +387,9 @@ impl ActorStore {
 
     /// Records the view's `[pitch, yaw]` (degrees) for camera-facing animations.
     pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
-        if rotation.iter().all(|value| value.is_finite()) {
+        if rotation.iter().all(|value| value.is_finite()) && self.camera_rotation != rotation {
             self.camera_rotation = rotation;
+            self.view_revision = self.view_revision.wrapping_add(1);
         }
     }
 
@@ -398,8 +399,9 @@ impl ActorStore {
 
     /// Records the view's world position for camera-relative animation queries.
     pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
-        if position.iter().all(|value| value.is_finite()) {
+        if position.iter().all(|value| value.is_finite()) && self.camera_position != position {
             self.camera_position = position;
+            self.view_revision = self.view_revision.wrapping_add(1);
         }
     }
 
