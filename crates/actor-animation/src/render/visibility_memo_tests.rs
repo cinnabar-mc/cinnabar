@@ -250,3 +250,52 @@ fn memoized_gates_miss_when_a_tick_variable_they_read_changes() {
         assert_eq!(hits, usize::from(step > 0 && !changed), "step {step}");
     }
 }
+
+#[test]
+fn memoized_gates_leave_the_expression_results_full_sampling_shares() {
+    // The held-item gate is costly at metadata 41 and the held-item scale above fraction 0.5;
+    // both together exceed one actor's frame budget unless one result is already cached.
+    let mut compiled = fixture(false);
+    let hide = heavy_gate(&mut compiled, 4, 41.0, MolangOp::GreaterEqual);
+    let scale = heavy_gate(&mut compiled, 1, 0.5, MolangOp::Greater);
+    compiled.rig_bindings[0].hide_held_items = Some(hide);
+    compiled.rig_bindings[0].held_item_scale = Some(scale);
+    let run = |memo: bool| {
+        let (mut store, mut actor) = store(compiled.clone());
+        mark(&mut actor, 0);
+        advance(&mut store, &actor, true);
+        let mut sample = |value, alpha, visibility_only| {
+            mark(&mut actor, value);
+            let sample = || visibility(&store, &actor, alpha, visibility_only);
+            if memo {
+                sample()
+            } else {
+                crate::render_frame::without_memo(sample)
+            }
+        };
+        [
+            // Warms the held-item gate's expression result and the kept visibility.
+            sample(41, 0.75, true),
+            // Full sampling replaces that expression result.
+            sample(0, 0.25, false),
+            // The same gate reads again; reuse must leave the expression cache as a read would.
+            sample(41, 0.75, true),
+            // Full sampling then finishes only if the held-item gate's result is cached.
+            sample(41, 0.75, false),
+        ]
+    };
+    let reference = run(false);
+    crate::render_frame::take_memo_hits();
+    let reused = run(true);
+    let hits = crate::render_frame::take_memo_hits();
+    assert_eq!(hits, 1, "only the repeated read reuses its result");
+    assert!(
+        reference[0].hides_held_items(),
+        "the shape reaches the gate"
+    );
+    assert!(
+        reference[3].hides_held_items(),
+        "the cached gate lets full sampling finish"
+    );
+    assert_eq!(reused, reference);
+}

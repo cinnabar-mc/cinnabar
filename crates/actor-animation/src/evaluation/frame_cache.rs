@@ -35,12 +35,101 @@ impl Expression {
 #[derive(Debug, Default)]
 pub(crate) struct Expressions(BTreeMap<usize, Occurrences>);
 
+/// The results one read left in the occurrences it ran of some pure expressions.
+#[derive(Debug, Default)]
+pub(crate) struct ExpressionSlots(Vec<(usize, bool, Vec<Expression>)>);
+
+impl Expression {
+    /// Whether this is a pure, evaluated result that can be copied exactly.
+    fn copyable(&self) -> bool {
+        self.pure.pure() && self.observed.is_none() && self.value.is_some()
+    }
+
+    /// Copies a [`Self::copyable`] result.
+    fn pure_clone(&self) -> Self {
+        Self {
+            pure: self.pure.clone(),
+            observed: None,
+            this: self.this,
+            value: self.value.clone(),
+            effects: self.effects.clone(),
+        }
+    }
+
+    /// Overwrites this entry with a [`Self::copyable`] result, reusing its buffers.
+    fn assign(&mut self, source: &Self) {
+        self.pure.clone_from(&source.pure);
+        self.observed = None;
+        self.this = source.this;
+        self.value.clone_from(&source.value);
+        self.effects.clone_from(&source.effects);
+    }
+}
+
 impl Expressions {
     /// Rewinds invocation positions while retaining each occurrence's buffers and results.
     pub(crate) fn begin(&mut self) {
         for occurrences in self.0.values_mut() {
             occurrences.cursor = 0;
             occurrences.last_used = None;
+        }
+    }
+
+    /// Copies the occurrences of `indices` the current read ran into `slots`, before the next
+    /// lease rewinds them, reusing its buffers; false unless every one is a pure, evaluated result.
+    pub(crate) fn copy_ran(
+        &self,
+        indices: impl IntoIterator<Item = usize>,
+        slots: &mut ExpressionSlots,
+    ) -> bool {
+        let mut used = 0;
+        for index in indices {
+            if slots.0[..used].iter().any(|(known, ..)| *known == index) {
+                continue;
+            }
+            let Some(occurrences) = self.0.get(&index) else {
+                return false;
+            };
+            let Some(ran) = occurrences.entries.get(..occurrences.cursor) else {
+                return false;
+            };
+            if !ran.iter().all(Expression::copyable) {
+                return false;
+            }
+            if used == slots.0.len() {
+                slots.0.push((index, occurrences.direct_read, Vec::new()));
+            }
+            let (known, direct_read, copies) = &mut slots.0[used];
+            *known = index;
+            *direct_read = occurrences.direct_read;
+            copies.truncate(ran.len());
+            for (slot, entry) in ran.iter().enumerate() {
+                match copies.get_mut(slot) {
+                    Some(copy) => copy.assign(entry),
+                    None => copies.push(entry.pure_clone()),
+                }
+            }
+            used += 1;
+        }
+        slots.0.truncate(used);
+        true
+    }
+
+    /// Leaves exactly the results a read that produced `slots` leaves, keeping later occurrences.
+    pub(crate) fn restore(&mut self, slots: &ExpressionSlots) {
+        for (index, direct_read, copies) in &slots.0 {
+            let occurrences = self.0.entry(*index).or_insert_with(|| Occurrences {
+                entries: Vec::new(),
+                cursor: 0,
+                last_used: None,
+                direct_read: *direct_read,
+            });
+            for (slot, copy) in copies.iter().enumerate() {
+                match occurrences.entries.get_mut(slot) {
+                    Some(entry) => entry.assign(copy),
+                    None => occurrences.entries.push(copy.pure_clone()),
+                }
+            }
         }
     }
 
