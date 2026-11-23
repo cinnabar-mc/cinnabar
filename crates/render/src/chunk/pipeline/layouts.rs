@@ -31,6 +31,9 @@ pub(crate) struct ChunkPipeline {
     pub(in crate::chunk) unit_variants: [Variants<RenderPipeline, ChunkPipelineSpecializer>; 4],
     pub(in crate::chunk) unit_supported: bool,
     pub(in crate::chunk) compact: bool,
+    /// Whether the opaque layout binds the per-quad tint cache; see
+    /// [`crate::chunk::gpu::tint_cache`].
+    pub(in crate::chunk) tint_cache: bool,
     pub(in crate::chunk) solid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     /// Sorted transparent liquid and model draws, one pipeline so they never switch programs.
@@ -45,13 +48,28 @@ impl FromWorld for ChunkPipeline {
         let compact = world.get_resource::<RenderDevice>().is_some_and(|device| {
             device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers()
         });
+        let downlevel = world
+            .get_resource::<bevy::render::renderer::RenderAdapter>()
+            .map(|adapter| adapter.get_downlevel_capabilities().flags);
+        let tint_cache = crate::chunk::gpu::tint_cache::requested()
+            && world
+                .get_resource::<RenderDevice>()
+                .zip(downlevel)
+                .is_some_and(|(device, downlevel)| {
+                    crate::chunk::gpu::tint_cache::supported(
+                        compact,
+                        downlevel,
+                        &device.limits(),
+                        required_vertex_storage_buffers(),
+                    )
+                });
         let [
             descriptor,
             solid_descriptor,
             model_descriptor,
             transparent_descriptor,
             depth_liquid_descriptor,
-        ] = descriptors::build(compact);
+        ] = descriptors::build(compact, tint_cache);
         let bind_group_layout = descriptor.layout[0].clone();
         let transparent_bind_group_layout = transparent_descriptor.layout[0].clone();
         let unit_variants = [
@@ -63,6 +81,7 @@ impl FromWorld for ChunkPipeline {
         .map(|descriptor| Variants::new(ChunkPipelineSpecializer, unit_descriptor(descriptor)));
         Self {
             compact,
+            tint_cache,
             unit_variants,
             unit_supported: false,
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
@@ -553,6 +572,7 @@ mod review_tests {
             world.init_resource::<ChunkPipeline>();
             let pipeline = world.resource::<ChunkPipeline>();
             assert!(!pipeline.compact);
+            // Without an adapter reporting compute support the tint cache stays out.
             assert_eq!(pipeline.bind_group_layout, opaque_chunk_bind_group_layout());
             assert_eq!(
                 pipeline.transparent_bind_group_layout,

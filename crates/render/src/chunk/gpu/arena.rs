@@ -157,6 +157,8 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) growth_blocked: bool,
     /// Advances only when owned ranges become reusable.
     pub(in crate::chunk) release_revision: u64,
+    /// The per-quad tint cache, its fallback binding and the allocations awaiting a bake.
+    pub(in crate::chunk) tint_cache: super::tint_cache::TintCacheState,
     pub(in crate::chunk) memory: super::telemetry::ArenaMemoryTelemetry,
     /// Queue completion for an empty arena; new work cancels this release attempt.
     pub(in crate::chunk) idle_completion: Option<Arc<std::sync::atomic::AtomicBool>>,

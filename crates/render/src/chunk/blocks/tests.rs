@@ -85,7 +85,7 @@ fn portal_resources_preserve_outward_faces_under_a_mirrored_transform() {
         additive: false,
         mirrored: true,
     };
-    for mut descriptor in pipeline::layouts::descriptors::build(false) {
+    for mut descriptor in pipeline::layouts::descriptors::build(false, false) {
         let original = descriptor.primitive.front_face;
         Specialization.specialize(key, &mut descriptor).unwrap();
         assert_ne!(descriptor.primitive.front_face, original);
@@ -211,7 +211,7 @@ fn retained_additive_terrain_weights_straight_alpha_only_for_blended_variants() 
                 additive: true,
                 mirrored: false,
             };
-            for mut descriptor in pipeline::layouts::descriptors::build(false) {
+            for mut descriptor in pipeline::layouts::descriptors::build(false, false) {
                 let transparent = descriptor.fragment.as_ref().unwrap().targets[0]
                     .as_ref()
                     .unwrap()
@@ -255,7 +255,7 @@ fn opaque_grid(mut pixel: ResMut<Pixel>) {
 
 /// Applies world glass using the terrain pipeline's depth-write contract.
 fn world_glass(mut pixel: ResMut<Pixel>) {
-    let descriptor = &pipeline::layouts::descriptors::build(false)[3];
+    let descriptor = &pipeline::layouts::descriptors::build(false, false)[3];
     assert_eq!(
         descriptor
             .depth_stencil
