@@ -11,7 +11,7 @@ pub struct ActorAnimationStore {
     pub(super) server_compiler: Option<ServerAnimationCompiler>,
     pub(super) rigs: RigMap,
     /// Advances whenever the catalog snapshots and frame samples read may change.
-    pub(super) catalog_revision: u64,
+    pub(super) catalog_revision: super::rig_map::Stamp,
     pub(super) skin_preparation: skin::SkinPreparationQueue,
     pub(super) runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     pub(super) mount_equipment: HashMap<u64, assets::entity::mount::MountEquipment>,
@@ -81,7 +81,7 @@ impl ActorAnimationStore {
             pack: None,
             server_compiler: None,
             rigs: RigMap::default(),
-            catalog_revision: 0,
+            catalog_revision: super::rig_map::next_revision(),
             skin_preparation: skin::SkinPreparationQueue::default(),
             runtime_to_lifetime: HashMap::new(),
             mount_equipment: HashMap::new(),
@@ -101,7 +101,7 @@ impl ActorAnimationStore {
 
     /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
     pub fn set_pack(&mut self, assets: Option<(Arc<RuntimeEntityAssets>, Vec<u32>)>) {
-        self.catalog_revision = self.catalog_revision.wrapping_add(1);
+        self.catalog_revision = super::rig_map::next_revision();
         self.pack = assets.map(|(assets, artwork)| {
             let mut layout = VariableLayout::new(&assets);
             if let Some(vanilla) = &self.assets {
@@ -116,12 +116,12 @@ impl ActorAnimationStore {
     }
 
     pub fn set_server_animation_compiler(&mut self, compiler: ServerAnimationCompiler) {
-        self.catalog_revision = self.catalog_revision.wrapping_add(1);
+        self.catalog_revision = super::rig_map::next_revision();
         self.server_compiler = Some(compiler);
     }
 
     pub fn clear(&mut self) {
-        self.catalog_revision = self.catalog_revision.wrapping_add(1);
+        self.catalog_revision = super::rig_map::next_revision();
         self.layout.plans.clear();
         if let Some(pack) = &self.pack {
             pack.layout.plans.clear();
@@ -385,10 +385,12 @@ impl ActorAnimationStore {
 
     /// The rig's [`PresentationRevision`], without building its snapshot.
     pub fn presentation_revision(&self, runtime_id: u64) -> Option<PresentationRevision> {
-        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        let lifetime = self.runtime_to_lifetime.get(&runtime_id)?;
+        let state = self.rigs.get(lifetime)?;
         Some(PresentationRevision::new(
-            self.catalog_revision,
-            state.presentation_revision,
+            *lifetime,
+            self.catalog_revision.0,
+            state.presentation_revision.0,
         ))
     }
 
@@ -557,8 +559,9 @@ impl ActorAnimationStore {
             java: state.java.motion,
             java_equipped: state.java.equipped(),
             presentation_revision: PresentationRevision::new(
-                self.catalog_revision,
-                state.presentation_revision,
+                actor,
+                self.catalog_revision.0,
+                state.presentation_revision.0,
             ),
         })
     }

@@ -680,3 +680,20 @@ fn repeated_local_frame_inputs_keep_the_presentation_revision() {
         "a catalog change changes every rig's revision"
     );
 }
+
+/// Revisions carry process-wide stamps, so equal histories in two stores never compare equal.
+#[test]
+fn revisions_from_different_stores_never_match() {
+    let (actors, mut first) = fixture();
+    let (_, mut second) = fixture();
+    let context = |_: &TestActor| ActorTickContext {
+        is_local: true,
+        ..Default::default()
+    };
+    first.advance_tick(&actors, None, Some(1), true, true, context);
+    second.advance_tick(&actors, None, Some(1), true, true, context);
+    assert_ne!(
+        first.presentation_revision(1),
+        second.presentation_revision(1)
+    );
+}

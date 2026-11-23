@@ -156,7 +156,7 @@ impl ActorStore {
             local_item_use: LocalItemUse::Unpredicted,
             local_bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
             local_java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
-            view_revision: 0,
+            view_revision: tracked_actors::ViewStamp(tracked_actors::next_revision()),
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
             animation_view: None,

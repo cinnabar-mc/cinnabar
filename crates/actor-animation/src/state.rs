@@ -70,7 +70,7 @@ pub(super) struct ActorRigState {
     /// The sole history sample is provisional until a real motion tick observes it.
     pub(super) presentation_seeded: bool,
     /// Stamped by the store's rig map whenever this rig may change; see [`crate::PresentationRevision`].
-    pub(super) presentation_revision: u64,
+    pub(super) presentation_revision: super::rig_map::Stamp,
     /// Latest owner query inputs, retained even when its pose does not need frame sampling.
     pub(super) query_context: ActorTickContext,
     /// Main-hand item the arm has finished equipping.
