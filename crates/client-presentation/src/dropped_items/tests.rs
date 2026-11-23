@@ -840,3 +840,27 @@ fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
 
 #[path = "tests/sprite_routes.rs"]
 mod sprite_routes;
+
+#[test]
+fn device_budget_follows_device_identity_not_change_detection() {
+    let mut cache = None;
+    let mut reads = 0;
+    let mut read = |device: u32, limit: u32| {
+        cached_device_budget(
+            &mut cache,
+            &device,
+            |a, b| a == b,
+            || {
+                reads += 1;
+                limit
+            },
+        )
+    };
+    assert_eq!(read(1, 10), 10);
+    // The same device keeps its budget without reading limits again.
+    assert_eq!(read(1, 99), 10);
+    // A replacement is noticed on the next publication, even if earlier frames skipped it.
+    assert_eq!(read(2, 20), 20);
+    assert_eq!(read(2, 99), 20);
+    assert_eq!(reads, 2);
+}
