@@ -61,7 +61,7 @@ fn probe(
     mut state: ResMut<QueueProbe>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
-    mut pending: ResMut<PendingCommandBuffers>,
+    mut commands: ResMut<PendingCommandBuffers>,
 ) {
     let pending = state
         .frames
@@ -107,8 +107,8 @@ fn probe(
     let host_submitted = CACurrentMediaTime();
     let submitted = Instant::now();
     // Submitted as pending command buffers, so the frame's in-flight bound includes it.
-    pending.push([buffer]);
-    pending.submit(&queue);
+    commands.push([buffer]);
+    commands.submit(&queue);
     let callback = Arc::new(AtomicU64::new(0));
     let receipt = callback.clone();
     crate::device_poll::on_frame_complete(&queue, move || {
