@@ -3,7 +3,7 @@ use assets::{CompiledEntityAssets, CompiledMolangExpression, MolangSymbol, Molan
 use protocol_ids::ActorDataKey;
 
 /// Appends one original scalar program to the fixture's expression table.
-fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>) -> u32 {
+pub(super) fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>) -> u32 {
     let mut expressions = compiled.molang_expressions.to_vec();
     let mut ops = compiled.molang_ops.to_vec();
     let index = expressions.len() as u32;
@@ -19,7 +19,7 @@ fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>) -> u3
 }
 
 /// Two player controllers select arbitrary metadata ranges; held visibility is independent.
-fn fixture(frame_gate: bool) -> CompiledEntityAssets {
+pub(super) fn fixture(frame_gate: bool) -> CompiledEntityAssets {
     use MolangOp::*;
     let scalar = crate::test_support::scalar;
     let mut compiled = crate::test_support::counting_random_compiled("minecraft:player");
@@ -94,7 +94,7 @@ fn fixture(frame_gate: bool) -> CompiledEntityAssets {
 }
 
 /// Installs a player without requiring any external pack or account.
-fn store(compiled: CompiledEntityAssets) -> (ActorAnimationStore, TestActor) {
+pub(super) fn store(compiled: CompiledEntityAssets) -> (ActorAnimationStore, TestActor) {
     let mut actor = crate::tests::actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Player {
         uuid: [1; 16],
@@ -108,7 +108,7 @@ fn store(compiled: CompiledEntityAssets) -> (ActorAnimationStore, TestActor) {
 }
 
 /// Replaces the actor's metadata through the same query input used by all render expressions.
-fn mark(actor: &mut TestActor, value: i32) {
+pub(super) fn mark(actor: &mut TestActor, value: i32) {
     actor.metadata.insert(
         ActorDataKey::MarkVariant.wire_value(),
         ActorMetadataValue::Int(value),
@@ -116,7 +116,7 @@ fn mark(actor: &mut TestActor, value: i32) {
 }
 
 /// Completes world and independent UI evaluations with explicit local identity.
-fn advance(store: &mut ActorAnimationStore, actor: &TestActor, local: bool) {
+pub(super) fn advance(store: &mut ActorAnimationStore, actor: &TestActor, local: bool) {
     store.advance_tick(
         &HashMap::from([(actor.runtime_id, actor.clone())]),
         None,
@@ -473,7 +473,7 @@ fn advancing_visibility_frames_reuse_owned_and_retained_layer_storage() {
 }
 
 /// Camera and swing drive poses, while pre-animation and engine variables drive visibility.
-fn variable_fixture() -> CompiledEntityAssets {
+pub(super) fn variable_fixture() -> CompiledEntityAssets {
     use MolangOp::*;
     let scalar = crate::test_support::scalar;
     let mut compiled = fixture(false);

@@ -218,7 +218,7 @@ pub(crate) fn enabled() -> bool {
 
 /// Runs a behavior control while restoring the calling thread's cache setting on every exit.
 #[cfg(test)]
-pub(super) fn uncached<T>(sample: impl FnOnce() -> T) -> T {
+pub(crate) fn uncached<T>(sample: impl FnOnce() -> T) -> T {
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
