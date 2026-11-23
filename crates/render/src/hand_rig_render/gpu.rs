@@ -75,7 +75,8 @@ pub(super) struct HandRigGpu {
     pub(super) pipeline: Option<CachedRenderPipelineId>,
     pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) geometry_revision: Option<u64>,
-    pub(super) revision: Option<u64>,
+    /// The scene publication whose pose and instances the buffers hold.
+    pub(super) publication: Option<u64>,
     pub(super) maximum_vertex_count: u32,
 }
 
@@ -141,7 +142,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         pipeline: None,
         pipeline_variants: [None; PIPELINE_VARIANTS],
         geometry_revision: None,
-        revision: None,
+        publication: None,
         maximum_vertex_count: 0,
     });
 }
@@ -255,7 +256,7 @@ pub(super) fn deactivate(gpu: &mut HandRigGpu) {
     gpu.bind_group = None;
     gpu.maximum_vertex_count = 0;
     gpu.instance_count = 0;
-    gpu.revision = None;
+    gpu.publication = None;
 }
 
 /// Replaces geometry storage only when the admitted geometry changes.
@@ -302,7 +303,7 @@ pub(super) fn upload_pose(
     uploads: &crate::upload_staging::FrameUploads<'_>,
     frame: &HandRigFrame,
 ) -> bool {
-    if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
+    if gpu.publication == Some(frame.publication) && gpu.instances.is_some() {
         return true;
     }
     let compact = !gpu.layout.entries.iter().any(|entry| entry.binding == 5);
@@ -391,7 +392,7 @@ pub(super) fn upload_pose(
     }
     gpu.maximum_vertex_count = frame.rig.maximum_vertex_count;
     gpu.instance_count = u32::try_from(frame.rig.instances.len()).unwrap_or(0);
-    gpu.revision = Some(frame.revision);
+    gpu.publication = Some(frame.publication);
     if recreated {
         gpu.bind_group = None;
     }

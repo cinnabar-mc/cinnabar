@@ -391,3 +391,75 @@ fn over_budget_gates_keep_visibility_frame_dependent() {
     let (heavy, _) = check(true);
     assert!(heavy, "gates that can exhaust the budget may fall back");
 }
+
+/// Tick-baseline gates whose setup can charge more than one rig's frame budget: the held-item
+/// scale takes a cheap branch at the tick but its worst case, which a camera turn can select,
+/// exceeds the budget, so the gates' reserve cannot be guaranteed.
+fn gates_reserve_fixture(heavy_setup: bool) -> assets::CompiledEntityAssets {
+    use MolangOp::*;
+    let scalar = crate::test_support::scalar;
+    let mut compiled = fixture(false);
+    compiled.molang_symbols[1].identifier = "query.distance_from_camera".into();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.push(assets::MolangSymbol {
+        kind: assets::MolangSymbolKind::Variable,
+        identifier: "variable.held_visibility".into(),
+    });
+    compiled.molang_symbols = symbols.into();
+    let gate = expression(
+        &mut compiled,
+        vec![LoadQuery(4), Push(scalar(41.0)), GreaterEqual],
+    );
+    for layer in &mut compiled.render.layers {
+        layer.condition = Some(gate);
+    }
+    compiled.rig_bindings[0].hide_held_items =
+        Some(expression(&mut compiled, vec![LoadVariable(5), Not]));
+    let scale = if heavy_setup {
+        let pairs = 9_100;
+        let otherwise = 4 + 2 * pairs + 2;
+        let mut ops = vec![
+            LoadQuery(1),
+            Push(scalar(1000.0)),
+            Greater,
+            JumpIfFalse(otherwise as u16),
+        ];
+        for _ in 0..pairs {
+            ops.extend([Push(scalar(1.0)), Pop]);
+        }
+        ops.extend([Push(scalar(1.0)), Return, Push(scalar(1.0))]);
+        ops
+    } else {
+        vec![Push(scalar(1.0))]
+    };
+    compiled.rig_bindings[0].held_item_scale = Some(expression(&mut compiled, scale));
+    // A tint that reads the camera makes the rig sample every frame.
+    let tint = expression(&mut compiled, vec![LoadQuery(1)]);
+    compiled.render.layers[0].color = Some([tint; 4]);
+    compiled
+}
+
+/// A `Gates` plan proves frame independence only when its reserve, setup included, fits the
+/// rig's frame budget.
+#[test]
+fn gates_reserve_over_the_budget_keeps_visibility_frame_dependent() {
+    let check = |heavy: bool| {
+        let (mut store, mut actor) = store(gates_reserve_fixture(heavy));
+        mark(&mut actor, 41);
+        advance(&mut store, &actor, true);
+        let revision = store.presentation_revision(1);
+        for alpha in [0.25, 0.75] {
+            visibility(&store, &actor, alpha, true);
+        }
+        assert_eq!(store.presentation_revision(1), revision);
+        store.visibility_reads_frame(&actor)
+    };
+    assert!(
+        !check(false),
+        "an affordable gates reserve proves independence"
+    );
+    assert!(
+        check(true),
+        "a reserve over the budget may replay setup and fall back"
+    );
+}

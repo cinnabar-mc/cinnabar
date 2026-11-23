@@ -58,6 +58,41 @@ fn compact_hand_uploads_both_pose_endpoints_with_four_storage_buffers() {
     );
 }
 
+/// A different pose published under the caller's previous revision still uploads, since the
+/// buffers follow the scene's own publication token.
+#[test]
+fn changed_pose_under_a_reused_revision_uploads() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let mut scene = HandRigScene::default();
+    for value in [1.0, 2.0] {
+        let mut rig = single_instance_frame();
+        Arc::make_mut(&mut rig.current_bones)[0][0][0] = value;
+        assert!(scene.publish(rig, skin(), light(), 1.2, 7));
+        let uploads = state.get(&world).unwrap();
+        let frame = scene.frame.as_ref().unwrap();
+        assert!(upload_pose(&mut gpu, &uploads, frame));
+        assert_eq!(
+            gpu.publication,
+            Some(frame.publication),
+            "each published pose uploads, whatever revision the caller reused"
+        );
+    }
+}
+
 /// Missing hand depth backs off, recovers, and retries a resized request immediately.
 #[test]
 fn hand_depth_allocation_failure_backs_off_then_recovers() {
@@ -224,7 +259,7 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
     assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
     world.insert_resource(scene);
     world.run_system_once(prepare).unwrap();
-    assert_eq!(world.resource::<HandRigGpu>().revision, Some(1));
+    assert_eq!(world.resource::<HandRigGpu>().publication, Some(1));
     let initial_buffers = crate::upload_allocation_tests::buffers(world);
     for revision in 2..=4 {
         let mut rig = single_instance_frame();
@@ -235,7 +270,7 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
                 .publish(rig, skin(), light(), 1.2, revision,)
         );
         world.run_system_once(prepare).unwrap();
-        assert_eq!(world.resource::<HandRigGpu>().revision, Some(revision));
+        assert_eq!(world.resource::<HandRigGpu>().publication, Some(revision));
         assert_eq!(
             crate::upload_allocation_tests::buffers(world),
             initial_buffers,
@@ -288,11 +323,11 @@ fn failed_pose_resize_skips_the_hand_draw_and_retries() {
     let gpu = world.resource::<HandRigGpu>();
     assert_eq!(gpu.instance_count, 0);
     assert!(gpu.bind_group.is_none());
-    assert_eq!(gpu.revision, None);
+    assert_eq!(gpu.publication, None);
 
     world.run_system_once(prepare).unwrap();
     let gpu = world.resource::<HandRigGpu>();
-    assert_eq!(gpu.revision, Some(2));
+    assert_eq!(gpu.publication, Some(2));
     assert_eq!(gpu.instance_count, 2);
 }
 
