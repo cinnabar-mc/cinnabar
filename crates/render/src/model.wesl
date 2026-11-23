@@ -829,15 +829,16 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 // RenderChunk multiplies atlas/palette, vertex AO and lightmap in gamma RGB.
 // Encode only at our existing Bevy sRGB framebuffer boundary.
 @if(!ENHANCED)
+// Callers supply the UV derivatives from uniform control flow, as browsers require.
 fn ordinary_world_model_gamma_colour(@if(!ENHANCED)
 in: VertexOutput, @if(!ENHANCED)
-sampled_gamma: vec4<f32>) -> vec4<f32> {
+sampled_gamma: vec4<f32>, @if(!ENHANCED)
+dx: vec2<f32>, @if(!ENHANCED)
+dy: vec2<f32>) -> vec4<f32> {
     // Alpha-masked tint: alpha weights the tint and the face stays opaque, as on cube faces.
     let overlay = material_uses_overlay_mask(in.material_flags);
     let tint_gamma = select(in.tint_gamma, mix(vec3(1.0), in.tint_gamma, sampled_gamma.a), overlay);
     // Cinnabar masks: emissive texels skip shade and lightmap; glow adds before fog.
-    let dx = dpdx(in.uv);
-    let dy = dpdy(in.uv);
     let strength = model_mask_strength(in.visibility);
     var glow = vec3(0.0);
     var unlit = 0.0;
@@ -857,8 +858,10 @@ sampled_gamma: vec4<f32>) -> vec4<f32> {
 @if(!ENHANCED)
 fn ordinary_world_model_colour(@if(!ENHANCED)
 in: VertexOutput, @if(!ENHANCED)
-sampled_gamma: vec4<f32>) -> vec4<f32> {
-    return tint_to_linear(ordinary_world_model_gamma_colour(in, sampled_gamma));
+sampled_gamma: vec4<f32>, @if(!ENHANCED)
+dx: vec2<f32>, @if(!ENHANCED)
+dy: vec2<f32>) -> vec4<f32> {
+    return tint_to_linear(ordinary_world_model_gamma_colour(in, sampled_gamma, dx, dy));
 }
 
 @fragment
@@ -866,10 +869,11 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
-    if (in.visibility.x == 0u) { discard; }
-    if (!front_facing && (in.visibility.x & MODEL_TWO_SIDED) == 0u) { discard; }
+    // Derivatives come first: after a non-uniform discard, browsers reject them.
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && (in.visibility.x & MODEL_TWO_SIDED) == 0u) { discard; }
     // Both views already hold the working colour space, so frames blend before the alpha test.
     var sampled = sample_model_ref(in, in.textures.x, dx, dy);
     if (in.frame_blend > 0.0) {
@@ -906,7 +910,7 @@ fn fragment(
     @if(!OPAQUE_OVERDRAW && ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), output_alpha);
     @if(!OPAQUE_OVERDRAW && !ENHANCED)
-    let colour = ordinary_world_model_colour(in, sampled);
+    let colour = ordinary_world_model_colour(in, sampled, dx, dy);
     @if(!OPAQUE_OVERDRAW && !ENHANCED)
     return vec4(colour.rgb, output_alpha);
 }
@@ -952,9 +956,9 @@ fn shade_blend(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32
     @if(ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
     @if(!ENHANCED && NATIVE_GAMMA_BLEND)
-    return ordinary_world_model_gamma_colour(in, sampled);
+    return ordinary_world_model_gamma_colour(in, sampled, dx, dy);
     @if(!ENHANCED && !NATIVE_GAMMA_BLEND)
-    return ordinary_world_model_colour(in, sampled);
+    return ordinary_world_model_colour(in, sampled, dx, dy);
 }
 
 // Alpha-tested terrain depth; opaque texels cast independently of baked light.
