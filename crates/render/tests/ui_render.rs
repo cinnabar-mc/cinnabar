@@ -48,6 +48,8 @@ mod scene_target;
 #[path = "../src/shader_safety.rs"]
 #[allow(dead_code, reason = "shared checked shader constructors")]
 mod shader_safety;
+#[path = "../src/strict_webgpu.rs"]
+mod strict_webgpu;
 #[path = "../src/ui_render.rs"]
 #[allow(
     unused_imports,
