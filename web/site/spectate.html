@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spectator</title>
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0a1012; color: #eee; font: 1rem system-ui; }
+canvas { display: block; width: 100%; height: 100%; }
+#status { position: absolute; left: 1rem; bottom: 1rem; margin: 0; padding: .4rem .7rem; border-radius: .3rem; background: #000a; }
+#status:empty { display: none; }
+</style>
+<canvas id="game" aria-label="Spectator view"></canvas>
+<p id="status" role="status">Loading spectator…</p>
+<script type="module">
+import { spectatorParams, requestedStream, noticeOrigin, NOTICE_MESSAGE } from "./spectate.mjs";
+
+const canvas = document.getElementById("game");
+const status = document.getElementById("status");
+// Notices reach a valid parent even when another query value is invalid.
+const notify = noticeOrigin(location.search);
+let params;
+// The client modules load inside the startup handler below, so their failures are reported.
+let Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit;
+let boundedBytes, downloadCarriers, openSoundBank;
+
+/** Shows state and errors as text and forwards them to the configured parent page. */
+function observe(json) {
+  const event = JSON.parse(json);
+  if (event.error) status.textContent = event.error;
+  else if (event.state === "joining") status.textContent = "";
+  else if (event.state === "disconnected") status.textContent = "The stream ended.";
+  if (notify && window.parent !== window) window.parent.postMessage({ type: NOTICE_MESSAGE, ...event }, notify);
+}
+
+/** Sends same-origin credentials, so a host may keep the bundle behind its own session. */
+const fetchAsset = (url, options = {}) => fetch(url, { ...options, credentials: "same-origin" });
+
+/** Loads and verifies startup carriers, then starts the client on the canvas without input. */
+async function boot(base, input) {
+  const manifestResponse = await fetchAsset(new URL("manifest.json", base));
+  if (!manifestResponse.ok) throw new Error("Delivery manifest unavailable");
+  const manifest = JSON.parse(new TextDecoder().decode(await boundedBytes(manifestResponse, manifest_limit(), false)));
+  let carriers = new Carriers(JSON.stringify(manifest));
+  let audio;
+  try {
+    await downloadCarriers(carriers, manifest, base, fetchAsset);
+    const prepared = carriers;
+    carriers = null;
+    const identity = crypto.getRandomValues(new BigInt64Array(1))[0] || 1n;
+    try {
+      const bank = await openSoundBank(new URL(sound_bank_filename(), base), sound_bank_header_bytes(), sound_bank_prefix_bytes, fetch, "same-origin");
+      audio = new SoundSource(bank.prefix, bank.total, bank.source);
+    } catch { audio = undefined; }
+    const sound = audio;
+    audio = undefined;
+    return prepared.boot("#game", input, identity, sound);
+  } finally { carriers?.free(); audio?.free(); }
+}
+
+/** Keeps the drawing surface at the canvas's CSS size times the device pixel ratio. */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
+  canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+}
+
+// The embedding window, or null for a top-level page, which accepts no stream switches.
+const parentWindow = window.parent !== window ? window.parent : null;
+/** Reports a failure on the page and to the parent. */
+const fail = (error) => observe(JSON.stringify({ error: error?.message || String(error) }));
+
+try {
+  params = spectatorParams(location.search);
+  // Switches may arrive while the client loads; the latest one wins.
+  let requested = params.stream;
+  let game;
+  window.addEventListener("message", (event) => {
+    const stream = requestedStream(event, params.parent, parentWindow);
+    if (!stream) return;
+    requested = stream;
+    if (game) { try { game.spectate(stream, observe); } catch (error) { fail(error); } }
+  });
+  const client = await import("./pkg/web_client.js");
+  ({ Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit } = client);
+  ({ boundedBytes, downloadCarriers } = await import("./edges.mjs"));
+  ({ openSoundBank } = await import("./audio.mjs"));
+  await client.default();
+  resize();
+  new ResizeObserver(resize).observe(canvas);
+  // Spectators never send gameplay input: this frame source stays empty.
+  const input = new BrowserInput();
+  status.textContent = "Loading the world…";
+  game = await boot(params.assets, input);
+  canvas.addEventListener("click", () => game.resume_audio().catch(() => {}));
+  window.addEventListener("pagehide", (event) => {
+    if (!event.persisted) { game.free(); input.free(); }
+  });
+  game.spectate(requested, observe);
+} catch (error) { fail(error); }
+</script>
+</html>

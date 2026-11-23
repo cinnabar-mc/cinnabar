@@ -638,11 +638,12 @@ struct CubeMasks {
     unlit: f32,
 }
 
+// Callers supply the UV derivatives from uniform control flow, as browsers require.
 @if(!ENHANCED)
 fn cube_masks(@if(!ENHANCED)
-in: VertexOutput) -> CubeMasks {
-    let uv_dx = dpdx(in.uv);
-    let uv_dy = dpdy(in.uv);
+in: VertexOutput, @if(!ENHANCED)
+uv_dx: vec2<f32>, @if(!ENHANCED)
+uv_dy: vec2<f32>) -> CubeMasks {
     var masks = CubeMasks(vec3(0.0), 0.0);
     let strength = bitcast<f32>(in.masks.z);
     let uv = clamp(in.uv, vec2(0.0), quad_shape_uv_limit(in.quad_shape));
@@ -713,7 +714,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     @if(OPAQUE_OVERDRAW)
     return vec4(1.0);
     @if(!OPAQUE_OVERDRAW)
-    let shaded = shade_cube(in, sampled);
+    let shaded = shade_cube(in, sampled, uv_dx, uv_dy);
     @if(!OPAQUE_OVERDRAW && ALPHA_TO_COVERAGE)
     return vec4(shaded.rgb, coverage);
     @if(!OPAQUE_OVERDRAW && !ALPHA_TO_COVERAGE)
@@ -795,7 +796,11 @@ fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
     @if(OPAQUE_OVERDRAW)
     return vec4(1.0);
     @if(!OPAQUE_OVERDRAW)
-    return shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
+    let uv_dx = dpdx(in.uv);
+    @if(!OPAQUE_OVERDRAW)
+    let uv_dy = dpdy(in.uv);
+    @if(!OPAQUE_OVERDRAW)
+    return shade_cube(in, sample_cube_texture(in, uv_dx, uv_dy), uv_dx, uv_dy);
 }
 
 // Sealed quad edges extend past the face, so their pixels clamp to its edge texels.
@@ -830,7 +835,8 @@ in: VertexOutput) -> vec3<f32> {
     return tint_gamma;
 }
 
-fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
+// `uv_dx` and `uv_dy` come from the fragment entry, before any discard.
+fn shade_cube(in: VertexOutput, sampled: vec4<f32>, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
     @if(ENHANCED)
     let colour = apply_material_tint(
         sampled,
@@ -856,7 +862,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     @if(!ENHANCED)
     let tint_gamma = ordinary_cube_tint_gamma(in);
     @if(!ENHANCED)
-    let masks = cube_masks(in);
+    let masks = cube_masks(in, uv_dx, uv_dy);
     @if(!ENHANCED)
     let native_colour = native_masked_cube_colour(
         sampled,

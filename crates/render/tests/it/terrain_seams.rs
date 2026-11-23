@@ -792,7 +792,9 @@ fn seam_corner(index: u32) -> u32 {
 // Shades as usual so the bindings match, then reports the quad id instead.
 /// Encodes the quad identifier in pixels while retaining the color shader as a witness.
 @fragment fn quad_id_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let colour = shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
+    let dx = dpdx(in.uv);
+    let dy = dpdy(in.uv);
+    let colour = shade_cube(in, sample_cube_texture(in, dx, dy), dx, dy);
     return select(unpack4x8unorm(in.biome_record | 0xff000000u), colour, colour.a < -1.0);
 }
 "#;

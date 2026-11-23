@@ -9,7 +9,8 @@ async function readRange(source, offset, length, signal, fetcher = fetch) {
       (source.total !== undefined && end >= source.total)) throw new Error("Invalid sound bank range");
   const headers = { Range: `bytes=${offset}-${end}` };
   if (source.etag) headers["If-Range"] = source.etag;
-  const response = await fetcher(source.url, { credentials: "omit", redirect: "error", headers, signal });
+  const credentials = source.credentials === "same-origin" ? "same-origin" : "omit";
+  const response = await fetcher(source.url, { credentials, redirect: "error", headers, signal });
   try {
     const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get("Content-Range") || "");
     const etag = response.headers.get("ETag");
@@ -28,15 +29,19 @@ async function readRange(source, offset, length, signal, fetcher = fetch) {
   }
 }
 
-/** Fetches the bounded header and hash-checked index without downloading sound data. */
-export async function openSoundBank(url, headerBytes, prefixLength, fetcher = fetch) {
+/**
+ * Fetches the bounded header and hash-checked index without downloading sound data. Requests
+ * omit credentials unless `credentials` is "same-origin", for hosts that gate the bundle behind
+ * their own session; later range reads keep the same choice.
+ */
+export async function openSoundBank(url, headerBytes, prefixLength, fetcher = fetch, credentials = "omit") {
   url = new URL(url);
   if (url.protocol !== "https:" || url.username || url.password) throw new Error("Sound bank requires HTTPS");
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), 30_000);
   try {
-    const header = await readRange({ url: url.href }, 0, headerBytes, controller.signal, fetcher);
-    const source = { url: url.href, etag: header.etag, total: header.total };
+    const header = await readRange({ url: url.href, credentials }, 0, headerBytes, controller.signal, fetcher);
+    const source = { url: url.href, etag: header.etag, total: header.total, credentials };
     const prefix = await readRange(source, 0, prefixLength(header.bytes), controller.signal, fetcher);
     return { source, prefix: prefix.bytes, total: source.total };
   } finally { clearTimeout(deadline); }
