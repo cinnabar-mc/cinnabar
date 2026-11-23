@@ -108,6 +108,13 @@ impl Frames {
         );
     }
 
+    fn kept(&self) -> u64 {
+        self.world
+            .resource::<super::super::ActorFrameState>()
+            .hand_published
+            .kept
+    }
+
     fn reuses(&self) -> u64 {
         self.world
             .resource::<super::super::ActorFrameState>()
@@ -143,6 +150,7 @@ fn idle_empty_hand_reuses_its_source_across_frames() {
         3,
         "every idle frame after the first reuses the source"
     );
+    assert_eq!(frames.kept(), 3, "the scene keeps the identical idle frame");
     let instance = |instances: Vec<render_model::ActorGpuInstance>| {
         instances
             .into_iter()
@@ -169,12 +177,14 @@ fn swinging_arm_is_rebuilt_every_frame() {
     };
     frames.frame(60, swing(0.0, 0.25));
     frames.frame(60, swing(0.25, 0.5));
+    let kept = frames.kept();
     frames.frame(60, swing(0.5, 0.75));
     assert_eq!(
         frames.reuses(),
         1,
         "a moving swing reads the frame fraction"
     );
+    assert_eq!(frames.kept(), kept, "a moving swing republishes");
 }
 
 /// A held item's source samples the native parent pose at the frame fraction and is rebuilt.

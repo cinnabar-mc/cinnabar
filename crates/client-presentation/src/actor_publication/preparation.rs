@@ -27,6 +27,7 @@ pub struct ActorFrameState {
     pub(super) coverage_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
     pub(super) hand_revision: u64,
+    pub(super) hand_published: super::hand_publication::PublishedHand,
     pub(super) java_hand: java::HandCache,
     pub(super) java_poses: java::PoseScratch,
     pub(super) body_scratch: super::bodies::BodyScratch,

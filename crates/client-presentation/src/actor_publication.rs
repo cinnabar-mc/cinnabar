@@ -12,6 +12,7 @@ mod flames;
 mod geometry;
 mod ground_effects;
 mod hand_frame;
+mod hand_publication;
 mod hand_reuse;
 mod hats;
 pub use ground_effects::{GroundEffectWearer, GroundEffectWearers};
@@ -514,6 +515,7 @@ pub fn prepare_actor_render_frame(
     publish_hand_rig(
         &mut params.hand_builder.0,
         &mut params.hand_scene,
+        &mut state.hand_published,
         &mut state.hand_revision,
         hand_source.as_ref(),
         hand_camera_fov,

@@ -110,31 +110,35 @@ pub(super) fn decorated_item_atlas(
 
 /// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
 /// it when not in first person, when the look FOV is unavailable, or when no skin resolved.
+/// A frame the scene already holds is left untouched, so the render world keeps its copy.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn publish_hand_rig(
     builder: &mut ActorRigFrameBuilder,
-    scene: &mut HandRigScene,
+    scene: &mut ResMut<HandRigScene>,
+    published: &mut super::hand_publication::PublishedHand,
     revision: &mut u64,
     source: Option<&HandSource>,
     fov_radians: Option<f32>,
     mut light: HandRigLight,
     (partial_tick, glint): (f32, Option<&render_scene::UiGlintSettings>),
 ) {
-    let (Some(source), Some(fov)) = (source, fov_radians) else {
-        scene.clear();
+    let Some((source, fov, skin)) = source
+        .zip(fov_radians)
+        .and_then(|(source, fov)| Some((source, fov, source.presentation.skin_rgba8.clone()?)))
+    else {
+        published.record(None);
+        if scene.frame.is_some() {
+            scene.clear();
+        }
         return;
     };
-    let Some(skin) = source.presentation.skin_rgba8.clone() else {
-        scene.clear();
-        return;
-    };
-    let frame = builder.build(
-        partial_tick,
-        None,
-        source.all_submissions().map(|mut submission| {
+    let submissions = source
+        .all_submissions()
+        .map(|mut submission| {
             super::equipment_layers::animate_glint(&mut submission, partial_tick, glint);
             submission
-        }),
-    );
+        })
+        .collect();
     let mut atlases = [None, None];
     for (index, entry) in source.items.iter().enumerate() {
         if let Some((layer, atlas)) = entry {
@@ -143,11 +147,37 @@ pub(super) fn publish_hand_rig(
             atlases[index] = Some(atlas.clone());
         }
     }
+    let inputs = super::hand_publication::Inputs::new(
+        submissions,
+        (source, skin.clone()),
+        (light, fov, builder.geometry_revision()),
+        atlases.clone(),
+    );
+    if published.holds(&inputs) {
+        #[cfg(any(test, debug_assertions))]
+        {
+            let fresh = builder.build(partial_tick, None, inputs.submissions().iter().cloned());
+            assert!(
+                scene.frame.as_ref().is_some_and(|held| {
+                    super::hand_publication::same_frame(&held.rig, &fresh)
+                        && held.skin == skin
+                        && held.light == light
+                        && held.fov_radians.to_bits() == fov.to_bits()
+                }),
+                "a kept first-person frame must draw what a rebuilt one draws"
+            );
+        }
+        return;
+    }
+    let frame = builder.build(partial_tick, None, inputs.submissions().iter().cloned());
     *revision = revision.wrapping_add(1).max(1);
     if scene.publish(frame, skin, light, fov, *revision) {
         scene.set_item_atlases(atlases);
         scene.set_item_glint(source.item_glint.clone());
         scene.set_map_background(source.maps.background.clone());
+        published.record(Some(inputs));
+    } else {
+        published.record(None);
     }
 }
 

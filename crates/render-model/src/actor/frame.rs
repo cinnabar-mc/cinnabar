@@ -528,6 +528,12 @@ impl ActorRigFrameBuilder {
             )
     }
 
+    /// The geometry catalog revision every frame built from now on carries.
+    #[must_use]
+    pub const fn geometry_revision(&self) -> u64 {
+        self.catalog.revision
+    }
+
     #[must_use]
     pub fn build(
         &mut self,
