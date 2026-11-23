@@ -426,11 +426,16 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
             .tint_input_revision
             .load(std::sync::atomic::Ordering::Relaxed);
         let quad_capacity = arena.quad_capacity;
-        let cache = super::tint_cache::TintCache::for_capacity(
+        let Some(cache) = super::tint_cache::TintCache::for_capacity(
             &mut arena.tint_cache,
             &render_device,
             quad_capacity,
-        );
+        ) else {
+            arena.bind_group = None;
+            arena.transparent_bind_group = None;
+            arena.bind_group_buffers = None;
+            return;
+        };
         cache.observe(&render_queue, inputs, revision);
         Some(cache.buffer.id())
     } else {

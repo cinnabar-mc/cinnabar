@@ -80,21 +80,32 @@ pub(in crate::chunk) struct TintCache {
 impl TintCache {
     /// Returns the cache for `quad_capacity` quads, replacing one sized for another capacity.
     /// A new buffer starts zeroed, and epoch zero is never current, so it holds no entry.
+    /// Quads beyond the entries that fit the device's binding size or memory, down to none,
+    /// take the uncached blend; `None` means not even the epoch slot could be allocated.
     pub(in crate::chunk) fn for_capacity<'a>(
         cache: &'a mut Option<Self>,
         device: &RenderDevice,
         quad_capacity: usize,
-    ) -> &'a mut Self {
+    ) -> Option<&'a mut Self> {
         if cache
             .as_ref()
             .is_none_or(|cache| cache.quad_capacity != quad_capacity)
         {
-            let buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("terrain tint cache"),
-                size: (quad_capacity as u64 + 1) * ENTRY_BYTES,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            let entries = entry_count(
+                quad_capacity,
+                device.limits().max_storage_buffer_binding_size,
+            );
+            let buffer = [entries, 1].into_iter().find_map(|entries| {
+                crate::gpu_allocation::buffer(
+                    device,
+                    &BufferDescriptor {
+                        label: Some("terrain tint cache"),
+                        size: entries * ENTRY_BYTES,
+                        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    },
+                )
+            })?;
             *cache = Some(Self {
                 buffer,
                 quad_capacity,
@@ -102,7 +113,7 @@ impl TintCache {
                 observed: None,
             });
         }
-        cache.as_mut().expect("cache was just ensured")
+        cache.as_mut()
     }
 
     /// Advances and uploads the epoch unless `inputs` and the arena's tint `revision` both match
@@ -126,6 +137,12 @@ impl TintCache {
     }
 }
 
+/// Entries for the epoch slot and `quad_capacity` quads, bounded by a binding of
+/// `max_binding_bytes`.
+fn entry_count(quad_capacity: usize, max_binding_bytes: u64) -> u64 {
+    (quad_capacity as u64 + 1).min(max_binding_bytes / ENTRY_BYTES)
+}
+
 /// The epoch after `epoch`, skipping zero, which marks never-written entries.
 fn next_epoch(epoch: u32) -> u32 {
     epoch.wrapping_add(1).max(1)
@@ -140,6 +157,12 @@ mod tests {
         assert_eq!(next_epoch(0), 1);
         assert_eq!(next_epoch(1), 2);
         assert_eq!(next_epoch(u32::MAX), 1);
+    }
+
+    #[test]
+    fn entries_cover_every_quad_within_the_binding_size() {
+        assert_eq!(entry_count(100, u64::MAX), 101);
+        assert_eq!(entry_count(100, 64 * ENTRY_BYTES + 15), 64);
     }
 
     #[test]
