@@ -211,3 +211,37 @@ fn ordered_frame_local_overflow_ends_accepted_item_use_before_neutral_rearm() {
         }
     }
 }
+
+#[test]
+fn ordered_frame_local_idle_frames_keep_the_runtime_at_every_drain() {
+    let (mut app, mut captured) = app_fixture(8);
+    tap(app.world_mut(), MouseButton::Left);
+    frame(&mut app);
+    captured.drain();
+    let added = |app: &App| {
+        app.world()
+            .get_resource_change_ticks::<crate::ordered_interactions::InteractionRuntime>()
+            .map(|ticks| ticks.added)
+    };
+    let before = added(&app);
+    assert!(before.is_some(), "ordered input keeps its runtime");
+    for _ in 0..3 {
+        // Block use drains before physics; attacks and item use drain after it.
+        frame(&mut app);
+        assert!(captured.drain().is_empty());
+        assert_eq!(
+            added(&app),
+            before,
+            "an idle drain must not remove and reinsert the runtime"
+        );
+    }
+    tap(app.world_mut(), MouseButton::Left);
+    frame(&mut app);
+    assert!(
+        captured
+            .drain()
+            .iter()
+            .any(|packet| observe_transaction(packet).is_some()),
+        "a later tap still reaches its transaction"
+    );
+}
