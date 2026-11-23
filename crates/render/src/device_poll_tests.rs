@@ -1,8 +1,14 @@
-use super::{FramesInFlight, MAX_FRAMES_IN_FLIGHT};
-use bevy::render::renderer::{RenderDevice, RenderQueue};
+use super::{FrameSubmissions, FramesInFlight, MAX_FRAMES_IN_FLIGHT, submission_marker};
+use bevy::{
+    prelude::{IntoScheduleConfigs, Res, ResMut, Resource},
+    render::{
+        Render, RenderSystems,
+        renderer::{PendingCommandBuffers, RenderDevice, RenderQueue},
+    },
+};
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 /// Dependent steps of one GPU invocation per frame: far longer on any GPU than recording and
@@ -79,16 +85,170 @@ fn frames_without_a_swap_chain_stay_within_the_in_flight_bound() {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        queue.submit([encoder.finish()]);
+        let submission = queue.submit([encoder.finish()]);
         let receipt = Arc::clone(&completed);
         queue.on_submitted_work_done(move || {
             receipt.fetch_add(1, Ordering::AcqRel);
         });
-        frames.finish_frame(gpu, &queue).expect("frame poll");
+        frames.finish_frame(gpu, submission).expect("frame poll");
         let queued = submitted - completed.load(Ordering::Acquire);
         assert!(
             queued <= MAX_FRAMES_IN_FLIGHT,
             "{queued} frames still queued after frame {submitted}"
         );
     }
+}
+
+/// Stands in for the render graph: records one command and submits the frame.
+fn submit_frame(
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    mut pending: ResMut<PendingCommandBuffers>,
+) {
+    pending
+        .command_encoder(&device)
+        .insert_debug_marker("frame");
+    pending.submit(&queue);
+}
+
+/// The poll bounds a frame by the frame's own submission. An empty submission to obtain an index
+/// would cost a driver submission on every frame.
+#[test]
+fn polling_a_frame_makes_no_submission_of_its_own() {
+    let (mut app, _) = crate::queue_review_support::app();
+    app.add_schedule(Render::base_schedule())
+        .init_resource::<PendingCommandBuffers>();
+    super::install(app.main_mut());
+    app.add_systems(
+        Render,
+        submit_frame
+            .in_set(RenderSystems::Render)
+            .before(FrameSubmissions),
+    );
+    let queue = app.world().resource::<RenderQueue>().clone();
+    for frame in 0..2 * MAX_FRAMES_IN_FLIGHT {
+        let before = submission_marker(&queue);
+        app.world_mut().run_schedule(Render);
+        // The frame's submission and the marker read itself.
+        assert_eq!(submission_marker(&queue) - before, 2, "frame {frame}");
+        assert_eq!(
+            app.world().resource::<FramesInFlight>().0.len(),
+            (frame + 1).min(MAX_FRAMES_IN_FLIGHT),
+            "frame {frame} is bounded by its own submission"
+        );
+    }
+}
+
+/// A buffer the frame writes through the queue's staging, without recording any commands.
+#[derive(Resource)]
+struct StagedBuffer(wgpu::Buffer);
+
+const STAGED: [u8; 4] = [7, 1, 9, 3];
+
+fn stage_write(queue: Res<RenderQueue>, staged: Res<StagedBuffer>) {
+    queue.write_buffer(&staged.0, 0, &STAGED);
+}
+
+/// A render app on the NOOP device whose frames stage one write and submit no graph work.
+fn writes_only_app() -> (bevy::app::App, wgpu::Buffer) {
+    let (mut app, _) = crate::queue_review_support::app();
+    app.add_schedule(Render::base_schedule())
+        .init_resource::<PendingCommandBuffers>();
+    super::install(app.main_mut());
+    let buffer = app
+        .world()
+        .resource::<RenderDevice>()
+        .wgpu_device()
+        .create_buffer(&wgpu::BufferDescriptor {
+            label: Some("staged frame write"),
+            size: STAGED.len() as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+    app.insert_resource(StagedBuffer(buffer.clone()));
+    app.add_systems(
+        Render,
+        stage_write
+            .in_set(RenderSystems::Render)
+            .before(FrameSubmissions),
+    );
+    (app, buffer)
+}
+
+/// A frame whose graph submits nothing, such as one with surface acquisition suspended, still
+/// sends the writes it staged and still counts towards the in-flight bound.
+#[test]
+fn a_frame_without_a_graph_submission_sends_its_staged_writes() {
+    let (mut app, buffer) = writes_only_app();
+    let queue = app.world().resource::<RenderQueue>().clone();
+    let before = submission_marker(&queue);
+    app.world_mut().run_schedule(Render);
+    // The poll's own submission and the marker read itself.
+    assert_eq!(submission_marker(&queue) - before, 2);
+    assert_eq!(app.world().resource::<FramesInFlight>().0.len(), 1);
+    let mapped = Arc::new(AtomicBool::new(false));
+    let receipt = Arc::clone(&mapped);
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            result.expect("staged buffer maps");
+            receipt.store(true, Ordering::Release);
+        });
+    app.world()
+        .resource::<RenderDevice>()
+        .wgpu_device()
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    assert!(
+        mapped.load(Ordering::Acquire),
+        "the staged write was never submitted"
+    );
+    let written = buffer
+        .slice(..)
+        .get_mapped_range()
+        .expect("mapped staged buffer");
+    assert_eq!(*written, STAGED);
+}
+
+/// Stands in for an owner that submits its own work after the graph, like the Metal queue probe.
+fn submit_after_graph(
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    mut pending: ResMut<PendingCommandBuffers>,
+) {
+    let buffer = device.create_command_encoder(&Default::default()).finish();
+    pending.push([buffer]);
+    pending.submit(&queue);
+}
+
+/// Work submitted after the graph through the pending command buffers is the frame's bound.
+#[test]
+fn work_submitted_after_the_graph_is_inside_the_frame_bound() {
+    let (mut app, _) = crate::queue_review_support::app();
+    app.add_schedule(Render::base_schedule())
+        .init_resource::<PendingCommandBuffers>();
+    super::install(app.main_mut());
+    app.add_systems(
+        Render,
+        (
+            submit_frame
+                .in_set(RenderSystems::Render)
+                .before(FrameSubmissions),
+            submit_after_graph.in_set(FrameSubmissions),
+        ),
+    );
+    let queue = app.world().resource::<RenderQueue>().clone();
+    let before = submission_marker(&queue);
+    app.world_mut().run_schedule(Render);
+    let after = submission_marker(&queue);
+    // The graph's submission, the late one, and the marker read itself: no poll submission.
+    assert_eq!(after - before, 3);
+    let bound = format!("{:?}", app.world().resource::<FramesInFlight>().0.back());
+    let bound: u64 = bound
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .expect("recorded index");
+    assert_eq!(bound + 1, after, "the late submission bounds the frame");
 }
