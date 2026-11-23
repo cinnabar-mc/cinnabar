@@ -247,7 +247,7 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
             runtime,
             ui,
             Some(authority),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             0,
             Default::default(),
         );
@@ -337,7 +337,7 @@ fn trading_shield_previews_reduce_with_the_visible_atlas_demand() {
             runtime,
             ui,
             Some(world.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             0,
             Default::default(),
         );

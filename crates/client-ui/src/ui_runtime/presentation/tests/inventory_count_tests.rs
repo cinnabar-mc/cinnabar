@@ -268,7 +268,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
             &mut runtime,
             &mut without_icon,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             1,
             Default::default(),
         );
@@ -279,7 +279,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
             &mut runtime,
             &mut presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             1,
             Default::default(),
         );
@@ -596,7 +596,7 @@ fn recipe_book_entries_glint_like_inventory_slots() {
         &mut runtime,
         &mut presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         1,
         Default::default(),
     );

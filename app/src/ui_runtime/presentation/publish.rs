@@ -440,6 +440,10 @@ pub(crate) fn prepare_ui_runtime(
             )
         })
     }));
+    // When the local player's first-person rig is drawing near-camera, it owns the hand; the
+    // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
+    // double-draws.
+    let hud_first_person = first_person && !hide_hand;
     let capture = capture_hud_frame(
         &player_runtime,
         runtime.bypass_change_detection(),
@@ -448,7 +452,7 @@ pub(crate) fn prepare_ui_runtime(
             .stream
             .as_ref()
             .map(|stream| stream.authority().inventory_ui()),
-        camera_settings.rendered_perspective(),
+        hud_first_person,
         now_millis,
         icon_frames,
     );
@@ -505,10 +509,6 @@ pub(crate) fn prepare_ui_runtime(
             / f64::from(world::TICKS_PER_DAY))
         .floor(),
     );
-    // When the local player's first-person rig is drawing near-camera, it owns the hand; the
-    // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
-    // double-draws.
-    let hud_first_person = first_person && !hide_hand;
     client_shell::ui_resources::update(&mut presentation, |presentation| {
         let frame = presentation.hud_frame_mut();
         let mut changed = store(&mut frame.hotbar_cooldowns, hotbar_cooldowns);
@@ -521,7 +521,6 @@ pub(crate) fn prepare_ui_runtime(
         );
         changed |= store(&mut frame.dimension, dimension);
         changed |= store(&mut frame.days_played, days_played);
-        changed |= store(&mut frame.first_person, hud_first_person);
         changed | store(&mut frame.hand_rig_active, hand_rig.hand_is_active())
     });
     if hand_rig.hand_is_active() {

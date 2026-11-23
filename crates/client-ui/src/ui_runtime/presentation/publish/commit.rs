@@ -39,16 +39,19 @@ pub fn render_prepared_ui(
     let repeats = presentation.frame_reuse != super::reuse::FrameReuse::Off
         && inputs_unchanged
         && presentation.repeats_frame(&inputs, prepared.now_millis);
-    if repeats
-        && presentation.frame_reuse == super::reuse::FrameReuse::Skip
-        && presentation.repeat_built_frame(prepared.now_millis)
-    {
+    #[cfg(debug_assertions)]
+    let check = repeats && presentation.checks_repeat();
+    #[cfg(not(debug_assertions))]
+    let check = false;
+    if repeats && !check && presentation.repeat_built_frame(prepared.now_millis) {
         return Ok(None);
     }
-    let repeated = repeats.then(|| presentation.last_input.clone()).flatten();
+    #[cfg(debug_assertions)]
+    let repeated = check.then(|| presentation.last_input.clone()).flatten();
     match build_prepared_ui(player_runtime, runtime, presentation, prepared) {
         Ok(input) => {
-            if repeats {
+            #[cfg(debug_assertions)]
+            if check {
                 presentation.check_repeat(repeated.as_ref(), &input);
             }
             presentation.remember_built(inputs);
@@ -143,7 +146,7 @@ pub fn refresh_hud_frame(
         runtime,
         presentation,
         world,
-        perspective,
+        perspective == semantic_input::PerspectiveMode::FirstPerson,
         now_millis,
         ItemIconFrames::default(),
     )

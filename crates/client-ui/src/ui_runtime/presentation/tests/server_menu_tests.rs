@@ -126,7 +126,7 @@ fn titles_after(
         runtime,
         presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         sequence,
         Default::default(),
     );

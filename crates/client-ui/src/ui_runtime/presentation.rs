@@ -141,8 +141,11 @@ pub struct UiPresentationRuntime {
     frame_reuse: publish::reuse::FrameReuse,
     /// The last built frame, while a later one may repeat it.
     built_frame: Option<publish::reuse::BuiltFrame>,
-    /// Repeats whose check build differed, counted in [`FrameReuse::Verify`].
+    /// Repeats whose check build differed, in the debug checking modes.
     frame_reuse_mismatches: u64,
+    /// Repeats in a row since `FrameReuse::Audit` last checked one.
+    #[cfg(debug_assertions)]
+    repeats_since_check: u32,
     /// What the last frame was built from; later frames re-emit only changed and `§k` nodes.
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.

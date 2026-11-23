@@ -8,29 +8,40 @@
 
 use super::super::{UiPresentationRuntime, frame_clock::FrameClock, player_preview};
 use super::commit::PendingUiPublication;
+#[cfg(debug_assertions)]
 use render_model::UiRenderInput;
 use std::sync::Arc;
 use ui::{DpiScale, IconRef};
 
-/// Whether publication skips frames that would repeat, and whether it checks them.
+/// Whether publication skips frames that would repeat, and whether it checks them. The checking
+/// modes exist only in debug builds, so release publication never compares frames.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameReuse {
     /// Repeat the last frame without building it.
     Skip,
     /// Build anyway and report a frame that differs from the one it should have repeated.
+    #[cfg(debug_assertions)]
     Verify,
+    /// Repeat as [`Self::Skip`] does, but build every [`AUDIT_PERIOD`]th repeat in a row and
+    /// report a frame that differs from the repeated one: a repeat's replayed bookkeeping that
+    /// diverged from what a build would have done shows there.
+    #[cfg(debug_assertions)]
+    Audit,
     /// Always build.
     Off,
 }
 
+/// Consecutive repeats [`FrameReuse::Audit`] lets pass before it builds one to compare.
+#[cfg(debug_assertions)]
+pub const AUDIT_PERIOD: u32 = 16;
+
 impl Default for FrameReuse {
-    /// Debug builds check every repeat; others skip.
+    /// Debug builds audit repeats; others skip.
     fn default() -> Self {
-        if cfg!(debug_assertions) {
-            Self::Verify
-        } else {
-            Self::Skip
-        }
+        #[cfg(debug_assertions)]
+        return Self::Audit;
+        #[cfg(not(debug_assertions))]
+        return Self::Skip;
     }
 }
 
@@ -121,19 +132,41 @@ impl UiPresentationRuntime {
     /// Does what building the repeated frame at `now_millis` would have done besides drawing it;
     /// `false` when the frame would draw differently after all, so it must be built.
     pub(super) fn repeat_built_frame(&mut self, now_millis: u64) -> bool {
-        self.repeat_hud_paints(now_millis)
+        if !self.repeat_hud_paints(now_millis) {
+            return false;
+        }
+        // The replay touched the paints' animation components as their paints would; a build
+        // ends its frame by retiring what nothing touched, and so does a repeat.
+        self.end_animation_frame();
+        true
+    }
+
+    /// Whether this repeated frame is built and compared instead: always when verifying, every
+    /// [`AUDIT_PERIOD`]th repeat in a row when auditing, never otherwise.
+    #[cfg(debug_assertions)]
+    pub(super) fn checks_repeat(&mut self) -> bool {
+        match self.frame_reuse {
+            FrameReuse::Verify => true,
+            FrameReuse::Audit => {
+                self.repeats_since_check += 1;
+                let due = self.repeats_since_check >= AUDIT_PERIOD;
+                if due {
+                    self.repeats_since_check = 0;
+                }
+                due
+            }
+            FrameReuse::Skip | FrameReuse::Off => false,
+        }
     }
 
     /// Reports a check build that drew something other than the frame it should have repeated.
+    #[cfg(debug_assertions)]
     pub(super) fn check_repeat(&mut self, repeated: Option<&UiRenderInput>, built: &UiRenderInput) {
         if repeated == Some(built) {
             return;
         }
         self.frame_reuse_mismatches += 1;
-        #[cfg(debug_assertions)]
         let changed_by = self.clock.changed_by();
-        #[cfg(not(debug_assertions))]
-        let changed_by = None::<&std::panic::Location<'static>>;
         tracing::error!(
             mismatches = self.frame_reuse_mismatches,
             ?changed_by,

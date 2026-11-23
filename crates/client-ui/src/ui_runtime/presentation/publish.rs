@@ -31,13 +31,14 @@ fn store<T: PartialEq>(slot: &mut T, value: T) -> bool {
 }
 
 /// Captures HUD display values and applies its required local authority observations, storing
-/// only values that changed so an idle capture changes nothing.
+/// only values that changed so an idle capture changes nothing. `first_person` is whether the HUD
+/// draws for a first-person view with the hand shown.
 pub fn capture_hud_frame(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
     world: Option<client_world::ui_read::InventoryUi<'_>>,
-    perspective: semantic_input::PerspectiveMode,
+    first_person: bool,
     now_millis: u64,
     icon_frames: ItemIconFrames,
 ) -> HudCapture {
@@ -122,7 +123,6 @@ pub fn capture_hud_frame(
             .filter(|world| world.mount_has_jump(unique))
             .map(|_| runtime.mount_jump_charge(now_millis))
     });
-    let first_person = perspective == semantic_input::PerspectiveMode::FirstPerson;
     runtime_changed |=
         runtime.observe_selected_item_identity_value(selected.identity(), now_millis);
     let sleeping = world

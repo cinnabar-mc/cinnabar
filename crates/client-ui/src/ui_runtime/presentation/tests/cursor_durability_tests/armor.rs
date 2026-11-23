@@ -104,7 +104,7 @@ fn capture(
         runtime,
         presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         0,
         Default::default(),
     );

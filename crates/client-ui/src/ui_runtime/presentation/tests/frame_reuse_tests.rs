@@ -61,6 +61,9 @@ fn fixture_presentation() -> Option<UiPresentationRuntime> {
             {"effects": {"type": "custom", "renderer": "java_mob_effects_renderer",
                 "size": [120, 30], "anchor_from": "top_right", "anchor_to": "top_right"}},
             label("level", "#level_number", "bottom_middle"),
+            {"entrance": {"type": "label", "text": "Entrance", "localize": false,
+                "anchor_from": "top_left", "anchor_to": "top_left",
+                "anims": ["@hud.fixture_entrance"]}},
             label("item_name", "#item_text", "bottom_middle"),
             label("title", "#hud_title_text_string", "center"),
             label("subtitle", "#hud_subtitle_text_string", "bottom_middle"),
@@ -75,6 +78,7 @@ fn fixture_presentation() -> Option<UiPresentationRuntime> {
             label("sidebar", "#objective_sidebar_name", "right_middle"),
         ]),
         json!({
+            "fixture_entrance": {"anim_type": "alpha", "duration": 0.5, "from": 0.0, "to": 1.0},
             "boss_row": {"type": "label", "text": "#bossName", "localize": false,
                 "size": [200, 9], "bindings": [{"binding_name": "#bossName",
                     "binding_type": "collection", "binding_collection_name": "boss_bars"}]},
@@ -122,7 +126,10 @@ struct Harness {
     now: u64,
     size: [u32; 2],
     perspective: semantic_input::PerspectiveMode,
-    /// Whether the script changed the runtime or the player since the last frame.
+    /// How the repeating presentation repeats frames.
+    reuse: FrameReuse,
+    /// Whether the script changed the repeating presentation's inputs since the last frame, as
+    /// the changing APIs reported it.
     changed: bool,
     /// The frame the repeating presentation last published.
     published: Option<render_model::UiRenderInput>,
@@ -131,10 +138,14 @@ struct Harness {
 }
 
 impl Harness {
-    /// Two presentations from `presentation`, one repeating and one building every frame.
-    fn new(presentation: impl Fn() -> Option<UiPresentationRuntime>) -> Option<Self> {
+    /// Two presentations from `presentation`, one repeating frames as `reuse` does and one
+    /// building every frame.
+    fn new(
+        presentation: impl Fn() -> Option<UiPresentationRuntime>,
+        reuse: FrameReuse,
+    ) -> Option<Self> {
         let [mut repeating, mut building] = [presentation()?, presentation()?];
-        repeating.set_frame_reuse(FrameReuse::Skip);
+        repeating.set_frame_reuse(reuse);
         building.set_frame_reuse(FrameReuse::Off);
         let mut player = player_state::PlayerState::new(1);
         let mut runtime = UiRuntime::new(1);
@@ -150,23 +161,29 @@ impl Harness {
             now: 1_000,
             size: [1280, 720],
             perspective: semantic_input::PerspectiveMode::FirstPerson,
+            reuse,
             changed: true,
             published: None,
             repeats: 0,
         })
     }
 
-    /// Changes the session through `change`, as a system writing the runtime and player would.
-    fn change(&mut self, change: impl FnOnce(&mut player_state::PlayerState, &mut UiRuntime)) {
-        change(&mut self.player, &mut self.runtime);
-        self.changed = true;
+    /// Changes the session through `change`, as a system writing the runtime and player would:
+    /// the frame's inputs count as changed only when `change` reports it, as the production
+    /// writer's own report or, for a writer that marks its resource changed unconditionally,
+    /// `true`.
+    fn change(
+        &mut self,
+        change: impl FnOnce(&mut player_state::PlayerState, &mut UiRuntime) -> bool,
+    ) {
+        self.changed |= change(&mut self.player, &mut self.runtime);
     }
 
-    /// Changes both presentations' inputs, as a system writing the presentation would.
-    fn present(&mut self, change: impl Fn(&mut UiPresentationRuntime)) {
-        change(&mut self.repeating);
+    /// Changes both presentations' inputs, as a system writing the presentation would; the
+    /// repeating presentation's report decides whether its inputs changed.
+    fn present(&mut self, change: impl Fn(&mut UiPresentationRuntime) -> bool) {
+        self.changed |= change(&mut self.repeating);
         change(&mut self.building);
-        self.changed = true;
     }
 
     /// Captures and publishes one frame on both presentations and checks they draw alike;
@@ -190,14 +207,17 @@ impl Harness {
             Some(input) => self.published = Some(input),
             None => self.repeats += 1,
         }
-        // The closed inventory prepares on a worker that each build services; both
-        // presentations finish it at the same time before they compare.
-        test_time::eventually("inventory preparation worker", || {
+        // The closed inventory prepares on a worker that each build services, and frames keep
+        // building while it does: both presentations finish it, unchanged frames and all,
+        // before they compare.
+        test_time::eventually("inventory preparation under repeated frames", || {
             if !self.preparing() {
                 return true;
             }
-            let (repeated, built) = self.round(true);
-            self.published = repeated;
+            let (repeated, built) = self.round(false);
+            if let Some(repeated) = repeated {
+                self.published = Some(repeated);
+            }
             fresh = built;
             !self.preparing()
         });
@@ -219,7 +239,8 @@ impl Harness {
     }
 
     /// Captures and publishes on both presentations; the repeating one's frame unless it
-    /// repeated, and the building one's.
+    /// repeated, and the building one's. `changed` adds the script's changes to what the
+    /// captures report: the runtime both write, and the repeating presentation's own inputs.
     fn round(
         &mut self,
         mut changed: bool,
@@ -227,17 +248,19 @@ impl Harness {
         Option<render_model::UiRenderInput>,
         render_model::UiRenderInput,
     ) {
+        let mut repeating = true;
         let captures = [&mut self.repeating, &mut self.building].map(|presentation| {
             let capture = crate::ui_runtime::presentation::capture_hud_frame(
                 &self.player,
                 &mut self.runtime,
                 presentation,
                 None,
-                self.perspective,
+                self.perspective == semantic_input::PerspectiveMode::FirstPerson,
                 self.now,
                 ItemIconFrames::default(),
             );
-            changed |= capture.runtime_changed | capture.presentation_changed;
+            changed |= capture.runtime_changed | (repeating && capture.presentation_changed);
+            repeating = false;
             capture.icons
         });
         let [repeating_icons, building_icons] = captures;
@@ -373,6 +396,17 @@ fn difference(a: &render_model::UiRenderInput, b: &render_model::UiRenderInput) 
     parts.join(", ")
 }
 
+impl Harness {
+    /// Publishes a frame at the same time after a change its API reported as none, and checks it
+    /// repeated without building.
+    fn assert_repeats(&mut self, what: &str) {
+        let built = self.frame();
+        if self.reuse == FrameReuse::Skip {
+            assert!(!built, "{what}: an unchanged frame must repeat");
+        }
+    }
+}
+
 fn item(network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
         network_id,
@@ -407,7 +441,9 @@ fn stat(current: u16, maximum: u16) -> Option<BoundedStat> {
 /// frames match fresh builds through each timed change.
 #[test]
 fn hud_changes_and_fades_draw_as_fresh_builds_while_unchanged_frames_repeat() {
-    let Some(mut harness) = Harness::new(crate::test_support::engine_presentation) else {
+    let Some(mut harness) =
+        Harness::new(crate::test_support::engine_presentation, FrameReuse::Skip)
+    else {
         eprintln!(
             "skipping hud_changes_and_fades_draw_as_fresh_builds_while_unchanged_frames_repeat: \
              fixture unavailable; requires installed local carriers (make assets)"
@@ -421,15 +457,51 @@ fn hud_changes_and_fades_draw_as_fresh_builds_while_unchanged_frames_repeat() {
 /// idle frames repeat.
 #[test]
 fn repeated_frames_match_fresh_builds_without_local_carriers() {
-    let mut harness = Harness::new(fixture_presentation).unwrap();
+    let mut harness = Harness::new(fixture_presentation, FrameReuse::Skip).unwrap();
+    script(&mut harness, false);
+}
+
+/// A capture of unchanged inputs reports no change, whichever first-person state the HUD draws
+/// for, including a third-person or hidden hand.
+#[test]
+fn captures_of_unchanged_inputs_report_no_change() {
+    let mut presentation = fixture_presentation().unwrap();
+    let player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    for first_person in [true, false, true] {
+        let mut capture = || {
+            crate::ui_runtime::presentation::capture_hud_frame(
+                &player,
+                &mut runtime,
+                &mut presentation,
+                None,
+                first_person,
+                1_000,
+                ItemIconFrames::default(),
+            )
+        };
+        capture();
+        let again = capture();
+        assert!(
+            !again.runtime_changed && !again.presentation_changed,
+            "an unchanged capture with first_person={first_person} reports a change"
+        );
+    }
+}
+
+/// Auditing repeats replays them as skipping does and periodically builds one to compare: the
+/// script's frames still match fresh builds.
+#[test]
+fn audited_repeats_match_fresh_builds() {
+    let mut harness = Harness::new(fixture_presentation, FrameReuse::Audit).unwrap();
     script(&mut harness, false);
 }
 
 /// Scripted HUD changes, timed fades and idle stretches; `strict` checks each change draws.
 fn script(harness: &mut Harness, carriers: bool) {
     assert!(harness.frame(), "the first frame builds");
-    // Idle frames repeat without building.
-    harness.run(500, 16);
+    // Idle frames repeat without building once entrance animations settle.
+    harness.run(1_000, 16);
     assert!(
         harness.repeats > 25,
         "idle frames repeat: {}",
@@ -448,11 +520,15 @@ fn script(harness: &mut Harness, carriers: bool) {
                 1,
             )],
         );
+        true
     });
     harness.assert_changes("sidebar", true);
 
     // The hotbar shows with a selected slot, then its contents and selection change.
-    harness.change(|player, _| player.inventory.set_local_selected_slot(0));
+    harness.change(|player, _| {
+        player.inventory.set_local_selected_slot(0);
+        true
+    });
     harness.assert_changes("hotbar shown", true);
     harness.change(|player, runtime| {
         let mut slots = vec![NetworkItemStack::empty(); 36];
@@ -464,9 +540,13 @@ fn script(harness: &mut Harness, carriers: bool) {
                 slots: slots.into(),
                 storage_item: NetworkItemStack::empty(),
             }));
+        true
     });
     harness.assert_changes("hotbar contents", true);
-    harness.change(|player, _| player.inventory.set_local_selected_slot(1));
+    harness.change(|player, _| {
+        player.inventory.set_local_selected_slot(1);
+        true
+    });
     harness.assert_changes("selected slot", true);
     // The selected item's name shows, then fades with no further input.
     harness.run(4_000, 50);
@@ -480,33 +560,42 @@ fn script(harness: &mut Harness, carriers: bool) {
             .session
             .hud
             .set_stats(stat(20, 20), stat(20, 20), stat(4, 20), stat(300, 300));
+        true
     });
     harness.assert_changes("survival rows", true);
     harness.change(|_, runtime| {
         let hud = &mut runtime.session.hud;
         hud.set_stats(stat(7, 20), hud.hunger(), hud.armor(), hud.air());
+        true
     });
     harness.assert_changes("health", true);
     harness.change(|_, runtime| {
         let hud = &mut runtime.session.hud;
         hud.set_stats(hud.health(), stat(3, 20), hud.armor(), hud.air());
+        true
     });
     harness.assert_changes("hunger", true);
     harness.change(|_, runtime| {
         let hud = &mut runtime.session.hud;
         hud.set_stats(hud.health(), hud.hunger(), hud.armor(), stat(120, 300));
+        true
     });
     harness.assert_changes("air", true);
-    harness.change(|_, runtime| runtime.session.hud.set_experience(17, 0.25));
+    harness.change(|_, runtime| {
+        runtime.session.hud.set_experience(17, 0.25);
+        true
+    });
     harness.assert_changes("experience", true);
     harness.run(1_000, 16);
 
     // A timed effect shows, blinks out and expires on the session clock.
+    let at = harness.now + 16;
     harness.change(|_, runtime| {
-        runtime.observe_presentation_tick(1, 1_000);
+        runtime.observe_presentation_tick(1, at);
         runtime
-            .apply_local_effect(1, 3, effect(1, 120), 1_000)
+            .apply_local_effect(1, 3, effect(1, 120), at)
             .unwrap();
+        true
     });
     harness.assert_changes("effect", true);
     harness.run(8_000, 50);
@@ -526,6 +615,7 @@ fn script(harness: &mut Harness, carriers: bool) {
                 },
             )
             .unwrap();
+        true
     });
     harness.assert_changes("chat line", true);
     harness.run(12_000, 100);
@@ -537,6 +627,7 @@ fn script(harness: &mut Harness, carriers: bool) {
         hud.set_durations(ui::TitleDurations::from_wire(10, 20, 10).unwrap());
         hud.set_subtitle(std::sync::Arc::from("Fight"), 4, at);
         hud.set_title(std::sync::Arc::from("Round 2"), 5, at);
+        true
     });
     harness.assert_changes("title and subtitle", true);
     harness.run(3_000, 25);
@@ -546,6 +637,7 @@ fn script(harness: &mut Harness, carriers: bool) {
             .session
             .hud
             .set_actionbar(std::sync::Arc::from("Action"), 6, at);
+        true
     });
     harness.assert_changes("action bar", carriers);
     harness.run(4_000, 50);
@@ -572,6 +664,7 @@ fn script(harness: &mut Harness, carriers: bool) {
                 },
             )
             .unwrap();
+        true
     });
     harness.assert_changes("boss bar", true);
     harness.run(500, 16);
@@ -584,6 +677,7 @@ fn script(harness: &mut Harness, carriers: bool) {
             std::sync::Arc::from("Body"),
             at,
         );
+        true
     });
     harness.assert_changes("toast", carriers);
     harness.run(7_000, 50);
@@ -599,51 +693,68 @@ fn script(harness: &mut Harness, carriers: bool) {
             .mod_ui_mut()
             .set_mod_label(Some("Mod HUD"))
             .unwrap();
+        true
     });
     harness.assert_changes("mod HUD drawn", true);
-    harness.present(|presentation| presentation.mod_ui_mut().set_mod_label(None).unwrap());
+    harness.present(|presentation| {
+        presentation.mod_ui_mut().set_mod_label(None).unwrap();
+        true
+    });
     harness.assert_changes("mod HUD removed", true);
-    harness.present(|presentation| presentation.set_gui_scale_preference(Some(1)));
+    harness.present(|presentation| {
+        presentation.set_gui_scale_preference(Some(1));
+        true
+    });
     harness.assert_changes("GUI scale", true);
+    // The HUD hides right after a repeated frame, then shows again: its controls come back new
+    // and play their entrance animations, as when every frame builds.
+    for _ in 0..100 {
+        harness.now += 5;
+        if !harness.frame() {
+            break;
+        }
+    }
     harness.present(|presentation| {
         let mut settings = launcher::menu::settings_options::SettingsOptions::default();
         settings.set(
             launcher::menu::settings_options::SettingId::HideHud.index(),
             1,
         );
-        presentation.set_chat_settings_snapshot((std::sync::Arc::new(settings), None));
+        presentation.set_chat_settings_snapshot((std::sync::Arc::new(settings), None))
     });
     harness.assert_changes("hidden HUD", true);
     harness.present(|presentation| {
-        presentation.set_chat_settings_snapshot((std::sync::Arc::default(), None));
+        presentation.set_chat_settings_snapshot((std::sync::Arc::default(), None))
     });
     harness.assert_changes("shown HUD", true);
+    harness.run(700, 16);
     harness.size = [960, 540];
     harness.assert_changes("window resize", true);
 
     // A screen opens over the HUD and closes; the pack cover comes and goes.
     harness.change(|player, runtime| {
         runtime.open_chat(player);
+        true
     });
     harness.assert_changes("chat screen open", true);
     harness.run(300, 16);
     harness.change(|_, runtime| {
         runtime.close_chat();
+        true
     });
     harness.assert_changes("chat screen closed", true);
-    harness.change(|_, runtime| {
-        runtime.set_resource_pack_loading(true);
-    });
+    harness.change(|_, runtime| runtime.set_resource_pack_loading(true));
     harness.assert_changes("pack cover", true);
-    harness.change(|_, runtime| {
-        runtime.set_resource_pack_loading(false);
-    });
+    harness.change(|_, runtime| runtime.set_resource_pack_loading(false));
     harness.assert_changes("pack cover gone", true);
+    // The uncovered HUD's controls play their entrance again.
+    harness.run(700, 16);
 
     // Low hunger shakes every game tick, and the frame builds each tick; restored, it holds.
     harness.change(|_, runtime| {
         let hud = &mut runtime.session.hud;
         hud.set_stats(hud.health(), stat(20, 20), hud.armor(), hud.air());
+        true
     });
     harness.assert_changes("hunger restored", true);
 
@@ -655,6 +766,13 @@ fn script(harness: &mut Harness, carriers: bool) {
         "idle frames repeat between game ticks: {}",
         harness.repeats - repeats
     );
+    // Writers that change nothing report so, and the frame repeats.
+    harness.change(|_, runtime| runtime.set_resource_pack_loading(false));
+    harness.assert_repeats("pack cover already gone");
+    harness.present(|presentation| {
+        presentation.set_chat_settings_snapshot((std::sync::Arc::default(), None))
+    });
+    harness.assert_repeats("settings unchanged");
 
     // A resource pack swap restyles the HUD, which then holds.
     harness.present(|presentation| {
@@ -673,6 +791,7 @@ fn script(harness: &mut Harness, carriers: bool) {
             ]],
             ..Default::default()
         });
+        true
     });
     harness.assert_changes("resource pack swap", true);
     let repeats = harness.repeats;
