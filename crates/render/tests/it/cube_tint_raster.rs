@@ -556,28 +556,24 @@ fn render_fixture(cache_admission: bool) {
     }
 }
 
-/// One-block faces of mixed, swamp and invalid records take the vertex blend. With the per-quad
-/// tint cache they must draw exactly the uncached pixels whether the cache is cold, warm or holds
-/// entries of an earlier epoch, and a current entry must be what the face draws.
+/// One-block faces of mixed, swamp and invalid records take the vertex blend. The production
+/// bake kernel fills their cache entries, and reading them must draw exactly the uncached
+/// pixels; a zeroed cache computes in the vertex stage, and a valid entry is what the face draws.
 #[test]
-fn one_block_tint_cache_draws_the_uncached_blend() {
+fn baked_one_block_tints_draw_the_uncached_blend() {
     let name = "one-block tint cache raster";
-    let features = wgpu::Features::VERTEX_WRITABLE_STORAGE;
-    let Some((_, adapter)) = Gpu::for_fixture_with_adapter(name, features, Default::default())
+    let Some((_, adapter)) =
+        Gpu::for_fixture_with_adapter(name, wgpu::Features::empty(), Default::default())
     else {
         return;
     };
-    if !adapter.features().contains(features) {
-        eprintln!("skipping {name}: missing vertex-writable storage GPU fixture");
-        return;
-    }
     // The cached layout takes a storage slot beyond the default limit; production devices
     // take the adapter's.
     let limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: adapter.limits().max_storage_buffers_per_shader_stage,
         ..Default::default()
     };
-    let Some(gpu) = Gpu::for_fixture_with_limits(name, features, limits) else {
+    let Some(gpu) = Gpu::for_fixture_with_limits(name, wgpu::Features::empty(), limits) else {
         return;
     };
     let fixture = Fixture::new(gpu, [1, 1]);
@@ -591,8 +587,15 @@ fn one_block_tint_cache_draws_the_uncached_blend() {
     };
     let plain = fixture.bindings(LIGHTMAP_BINDING);
     let expected = gpu.render_srgb(&source(false), "tint_cube_vertex", &[draw(&plain)]);
+    assert!(
+        expected
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel != &expected[..4])
+    );
     let cache = gpu.words(
-        &vec![0; (CASES + 1) * 4],
+        &vec![0; CASES * 4],
         wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
     );
     let mut cached = fixture.bindings(CACHED_LIGHTMAP_BINDING);
@@ -601,60 +604,253 @@ fn one_block_tint_cache_draws_the_uncached_blend() {
         resource: cache.as_entire_binding(),
     });
     let cached_source = source_with(false, &["TERRAIN_TINT_CACHE"], CACHED_LIGHTMAP_BINDING);
-    let render = |epoch: u32| {
-        gpu.queue
-            .write_buffer(&cache, 0, bytemuck::cast_slice(&[epoch, 0, 0, 0]));
-        gpu.render_srgb(&cached_source, "tint_cube_vertex", &[draw(&cached)])
-    };
+    let render = || gpu.render_srgb(&cached_source, "tint_cube_vertex", &[draw(&cached)]);
     assert!(
-        expected
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .any(|pixel| pixel != &expected[..4])
+        render() == expected,
+        "a zeroed cache computes the blend in the vertex stage"
+    );
+    bake(&fixture, &cache);
+    let entries = read_words(gpu, &cache);
+    let entries = entries.as_chunks::<4>().0;
+    let baked = entries.iter().filter(|entry| entry[3] == 1).count();
+    assert!(
+        baked >= COLUMNS,
+        "every mixed one-block face bakes its blend"
     );
     assert!(
-        render(1) == expected,
-        "cold cache must draw the uncached blend"
+        entries[..COLUMNS].iter().all(|entry| entry == &[0; 4]),
+        "uniform records keep their vertex tint"
     );
-    let stored = read_words(gpu, &cache)
-        .as_chunks::<4>()
-        .0
+    assert!(
+        render() == expected,
+        "baked entries draw the uncached blend"
+    );
+    let poisoned: Vec<u32> = entries
         .iter()
-        .skip(1)
-        .filter(|entry| entry[3] == 1)
-        .count();
-    assert!(
-        stored >= COLUMNS,
-        "every mixed one-block face stores its blend"
+        .flat_map(|entry| {
+            if entry[3] == 1 {
+                [0.5_f32.to_bits(), 0.0_f32.to_bits(), 1.0_f32.to_bits(), 1]
+            } else {
+                *entry
+            }
+        })
+        .collect();
+    gpu.queue
+        .write_buffer(&cache, 0, bytemuck::cast_slice(&poisoned));
+    assert!(render() != expected, "faces draw their valid cache entries");
+}
+
+/// Runs the production bake kernel over every fixture quad into `cache`.
+fn bake(fixture: &Fixture, cache: &wgpu::Buffer) {
+    const WORKGROUP: u32 = 64;
+    let gpu = &fixture.gpu;
+    let source = shader_source::composed(
+        &include_str!("../../src/terrain_tint_bake.wesl")
+            .replace("TINT_BAKE_WORKGROUP_SIZE", &format!("{WORKGROUP}u")),
+        &[],
     );
-    assert!(
-        render(1) == expected,
-        "warm cache must draw the uncached blend"
+    let module = gpu
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("terrain tint bake"),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+    let pipeline = gpu
+        .device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("terrain tint bake"),
+            layout: None,
+            module: &module,
+            entry_point: Some("bake"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+    // One job per quad: each fixture quad has its own origin slot.
+    let jobs = gpu.words(
+        &(0..CASES as u32)
+            .flat_map(|quad| [quad, 1, quad, 0])
+            .collect::<Vec<_>>(),
+        wgpu::BufferUsages::STORAGE,
     );
-    let poison = |epoch: u32| {
-        let entry = [
-            0.5_f32.to_bits(),
-            0.0_f32.to_bits(),
-            1.0_f32.to_bits(),
-            epoch,
-        ];
-        let mut words = vec![0; 4];
-        words.extend(entry.repeat(CASES));
-        gpu.queue
-            .write_buffer(&cache, 0, bytemuck::cast_slice(&words));
+    let sources = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &fixture
+            .bindings(LIGHTMAP_BINDING)
+            .into_iter()
+            .filter(|entry| {
+                [1, 2, 3, 7, 8, material_shader::BIOME_QUERY_TABLES_BINDING]
+                    .contains(&entry.binding)
+            })
+            .collect::<Vec<_>>(),
+    });
+    let output = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(1),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: jobs.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: cache.as_entire_binding(),
+            },
+        ],
+    });
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &sources, &[]);
+        pass.set_bind_group(1, &output, &[]);
+        pass.dispatch_workgroups(1, CASES as u32, 1);
+    }
+    gpu.queue.submit([encoder.finish()]);
+}
+
+/// The blend's palette memo returns the bits the per-sample conversion computes: every block of
+/// mixed records whose neighbourhoods include swamp grass, for grass, foliage, seasonal foliage
+/// and water.
+#[test]
+fn memoised_blend_matches_per_sample_conversion() {
+    const MEMO_CALL: &str = "memo_tint_gamma(&memo, tint, tint_kind, material_flags, position + vec3<i32>(world_origin))";
+    const PER_SAMPLE: &str = "tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin)))";
+    let Some(gpu) = Gpu::for_fixture("memoised biome blend") else {
+        return;
     };
-    poison(1);
-    assert!(
-        render(2) == expected,
-        "entries of an earlier epoch are recomputed"
+    let prepared = material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
+        include_str!("../../src/biome_tint.wesl"),
+    ));
+    let module = shader_source::standalone_prepared(&prepared, &[]);
+    let start = module
+        .find("fn blended_biome_tint(")
+        .expect("shared blender");
+    let end = start + module[start..].find("\n}\n").expect("blender body") + 3;
+    let blender = &module[start..end];
+    assert_eq!(
+        blender.matches(MEMO_CALL).count(),
+        1,
+        "reference conversion site"
     );
-    poison(3);
+    let reference = blender
+        .replace(
+            "fn blended_biome_tint(",
+            "fn per_sample_blended_biome_tint(",
+        )
+        .replace(MEMO_CALL, PER_SAMPLE);
+    let source = format!("{module}\n{reference}\n{MEMO_WITNESS}");
+    let mut words = Vec::new();
+    let offsets: Vec<u32> = swamp_mixed_records()
+        .iter()
+        .map(|record| {
+            let offset = words.len() as u32;
+            words.extend(record.words());
+            offset
+        })
+        .collect();
+    let flags = [
+        assets::MATERIAL_FLAG_GRASS_TINT,
+        assets::MATERIAL_FLAG_FOLIAGE_TINT,
+        assets::MATERIAL_FLAG_FOLIAGE_TINT | assets::MATERIAL_FLAG_SEASONAL_FOLIAGE,
+        assets::MATERIAL_FLAG_WATER_TINT,
+    ];
+    let cases: Vec<u32> = offsets
+        .iter()
+        .flat_map(|&offset| flags.map(|flags| [offset, flags]))
+        .flatten()
+        .collect();
+    let storage = wgpu::BufferUsages::STORAGE;
+    let records = gpu.words(&words, storage);
+    let tints = gpu.words(&tint_words(), storage);
+    let tables = gpu.words(
+        &meshing::biome_lattice::query_table_words(),
+        wgpu::BufferUsages::UNIFORM,
+    );
+    let case_buffer = gpu.words(&cases, storage);
+    let case_count = cases.len() / 2;
+    let blocks = 16 * 16 * 16;
+    let results = gpu.compute_readback(
+        &source,
+        &[
+            wgpu::BindGroupEntry {
+                binding: 7,
+                resource: records.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 8,
+                resource: tints.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: material_shader::BIOME_QUERY_TABLES_BINDING,
+                resource: tables.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: MEMO_CASES_BINDING,
+                resource: case_buffer.as_entire_binding(),
+            },
+        ],
+        MEMO_OUTPUT_BINDING,
+        case_count * blocks,
+        (case_count * blocks / 64) as u32,
+    );
+    let mismatched = results.iter().filter(|result| result[0] != 0).count();
+    assert_eq!(
+        mismatched, 0,
+        "memoised and per-sample blends must be bit-identical"
+    );
     assert!(
-        render(3) != expected,
-        "faces draw the entry stored under the current epoch"
+        results.iter().all(|result| result[3] == 1),
+        "every block was evaluated"
+    );
+    assert!(
+        results.iter().any(|result| result[1] != results[0][1]),
+        "the records blend distinct tints"
     );
 }
+
+/// Mixed records whose neighbourhoods combine plain biomes with the swamp-grass tint.
+fn swamp_mixed_records() -> Vec<PackedBiomeRecord> {
+    let storages: Vec<_> = (0..3_u8)
+        .map(|id| {
+            DecodedBiomeColumn::decode(0, 1, &[1, id * 2], &RawBiomeIds { default_biome: 0 })
+                .storage(0)
+                .expect("fixture biome storage")
+        })
+        .collect();
+    (0..2)
+        .map(|shift| {
+            let neighbours = std::array::from_fn(|index| {
+                Some(Arc::clone(&storages[(index + shift) % storages.len()]))
+            });
+            let record = PackedBiomeRecord::from_neighbourhood(&neighbours, |id| id / 2);
+            assert!(record.uniform_tint_index().is_none());
+            record
+        })
+        .collect()
+}
+
+const MEMO_CASES_BINDING: u32 = 40;
+const MEMO_OUTPUT_BINDING: u32 = 41;
+
+const MEMO_WITNESS: &str = r#"
+@group(0) @binding(40) var<storage, read> memo_cases: array<vec2<u32>>;
+@group(0) @binding(41) var<storage, read_write> memo_results: array<vec4<u32>>;
+
+// One invocation per block of each (record, material) case: whether the bits differ, then the
+// memoised red bits and the reference red bits.
+@compute @workgroup_size(64)
+fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
+    let fixture = memo_cases[id.x / 4096u];
+    let block = id.x % 4096u;
+    let local = vec3<f32>(vec3(block / 256u, (block / 16u) % 16u, block % 16u)) + vec3(0.5);
+    let origin = vec3(-320.0, 64.0, -480.0);
+    let kind = fixture.y & 0x30u;
+    let memo = bitcast<vec4<u32>>(blended_biome_tint(kind, fixture.y, fixture.x, local, origin));
+    let reference = bitcast<vec4<u32>>(per_sample_blended_biome_tint(kind, fixture.y, fixture.x, local, origin));
+    memo_results[id.x] = vec4(u32(any(memo != reference)), memo.x, reference.x, 1u);
+}
+"#;
 
 /// Copies `buffer` back as words.
 fn read_words(gpu: &Gpu, buffer: &wgpu::Buffer) -> Vec<u32> {

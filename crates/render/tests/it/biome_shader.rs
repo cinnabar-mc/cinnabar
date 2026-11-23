@@ -88,12 +88,6 @@ fn foliage_variants_select_their_palette_inside_the_shared_average() {
     assert!(
         source.contains("case 0x600u: { return unpack_linear_rgb10(tint_dry_foliage(tint)); }")
     );
-    assert!(source.contains(
-        "memo_tint_gamma(&memo, tint, tint_kind, material_flags, position + vec3<i32>(world_origin))"
-    ));
-    assert!(source.contains(
-        "tint_to_gamma(tint_domain_colour(index, tint_kind, material_flags, world_position))"
-    ));
     assert!(!source.contains("if (tint_kind == 0x20u"));
 }
 

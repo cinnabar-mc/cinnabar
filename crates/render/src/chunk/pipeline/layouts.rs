@@ -51,10 +51,9 @@ impl FromWorld for ChunkPipeline {
         let tint_cache = crate::chunk::gpu::tint_cache::requested()
             && world.get_resource::<RenderDevice>().is_some_and(|device| {
                 crate::chunk::gpu::tint_cache::supported(
-                    device.features(),
-                    device.limits().max_storage_buffers_per_shader_stage,
-                    vertex_storage_buffers(&opaque_chunk_bind_group_layout()),
                     compact,
+                    device.limits().max_storage_buffers_per_shader_stage,
+                    required_vertex_storage_buffers(),
                 )
             });
         let [
@@ -566,7 +565,20 @@ mod review_tests {
             world.init_resource::<ChunkPipeline>();
             let pipeline = world.resource::<ChunkPipeline>();
             assert!(!pipeline.compact);
-            assert_eq!(pipeline.bind_group_layout, opaque_chunk_bind_group_layout());
+            // The tint cache joins only where a slot remains beside terrain units' binding.
+            let mut opaque = opaque_chunk_bind_group_layout();
+            if available > required_vertex_storage_buffers()
+                && crate::chunk::gpu::tint_cache::requested()
+            {
+                opaque
+                    .entries
+                    .push(crate::chunk::gpu::tint_cache::layout_entry());
+            }
+            assert_eq!(pipeline.bind_group_layout, opaque);
+            assert!(
+                vertex_storage_buffers(&pipeline.bind_group_layout) < available,
+                "terrain units keep their storage slot"
+            );
             assert_eq!(
                 pipeline.transparent_bind_group_layout,
                 chunk_bind_group_layout()

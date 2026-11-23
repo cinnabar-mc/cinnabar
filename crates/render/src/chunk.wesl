@@ -378,35 +378,43 @@ fn cube_light_sample(lighting_record_index: u32, corner: u32) -> u32 {
     return select(lighting_word & 0xffffu, lighting_word >> 16u, (corner & 1u) != 0u);
 }
 
-// Per-quad blended tints of one-block faces: slot 0 holds the current epoch in `x`, slot
-// `quad + 1` the gamma RGB bits and the epoch they were computed under (`chunk/gpu/tint_cache.rs`).
+// Per-quad blended tints of one-block faces, baked by `terrain_tint_bake.wesl`: gamma RGB bits
+// with 1 in `w`, or zero where the vertex stage computes the tint (`chunk/gpu/tint_cache.rs`).
 @if(TERRAIN_TINT_CACHE)
-@group(0) @binding(TERRAIN_TINT_CACHE_BINDING) var<storage, read_write> tint_cache: array<vec4<u32>>;
+@group(0) @binding(TERRAIN_TINT_CACHE_BINDING) var<storage, read> tint_cache: array<vec4<u32>>;
 
-/// Whether `corner` supplies its quad's flat outputs: both triangles of `STATIC_QUAD_INDICES`
-/// start at corner 0, and flat interpolation takes the first vertex. Only the cached build skips
-/// the other corners, so four invocations never race for one cache slot.
-fn provides_flat_outputs(corner: u32) -> bool {
-    @if(TERRAIN_TINT_CACHE) return corner == 0u;
-    @if(!TERRAIN_TINT_CACHE) return true;
+/// Whether a face of `width` x `height` blocks with `material_flags`, whose record yielded
+/// `uniform_tint_gamma`, takes the one-block vertex blend instead of a uniform or fragment tint.
+fn takes_one_block_blend(uniform_tint_gamma: vec4<f32>, material_flags: u32, width: f32, height: f32) -> bool {
+    return uniform_tint_gamma.a == 0.0 && (material_flags & 0x30u) != 0u && width == 1.0 && height == 1.0;
 }
 
-/// Gamma tint of the one-block face of packed quad `quad_index`, the blend of its block. The
-/// cached build reuses the value stored under the current epoch, which is the value this same
-/// code computed from unchanged inputs, and otherwise computes and stores it.
-fn one_block_tint_gamma(quad_index: u32, tint_kind: u32, material_flags: u32, record: u32, block: vec3<f32>, chunk_origin: vec3<f32>) -> vec3<f32> {
+/// The vertex blend of a one-block face's block.
+fn one_block_blend(material_flags: u32, record: u32, local_origin: vec3<f32>, chunk_origin: vec3<i32>) -> vec3<f32> {
+    return blended_biome_tint_gamma(material_flags & 0x30u, material_flags, record, local_origin + vec3(0.5), vec3<f32>(chunk_origin)).rgb;
+}
+
+/// The cache entry of packed quad `quad_index` in origin slot `metadata_index`: its one-block
+/// blend's bits with 1 in `w`, or zero when the face takes no such blend.
+fn tint_cache_entry(quad_index: u32, metadata_index: u32) -> vec4<u32> {
+    let cube = cube_quad(quad_index, metadata_index);
+    let material = materials(cube.selected_material_id);
+    let record = u32(cube.chunk_origin.w);
+    let uniform_tint = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, record);
+    if (!takes_one_block_blend(uniform_tint, material.flags, cube.width, cube.height)) { return vec4(0u); }
+    return vec4(bitcast<vec3<u32>>(one_block_blend(material.flags, record, cube.local_origin, cube.chunk_origin.xyz)), 1u);
+}
+
+/// The one-block blend of packed quad `quad_index`, read from its baked cache entry when there
+/// is one, which holds the bits this same code computes.
+fn one_block_tint_gamma(quad_index: u32, material_flags: u32, record: u32, local_origin: vec3<f32>, chunk_origin: vec3<i32>) -> vec3<f32> {
     @if(TERRAIN_TINT_CACHE) {
-        let slot = quad_index + 1u;
-        if (slot < arrayLength(&tint_cache)) {
-            let epoch = tint_cache[0].x;
-            let entry = tint_cache[slot];
-            if (entry.w == epoch) { return bitcast<vec3<f32>>(entry.xyz); }
-            let tint = blended_biome_tint_gamma(tint_kind, material_flags, record, block, chunk_origin).rgb;
-            tint_cache[slot] = vec4(bitcast<vec3<u32>>(tint), epoch);
-            return tint;
+        if (quad_index < arrayLength(&tint_cache)) {
+            let entry = tint_cache[quad_index];
+            if (entry.w == 1u) { return bitcast<vec3<f32>>(entry.xyz); }
         }
     }
-    return blended_biome_tint_gamma(tint_kind, material_flags, record, block, chunk_origin).rgb;
+    return one_block_blend(material_flags, record, local_origin, chunk_origin);
 }
 
 /// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
@@ -464,15 +472,13 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     // A one-block face owns a single block's blend, so evaluate it here once rather than per
     // fragment. Mixed records mesh tinted faces one block wide for exactly this.
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
-    if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0
-        && provides_flat_outputs(corner)) {
+    if (takes_one_block_blend(out.uniform_tint_gamma, material.flags, width, height)) {
         out.uniform_tint_gamma = vec4(one_block_tint_gamma(
             instance_index,
-            material.flags & 0x30u,
             material.flags,
             out.biome_record,
-            local_origin + vec3(0.5),
-            vec3<f32>(cube.chunk_origin.xyz),
+            local_origin,
+            cube.chunk_origin.xyz,
         ), 1.0);
     }
     @if(ENHANCED)

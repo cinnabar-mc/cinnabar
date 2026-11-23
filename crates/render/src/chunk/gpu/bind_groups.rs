@@ -413,35 +413,21 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         arena.bind_group_buffers = None;
         return;
     };
-    let tint_cache = if pipeline.tint_cache {
-        let inputs = super::tint_cache::TintInputs {
-            quads: arena.quad_buffer.id(),
-            origins: arena.origin_buffer.id(),
-            biomes: arena.biome_buffer.id(),
-            materials: texture_assets.material_buffer.id(),
-            biome_tints: biome_tints.buffer.id(),
-            biome_tint_table: biome_tints.identity,
-        };
-        let revision = arena
-            .tint_input_revision
-            .load(std::sync::atomic::Ordering::Relaxed);
+    let tint_cache = pipeline.tint_cache.then(|| {
         let quad_capacity = arena.quad_capacity;
-        let Some(cache) = super::tint_cache::TintCache::for_capacity(
-            &mut arena.tint_cache,
-            &render_device,
-            quad_capacity,
-        ) else {
-            arena.bind_group = None;
-            arena.transparent_bind_group = None;
-            arena.bind_group_buffers = None;
-            return;
-        };
-        cache.observe(&render_queue, inputs, revision);
-        Some(cache.buffer.id())
-    } else {
-        arena.tint_cache = None;
-        None
-    };
+        arena
+            .tint_cache
+            .prepare(
+                &render_device,
+                quad_capacity,
+                super::tint_cache::TintInputs {
+                    materials: texture_assets.material_buffer.id(),
+                    biome_tints: biome_tints.buffer.id(),
+                    biome_tint_table: biome_tints.identity,
+                },
+            )
+            .id()
+    });
     let buffers = ChunkBindGroupBuffers {
         view: view_buffer.id(),
         quads: arena.quad_buffer.id(),
@@ -508,9 +494,9 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     let opaque_entries: Vec<_> = entries
         .into_iter()
         .filter(|entry| entry.binding != TRANSPARENT_REFS_BINDING)
-        .chain(arena.tint_cache.as_ref().map(|cache| BindGroupEntry {
+        .chain(pipeline.tint_cache.then(|| BindGroupEntry {
             binding: crate::material_shader::TERRAIN_TINT_CACHE_BINDING,
-            resource: cache.buffer.as_entire_binding(),
+            resource: arena.tint_cache.binding().as_entire_binding(),
         }))
         .collect();
     let bind_group = render_device.create_bind_group(
