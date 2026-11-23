@@ -1,6 +1,12 @@
 //! Registry-generation joins for biome and fog sampling.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use assets::{BiomeVisualProfile, FogProfile, ResolvedBiomeTints, RuntimeAtmosphereAssets};
 
@@ -37,9 +43,22 @@ pub struct FogBindings {
     by_id: BTreeMap<u32, BiomeBinding>,
     defaults: [Option<Binding>; 3],
     pub default_fog: Option<FogProfileIndex>,
+    /// Changes whenever the bindings are compiled; see [`Self::revision`].
+    revision: u64,
 }
 
+/// Source of compiled-binding revisions; zero is left for empty bindings.
+static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
+
 impl FogBindings {
+    /// Identifies what [`Self::fog`], [`Self::camera`] and [`Self::identifier`] return: every
+    /// compilation, of these or any other bindings, yields a value never returned before, so a
+    /// reader may reuse results derived from these bindings while this value is unchanged.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// Rebinds admitted session names only when their registry or atmosphere changes.
     pub fn refresh(
         &mut self,
@@ -95,6 +114,7 @@ impl FogBindings {
         profiles: &[BiomeVisualProfile],
         fogs: &[FogProfile],
     ) {
+        self.revision = NEXT_REVISION.fetch_add(1, Ordering::Relaxed);
         self.by_id.clear();
         let bind = |name: &str| {
             let biome = profiles

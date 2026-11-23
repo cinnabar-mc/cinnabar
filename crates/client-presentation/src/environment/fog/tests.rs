@@ -76,3 +76,73 @@ fn missing_cells_never_get_renormalized_or_assigned_fallback_precipitation() {
         Some(1)
     );
 }
+
+#[test]
+fn cached_lattice_fog_matches_fresh_samples_across_lattice_and_binding_changes() {
+    let stream = WorldStream::new(protocol::WorldBootstrap {
+        dimension: 1,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.5, 129.0, 0.5],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    let bindings_for = |fog: &str| {
+        FogBindings::for_profiles(
+            &[assets::BiomeRule {
+                id: 8,
+                name: "minecraft:hell".into(),
+                flags: 0,
+                grass: assets::TintSource::direct(0),
+                foliage: assets::TintSource::direct(0),
+                dry_foliage: assets::TintSource::direct(0),
+                water: assets::TintSource::direct(0),
+                temperature_bits: 0,
+                downfall_bits: 0,
+            }],
+            &[assets::BiomeVisualProfile {
+                biome_identifier: "minecraft:hell".into(),
+                fog_identifier: fog.into(),
+                atmosphere_identifier: "test:atmosphere".into(),
+                lighting_identifier: "test:lighting".into(),
+                sky_rgb8: None,
+            }],
+            &[
+                assets::FogProfile {
+                    identifier: "test:a".into(),
+                    distances: Box::new([]),
+                },
+                assets::FogProfile {
+                    identifier: "test:b".into(),
+                    distances: Box::new([]),
+                },
+            ],
+        )
+    };
+    let fresh = |biomes: &LatticeBiomes, bindings: &FogBindings| {
+        (
+            fog_biome_samples(biomes, stream.current_dimension(), bindings),
+            fog_precipitation_count(&stream, biomes),
+        )
+    };
+    let first = bindings_for("test:a");
+    let second = bindings_for("test:b");
+    assert_ne!(first.revision(), second.revision());
+    let hell = [Some(8); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()];
+    let unknown = [None; render_model::PRECIPITATION_SAMPLE_OFFSETS.len()];
+    let mut cache = FogLatticeCache::default();
+    for (biomes, bindings) in [
+        (&hell, &first),
+        (&hell, &first),
+        (&unknown, &first),
+        (&hell, &second),
+        (&hell, &first),
+    ] {
+        assert_eq!(
+            cache.sample(&stream, biomes, bindings),
+            fresh(biomes, bindings)
+        );
+    }
+    assert_ne!(fresh(&hell, &first).0, fresh(&hell, &second).0);
+}
