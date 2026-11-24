@@ -62,7 +62,18 @@ impl PlayerLayers {
         });
     }
 
-    /// Restores the capture [`Self::park_capture`] set aside, for a frame that repeats it.
+    /// Takes back the storage of the capture [`Self::park_capture`] set aside, emptied, for a
+    /// frame that captures again. A capture repeated later in the frame keeps the new one.
+    pub(super) fn reclaim_capture(&mut self) {
+        if let Some(parked) = self.parked.take() {
+            self.layers = parked.layers;
+            self.live = parked.live;
+            self.clear_capture();
+        }
+    }
+
+    /// Restores the capture [`Self::park_capture`] set aside, for a frame that repeats it; after
+    /// [`Self::reclaim_capture`] the current capture stands.
     pub(super) fn restore_capture(&mut self) {
         if let Some(parked) = self.parked.take() {
             self.layers = parked.layers;
