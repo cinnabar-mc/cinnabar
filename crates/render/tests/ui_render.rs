@@ -11,6 +11,11 @@ use bevy::ecs::system::RunSystemOnce;
     reason = "the UI fixture uses only camera and empty-view helpers"
 )]
 mod render_test_support;
+// `device_poll`'s unit tests build their render app from the library's queue fixture.
+#[path = "../src/queue_review_support.rs"]
+#[allow(dead_code, reason = "device_poll's tests use only the app fixture")]
+mod queue_review_support;
+use render::required_vertex_storage_buffers;
 
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
