@@ -65,7 +65,8 @@ pub(crate) fn ui_present(
                 };
                 if let Some(scissor) = scissor {
                     attachment.ops.load = composite_load(attachment.ops.load, scissor);
-                    encode_composite(
+                    let extent = crate::render_bounds::extent(attachment.view);
+                    let mut pass = encode_composite(
                         &mut context,
                         world,
                         CompositeSources {
@@ -78,6 +79,14 @@ pub(crate) fn ui_present(
                         pipeline,
                         &layout,
                     );
+                    if let Some(invert) = layer.deferred_invert.take()
+                        && let Some(pipeline) =
+                            invert.output.and_then(|id| cache.get_render_pipeline(id))
+                    {
+                        super::super::deferred_invert::draw(
+                            &mut pass, world, &invert, pipeline, extent,
+                        );
+                    }
                 }
                 layer.presented.store(true, Ordering::Relaxed);
                 if let Some(native) = native {
@@ -87,7 +96,15 @@ pub(crate) fn ui_present(
             }
         }
         if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
-            composite(&mut context, world, target, layer, pipeline, &layout);
+            // Both ping-pong main textures share this extent.
+            let extent = crate::render_bounds::extent(target.main_texture_view());
+            let mut pass = composite(&mut context, world, target, layer, pipeline, &layout);
+            if let Some(invert) = layer.deferred_invert.take()
+                && let Some(pipeline) = cache.get_render_pipeline(invert.main)
+            {
+                super::super::deferred_invert::draw(&mut pass, world, &invert, pipeline, extent);
+            }
+            drop(pass);
             layer.composited.store(true, Ordering::Relaxed);
         }
     }

@@ -78,6 +78,8 @@ pub(crate) struct UiLayerTexture {
     direct_output: bool,
     /// Earlier alpha segments; this component's own texture is always the final segment.
     segments: Vec<UiLayerTexture>,
+    /// A leading invert left for the final composite to draw.
+    pub(super) deferred_invert: super::deferred_invert::DeferredInvertSlot,
 }
 
 impl UiLayerTexture {
@@ -171,6 +173,16 @@ impl UiLayerTexture {
         self.present.store(true, Ordering::Relaxed);
     }
 
+    /// Whether the final composite writes the camera output directly.
+    pub(super) fn direct_output(&self) -> bool {
+        self.direct_output
+    }
+
+    /// Whether this frame's final layer waits for the output pass.
+    pub(super) fn present_deferred(&self) -> bool {
+        self.present.load(Ordering::Relaxed)
+    }
+
     /// A raster outside the per-view retained set, such as an element filter's offscreen group.
     pub(crate) fn detached(texture: Texture, view: TextureView) -> Self {
         Self {
@@ -185,6 +197,7 @@ impl UiLayerTexture {
             presented: AtomicBool::new(false),
             direct_output: false,
             segments: Vec::new(),
+            deferred_invert: Default::default(),
         }
     }
 }
@@ -452,6 +465,7 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
         presented: AtomicBool::new(false),
         direct_output,
         segments: Vec::new(),
+        deferred_invert: Default::default(),
     }
 }
 

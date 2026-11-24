@@ -449,6 +449,7 @@ pub(crate) fn ui_overlay(
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
     let (target, main, camera, resolution_override, layer, output, native) = query.into_inner();
+    let view_target = target;
     let context = &mut context;
     crate::screen_overlay_render::draw_before_hud(
         view_entity,
@@ -549,6 +550,55 @@ pub(crate) fn ui_overlay(
         .upgrade()
         .filter(|input| Some(input.revision) == gpu.accepted_revision);
     let profile = world.get_resource::<super::profile::UiProfile>();
+    // A leading invert whose pixels the deferred layer never covers draws in the final
+    // composite's pass instead of its own; see `deferred_invert`.
+    let postponed = super::deferred_invert::leading_invert(&plan, &batches)
+        .filter(|_| viewport.is_none() && !target.is_native())
+        .and_then(|position| {
+            let input = publication.as_ref()?;
+            let extent = crate::render_bounds::extent(target.main_texture_view());
+            if input.viewport_size != extent || output_extent.is_some_and(|output| output != extent)
+            {
+                return None;
+            }
+            let (index, batch, location) = batches[position];
+            let last = plan.segments.last()?;
+            let layered = batches[last.layered.clone()]
+                .iter()
+                .map(|(_, batch, _)| *batch);
+            if !super::deferred_invert::disjoint(input, batch, layered) {
+                return None;
+            }
+            pipeline_cache.get_render_pipeline(*invert)?;
+            let pipelines = gpu.composite_pipelines.get(&view_entity)?;
+            pipeline_cache.get_render_pipeline(pipelines.main)?;
+            let output = if layer.direct_output() {
+                pipeline_cache.get_render_pipeline(pipelines.output?)?;
+                let main_format = view_target.main_texture_format();
+                let out_format = view_target.out_texture_view_format()?;
+                if !super::deferred_invert::blends_alike(main_format, out_format) {
+                    return None;
+                }
+                Some(if main_format == out_format {
+                    *invert
+                } else {
+                    world
+                        .resource::<super::deferred_invert::OutputInvertPipelines>()
+                        .ready(pipeline_cache, *invert, out_format)?
+                })
+            } else {
+                None
+            };
+            let invert = super::deferred_invert::DeferredInvert {
+                index,
+                skip: skip.clone(),
+                batch: *batch,
+                location,
+                main: *invert,
+                output,
+            };
+            Some((position, invert))
+        });
     // Alpha batches blend in the gamma-space layer; an invert batch (the
     // crosshair) must see the scene, so the layer composites before it.
     let raster_count = plan.layer_count();
@@ -566,6 +616,13 @@ pub(crate) fn ui_overlay(
         };
         let raster = retained.unwrap_or(layer);
         let inverted = segment.inverted.map(|index| &batches[index]);
+        let inverted = match (inverted, &postponed) {
+            (Some(inverted), Some((position, _))) if segment.inverted == Some(*position) => {
+                frame_encoded |= inverted.1.index_count > 0;
+                None
+            }
+            (inverted, _) => inverted,
+        };
         let layer_draw = UiLayerDraw {
             world,
             gpu,
@@ -781,6 +838,18 @@ pub(crate) fn ui_overlay(
                 skip.as_ref(),
                 None,
                 profile.map(|profile| (profile, render_scene::RuntimeStage::GpuUiInvert)),
+            );
+        }
+    }
+    if let Some((_, invert)) = postponed {
+        if layer.present_deferred() {
+            layer.deferred_invert.set(Some(invert));
+        } else {
+            frame_encoded |= super::deferred_invert::own_pass(
+                context,
+                world,
+                target.main_texture_view(),
+                &invert,
             );
         }
     }
