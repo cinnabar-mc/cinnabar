@@ -174,6 +174,7 @@ fn install_ui_render(app: &mut App) {
         .insert_resource(UiRenderInstalled)
         .init_resource::<presentation::UiFrameContent>()
         .init_resource::<deferred_invert::OutputInvertPipelines>()
+        .init_resource::<composite::fused::FusedComposite>()
         .add_systems(
             Render,
             presentation::observe_ui_frame

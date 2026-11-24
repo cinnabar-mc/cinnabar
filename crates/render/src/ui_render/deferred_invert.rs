@@ -55,6 +55,84 @@ pub(super) fn leading_invert<T: std::borrow::Borrow<UiRenderBatch>, L>(
     .then_some(invert)
 }
 
+/// What [`plan`] needs from the overlay's view and frame.
+pub(super) struct PlanInputs<'a> {
+    pub(super) world: &'a World,
+    pub(super) view: Entity,
+    pub(super) view_target: &'a bevy::render::view::ViewTarget,
+    pub(super) target: super::target::UiTarget<'a>,
+    pub(super) layer: &'a super::composite::UiLayerTexture,
+    pub(super) gpu: &'a UiGpu,
+    pub(super) cache: &'a PipelineCache,
+    /// The view's main-format HUD invert pipeline.
+    pub(super) invert: CachedRenderPipelineId,
+    pub(super) publication: Option<&'a UiRenderInput>,
+    /// No camera viewport or resolution override narrows the HUD.
+    pub(super) full_viewport: bool,
+    pub(super) output_extent: Option<[u32; 2]>,
+    pub(super) skip: Option<&'a std::ops::Range<u32>>,
+}
+
+/// The plan position and deferred draw of a leading invert that the final composite can draw,
+/// or `None` when the invert keeps its own pass: the topology or bounds do not commute, pixels
+/// are rescaled, or a pipeline the composite would need is not compiled yet.
+pub(super) fn plan(
+    plan: &segments::UiPassPlan,
+    batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
+    inputs: &PlanInputs<'_>,
+) -> Option<(usize, DeferredInvert)> {
+    let position = leading_invert(plan, batches)?;
+    if !inputs.full_viewport || inputs.target.is_native() {
+        return None;
+    }
+    let input = inputs.publication?;
+    let extent = crate::render_bounds::extent(inputs.target.main_texture_view());
+    if input.viewport_size != extent || inputs.output_extent.is_some_and(|output| output != extent)
+    {
+        return None;
+    }
+    let (index, batch, location) = batches[position];
+    let last = plan.segments.last()?;
+    let layered = batches[last.layered.clone()]
+        .iter()
+        .map(|(_, batch, _)| *batch);
+    if !disjoint(input, batch, layered) {
+        return None;
+    }
+    let cache = inputs.cache;
+    cache.get_render_pipeline(inputs.invert)?;
+    let pipelines = inputs.gpu.composite_pipelines.get(&inputs.view)?;
+    cache.get_render_pipeline(pipelines.main)?;
+    let output = if inputs.layer.direct_output() {
+        cache.get_render_pipeline(pipelines.output?)?;
+        let main_format = inputs.view_target.main_texture_format();
+        let out_format = inputs.view_target.out_texture_view_format()?;
+        if !blends_alike(main_format, out_format) {
+            return None;
+        }
+        Some(if main_format == out_format {
+            inputs.invert
+        } else {
+            inputs.world.resource::<OutputInvertPipelines>().ready(
+                cache,
+                inputs.invert,
+                out_format,
+            )?
+        })
+    } else {
+        None
+    };
+    let invert = DeferredInvert {
+        index,
+        skip: inputs.skip.cloned(),
+        batch: *batch,
+        location,
+        main: inputs.invert,
+        output,
+    };
+    Some((position, invert))
+}
+
 /// Inclusive pixel bounds `[min_x, min_y, max_x, max_y]` that a batch's triangles can touch in
 /// the publication's physical viewport, clipped by its scissor; `None` when it covers nothing.
 pub(super) fn batch_bounds(input: &UiRenderInput, batch: &UiRenderBatch) -> Option<[f32; 4]> {
