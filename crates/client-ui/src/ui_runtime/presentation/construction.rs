@@ -69,6 +69,8 @@ impl UiPresentationRuntime {
             built_frame: None,
             frame_reuse_mismatches: 0,
             frames_built: 0,
+            #[cfg(test)]
+            hud_captures: 0,
             #[cfg(debug_assertions)]
             repeats_since_check: 0,
             last_frame: None,

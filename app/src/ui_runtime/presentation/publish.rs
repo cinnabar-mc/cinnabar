@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::{PackReload, resource_packs::PackApplication};
-use bevy::prelude::{DetectChangesMut, Local, Projection, Transform};
+use bevy::prelude::{DetectChanges, DetectChangesMut, Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -17,7 +17,7 @@ mod loading;
 mod menu_icons;
 mod roster;
 use client_ui::ui_runtime::presentation::{
-    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
+    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame_if_changed, nametags,
     player_preview,
 };
 pub(crate) use commit::publish_ui_runtime;
@@ -444,7 +444,10 @@ pub(crate) fn prepare_ui_runtime(
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
     let hud_first_person = first_person && !hide_hand;
-    let capture = capture_hud_frame(
+    // Writers mark the runtimes changed only when they change them, and publication marks
+    // neither, so unchanged ticks mean the capture would store nothing new from them.
+    let runtimes_unchanged = !player_runtime.is_changed() && !runtime.is_changed();
+    let capture = capture_hud_frame_if_changed(
         &player_runtime,
         runtime.bypass_change_detection(),
         presentation.bypass_change_detection(),
@@ -455,6 +458,7 @@ pub(crate) fn prepare_ui_runtime(
         hud_first_person,
         now_millis,
         icon_frames,
+        runtimes_unchanged,
     );
     if capture.runtime_changed {
         runtime.set_changed();

@@ -5,12 +5,14 @@ pub mod item_icons;
 pub mod reuse;
 use item_icons::{ItemIconFrames, ItemResolver};
 
+mod capture_reuse;
 mod container;
 pub(super) mod inventory_cache;
 mod observations;
 mod player_items;
 mod recipes;
 mod shield_art;
+pub use capture_reuse::capture_hud_frame_if_changed;
 pub(super) use shield_art::prepare_shield_art;
 
 /// What one HUD capture produced besides the frame values it stored.
