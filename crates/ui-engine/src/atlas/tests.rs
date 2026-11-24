@@ -1,6 +1,6 @@
 use super::*;
-use resource_pack::test_support::{layered_pack_view, pack_view};
 use crate::sources::RemoteImage;
+use resource_pack::test_support::{layered_pack_view, pack_view};
 use std::sync::Mutex;
 
 /// An installed vanilla pack held in memory.
@@ -595,5 +595,29 @@ fn a_download_a_paint_found_loading_counts_once_it_settles() {
     atlas.begin_frame();
     atlas.require([url]);
     assert!(atlas.placement(url).is_some());
+    assert!(!atlas.completions_waiting());
+}
+
+// A paint that found a download loading may stop drawing it before it settles, as a crosshair
+// does when the HUD hides. The settled download makes one frame build; with no paint asking for
+// it again, later frames are idle.
+#[test]
+fn a_settled_download_no_paint_asks_for_again_stops_waiting() {
+    let download = Arc::new(Download(Mutex::new(RemoteImage::Loading)));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let url = "https://example.invalid/crosshair.png";
+    atlas.begin_frame();
+    atlas.require([url]);
+    *download.0.lock().unwrap() = RemoteImage::Failed;
+    assert!(
+        atlas.completions_waiting(),
+        "the settled download builds once"
+    );
+    atlas.begin_frame();
+    assert!(
+        !atlas.completions_waiting(),
+        "a frame that no longer asks for it leaves nothing waiting"
+    );
+    atlas.begin_frame();
     assert!(!atlas.completions_waiting());
 }
