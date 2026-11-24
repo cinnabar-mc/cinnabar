@@ -39,6 +39,7 @@ pub struct ActorFrameState {
     /// The readiness source's reuse key, and the published source kept for the next frame.
     pub(super) ready_keyed: Option<super::hand_reuse::KeyedSource>,
     pub(super) hand_reuse: super::hand_reuse::HandReuse,
+    animation_view_memo: views::AnimationViewMemo,
     hand_ready: bool,
     pub(super) captured_view: LocalViewPose,
     pub(super) captured_sampling_camera: Option<([f32; 2], [f32; 3])>,
@@ -161,6 +162,7 @@ pub fn advance_actor_frame(
         hand_key,
         ready_keyed,
         hand_reuse,
+        animation_view_memo,
         hand_ready,
         input: captured_input,
         step: captured_step,
@@ -353,10 +355,9 @@ pub fn advance_actor_frame(
             stream.set_actor_camera_position(transform.translation.to_array());
         }
         stream.set_actor_animation_view(
-            camera
-                .single()
-                .ok()
-                .and_then(|(transform, projection)| views::animation_view(transform, projection)),
+            camera.single().ok().and_then(|(transform, projection)| {
+                animation_view_memo.view(transform, projection)
+            }),
         );
         let _animation = profiler
             .as_deref()
@@ -440,6 +441,7 @@ pub fn advance_actor_frame(
         .as_deref()
         .map_or(Mat4::IDENTITY, hand_motion_matrix);
     *ready_keyed = None;
+    let mut reused_source = false;
     *hand_source = if hand_visible {
         canonical_local.and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
@@ -479,6 +481,7 @@ pub fn advance_actor_frame(
             if let Some(reuse_key) = key.as_ref()
                 && let Some(source) = hand_reuse.take(reuse_key, motion)
             {
+                reused_source = true;
                 #[cfg(any(test, debug_assertions))]
                 {
                     equipment.begin_hand_readiness();
@@ -495,6 +498,7 @@ pub fn advance_actor_frame(
                 *ready_keyed = key.map(|key| super::hand_reuse::KeyedSource {
                     key,
                     reusable: true,
+                    retained: true,
                 });
                 return Some(source);
             }
@@ -503,6 +507,7 @@ pub fn advance_actor_frame(
             let source = hand::source(inputs, java_mode, equipment, java_hand);
             equipment.end_hand_readiness();
             *ready_keyed = key.map(|key| super::hand_reuse::KeyedSource {
+                retained: false,
                 reusable: source
                     .as_ref()
                     .is_some_and(|source| key.reusable(stream, source)),
@@ -522,7 +527,21 @@ pub fn advance_actor_frame(
         .single()
         .ok()
         .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
-    *hand_ready = hand::is_ready(&hand_builder.0, hand_source.as_ref(), fov);
+    // A reused source draws exactly what the last checked one drew, so its admission only
+    // changes with the geometry catalog or the projection.
+    let ready_key = (hand_builder.0.geometry_revision(), fov.map(f32::to_bits));
+    *hand_ready = match hand_reuse.ready {
+        Some((key, ready)) if reused_source && key == ready_key => {
+            debug_assert_eq!(
+                ready,
+                hand::is_ready(&hand_builder.0, hand_source.as_ref(), fov),
+                "a reused source's readiness must match a fresh check"
+            );
+            ready
+        }
+        _ => hand::is_ready(&hand_builder.0, hand_source.as_ref(), fov),
+    };
+    hand_reuse.ready = Some((ready_key, *hand_ready));
     *captured_view = *view;
     *captured_sampling_camera = sampling_camera;
     *captured_aspect = aspect;

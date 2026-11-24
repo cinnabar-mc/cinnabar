@@ -75,3 +75,33 @@ fn close_item_capture_uses_presented_heading_and_keeps_it_after_release() {
     assert!(Quat::from_rotation_y(turned.yaw(0.)).abs_diff_eq(expected, 1e-5));
     assert_eq!(view.rotation(), aim);
 }
+
+/// An unchanged camera reuses its animation view, and a moved or reshaped camera rebuilds it.
+#[test]
+fn animation_view_memo_follows_the_camera() {
+    let mut memo = super::AnimationViewMemo::default();
+    let projection = Projection::Perspective(bevy::prelude::PerspectiveProjection::default());
+    let mut transform = bevy::prelude::Transform::from_xyz(1.0, 65.0, 2.0);
+    let fresh = |transform: &bevy::prelude::Transform, projection: &Projection| {
+        format!("{:?}", super::animation_view(transform, projection))
+    };
+    for _ in 0..2 {
+        assert_eq!(
+            format!("{:?}", memo.view(&transform, &projection)),
+            fresh(&transform, &projection)
+        );
+    }
+    transform.rotate_y(0.5);
+    assert_eq!(
+        format!("{:?}", memo.view(&transform, &projection)),
+        fresh(&transform, &projection)
+    );
+    let mut wide = bevy::prelude::PerspectiveProjection::default();
+    wide.fov *= 1.5;
+    let wide = Projection::Perspective(wide);
+    assert_ne!(fresh(&transform, &wide), fresh(&transform, &projection));
+    assert_eq!(
+        format!("{:?}", memo.view(&transform, &wide)),
+        fresh(&transform, &wide)
+    );
+}

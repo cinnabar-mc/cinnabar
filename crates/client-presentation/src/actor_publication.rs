@@ -512,12 +512,13 @@ pub fn prepare_actor_render_frame(
         ),
     );
     let hand_source = hand_source.filter(|_| !input.hide_hand);
+    let retained_source = hand_keyed.as_ref().is_some_and(|keyed| keyed.retained);
     publish_hand_rig(
         &mut params.hand_builder.0,
         &mut params.hand_scene,
         &mut state.hand_published,
         &mut state.hand_revision,
-        hand_source.as_ref(),
+        (hand_source.as_ref(), retained_source),
         hand_camera_fov,
         hand_light,
         (step.partial_tick, params.glint_settings.as_deref()),

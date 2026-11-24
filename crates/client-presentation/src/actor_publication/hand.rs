@@ -117,11 +117,29 @@ pub(super) fn publish_hand_rig(
     scene: &mut ResMut<HandRigScene>,
     published: &mut super::hand_publication::PublishedHand,
     revision: &mut u64,
-    source: Option<&HandSource>,
+    (source, retained): (Option<&HandSource>, bool),
     fov_radians: Option<f32>,
     mut light: HandRigLight,
     (partial_tick, glint): (f32, Option<&render_scene::UiGlintSettings>),
 ) {
+    // The previous frame's own source, unchanged but for its motion, needs no rebuilt inputs.
+    let quick = super::hand_publication::QuickKey::new(
+        source.map(|source| source.motion),
+        light,
+        fov_radians,
+        builder.geometry_revision(),
+        glint,
+    );
+    let quick_hit = retained && published.holds_quick(&quick, scene.publication());
+    #[cfg(test)]
+    {
+        published.quick_kept += u64::from(quick_hit);
+    }
+    // Debug and test builds check the quick decision against the full comparison below.
+    #[cfg(not(any(test, debug_assertions)))]
+    if quick_hit {
+        return;
+    }
     let Some((source, fov, skin)) = source
         .zip(fov_radians)
         .and_then(|(source, fov)| Some((source, fov, source.presentation.skin_rgba8.clone()?)))
@@ -153,7 +171,13 @@ pub(super) fn publish_hand_rig(
         (light, fov, builder.geometry_revision()),
         atlases.clone(),
     );
-    if published.holds(&inputs, scene.publication()) {
+    let held = published.holds(&inputs, scene.publication());
+    debug_assert!(
+        !quick_hit || held,
+        "a quickly kept frame must match its full inputs"
+    );
+    if held {
+        published.record_quick(quick);
         #[cfg(any(test, debug_assertions))]
         {
             let fresh = builder.build(partial_tick, None, inputs.submissions().iter().cloned());
@@ -176,6 +200,7 @@ pub(super) fn publish_hand_rig(
         scene.set_item_glint(source.item_glint.clone());
         scene.set_map_background(source.maps.background.clone());
         published.record(Some(inputs), scene.publication());
+        published.record_quick(quick);
     } else {
         published.record(None, None);
     }
