@@ -16,25 +16,66 @@ fn enabled_entries(
         .collect()
 }
 
+/// The entries enabled for one combination of their inputs: the desired list's generation, the
+/// watcher's liveness and the marketplace snapshot's revision. Between the snapshot's transition
+/// instants the time does not change them either.
+pub(super) struct AuthorityMemo {
+    generation: u64,
+    alive: bool,
+    marketplace: u64,
+    /// When marketplace admission can next change by time alone.
+    until: Option<u64>,
+    enabled: Arc<[Entry]>,
+}
+
+impl Watcher {
+    /// The enabled entries at `now`, computed again only when the desired list, liveness or the
+    /// marketplace snapshot changed or a marketplace transition instant passed; otherwise the
+    /// same shared list as before, which lets packet authorization recognise it.
+    pub(super) fn enabled_at(&self, now: u64) -> Arc<[Entry]> {
+        let desired = self.desired.lock().expect("mod desired list");
+        let alive = self.alive.load(Ordering::Acquire);
+        // Read before computing: a write racing the computation then misses the memo next time.
+        let marketplace = self.marketplace.revision();
+        let mut memo = self.authority.lock().expect("mod authority memo");
+        if let Some(memo) = memo.as_ref()
+            && memo.generation == desired.generation
+            && memo.alive == alive
+            && memo.marketplace == marketplace
+            && memo.until.is_none_or(|until| now < until)
+        {
+            return Arc::clone(&memo.enabled);
+        }
+        let enabled: Arc<[Entry]> = if alive {
+            enabled_entries(
+                desired
+                    .registration
+                    .as_ref()
+                    .map_or(&[], |registration| registration.mods.as_slice()),
+                &self.marketplace,
+                now,
+            )
+            .into()
+        } else {
+            Arc::from([])
+        };
+        *memo = Some(AuthorityMemo {
+            generation: desired.generation,
+            alive,
+            marketplace,
+            until: self.marketplace.next_transition(now),
+            enabled: Arc::clone(&enabled),
+        });
+        enabled
+    }
+}
+
 /// Revokes removed or changed grants before input, independently of loader progress.
 pub(super) fn sync_authority(world: &mut World) {
     let Some(watcher) = world.get_resource::<Watcher>() else {
         return;
     };
-    let desired = watcher.desired.lock().expect("mod desired list");
-    let enabled: Vec<_> = if watcher.alive.load(Ordering::Acquire) {
-        enabled_entries(
-            desired
-                .registration
-                .as_ref()
-                .map_or(&[], |registration| registration.mods.as_slice()),
-            &watcher.marketplace,
-            launcher_host::marketplace::now_ms(),
-        )
-    } else {
-        Vec::new()
-    };
-    drop(desired);
+    let enabled = watcher.enabled_at(launcher_host::marketplace::now_ms());
     if let Some(mut runtime) = world.get_resource_mut::<ModRuntime>() {
         for index in 0..runtime.metadata.len() {
             let Some(registered) = &runtime.metadata[index].registration else {
@@ -51,7 +92,7 @@ pub(super) fn sync_authority(world: &mut World) {
     }
     let retired = world
         .get_resource_mut::<crate::modding::packets::PacketMods>()
-        .map(|mut packets| packets.authorize(&enabled))
+        .map(|mut packets| packets.authorize_shared(&enabled))
         .unwrap_or_default();
     for program in retired {
         world.resource::<Watcher>().retire(Retired::Packet(program));

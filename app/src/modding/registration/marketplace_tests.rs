@@ -172,3 +172,52 @@ fn pending_reload_cannot_reauthorize_a_held_marketplace_packet_program() {
         assert_eq!(relay.outbound(&[1]), None);
     }
 }
+
+#[test]
+fn enabled_entries_are_reused_until_their_inputs_or_the_marketplace_window_change() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(format!(
+        "{}memo.wasm",
+        launcher::mods::MARKETPLACE_FILE_PREFIX
+    ));
+    let (mut world, _messages, _retiring) = world();
+    world.resource_mut::<Watcher>().marketplace = Arc::new(signed(&path, "{}"));
+    let watcher = world.resource::<Watcher>();
+    let publish = |generation| {
+        *watcher.desired.lock().unwrap() = Desired {
+            generation,
+            registration: Some(Registration {
+                suspended: None,
+                version: super::VERSION,
+                request_id: format!("request-{generation}"),
+                mods: vec![Entry {
+                    component: path.clone(),
+                    enabled: true,
+                    ..Default::default()
+                }],
+            }),
+        };
+    };
+    publish(1);
+
+    let first = watcher.enabled_at(5_000);
+    assert_eq!(first.len(), 1);
+    assert!(
+        Arc::ptr_eq(&first, &watcher.enabled_at(9_999)),
+        "unchanged inputs inside the signed window share the list"
+    );
+    assert!(
+        watcher.enabled_at(10_000).is_empty(),
+        "the release leaves at the window's end without any write"
+    );
+
+    publish(2);
+    let republished = watcher.enabled_at(10_000);
+    assert!(republished.is_empty());
+    assert!(Arc::ptr_eq(&republished, &watcher.enabled_at(10_001)));
+    watcher.marketplace.hold("withdrawn");
+    assert!(
+        !Arc::ptr_eq(&republished, &watcher.enabled_at(10_001)),
+        "a marketplace change computes the list again"
+    );
+}

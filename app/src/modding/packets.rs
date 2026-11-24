@@ -29,6 +29,11 @@ pub(crate) struct PacketMods {
     environment_selected: bool,
     retired: Vec<Arc<CompiledPacketMod>>,
     pub(super) panel: super::packet_panel::State,
+    /// Advances whenever what [`Self::authorize`] reads or decides changes: the programs, their
+    /// authorization, the selection or the developer fallback. Writers compare first.
+    revision: u64,
+    /// The entry list and revision of the last [`Self::authorize_shared`] that ran.
+    authorized_for: Option<(Arc<[Entry]>, u64)>,
 }
 
 /// Starts compilation for an explicitly selected developer packet mod before the first join.
@@ -101,6 +106,7 @@ impl PacketMods {
 
     /// Records a developer-selected source as the fallback when Settings selects no packet mod.
     pub(super) fn select_environment(&mut self, selection: PacketModSelection) {
+        self.revision += 1;
         self.environment = Some(selection.clone());
         if self.selected.is_none() {
             if let Some(old) = self.loader.select(Some(selection)) {
@@ -137,6 +143,7 @@ impl PacketMods {
         identity: [u8; 32],
         program: Arc<CompiledPacketMod>,
     ) -> Option<Arc<CompiledPacketMod>> {
+        self.revision += 1;
         self.programs
             .insert(
                 entry.component.clone(),
@@ -152,14 +159,40 @@ impl PacketMods {
     /// Revokes removed grants immediately, independently of compilation and reload progress.
     pub(super) fn authorize(&mut self, entries: &[Entry]) -> Vec<Arc<CompiledPacketMod>> {
         for program in self.programs.values_mut() {
-            program.authorized = entries.iter().any(|entry| {
+            let authorized = entries.iter().any(|entry| {
                 entry.enabled
                     && entry.component == program.registration.entry.component
                     && entry.grants == program.registration.entry.grants
             });
+            if program.authorized != authorized {
+                program.authorized = authorized;
+                self.revision += 1;
+            }
         }
         self.select(entries);
         std::mem::take(&mut self.retired)
+    }
+
+    /// [`Self::authorize`] for the frame's shared entry list. Authorizing is idempotent, so when
+    /// the list (the same allocation) and everything it is checked against are unchanged since the
+    /// last run, and nothing waits for retirement, this returns nothing without running it again.
+    pub(super) fn authorize_shared(
+        &mut self,
+        entries: &Arc<[Entry]>,
+    ) -> Vec<Arc<CompiledPacketMod>> {
+        if self.retired.is_empty()
+            && self
+                .authorized_for
+                .as_ref()
+                .is_some_and(|(last, revision)| {
+                    Arc::ptr_eq(last, entries) && *revision == self.revision
+                })
+        {
+            return Vec::new();
+        }
+        let retired = self.authorize(entries);
+        self.authorized_for = Some((Arc::clone(entries), self.revision));
+        retired
     }
 
     /// Reorders accepted sources without starting or compiling a guest on the frame thread.
@@ -178,6 +211,7 @@ impl PacketMods {
         {
             return;
         }
+        self.revision += 1;
         self.selected = identity;
         let retired = if let Some(program) = selected {
             self.environment_selected = false;
@@ -209,6 +243,9 @@ impl PacketMods {
             })
             .cloned()
             .collect();
+        if !removed.is_empty() {
+            self.revision += 1;
+        }
         removed
             .into_iter()
             .filter_map(|path| self.programs.remove(&path).map(|program| program.program))
@@ -217,7 +254,11 @@ impl PacketMods {
 
     /// Removes a packet program when its registration changes to a frame component.
     pub(super) fn remove(&mut self, path: &Path) -> Option<Arc<CompiledPacketMod>> {
-        self.programs.remove(path).map(|program| program.program)
+        let removed = self.programs.remove(path).map(|program| program.program);
+        if removed.is_some() {
+            self.revision += 1;
+        }
+        removed
     }
 
     /// Source identities join the watcher's existing acknowledgment protocol.

@@ -5,7 +5,10 @@ use anyhow::{Result, ensure};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
+    sync::{
+        Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 #[derive(Default)]
@@ -54,26 +57,60 @@ impl State {
 
 /// Live admission for managed files, independent of browser trust or persisted grants.
 #[derive(Default)]
-pub struct Guard(Mutex<State>);
+pub struct Guard {
+    state: Mutex<State>,
+    /// Advances whenever the snapshot changes; see [`Self::revision`].
+    revision: AtomicU64,
+}
 
 impl Guard {
     /// Locks the snapshot, recovering it after a panicking holder.
     fn state(&self) -> MutexGuard<'_, State> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Records a change to the snapshot. Writers call it only after comparing, so an unchanged
+    /// write keeps the revision.
+    fn changed(&self) {
+        self.revision.fetch_add(1, Ordering::Release);
+    }
+
+    /// Identifies the snapshot: while it is unchanged, every admission answer for a given time is
+    /// the same, and between [`Self::next_transition`] instants the time does not matter either.
+    pub fn revision(&self) -> u64 {
+        self.revision.load(Ordering::Acquire)
+    }
+
+    /// The first time after `now` at which an admission answer can change without a write: when
+    /// the signed checkpoint becomes valid (its issue time minus the allowed clock skew) or when
+    /// it expires. `None` when neither lies after `now`.
+    pub fn next_transition(&self, now: u64) -> Option<u64> {
+        let state = self.state();
+        [
+            state.issued_at.saturating_sub(CLOCK_SKEW_MS),
+            state.expires_at,
+        ]
+        .into_iter()
+        .filter(|&at| at > now)
+        .min()
     }
 
     /// Switches identity immediately; existing receipts cannot grant another account authority.
     pub fn configure(&self, epoch: u64) {
         let mut state = self.state();
-        state.epoch = epoch;
-        state.account.clear();
+        if state.epoch != epoch || !state.account.is_empty() {
+            state.epoch = epoch;
+            state.account.clear();
+            self.changed();
+        }
     }
 
     /// Applies an authenticated identity only if its control request still belongs to this epoch.
     pub fn account(&self, epoch: u64, xuid: String) {
         let mut state = self.state();
-        if state.epoch == epoch {
+        if state.epoch == epoch && state.account != xuid {
             state.account = xuid;
+            self.changed();
         }
     }
 
@@ -85,9 +122,18 @@ impl Guard {
     /// Retains every known revoked hash while advancing the signed freshness checkpoint.
     pub fn revocations(&self, value: RevocationState) {
         let mut state = self.state();
+        let changed = state.issued_at != value.issued_at
+            || state.expires_at != value.expires_at
+            || value
+                .revoked
+                .iter()
+                .any(|(hash, reason)| state.revoked.get(hash) != Some(reason));
         state.issued_at = value.issued_at;
         state.expires_at = value.expires_at;
         state.revoked.extend(value.revoked);
+        if changed {
+            self.changed();
+        }
     }
 
     /// Returns the last accepted issue time so a replay cannot roll back this session.
@@ -98,6 +144,7 @@ impl Guard {
     /// Registers a receipt only after its signature, declaration and on-disk bytes are verified.
     pub fn installed(&self, path: PathBuf, owner: String, manifest: Manifest) {
         self.state().installed.insert(path, (owner, manifest));
+        self.changed();
     }
 
     /// Lists the managed paths registered with verified receipts this session, present or not.
@@ -107,7 +154,9 @@ impl Guard {
 
     /// Forgets a retired source so it cannot regain authority from an in-memory receipt.
     pub(super) fn forget(&self, path: &Path) {
-        self.state().installed.remove(path);
+        if self.state().installed.remove(path).is_some() {
+            self.changed();
+        }
     }
 
     /// Lists known older releases for an authorized successor of the same project and account.
@@ -186,7 +235,11 @@ impl Guard {
 
     /// Blocks a withdrawal hint immediately, pending the next signed revocation refresh.
     pub fn hold(&self, hash: &str) {
-        self.state().revoked.entry(hash.into()).or_default();
+        let mut state = self.state();
+        if !state.revoked.contains_key(hash) {
+            state.revoked.insert(hash.into(), String::new());
+            self.changed();
+        }
     }
 
     /// Explains a held file using signed withdrawal text or the current account/freshness state.
@@ -200,4 +253,59 @@ pub fn managed(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(launcher::mods::is_marketplace_file)
+}
+
+#[cfg(test)]
+mod revision_tests {
+    use super::*;
+
+    #[test]
+    fn the_revision_advances_only_when_the_snapshot_changes() {
+        let guard = Guard::default();
+        let mut last = guard.revision();
+        let mut changed = |guard: &Guard| {
+            let now = guard.revision();
+            let moved = now != last;
+            last = now;
+            moved
+        };
+        guard.configure(1);
+        assert!(changed(&guard));
+        guard.configure(1);
+        assert!(!changed(&guard), "the same epoch with no account");
+        guard.account(1, "owner".into());
+        assert!(changed(&guard));
+        guard.account(1, "owner".into());
+        guard.account(2, "other".into());
+        assert!(!changed(&guard), "the same account, then another epoch's");
+        let evidence = || RevocationState {
+            issued_at: 10_000,
+            expires_at: 20_000,
+            revoked: HashMap::from([("bad".into(), "withdrawn".into())]),
+        };
+        guard.revocations(evidence());
+        assert!(changed(&guard));
+        guard.revocations(evidence());
+        assert!(!changed(&guard), "repeated evidence");
+        guard.hold("bad");
+        assert!(!changed(&guard), "an already withdrawn hash");
+        guard.hold("held");
+        assert!(changed(&guard));
+        guard.configure(2);
+        assert!(changed(&guard), "a new epoch clears the account");
+    }
+
+    #[test]
+    fn answers_can_change_only_at_the_checkpoint_window_edges() {
+        let guard = Guard::default();
+        assert_eq!(guard.next_transition(0), None);
+        guard.revocations(RevocationState {
+            issued_at: CLOCK_SKEW_MS + 10_000,
+            expires_at: CLOCK_SKEW_MS + 20_000,
+            revoked: HashMap::new(),
+        });
+        assert_eq!(guard.next_transition(0), Some(10_000));
+        assert_eq!(guard.next_transition(10_000), Some(CLOCK_SKEW_MS + 20_000));
+        assert_eq!(guard.next_transition(CLOCK_SKEW_MS + 20_000), None);
+    }
 }
