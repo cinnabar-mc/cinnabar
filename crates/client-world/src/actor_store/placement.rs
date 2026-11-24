@@ -131,14 +131,29 @@ impl ActorStore {
             lock_degrees: degrees(ActorDataKey::SeatLockPassengerRotationDegrees.wire_value()),
         };
         let descriptor = self.seat_bindings.get(&mount.runtime_id).copied().flatten();
+        let admission = descriptor
+            .and_then(|descriptor| self.entity_assets.as_ref()?.seat_descriptor(descriptor));
+        // A mount type is seatless when it has no seat descriptor, or its admitted behavior
+        // authors no seat layout; an unresolved descriptor stays unknown.
+        let seatless = match admission {
+            None => descriptor.is_none(),
+            Some(assets::entity_seats::EntitySeatAdmission::Provisional { layouts, .. }) => {
+                layouts.iter().all(|layout| layout.seats.is_empty())
+            }
+            Some(assets::entity_seats::EntitySeatAdmission::Unresolved) => false,
+        };
         let mut seat = if let Some(ActorMetadataValue::Vector(seat)) =
             rider.metadata.get(&ActorDataKey::SeatOffset.wire_value())
         {
             seat.iter()
                 .all(|axis| axis.is_finite())
                 .then(|| streamed(*seat))?
-        } else if let Some(descriptor) = descriptor {
-            let admission = self.entity_assets.as_ref()?.seat_descriptor(descriptor)?;
+        } else if seatless {
+            // The client positions every passenger from its synced seat offset, which is zero
+            // until the server sets one.
+            streamed([0.0; 3])
+        } else {
+            let admission = admission?;
             // Seats follow the seated passenger order, the same order that picks the driver.
             let passengers = self.seated_passengers(mount.unique_id);
             let index = passengers.iter().position(|&id| id == rider_unique_id)?;
@@ -156,10 +171,6 @@ impl ActorStore {
             }
             seat.position[1] += riding_height;
             seat
-        } else {
-            // The client positions every passenger from its synced seat offset, which is zero
-            // until the server sets one.
-            streamed([0.0; 3])
         };
         // Resolved seats join native actor origins; the store keeps collision feet.
         seat.position[1] =
@@ -644,6 +655,17 @@ mod compiled_seat_tests {
 
     /// Gives `base` the supplied original seats without installed carrier data.
     fn store_with_seats(base: &str, seats: Box<[CompiledRideSeat]>) -> ActorStore {
+        store_with_layouts(
+            base,
+            Box::from([CompiledSeatLayout {
+                selector: SeatSelector::Base,
+                seats,
+            }]),
+        )
+    }
+
+    /// Gives `base` the supplied original seat layouts without installed carrier data.
+    fn store_with_layouts(base: &str, layouts: Box<[CompiledSeatLayout]>) -> ActorStore {
         let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
         compiled.sources = Box::from([
             assets::EntityAssetSource {
@@ -658,13 +680,8 @@ mod compiled_seat_tests {
         compiled = compiled
             .with_unresolved_seats()
             .with_unresolved_interactions();
-        compiled.seat_layouts[0].admission = EntitySeatAdmission::Provisional {
-            source: 0,
-            layouts: Box::from([CompiledSeatLayout {
-                selector: SeatSelector::Base,
-                seats,
-            }]),
-        };
+        compiled.seat_layouts[0].admission =
+            EntitySeatAdmission::Provisional { source: 0, layouts };
         let bytes = assets::encode_entity_blob(&compiled).unwrap();
         ActorStore::new_with_entity_assets(
             1,
@@ -855,16 +872,31 @@ mod compiled_seat_tests {
     }
 
     /// A rider of a mount type with no seats, which streams no seat offset, sits at the
-    /// mount's native origin and follows it as it moves.
+    /// mount's native origin and follows it as it moves, whether the type has no seat
+    /// descriptor or its behavior authors no seat layout.
     #[test]
     fn a_seatless_mount_carries_its_rider_at_the_mount_origin() {
+        let cases = [
+            (store(), "fixture:seatless", None),
+            (
+                store_with_layouts("minecraft:bat", Box::from([])),
+                "minecraft:bat",
+                Some(0),
+            ),
+        ];
+        for (store, identifier, binding) in cases {
+            seatless_mount_carries_rider(store, identifier, binding);
+        }
+    }
+
+    /// Seats a player on a scale-0 `identifier` mount bound to `binding`, then moves the mount.
+    fn seatless_mount_carries_rider(mut store: ActorStore, identifier: &str, binding: Option<u32>) {
         use protocol::{ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue};
-        let mut store = store();
         let ActorEvent::Spawn(mut mount) = super::super::tests::spawn(8, 80) else {
             unreachable!()
         };
         mount.kind = ActorKind::Entity {
-            identifier: "fixture:seatless".into(),
+            identifier: identifier.into(),
         };
         mount.position = [-5.5, -58.38, 9.5];
         mount.metadata = std::sync::Arc::from([ActorMetadata {
@@ -872,7 +904,7 @@ mod compiled_seat_tests {
             value: ActorMetadataValue::Float(0.0),
         }]);
         store.apply(1, 1, ActorEvent::Spawn(mount));
-        assert_eq!(store.seat_bindings.get(&8), Some(&None));
+        assert_eq!(store.seat_bindings.get(&8), Some(&binding));
         let ActorEvent::Spawn(mut rider) = super::super::tests::spawn(10, 10) else {
             unreachable!()
         };
