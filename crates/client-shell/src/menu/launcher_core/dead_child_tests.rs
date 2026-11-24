@@ -342,3 +342,21 @@ fn a_join_between_exit_checks_is_not_routed_to_an_exited_core() {
         "the join falls back to its own core at once"
     );
 }
+
+#[test]
+fn a_pending_core_decision_checks_for_an_exit_before_it_is_taken() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    assert!(!menu.core_decision_pending());
+    menu.feeds.profile_refresh_requested = true;
+    assert!(menu.core_decision_pending());
+    // What drive_account_services does before driving the slot for such a frame.
+    slot.check_exit_now();
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_none(),
+        "the exited core is retired in the same frame"
+    );
+    assert_eq!(slot.account_core().serving, None);
+}

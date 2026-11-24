@@ -248,6 +248,12 @@ impl LauncherCoreSlot {
         }
     }
 
+    /// Makes the next [`Self::drive`] check the core for an exit, whatever the pacing, so a
+    /// decision taken on the core this frame sees an exit at once.
+    pub(super) fn check_exit_now(&mut self) {
+        self.next_exit_poll = None;
+    }
+
     /// The account core as this frame left it.
     pub(super) fn account_core(&self) -> AccountCore {
         AccountCore {
@@ -287,6 +293,12 @@ impl LauncherCoreSlot {
 }
 
 impl MenuRuntime {
+    /// Whether a decision this frame depends on the account core's state: a join held for its
+    /// sign-in and core, or a requested profile refresh.
+    pub(super) fn core_decision_pending(&self) -> bool {
+        self.intents.join_sign_in_deadline.is_some() || self.feeds.profile_refresh_requested
+    }
+
     /// The validated sign-in's auth cache, for the launcher core and joins.
     pub fn launcher_auth_cache(&self) -> Option<PathBuf> {
         if self.external.is_some() {
