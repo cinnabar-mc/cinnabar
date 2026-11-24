@@ -977,3 +977,39 @@ fn session_block_sheets_render_without_startup_identity_but_campfire_items_stay_
 
 #[path = "pack_texture_tests/model_tests.rs"]
 mod model_tests;
+
+/// Once two empty frames have settled, further empty frames skip publication, and the next
+/// dropped item publishes in full.
+#[test]
+fn settled_empty_frames_skip_publication_until_an_item_appears() {
+    let (icons, mut with_item) = fixture(0);
+    let empty = stream(false, 1);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    let mut publish = |world: &mut World, stream: &WorldStream| {
+        publisher.get_mut(world).unwrap().publish(
+            Some(&icons),
+            Some(stream),
+            None,
+            (None, None),
+            Default::default(),
+            (None, Default::default()),
+        );
+    };
+    let held = || publication::HELD_FRAMES.with(std::cell::Cell::get);
+    let before = held();
+    for _ in 0..5 {
+        publish(&mut world, &empty);
+        assert!(world.resource::<DroppedItemScene>().instances.is_empty());
+    }
+    assert_eq!(
+        held() - before,
+        3,
+        "frames after two settled empty frames are skippable"
+    );
+    with_item.advance_actor_interpolation_frame(0);
+    publish(&mut world, &with_item);
+    assert_eq!(world.resource::<DroppedItemScene>().instances.len(), 1);
+    assert_eq!(held() - before, 3, "an item publishes in full");
+}
