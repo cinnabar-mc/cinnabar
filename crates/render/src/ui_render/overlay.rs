@@ -163,7 +163,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
         .is_ok();
     if installed {
         world.insert_resource(OverlayPassesInstalled);
-        super::composite::install_present_node(world);
+        super::composite::output::install_present_node(world);
     }
 }
 
@@ -542,7 +542,7 @@ pub(crate) fn ui_overlay(
     let mut model_lifetime = super::model_depth::ModelDepthLifetime::default();
     let plan = plan_ui_passes(
         &batches,
-        world.contains_resource::<super::composite::UiPresentInstalled>(),
+        world.contains_resource::<super::composite::output::UiPresentInstalled>(),
     );
     let publication = gpu
         .last_admitted_publication
