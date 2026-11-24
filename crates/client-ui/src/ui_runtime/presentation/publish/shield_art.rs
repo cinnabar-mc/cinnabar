@@ -18,10 +18,12 @@ pub(in crate::ui_runtime::presentation) struct ShieldArt {
 
 /// Everything an observation reads that the projection's stack epoch and source refresh do not
 /// already cover. Only a closed inventory is repeated: an open one also shows creative and recipe
-/// stacks.
+/// stacks, so an observation made while it was open never repeats, even when the projected stacks
+/// did not change across the close.
 #[derive(PartialEq)]
 struct Key {
     stacks: u64,
+    open: bool,
     armor: [Option<NetworkItemStack>; 4],
     cursor: Option<NetworkItemStack>,
     offhand: Option<NetworkItemStack>,
@@ -59,6 +61,7 @@ pub(in crate::ui_runtime::presentation) fn prepare_shield_art(
     let ledger = runtime.inventory_ledger(player);
     let key = Key {
         stacks: inventory_cache.stacks_epoch(),
+        open: runtime.inventory_open(),
         armor: std::array::from_fn(|slot| {
             ledger
                 .target_stack(InventoryTarget::Armor(slot as u8))
@@ -146,4 +149,16 @@ fn observe(
         observe(stack);
     }
     requests
+}
+
+#[cfg(test)]
+impl super::inventory_cache::InventoryCache {
+    /// The trims the last shield and trim observation requested, in request order.
+    pub(in crate::ui_runtime::presentation) fn requested_trims(&self) -> Vec<render_api::ItemTrim> {
+        self.shield_art
+            .iter()
+            .flat_map(|art| art.requests.trims.iter())
+            .map(|(_, _, trim, _)| trim.clone())
+            .collect()
+    }
 }

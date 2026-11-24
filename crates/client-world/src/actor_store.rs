@@ -600,10 +600,11 @@ pub enum LocalItemUse {
     },
 }
 
-/// Identifies one state of an actor's snapshot and its rig. Any change those can observe gives
-/// a different value, except the rig's local frame fractions (see
-/// [`actor_animation::PresentationRevision`]); a value may also change when nothing observable
-/// did. Frame samples also read the camera, which [`ActorStore::view_revision`] identifies.
+/// Identifies one state of an actor's snapshot and its rig, including whether its appearance is
+/// ready to draw the rig. Any change those can observe gives a different value, except the rig's
+/// local frame fractions (see [`actor_animation::PresentationRevision`]); a value may also change
+/// when nothing observable did. Frame samples also read the camera, which
+/// [`ActorStore::view_revision`] identifies.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct ActorPresentationRevision {
     /// The actor's runtime id with its process-wide stamp, so revisions of different actors or
@@ -611,6 +612,9 @@ pub struct ActorPresentationRevision {
     runtime_id: u64,
     actor: u64,
     rig: Option<actor_animation::PresentationRevision>,
+    /// Whether the appearance admits the rig: a preparing first appearance withdraws it without
+    /// touching the rig or snapshot.
+    appearance_ready: bool,
 }
 
 /// Shows the owning actor and rig; the process-wide stamps identify moments, not state, so equal
@@ -621,6 +625,7 @@ impl std::fmt::Debug for ActorPresentationRevision {
             .debug_struct("ActorPresentationRevision")
             .field("runtime_id", &self.runtime_id)
             .field("rig", &self.rig)
+            .field("appearance_ready", &self.appearance_ready)
             .finish_non_exhaustive()
     }
 }
