@@ -63,7 +63,7 @@ pub struct SignedRelease {
 }
 
 /// Signed fields used for local admission; additional signed presentation fields stay opaque.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Manifest {
     pub slug: String,
     pub version: String,
