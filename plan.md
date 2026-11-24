@@ -237,6 +237,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
+- [ ] Qualify weeping and twisting vine placement prediction. The held state is placed
+  locally under (weeping) or on (twisting) a full, non-leaf support or a vine of the same
+  kind. Slabs and other partial supports wait for the server, and full blocks that vanilla
+  rejects, such as invisible bedrock under twisting vines, are not yet excluded.
 - [ ] Predict bed placement. Door and bed items now report a local placement and start the
   repeat delay as native `DoorItem::_useOn` and `BedItem::_tryUseOn` do, but beds are drawn
   only from the server's update: native places both halves and colors them locally, and a

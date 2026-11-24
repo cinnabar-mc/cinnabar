@@ -117,6 +117,8 @@ pub fn predicted_placement(
     if fact.placement == R::Candle
         || fact.placement == R::SeaPickle
         || fact.placement == R::Vine
+        || fact.placement == R::WeepingVines
+        || fact.placement == R::TwistingVines
         || fact.traits.contains(T::MULTIFACE)
     {
         use sim::CollisionWorld;

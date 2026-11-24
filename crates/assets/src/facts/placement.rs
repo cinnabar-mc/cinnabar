@@ -59,7 +59,9 @@ named_facts!(
     Dispenser,
     Piston,
     Button,
-    FrogSpawn
+    FrogSpawn,
+    WeepingVines,
+    TwistingVines
 });
 
 named_facts!(

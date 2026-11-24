@@ -25,6 +25,10 @@ pub(crate) fn attachment_states(
             canonical, input.face, supports,
         );
     }
+    if let Some((age, _)) = nether_vine(identifier) {
+        return (known_keys(canonical, &[age]) && state_value(canonical, age)?.as_u64()? <= 25)
+            .then(|| canonical.clone());
+    }
     if canonical.contains_key("torch_facing_direction") {
         if !known_keys(canonical, &["torch_facing_direction"]) {
             return None;
@@ -126,6 +130,15 @@ pub(crate) fn attachment_states(
     Some(states)
 }
 
+/// Weeping vines hang from the block above; twisting vines stand on the block below.
+fn nether_vine(identifier: &str) -> Option<(&'static str, u8)> {
+    match identifier {
+        "minecraft:weeping_vines" => Some(("weeping_vines_age", 1)),
+        "minecraft:twisting_vines" => Some(("twisting_vines_age", 0)),
+        _ => None,
+    }
+}
+
 /// Refuses additional state keys whose placement behavior has not been established.
 fn known_keys(states: &Map<String, Value>, allowed: &[&str]) -> bool {
     states.len() == allowed.len() && states.keys().all(|key| allowed.contains(&key.as_str()))
@@ -186,6 +199,9 @@ pub(crate) fn support_requirement(
     }
     if identifier == "minecraft:frog_spawn" {
         return SupportRequirement::Face(0);
+    }
+    if let Some((_, face)) = nether_vine(identifier) {
+        return SupportRequirement::Face(face);
     }
     if is_carpet(identifier) {
         return SupportRequirement::Face(0);
@@ -249,6 +265,9 @@ pub(crate) fn support_acceptance(
             "minecraft:air" => Some(false),
             _ => None,
         };
+    }
+    if nether_vine(identifier).is_some() && support_identifier == identifier {
+        return Some(true);
     }
     if accepts_support(identifier, support_identifier, full_cube) {
         return Some(true);
@@ -413,8 +432,6 @@ const UNRESOLVED_SURVIVAL_IDENTIFIERS: &[&str] = &[
     "minecraft:pale_moss_carpet",
     "minecraft:hanging_roots",
     "minecraft:nether_sprouts",
-    "minecraft:weeping_vines",
-    "minecraft:twisting_vines",
     "minecraft:pointed_dripstone",
     "minecraft:small_dripleaf_block",
     "minecraft:big_dripleaf",

@@ -1151,7 +1151,7 @@ minecraft:tuff_slab	Slab	Vanilla	minecraft:tuff_double_slab
 minecraft:tuff_stairs	Stair	Vanilla	-
 minecraft:tuff_wall	Unresolved	Vanilla	-
 minecraft:turtle_egg	Unresolved	Vanilla	-
-minecraft:twisting_vines	Unresolved	Vanilla	-
+minecraft:twisting_vines	TwistingVines	Vanilla	-
 minecraft:undyed_shulker_box	Identity	Vanilla	-
 minecraft:unknown	Identity	Vanilla	-
 minecraft:unlit_redstone_torch	Torch	Vanilla	-
@@ -1265,7 +1265,7 @@ minecraft:weathered_cut_copper_stairs	Stair	Vanilla	-
 minecraft:weathered_double_cut_copper_slab	DoubleSlab	Vanilla	-
 minecraft:weathered_lightning_rod	Unresolved	Vanilla	-
 minecraft:web	Identity	Vanilla	-
-minecraft:weeping_vines	Unresolved	Vanilla	-
+minecraft:weeping_vines	WeepingVines	Vanilla	-
 minecraft:wet_sponge	Identity	Vanilla	-
 minecraft:wheat	Unresolved	Vanilla	-
 minecraft:white_candle	Candle	Vanilla	-
