@@ -726,7 +726,7 @@ fn closing_a_prepared_inventory_stops_requesting_the_open_screens_art() {
             runtime,
             presentation,
             None,
-            &resolve,
+            resolve,
         );
         presentation
             .inventory_cache
@@ -744,7 +744,7 @@ fn closing_a_prepared_inventory_stops_requesting_the_open_screens_art() {
     runtime.toggle_inventory(&mut player, None);
     assert_eq!(
         observe(&mut presentation, &runtime, &player),
-        [trim.clone()],
+        std::slice::from_ref(&trim),
         "the open creative grid shows the trimmed stack"
     );
     runtime.toggle_inventory(&mut player, None);
