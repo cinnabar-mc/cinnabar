@@ -91,10 +91,29 @@ impl FogLatticeCache {
         biomes: &LatticeBiomes,
         bindings: &FogBindings,
     ) -> FogLatticeSample {
+        self.sample_registry(
+            biomes,
+            stream.current_dimension(),
+            stream.biome_tint_identity(),
+            stream.authority().resolved_biome_tints(),
+            bindings,
+        )
+    }
+
+    /// [`Self::sample`] for a lattice in `dimension`, with `registry` the biome registry whose
+    /// identity is `tints`.
+    fn sample_registry(
+        &mut self,
+        biomes: &LatticeBiomes,
+        dimension: i32,
+        tints: meshing::ChunkBiomeTintIdentity,
+        registry: &assets::ResolvedBiomeTints,
+        bindings: &FogBindings,
+    ) -> FogLatticeSample {
         let key = FogLatticeKey {
             biomes: *biomes,
-            dimension: stream.current_dimension(),
-            tints: stream.biome_tint_identity(),
+            dimension,
+            tints,
             bindings: bindings.revision(),
         };
         if let Some((last, sample)) = &self.last
@@ -103,8 +122,8 @@ impl FogLatticeCache {
             return *sample;
         }
         let sample = (
-            fog_biome_samples(biomes, key.dimension, bindings),
-            fog_precipitation_count(stream, biomes),
+            fog_biome_samples(biomes, dimension, bindings),
+            precipitation_count(registry, biomes),
         );
         self.last = Some((key, sample));
         sample
@@ -113,7 +132,14 @@ impl FogLatticeCache {
 
 /// Counts precipitation-eligible lattice biomes in the session registry, as weather does.
 pub fn fog_precipitation_count(stream: &WorldStream, biomes: &LatticeBiomes) -> Option<usize> {
-    let registry = stream.authority().resolved_biome_tints();
+    precipitation_count(stream.authority().resolved_biome_tints(), biomes)
+}
+
+/// [`fog_precipitation_count`] against one biome registry.
+fn precipitation_count(
+    registry: &assets::ResolvedBiomeTints,
+    biomes: &LatticeBiomes,
+) -> Option<usize> {
     count_precipitation_samples(biomes.map(|id| {
         Some(world::weather::precipitation_eligible(
             registry.biome(id?)?.downfall,
