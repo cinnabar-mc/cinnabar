@@ -12,6 +12,7 @@ use ui::mod_presentation::NametagVisibility;
 #[cfg(test)]
 mod camera_hand_tests;
 mod commit;
+mod consumed;
 mod cooldowns;
 mod loading;
 mod menu_icons;
@@ -72,6 +73,9 @@ pub(crate) struct PublishExtras<'w, 's> {
     melee: Res<'w, client_interaction::melee::MeleeRuntime>,
     movement: Res<'w, client_interaction::movement::MovementTicker>,
     physics: Res<'w, client_interaction::movement::LocalPhysicsController>,
+    /// The runtime revisions the last HUD capture read.
+    captured: Local<'s, consumed::ConsumedTicks>,
+    system_ticks: bevy::ecs::system::SystemChangeTick,
 }
 
 /// Observes UI authority and captures inventory, including this frame's outbound predictions.
@@ -124,6 +128,8 @@ pub(crate) fn prepare_ui_runtime(
         melee,
         movement,
         physics,
+        mut captured,
+        system_ticks,
     } = extras;
     #[cfg(not(target_arch = "wasm32"))]
     let (settings_snapshot, menu_skin, menu_visible, menu_scene, menu) = (
@@ -449,8 +455,9 @@ pub(crate) fn prepare_ui_runtime(
     // double-draws.
     let hud_first_person = first_person && !hide_hand;
     // Writers mark the runtimes changed only when they change them, and publication marks
-    // neither, so unchanged ticks mean the capture would store nothing new from them.
-    let runtimes_unchanged = !player_runtime.is_changed() && !runtime.is_changed();
+    // neither, so ticks the last capture read mean it would store nothing new from them.
+    let runtimes_unchanged =
+        captured.unchanged(player_runtime.last_changed(), runtime.last_changed());
     let capture = capture_hud_frame_if_changed(
         &player_runtime,
         runtime.bypass_change_detection(),
@@ -470,6 +477,11 @@ pub(crate) fn prepare_ui_runtime(
     if capture.presentation_changed {
         presentation.set_changed();
     }
+    captured.record(
+        player_runtime.last_changed(),
+        runtime.last_changed(),
+        system_ticks.this_run(),
+    );
     let item_icons = capture.icons;
     let hotbar_cooldowns = cooldowns::hotbar_cooldowns(
         &player_runtime,

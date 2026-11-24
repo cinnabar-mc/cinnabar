@@ -265,6 +265,7 @@ impl UiPresentationRuntime {
             #[cfg(debug_assertions)]
             self.check_repeated_capture(local, swimming, emote);
         } else {
+            self.gui_models.player_layers.reclaim_capture();
             self.capture_live_pose(local, swimming, emote);
             self.capture_player_layers(local);
             self.record_capture(local, swimming, emote);

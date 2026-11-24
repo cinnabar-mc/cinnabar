@@ -85,6 +85,69 @@ fn profile_skin(byte: u8) -> protocol::PlayerSkin {
     })
 }
 
+/// A drawn actor whose first profile arrives with its custom model still preparing has no
+/// drawable rig until the model is ready, so its presentation revision changes, both when the
+/// rig withdraws and when it returns.
+#[test]
+fn withdrawing_and_restoring_the_rig_for_appearance_readiness_changes_the_revision() {
+    let mut store = player_store();
+    let spawn = |store: &mut ActorStore| {
+        store.apply(
+            1,
+            1,
+            protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: ActorKind::Player {
+                    uuid: [1; 16],
+                    username: "fixture".into(),
+                },
+                position: [0.0; 3],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            }),
+        );
+    };
+    spawn(&mut store);
+    store.advance_interpolation_frame(1);
+    assert!(store.actor_rig(1).is_some(), "an unlisted player draws");
+    let drawn = store.presentation_revision(1).unwrap();
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::PlayerList(protocol::PlayerListUpdateEvent {
+            entries: Arc::from([protocol::PlayerListEntry::Add {
+                uuid: [1; 16],
+                unique_id: 1,
+                username: "fixture".into(),
+                verified: true,
+                xuid: "".into(),
+                skin: profile_skin(1),
+            }]),
+        }),
+    );
+    store.prepare_appearances(false);
+    assert!(
+        store.actor_rig(1).is_none(),
+        "the custom model is preparing"
+    );
+    let withdrawn = store.presentation_revision(1).unwrap();
+    assert_ne!(withdrawn, drawn, "withdrawing the rig changes the revision");
+    store.finish_appearance_fixture_batch();
+    store.advance_interpolation_frame(0);
+    assert!(store.actor_rig(1).is_some());
+    assert_ne!(store.presentation_revision(1), Some(withdrawn));
+}
+
 #[test]
 fn queued_appearance_does_not_publish_new_pixels_before_model_readiness() {
     let mut store = profile_store(1);

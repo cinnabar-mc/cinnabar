@@ -4,9 +4,15 @@ use super::ServerAtlas;
 
 impl ServerAtlas {
     /// Starts a frame's texture requests: misses left for a later frame accumulate until the
-    /// next frame starts, whichever request left them.
+    /// next frame starts, whichever request left them. Downloads that settled since a paint found
+    /// them loading stop waiting: this frame's paints request them again if they still draw them.
     pub fn begin_frame(&mut self) {
         self.decodes.deferred = false;
+        if let Some(remote) = self.remote.as_ref() {
+            self.loading_remote
+                .get_mut()
+                .retain(|url| !settled(remote.state(url)));
+        }
     }
 
     /// Whether decode work a later require would collect, or a decode left for a later frame,
@@ -16,12 +22,10 @@ impl ServerAtlas {
         self.decodes.deferred
             || self.decodes.jobs.completion_waiting()
             || self.remote.as_ref().is_some_and(|remote| {
-                self.loading_remote.borrow().iter().any(|url| {
-                    matches!(
-                        remote.state(url),
-                        crate::sources::RemoteImage::Ready(_) | crate::sources::RemoteImage::Failed
-                    )
-                })
+                self.loading_remote
+                    .borrow()
+                    .iter()
+                    .any(|url| settled(remote.state(url)))
             })
     }
 
@@ -38,4 +42,12 @@ impl ServerAtlas {
                 .as_ref()
                 .is_some_and(|pack| pack.reads.in_flight())
     }
+}
+
+/// Whether a download finished, with or without an image.
+fn settled(state: crate::sources::RemoteImage) -> bool {
+    matches!(
+        state,
+        crate::sources::RemoteImage::Ready(_) | crate::sources::RemoteImage::Failed
+    )
 }
