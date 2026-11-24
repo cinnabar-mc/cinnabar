@@ -126,7 +126,12 @@ fn streamed_player_seats_use_native_origins_without_rescaling() {
 fn streamed_player_seat_updates_and_dismount_release_placement() {
     let mut store = player_on_boat(None, true);
     let origin = store.get(20).unwrap().native_position();
-    assert!(store.rider_seat_pose(10).is_none());
+    // Until the server streams a seat offset, the rider sits at the mount's origin.
+    let (feet, _) = store.rider_seat_pose(10).unwrap();
+    assert_eq!(
+        store.get(10).unwrap().native_position_at(feet),
+        Some(origin)
+    );
     for (sequence, offset) in [(4, [0.5, 2.0, 1.0]), (5, [-0.5, -1.0, -1.0])] {
         store.apply(
             1,

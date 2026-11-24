@@ -111,7 +111,8 @@ impl ActorStore {
     }
 
     /// Streamed seat of a rider, else the mount type's default for its rider index (riders of
-    /// one mount are ordered by unique id).
+    /// one mount are ordered by unique id). A rider of a mount type with no seats sits at a
+    /// zero offset, at the mount's own origin.
     fn seat_for(
         &self,
         rider_unique_id: i64,
@@ -122,19 +123,22 @@ impl ActorStore {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
             _ => None,
         };
+        let streamed = |position: [f32; 3]| RideSeat {
+            position,
+            min_riders: 0,
+            max_riders: u32::MAX,
+            rotate_by: degrees(ActorDataKey::SeatRotationOffsetDegrees.wire_value()),
+            lock_degrees: degrees(ActorDataKey::SeatLockPassengerRotationDegrees.wire_value()),
+        };
+        let descriptor = self.seat_bindings.get(&mount.runtime_id).copied().flatten();
         let mut seat = if let Some(ActorMetadataValue::Vector(seat)) =
             rider.metadata.get(&ActorDataKey::SeatOffset.wire_value())
         {
-            seat.iter().all(|axis| axis.is_finite()).then(|| RideSeat {
-                position: *seat,
-                min_riders: 0,
-                max_riders: u32::MAX,
-                rotate_by: degrees(ActorDataKey::SeatRotationOffsetDegrees.wire_value()),
-                lock_degrees: degrees(ActorDataKey::SeatLockPassengerRotationDegrees.wire_value()),
-            })?
-        } else {
-            let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
-            let admission = self.entity_assets.as_ref()?.seat_descriptor(*descriptor)?;
+            seat.iter()
+                .all(|axis| axis.is_finite())
+                .then(|| streamed(*seat))?
+        } else if let Some(descriptor) = descriptor {
+            let admission = self.entity_assets.as_ref()?.seat_descriptor(descriptor)?;
             // Seats follow the seated passenger order, the same order that picks the driver.
             let passengers = self.seated_passengers(mount.unique_id);
             let index = passengers.iter().position(|&id| id == rider_unique_id)?;
@@ -152,6 +156,10 @@ impl ActorStore {
             }
             seat.position[1] += riding_height;
             seat
+        } else {
+            // The client positions every passenger from its synced seat offset, which is zero
+            // until the server sets one.
+            streamed([0.0; 3])
         };
         // Resolved seats join native actor origins; the store keeps collision feet.
         seat.position[1] =
@@ -844,6 +852,82 @@ mod compiled_seat_tests {
                 "seat={position:?}, scale={scale}, baby={baby}, early link={link_first}"
             );
         }
+    }
+
+    /// A rider of a mount type with no seats, which streams no seat offset, sits at the
+    /// mount's native origin and follows it as it moves.
+    #[test]
+    fn a_seatless_mount_carries_its_rider_at_the_mount_origin() {
+        use protocol::{ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue};
+        let mut store = store();
+        let ActorEvent::Spawn(mut mount) = super::super::tests::spawn(8, 80) else {
+            unreachable!()
+        };
+        mount.kind = ActorKind::Entity {
+            identifier: "fixture:seatless".into(),
+        };
+        mount.position = [-5.5, -58.38, 9.5];
+        mount.metadata = std::sync::Arc::from([ActorMetadata {
+            key: ActorDataKey::Scale.wire_value(),
+            value: ActorMetadataValue::Float(0.0),
+        }]);
+        store.apply(1, 1, ActorEvent::Spawn(mount));
+        assert_eq!(store.seat_bindings.get(&8), Some(&None));
+        let ActorEvent::Spawn(mut rider) = super::super::tests::spawn(10, 10) else {
+            unreachable!()
+        };
+        rider.kind = ActorKind::Player {
+            uuid: [0; 16],
+            username: "Rider".into(),
+        };
+        store.apply(1, 2, ActorEvent::Spawn(rider));
+        store.apply_link(
+            1,
+            3,
+            protocol::ActorLinkEvent {
+                dimension: 0,
+                ridden_unique_id: 80,
+                rider_unique_id: 10,
+                link_type: protocol::ActorLinkType::Rider,
+                immediate: false,
+                rider_initiated: true,
+            },
+        );
+        let rider_native = |store: &ActorStore| {
+            let (feet, _) = store.rider_seat_pose(10).unwrap();
+            store.get(10).unwrap().native_position_at(feet).unwrap()
+        };
+        assert_eq!(
+            rider_native(&store),
+            store.get(8).unwrap().native_position()
+        );
+        store.apply(
+            1,
+            4,
+            ActorEvent::Move(protocol::ActorMoveEvent {
+                dimension: 0,
+                runtime_id: 8,
+                position: [Some(-5.5), Some(-58.38), Some(15.53)],
+                position_origin: protocol::ActorPositionOrigin::NetworkOffset,
+                pitch: None,
+                yaw: Some(90.0),
+                head_yaw: None,
+                on_ground: None,
+                teleported: false,
+                force_local_move: false,
+                player_mode: None,
+                source_tick: None,
+                interpolation: protocol::ActorInterpolation {
+                    ticks: 1,
+                    force_completion: false,
+                },
+            }),
+        );
+        store.advance_interpolation_ticks(1);
+        let mount = store.get(8).unwrap().native_position();
+        assert!(mount[2] > 9.5, "{mount:?}");
+        assert_eq!(rider_native(&store), mount);
+        assert_eq!(store.get(10).unwrap().native_position(), mount);
     }
 
     #[test]
