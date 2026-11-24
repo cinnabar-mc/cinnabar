@@ -39,18 +39,24 @@ fn fixture(primary: u32, water_height: Option<f64>) -> (ChunkStore, CollisionReg
         )
         .unwrap();
     let mut store = ChunkStore::new();
+    load_cell(&mut store, primary, water_height.is_some());
+    (store, registry)
+}
+
+/// Loads the fixture's sub-chunk into `store` with `primary` at the origin, under water when
+/// `water` is set.
+fn load_cell(store: &mut ChunkStore, primary: u32, water: bool) {
     let key = SubChunkKey::new(0, 0, 0, 0);
     store.apply_request_mode_air(key).unwrap();
     store.mark_sub_chunk_loaded(key).unwrap();
     store
         .update_block(key, BlockUpdate::new(0, 0, 0, 0, primary), 0)
         .unwrap();
-    if water_height.is_some() {
+    if water {
         store
             .update_block(key, BlockUpdate::new(0, 0, 0, 1, 3), 0)
             .unwrap();
     }
-    (store, registry)
 }
 
 #[test]
@@ -171,8 +177,7 @@ fn cached_eye_probe_matches_a_fresh_probe_across_liquid_surfaces_residency_and_d
     // Unloading the column under a still eye, then loading it again.
     store.evict_chunk(SubChunkKey::new(0, 0, 0, 0).chunk());
     assert_eq!(check(&mut cache, &store, 0, below), HeadMedium::Air);
-    let (reloaded, _) = fixture(1, Some(0.5));
-    store = reloaded;
+    load_cell(&mut store, 1, true);
     assert_eq!(check(&mut cache, &store, 0, below), HeadMedium::Water);
 
     // A different store with the same eye and registry.

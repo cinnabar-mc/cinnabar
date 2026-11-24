@@ -200,3 +200,38 @@ fn cached_lattice_fog_follows_the_biome_registry_and_the_dimension() {
         );
     }
 }
+
+#[test]
+fn cached_lattice_fog_through_streams_follows_each_stream_and_its_dimension() {
+    let stream = |dimension| {
+        WorldStream::new(protocol::WorldBootstrap {
+            dimension,
+            local_player_runtime_id: 1,
+            local_player_unique_id: 1,
+            player_position: [0.5, 70.0, 0.5],
+            world_spawn_position: [0, 64, 0],
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        })
+    };
+    let (overworld, nether, other_nether) = (stream(0), stream(1), stream(1));
+    assert_ne!(
+        nether.biome_tint_identity(),
+        other_nether.biome_tint_identity()
+    );
+    let bindings = hell_bindings("test:a");
+    let unknown = [None; render_model::PRECIPITATION_SAMPLE_OFFSETS.len()];
+    let fresh = |stream: &WorldStream| {
+        (
+            fog_biome_samples(&unknown, stream.current_dimension(), &bindings),
+            fog_precipitation_count(stream, &unknown),
+        )
+    };
+    // Unknown samples take their dimension's fallback profile, which only the nether binds.
+    assert_ne!(fresh(&overworld).0, fresh(&nether).0);
+
+    let mut cache = FogLatticeCache::default();
+    for stream in [&nether, &overworld, &nether, &other_nether, &overworld] {
+        assert_eq!(cache.sample(stream, &unknown, &bindings), fresh(stream));
+    }
+}
