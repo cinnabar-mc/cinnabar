@@ -59,7 +59,8 @@ named_facts!(
     Dispenser,
     Piston,
     Button,
-    FrogSpawn
+    FrogSpawn,
+    Ladder
 });
 
 named_facts!(

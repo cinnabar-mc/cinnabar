@@ -727,6 +727,67 @@ fn immediate_vines_attach_to_each_horizontal_clicked_support() {
 }
 
 #[test]
+fn ladders_predict_against_each_side_face_of_a_full_support() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for face in 2..=5_u8 {
+            let store = store(mode);
+            let around = surroundings();
+            let mut click = context(&around);
+            click.input.face = face;
+            let result = predict("minecraft:ladder", &store, mode, &click)
+                .unwrap_or_else(|| panic!("face={face} mode={mode:?}"));
+            assert_eq!(
+                result.position,
+                crate::block_use::placement_cell(click.clicked, face)
+            );
+            assert_eq!(
+                result.block,
+                id(
+                    record(
+                        "minecraft:ladder",
+                        &[("facing_direction", serde_json::json!(face))]
+                    ),
+                    mode
+                )
+            );
+            assert!(result.additional.is_empty());
+        }
+    }
+}
+
+#[test]
+fn ladders_without_a_side_click_or_full_support_stay_server_confirmed() {
+    let mode = NetworkIdMode::Sequential;
+    let store = store(mode);
+    let around = surroundings();
+    for face in [0, 1] {
+        let mut click = context(&around);
+        click.input.face = face;
+        assert!(
+            predict("minecraft:ladder", &store, mode, &click).is_none(),
+            "face={face}"
+        );
+    }
+
+    let mut store = ChunkStore::new();
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    store.mark_sub_chunk_loaded(key).unwrap();
+    let leaves = id(record("minecraft:oak_leaves", &[]), mode);
+    store
+        .update_block(
+            key,
+            BlockUpdate::new(8, 8, 8, 0, leaves),
+            id(record("minecraft:air", &[]), mode),
+        )
+        .unwrap();
+    let mut around = surroundings();
+    around.clicked = fixtures().1.block_facts(mode, leaves);
+    let mut click = context(&around);
+    click.input.face = 2;
+    assert!(predict("minecraft:ladder", &store, mode, &click).is_none());
+}
+
+#[test]
 fn ordinary_sign_items_select_wall_identity_for_every_side_face() {
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         for face in 2..=5 {
