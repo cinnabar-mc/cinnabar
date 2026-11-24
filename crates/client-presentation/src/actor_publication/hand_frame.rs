@@ -127,6 +127,7 @@ pub(super) fn prepare(
             }
             let source = hand::source(inputs, java_mode, equipment, java_hand);
             final_keyed = reuse_key.map(|key| super::hand_reuse::KeyedSource {
+                retained: false,
                 reusable: source
                     .as_ref()
                     .is_some_and(|source| key.reusable(stream, source)),

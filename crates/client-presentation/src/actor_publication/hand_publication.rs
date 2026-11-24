@@ -8,8 +8,14 @@ use render_model::{ActorRigSubmission, EquipmentRaster, HandItemAtlas, HandRigLi
 /// geometry catalog are the same. Glint scrolling changes the draws themselves.
 #[derive(Default)]
 pub(super) struct PublishedHand {
+    /// The frame-level inputs of the last published or kept frame, for a source taken unchanged
+    /// across frames.
+    quick: Option<QuickKey>,
     /// The recorded inputs and the scene's publication token for their frame.
     frame: Option<(Inputs, u64)>,
+    /// Republications skipped through the quick check since the state was created.
+    #[cfg(test)]
+    pub(super) quick_kept: u64,
     /// Republications skipped since the state was created.
     #[cfg(test)]
     pub(super) kept: u64,
@@ -94,7 +100,54 @@ impl Inputs {
     }
 }
 
+/// What a publication reads besides the source: its motion, light, projection, geometry catalog
+/// and glint settings.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct QuickKey {
+    motion: Option<[u32; 16]>,
+    light: HandRigLight,
+    fov: Option<u32>,
+    geometry_revision: u64,
+    glint: Option<(u32, u32)>,
+}
+
+impl QuickKey {
+    pub(super) fn new(
+        motion: Option<bevy::math::Mat4>,
+        light: HandRigLight,
+        fov: Option<f32>,
+        geometry_revision: u64,
+        glint: Option<&render_scene::UiGlintSettings>,
+    ) -> Self {
+        Self {
+            motion: motion.map(|motion| motion.to_cols_array().map(f32::to_bits)),
+            light,
+            fov: fov.map(f32::to_bits),
+            geometry_revision,
+            glint: glint.map(|glint| (glint.strength.to_bits(), glint.speed.to_bits())),
+        }
+    }
+}
+
 impl PublishedHand {
+    /// Whether the scene still holds the kept frame of a source taken unchanged since it was
+    /// published, and every other input matches. The kept frame is still and its draws carry no
+    /// item glint, whose scroll reads the frame fraction.
+    pub(super) fn holds_quick(&self, quick: &QuickKey, held: Option<u64>) -> bool {
+        self.quick == Some(*quick)
+            && self.frame.as_ref().is_some_and(|(frame, publication)| {
+                held == Some(*publication)
+                    && frame.submissions.iter().all(|submission| {
+                        submission.material.glint.texture != render_model::GlintTexture::Item
+                    })
+            })
+    }
+
+    /// Records the frame-level inputs of the frame just published or kept.
+    pub(super) fn record_quick(&mut self, quick: QuickKey) {
+        self.quick = Some(quick);
+    }
+
     /// Whether the scene, holding the frame with publication token `held`, still holds the
     /// recorded frame and that frame was built from `inputs`. The scene assigns every accepted
     /// frame its own token, so a scene cleared or republished by anyone else since never matches.
@@ -113,6 +166,7 @@ impl PublishedHand {
     /// Records the inputs of the frame the scene just accepted with publication token
     /// `publication`, or forgets them.
     pub(super) fn record(&mut self, inputs: Option<Inputs>, publication: Option<u64>) {
+        self.quick = None;
         self.frame = inputs.filter(|inputs| inputs.still).zip(publication);
     }
 }

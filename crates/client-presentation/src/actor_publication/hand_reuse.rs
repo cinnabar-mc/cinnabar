@@ -12,7 +12,7 @@ use chunk_pipeline::WorldStream;
 type AnimationKey = (u32, Option<u32>, u32, bool);
 
 /// Every input of a reusable source besides the frame fraction and the camera-space hand motion.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub(super) struct ReuseKey {
     revision: client_world::ActorPresentationRevision,
     presentation: ActorRigPresentation,
@@ -24,6 +24,89 @@ pub(super) struct ReuseKey {
     positive_fraction: bool,
     /// Advances whenever the session's artwork or equipment runtime may have changed.
     session: u64,
+}
+
+impl PartialEq for ReuseKey {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            revision,
+            presentation,
+            hands_empty,
+            hand_use,
+            aspect,
+            java_mode,
+            positive_fraction,
+            session,
+        } = self;
+        *revision == other.revision
+            && *hands_empty == other.hands_empty
+            && *hand_use == other.hand_use
+            && *aspect == other.aspect
+            && *java_mode == other.java_mode
+            && *positive_fraction == other.positive_fraction
+            && *session == other.session
+            && same_presentation(presentation, &other.presentation)
+    }
+}
+
+/// Field-for-field presentation equality that skips comparing bone poses held by the same
+/// allocation, which the tick conversion cache shares between frames.
+fn same_presentation(left: &ActorRigPresentation, right: &ActorRigPresentation) -> bool {
+    let ActorRigPresentation {
+        submission,
+        skin_rgba8,
+        artwork,
+        authored_scale,
+        world_yaw_degrees,
+        head_over_body,
+        model_frame,
+    } = left;
+    let render_model::ActorRigSubmission {
+        material,
+        culling_bounds,
+        input,
+        world_from_actor,
+        texture_layer,
+        route,
+        tint,
+        overlay_rgba8,
+        uv_anim,
+        light,
+    } = submission;
+    let render_model::ActorRigRenderInput {
+        identity,
+        rig,
+        previous_bones,
+        current_bones,
+        completed_tick,
+        reset_generation,
+    } = input;
+    let other = &right.submission;
+    let bones = |left: &std::sync::Arc<[render_model::RenderBoneTransform]>,
+                 right: &std::sync::Arc<[render_model::RenderBoneTransform]>| {
+        std::sync::Arc::ptr_eq(left, right) || left == right
+    };
+    *identity == other.input.identity
+        && *rig == other.input.rig
+        && *completed_tick == other.input.completed_tick
+        && *reset_generation == other.input.reset_generation
+        && bones(previous_bones, &other.input.previous_bones)
+        && bones(current_bones, &other.input.current_bones)
+        && *material == other.material
+        && *culling_bounds == other.culling_bounds
+        && *world_from_actor == other.world_from_actor
+        && *texture_layer == other.texture_layer
+        && *route == other.route
+        && *tint == other.tint
+        && *overlay_rgba8 == other.overlay_rgba8
+        && *uv_anim == other.uv_anim
+        && *light == other.light
+        && *skin_rgba8 == right.skin_rgba8
+        && *artwork == right.artwork
+        && *authored_scale == right.authored_scale
+        && *world_yaw_degrees == right.world_yaw_degrees
+        && *head_over_body == right.head_over_body
+        && *model_frame == right.model_frame
 }
 
 impl ReuseKey {
@@ -83,6 +166,8 @@ impl ReuseKey {
 pub(super) struct KeyedSource {
     pub(super) key: ReuseKey,
     pub(super) reusable: bool,
+    /// Whether the source is the previous frame's published source, taken across frames.
+    pub(super) retained: bool,
 }
 
 /// The published source retained for the next frame's readiness.
@@ -91,6 +176,8 @@ pub(super) struct HandReuse {
     retained: Option<(ReuseKey, HandSource)>,
     /// Advances whenever the session's artwork or equipment runtime may have changed.
     pub(super) session: u64,
+    /// The last readiness check: the geometry catalog revision and projection it ran under.
+    pub(super) ready: Option<((u64, Option<u32>), bool)>,
     /// Sources taken across frames since the state was created.
     #[cfg(test)]
     pub(super) reuses: u64,

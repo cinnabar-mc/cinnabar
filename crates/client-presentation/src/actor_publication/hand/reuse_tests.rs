@@ -172,6 +172,15 @@ fn idle_empty_hand_reuses_its_source_across_frames() {
         "every idle frame after the first reuses the source"
     );
     assert_eq!(frames.kept(), 3, "the scene keeps the identical idle frame");
+    assert_eq!(
+        frames
+            .world
+            .resource::<super::super::ActorFrameState>()
+            .hand_published
+            .quick_kept,
+        3,
+        "every kept frame of a retained source skips rebuilding its inputs"
+    );
     let instance = |instances: Vec<render_model::ActorGpuInstance>| {
         instances
             .into_iter()
