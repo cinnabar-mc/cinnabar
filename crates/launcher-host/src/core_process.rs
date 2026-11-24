@@ -79,7 +79,7 @@ impl CoreProcessGuard {
 
     /// The tracked core's exit status once it has exited; `None` while it runs, without a
     /// core, or when its status cannot be read.
-    pub fn exit_status(&mut self) -> Option<ExitStatus> {
+    pub fn exit_status(&self) -> Option<ExitStatus> {
         self.child.as_ref()?.try_wait().ok().flatten()
     }
 

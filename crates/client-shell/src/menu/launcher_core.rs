@@ -19,8 +19,8 @@ use std::{
 /// How often a running core is asked whether it exited. Each check is a `wait4` syscall, so it
 /// is not made every frame. An exit is noticed within this interval, which nothing needs sooner:
 /// restarts wait at least the backoff's 500 ms base delay, the backoff only distinguishes runs
-/// shorter than its 60 s stable run, and until the exit is noticed, requests to the dead core
-/// fail on their own. A newly spawned core is checked on the next drive.
+/// shorter than its 60 s stable run, and a join routed in between checks the core itself (see
+/// [`LauncherCoreSlot::begin_join`]). A newly spawned core is checked on the next drive.
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Allows auth updates beside a separate direct game core, but protects games this core owns.
@@ -275,6 +275,11 @@ impl LauncherCoreSlot {
         }
         let core = self.core.as_ref()?;
         if !local_world && core.authenticated != authenticated {
+            return None;
+        }
+        // The per-frame exit check is paced, so a join checks the core itself: one that exited
+        // since the last check is not routed to, exactly as if that check had found it.
+        if core._guard.exit_status().is_some() {
             return None;
         }
         core.begin_join(address, local_world)

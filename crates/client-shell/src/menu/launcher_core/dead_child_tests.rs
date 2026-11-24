@@ -324,3 +324,21 @@ fn an_exit_is_noticed_at_the_next_poll() {
         "and the clients are detached"
     );
 }
+
+#[test]
+fn a_join_between_exit_checks_is_not_routed_to_an_exited_core() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    // The last check found the core running; it exited before the next one is due.
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_some(),
+        "the paced check has not noticed the exit"
+    );
+    assert!(
+        slot.begin_join("example.net:19132", false, false, true)
+            .is_none(),
+        "the join falls back to its own core at once"
+    );
+}
