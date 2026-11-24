@@ -15,6 +15,11 @@ impl MenuRuntime {
         mut local_worlds: Option<&mut crate::local_worlds::LocalWorlds>,
     ) {
         if let Some(mut slot) = launcher {
+            // A held join or a profile refresh decides on the account core's state this frame,
+            // so that state must not rest on a skipped exit check.
+            if self.core_decision_pending() {
+                slot.check_exit_now();
+            }
             // Remote direct sessions have a separate game core. Local worlds use the
             // account core, so sign-in must not restart it during local play.
             let idle = launcher_core::account_core_idle(
