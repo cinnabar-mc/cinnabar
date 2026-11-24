@@ -210,6 +210,12 @@ fn enabled_entries_are_reused_until_their_inputs_or_the_marketplace_window_chang
         watcher.enabled_at(10_000).is_empty(),
         "the release leaves at the window's end without any write"
     );
+    assert_eq!(
+        watcher.enabled_at(9_999).len(),
+        1,
+        "a clock moved back inside the window admits it again"
+    );
+    assert!(watcher.enabled_at(10_000).is_empty());
 
     publish(2);
     let republished = watcher.enabled_at(10_000);

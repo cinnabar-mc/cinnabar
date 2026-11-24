@@ -23,15 +23,17 @@ pub(super) struct AuthorityMemo {
     generation: u64,
     alive: bool,
     marketplace: u64,
-    /// When marketplace admission can next change by time alone.
+    /// The span of times in which marketplace admission does not change by time alone.
+    from: u64,
     until: Option<u64>,
     enabled: Arc<[Entry]>,
 }
 
 impl Watcher {
     /// The enabled entries at `now`, computed again only when the desired list, liveness or the
-    /// marketplace snapshot changed or a marketplace transition instant passed; otherwise the
-    /// same shared list as before, which lets packet authorization recognise it.
+    /// marketplace snapshot changed or `now` left the span in which marketplace answers stay the
+    /// same (in either direction, so a clock moved back is handled); otherwise the same shared
+    /// list as before, which lets packet authorization recognise it.
     pub(super) fn enabled_at(&self, now: u64) -> Arc<[Entry]> {
         let desired = self.desired.lock().expect("mod desired list");
         let alive = self.alive.load(Ordering::Acquire);
@@ -42,6 +44,7 @@ impl Watcher {
             && memo.generation == desired.generation
             && memo.alive == alive
             && memo.marketplace == marketplace
+            && memo.from <= now
             && memo.until.is_none_or(|until| now < until)
         {
             return Arc::clone(&memo.enabled);
@@ -59,11 +62,13 @@ impl Watcher {
         } else {
             Arc::from([])
         };
+        let (from, until) = self.marketplace.stable_window(now);
         *memo = Some(AuthorityMemo {
             generation: desired.generation,
             alive,
             marketplace,
-            until: self.marketplace.next_transition(now),
+            from,
+            until,
             enabled: Arc::clone(&enabled),
         });
         enabled

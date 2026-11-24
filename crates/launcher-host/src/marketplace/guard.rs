@@ -81,18 +81,20 @@ impl Guard {
         self.revision.load(Ordering::Acquire)
     }
 
-    /// The first time after `now` at which an admission answer can change without a write: when
-    /// the signed checkpoint becomes valid (its issue time minus the allowed clock skew) or when
-    /// it expires. `None` when neither lies after `now`.
-    pub fn next_transition(&self, now: u64) -> Option<u64> {
+    /// The span of times around `now` in which no admission answer changes without a write:
+    /// from the latest edge at or before `now` (0 when none) up to, not including, the first edge
+    /// after it (`None` when none). The edges are where the signed checkpoint becomes valid (its
+    /// issue time minus the allowed clock skew) and where it expires. Answers for any time inside
+    /// the span equal the answers for `now`, also when the clock moves backwards.
+    pub fn stable_window(&self, now: u64) -> (u64, Option<u64>) {
         let state = self.state();
-        [
+        let edges = [
             state.issued_at.saturating_sub(CLOCK_SKEW_MS),
             state.expires_at,
-        ]
-        .into_iter()
-        .filter(|&at| at > now)
-        .min()
+        ];
+        let from = edges.into_iter().filter(|&at| at <= now).max().unwrap_or(0);
+        let until = edges.into_iter().filter(|&at| at > now).min();
+        (from, until)
     }
 
     /// Switches identity immediately; existing receipts cannot grant another account authority.
@@ -143,8 +145,12 @@ impl Guard {
 
     /// Registers a receipt only after its signature, declaration and on-disk bytes are verified.
     pub fn installed(&self, path: PathBuf, owner: String, manifest: Manifest) {
-        self.state().installed.insert(path, (owner, manifest));
-        self.changed();
+        let receipt = (owner, manifest);
+        let mut state = self.state();
+        if state.installed.get(&path) != Some(&receipt) {
+            state.installed.insert(path, receipt);
+            self.changed();
+        }
     }
 
     /// Lists the managed paths registered with verified receipts this session, present or not.
@@ -298,14 +304,49 @@ mod revision_tests {
     #[test]
     fn answers_can_change_only_at_the_checkpoint_window_edges() {
         let guard = Guard::default();
-        assert_eq!(guard.next_transition(0), None);
+        assert_eq!(guard.stable_window(0), (0, None));
         guard.revocations(RevocationState {
             issued_at: CLOCK_SKEW_MS + 10_000,
             expires_at: CLOCK_SKEW_MS + 20_000,
             revoked: HashMap::new(),
         });
-        assert_eq!(guard.next_transition(0), Some(10_000));
-        assert_eq!(guard.next_transition(10_000), Some(CLOCK_SKEW_MS + 20_000));
-        assert_eq!(guard.next_transition(CLOCK_SKEW_MS + 20_000), None);
+        let end = CLOCK_SKEW_MS + 20_000;
+        assert_eq!(guard.stable_window(0), (0, Some(10_000)));
+        assert_eq!(guard.stable_window(9_999), (0, Some(10_000)));
+        assert_eq!(guard.stable_window(10_000), (10_000, Some(end)));
+        assert_eq!(guard.stable_window(end - 1), (10_000, Some(end)));
+        assert_eq!(guard.stable_window(end), (end, None));
+    }
+
+    #[test]
+    fn an_identical_receipt_keeps_the_revision() {
+        let guard = Guard::authorized(
+            PathBuf::from("managed.wasm"),
+            "owner",
+            fixture_manifest(),
+            10_000,
+        );
+        let revision = guard.revision();
+        guard.installed("managed.wasm".into(), "owner".into(), fixture_manifest());
+        assert_eq!(guard.revision(), revision);
+        let mut other = fixture_manifest();
+        other.version = "2.0.0".into();
+        guard.installed("managed.wasm".into(), "owner".into(), other);
+        assert_ne!(guard.revision(), revision);
+    }
+
+    fn fixture_manifest() -> Manifest {
+        Manifest {
+            slug: "fixture".into(),
+            version: "1.0.0".into(),
+            sha256: "00".into(),
+            bytes: 1,
+            grants: serde_json::json!({}),
+            approved_at: 1,
+            client_revision: "a".repeat(40),
+            api_revision: None,
+            policy: "fixture".into(),
+            publication: "manual".into(),
+        }
     }
 }
