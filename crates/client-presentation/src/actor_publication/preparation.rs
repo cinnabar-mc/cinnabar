@@ -528,11 +528,16 @@ pub fn advance_actor_frame(
         .ok()
         .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
     // A reused source draws exactly what the last checked one drew, so its admission only
-    // changes with the geometry catalog or the projection.
-    let ready_key = (hand_builder.0.geometry_revision(), fov.map(f32::to_bits));
+    // changes with the geometry catalog, the projection or the hand motion its draws compose.
+    let ready_key = (
+        hand_builder.0.geometry_revision(),
+        fov.map(f32::to_bits),
+        motion.to_cols_array().map(f32::to_bits),
+    );
     *hand_ready = match hand_reuse.ready {
         Some((key, ready)) if reused_source && key == ready_key => {
-            debug_assert_eq!(
+            #[cfg(any(test, debug_assertions))]
+            assert_eq!(
                 ready,
                 hand::is_ready(&hand_builder.0, hand_source.as_ref(), fov),
                 "a reused source's readiness must match a fresh check"

@@ -62,6 +62,8 @@ pub(super) const DAYLIGHT: f32 = 1.0;
 
 mod cache;
 use cache::{ModelCache, ModelKey};
+mod publication;
+use publication::{IdlePublication, cached_device_budget};
 
 #[derive(SystemParam)]
 pub(super) struct DroppedItemPublisher<'w, 's> {
@@ -100,25 +102,12 @@ pub(crate) struct PublishScratch {
     dropped: Vec<client_world::DroppedItemView>,
     candidates: Vec<client_world::BlockEntityCandidate>,
     ropes: Vec<client_world::RopeView>,
+    idle: IdlePublication,
     /// The unspent budget for the render device it was read from, whose limits never change.
     device_budget: Option<(
         bevy::render::renderer::RenderDevice,
         render_model::dropped_item::ItemModelBudget,
     )>,
-}
-
-/// Returns the budget cached for `device`, reading `budget` again whenever `same` finds a
-/// different device, so a replacement made while publication was skipped is still noticed.
-fn cached_device_budget<D: Clone, B: Copy>(
-    cache: &mut Option<(D, B)>,
-    device: &D,
-    same: impl Fn(&D, &D) -> bool,
-    budget: impl FnOnce() -> B,
-) -> B {
-    match cache {
-        Some((cached, value)) if same(cached, device) => *value,
-        _ => cache.insert((device.clone(), budget())).1,
-    }
 }
 
 fn tint_rgba(flags: u32) -> u32 {
@@ -642,6 +631,7 @@ impl DroppedItemPublisher<'_, '_> {
             dropped,
             candidates,
             ropes,
+            idle,
             device_budget,
         } = &mut *self.scratch;
         cache.sync(
@@ -700,6 +690,17 @@ impl DroppedItemPublisher<'_, '_> {
         stream
             .authority()
             .block_entity_candidates_into(partial_tick, candidates);
+        if camera.is_some() {
+            stream.authority().ropes_into(partial_tick, ropes);
+        }
+        let empty = dropped.is_empty() && candidates.is_empty() && carried_blocks.is_empty();
+        let empty = empty && ropes.is_empty() && placement_icons.is_empty();
+        let held = idle.holds((cache.revision, budget), empty, scene);
+        #[cfg(not(any(test, debug_assertions)))]
+        if held.is_some() {
+            return;
+        }
+        let start_revision = cache.revision;
         preparation::retain_lifetimes(cache, dropped);
         cache.prepare(|cache| {
             instances.clear();
@@ -865,7 +866,6 @@ impl DroppedItemPublisher<'_, '_> {
         lines.clear();
         line_lights.clear();
         if let Some((camera, _)) = camera {
-            stream.authority().ropes_into(partial_tick, ropes);
             for rope in ropes.iter() {
                 let from = (rope.kind == RopeKind::FishingLine)
                     .then_some(rope.owner_runtime_id)
@@ -921,6 +921,7 @@ impl DroppedItemPublisher<'_, '_> {
         );
         scene.set_glint(glint.0, glint.1.scroll());
         scene.publish_terrain_instances(stream.authority().actor_session_id(), terrain_instances);
+        idle.record((start_revision, cache.revision), empty, scene, held);
         dropped.clear();
         candidates.clear();
         ropes.clear();

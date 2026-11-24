@@ -47,8 +47,8 @@ pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 
 mod authority;
 pub use authority::{
-    ActorCombatEvidence, ActorCombatKind, ActorLife, BiomeCommitReport, MAX_ACTOR_LIVES,
-    PreparedBlockIdentities,
+    ActorCombatEvidence, ActorCombatKind, ActorLife, BiomeCommitReport, BlockPaletteIdentity,
+    MAX_ACTOR_LIVES, PreparedBlockIdentities,
 };
 pub use authority::{
     BlockEventCue, COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,

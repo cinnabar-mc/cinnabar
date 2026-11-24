@@ -170,14 +170,19 @@ pub(super) struct KeyedSource {
     pub(super) retained: bool,
 }
 
+/// The geometry catalog revision, projection bits and hand motion bits a readiness check ran
+/// under.
+pub(super) type ReadyKey = (u64, Option<u32>, [u32; 16]);
+
 /// The published source retained for the next frame's readiness.
 #[derive(Default)]
 pub(super) struct HandReuse {
     retained: Option<(ReuseKey, HandSource)>,
     /// Advances whenever the session's artwork or equipment runtime may have changed.
     pub(super) session: u64,
-    /// The last readiness check: the geometry catalog revision and projection it ran under.
-    pub(super) ready: Option<((u64, Option<u32>), bool)>,
+    /// The last readiness check: the geometry catalog revision, projection and hand motion it ran
+    /// under.
+    pub(super) ready: Option<(ReadyKey, bool)>,
     /// Sources taken across frames since the state was created.
     #[cfg(test)]
     pub(super) reuses: u64,
