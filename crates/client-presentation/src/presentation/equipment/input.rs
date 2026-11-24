@@ -178,6 +178,93 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
     }
 }
 
+/// Everything [`local_input`] reads besides the stacks: the registry and asset generations that
+/// resolve them, and the actor facts it copies.
+#[derive(PartialEq)]
+struct LocalInputFacts {
+    ui: bool,
+    /// Addresses of the item generation and runtime assets, kept alive by the cache.
+    item_generation: usize,
+    assets: usize,
+    fishing_rod_cast: bool,
+    sneaking: bool,
+    sleeping: bool,
+}
+
+/// The last local equipment input with the stacks and facts it was built from. Holding the
+/// generation and asset `Arc`s keeps their addresses from being reused while the key names them.
+#[derive(Default)]
+pub struct LocalInputCache {
+    entry: Option<(
+        [Option<protocol::NetworkItemStack>; 6],
+        LocalInputFacts,
+        ActorEquipmentInput,
+    )>,
+    _owners: Option<(std::sync::Arc<()>, std::sync::Arc<assets::RuntimeAssets>)>,
+    /// Inputs reused since the cache was created.
+    #[cfg(test)]
+    hits: u64,
+}
+
+/// [`local_input`], reusing the previous result while every stack, generation and actor fact it
+/// reads is unchanged. Debug and test builds rebuild every reused input and compare them.
+pub fn local_input_cached(
+    cache: &mut LocalInputCache,
+    player_runtime: &player_state::PlayerState,
+    stream: &WorldStream,
+    ui: Option<&UiRuntime>,
+    runtime_id: u64,
+) -> ActorEquipmentInput {
+    use inventory::inventory_ledger::InventoryTarget;
+    let actor = stream.authority().actor(runtime_id);
+    let ledger = ui.map(|ui| ui.inventory_ledger(player_runtime));
+    let target = |target| ledger.and_then(|ledger| ledger.target_stack(target));
+    let stacks = [
+        ui.and_then(|_| player_runtime.selected_stack()),
+        target(InventoryTarget::Offhand),
+        target(InventoryTarget::Armor(0)),
+        target(InventoryTarget::Armor(1)),
+        target(InventoryTarget::Armor(2)),
+        target(InventoryTarget::Armor(3)),
+    ];
+    let generation = stream.authority().item_presentation_generation();
+    let runtime_assets = stream.runtime_assets();
+    let facts = LocalInputFacts {
+        ui: ui.is_some(),
+        item_generation: std::sync::Arc::as_ptr(generation) as usize,
+        assets: std::sync::Arc::as_ptr(runtime_assets) as usize,
+        fishing_rod_cast: fishing_rod_cast(stream, runtime_id),
+        sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
+        sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
+    };
+    if let Some((cached_stacks, cached_facts, input)) = &cache.entry
+        && *cached_facts == facts
+        && cached_stacks
+            .iter()
+            .zip(stacks)
+            .all(|(cached, current)| cached.as_ref() == current)
+    {
+        #[cfg(any(test, debug_assertions))]
+        assert_eq!(
+            format!("{input:?}"),
+            format!("{:?}", local_input(player_runtime, stream, ui, runtime_id)),
+            "a reused local equipment input must match a fresh one"
+        );
+        #[cfg(test)]
+        {
+            cache.hits += 1;
+        }
+        return input.clone();
+    }
+    let input = local_input(player_runtime, stream, ui, runtime_id);
+    cache._owners = Some((
+        std::sync::Arc::clone(generation),
+        std::sync::Arc::clone(runtime_assets),
+    ));
+    cache.entry = Some((stacks.map(|stack| stack.cloned()), facts, input.clone()));
+    input
+}
+
 /// The local player's equipment, all from its own containers as vanilla draws it: the selected
 /// hotbar stack, the offhand (window 119) and the armor (window 120).
 pub fn local_input(
@@ -296,6 +383,83 @@ mod tests {
             assert_eq!(local.worn, worn);
             assert_eq!(remote.worn, worn);
         }
+    }
+
+    /// Unchanged stacks and actor facts reuse the input; a sneaking actor or a new item registry
+    /// rebuilds it.
+    #[test]
+    fn cached_local_input_rebuilds_when_anything_it_reads_changes() {
+        let mut stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let mut feed = client_world::LocalPlayerFeed {
+            game_mode: None,
+            prefer_client_skin: false,
+            uuid: [1; 16],
+            username: std::sync::Arc::from("Player"),
+            skin: protocol::PlayerSkin::Unavailable(
+                protocol::PlayerSkinUnavailable::InvalidDimensions,
+            ),
+            position: [0.0, 64.0, 0.0],
+            velocity: [0.0; 3],
+            on_ground: true,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            pitch: 0.0,
+            main_hand: None,
+            off_hand: None,
+            equipment_count: 0,
+            held_network_ids: [0; 2],
+            held_variants: Default::default(),
+            main_hand_metadata: 0,
+            main_hand_slot: 0,
+            main_hand_stack_id: None,
+            bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+            java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+            flying: false,
+            gliding: false,
+            swimming: false,
+            spinning: false,
+            fall_fly_ticks: 0,
+            teleported: false,
+            first_person: true,
+            view_bobbing: true,
+            sneaking: false,
+            sprinting: false,
+            item_use: client_world::LocalItemUse::Unpredicted,
+        };
+        stream.sync_local_player_pose(&feed);
+        let player = player_state::PlayerState::new(1);
+        let mut cache = LocalInputCache::default();
+        let input = |stream: &WorldStream, cache: &mut LocalInputCache| {
+            local_input_cached(cache, &player, stream, None, 1)
+        };
+        assert!(!input(&stream, &mut cache).sneaking);
+        input(&stream, &mut cache);
+        assert_eq!(cache.hits, 1, "an unchanged frame reuses the input");
+        feed.sneaking = true;
+        stream.sync_local_player_pose(&feed);
+        assert!(
+            input(&stream, &mut cache).sneaking,
+            "sneaking rebuilds the input"
+        );
+        assert_eq!(cache.hits, 1);
+        assert!(stream.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: protocol::vanilla_item_registry(),
+        }));
+        input(&stream, &mut cache);
+        assert_eq!(
+            cache.hits, 1,
+            "a new registry generation rebuilds the input"
+        );
+        input(&stream, &mut cache);
+        assert_eq!(cache.hits, 2);
     }
 
     #[test]

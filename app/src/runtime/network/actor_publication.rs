@@ -103,6 +103,7 @@ pub(crate) fn advance_actor_frame(
     mut java_blocking: Local<bool>,
     #[cfg(not(target_arch = "wasm32"))] mut shared_state: Local<shared_players::State>,
     mut fluids: Local<client_presentation::actor_sampling::ActorFluidSampler>,
+    mut equipment_cache: Local<client_presentation::presentation::equipment::LocalInputCache>,
 ) {
     let ActorObservations {
         mut world,
@@ -132,7 +133,8 @@ pub(crate) fn advance_actor_frame(
         .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorPublication));
     let stream = world.stream.as_ref();
     let local_equipment = stream.map_or_else(Default::default, |stream| {
-        client_presentation::presentation::equipment::local_input(
+        client_presentation::presentation::equipment::local_input_cached(
+            &mut equipment_cache,
             &player,
             stream,
             ui.as_deref().map(|ui| &ui.0),
