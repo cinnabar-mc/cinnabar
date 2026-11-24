@@ -978,12 +978,50 @@ fn session_block_sheets_render_without_startup_identity_but_campfire_items_stay_
 #[path = "pack_texture_tests/model_tests.rs"]
 mod model_tests;
 
-/// Once two empty frames have settled, further empty frames skip publication, and the next
-/// dropped item publishes in full.
+/// Spawns one ordinary dropped stack on `stream` as the server's next actor event.
+fn spawn_dropped(stream: &mut WorldStream, identifier: &str) {
+    let id = protocol::vanilla_item_registry()
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == identifier)
+        .unwrap()
+        .network_id;
+    let sequence = stream.authority().actor_sequence_frontier() + 1;
+    stream
+        .submit(
+            sequence,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 7,
+                runtime_id: 7,
+                kind: protocol::ActorKind::Entity {
+                    identifier: "minecraft:item".into(),
+                },
+                position: [1.0, 2.0, 3.0],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: protocol::NetworkItemStack {
+                    network_id: id,
+                    count: 1,
+                    ..Default::default()
+                },
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+        )
+        .unwrap();
+}
+
+/// Once two empty frames have settled, further empty frames skip publication, and an item
+/// spawned on the same stream publishes in full.
 #[test]
-fn settled_empty_frames_skip_publication_until_an_item_appears() {
-    let (icons, mut with_item) = fixture(0);
-    let empty = stream(false, 1);
+fn settled_empty_frames_skip_publication_until_the_frame_changes() {
+    let (icons, _) = fixture(0);
+    let mut stream = stream(false, 1);
     let mut world = World::new();
     world.init_resource::<DroppedItemScene>();
     let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
@@ -1000,7 +1038,7 @@ fn settled_empty_frames_skip_publication_until_an_item_appears() {
     let held = || publication::HELD_FRAMES.with(std::cell::Cell::get);
     let before = held();
     for _ in 0..5 {
-        publish(&mut world, &empty);
+        publish(&mut world, &stream);
         assert!(world.resource::<DroppedItemScene>().instances.is_empty());
     }
     assert_eq!(
@@ -1008,8 +1046,10 @@ fn settled_empty_frames_skip_publication_until_an_item_appears() {
         3,
         "frames after two settled empty frames are skippable"
     );
-    with_item.advance_actor_interpolation_frame(0);
-    publish(&mut world, &with_item);
+
+    spawn_dropped(&mut stream, ITEM);
+    stream.advance_actor_interpolation_frame(0);
+    publish(&mut world, &stream);
     assert_eq!(world.resource::<DroppedItemScene>().instances.len(), 1);
     assert_eq!(held() - before, 3, "an item publishes in full");
 }

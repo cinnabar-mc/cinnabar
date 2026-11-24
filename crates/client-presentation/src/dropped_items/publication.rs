@@ -47,16 +47,22 @@ pub(super) struct IdlePublication {
 }
 
 impl IdlePublication {
-    /// The scene to keep when this empty frame at cache `revision` can skip publication.
+    /// The scene to keep when this empty frame at cache `revision` with this frame's model
+    /// `budget` can skip publication. A new budget, such as after a device replacement, is
+    /// published.
     pub(super) fn holds(
         &self,
-        revision: u64,
+        (revision, budget): (u64, render_model::dropped_item::ItemModelBudget),
         empty: bool,
         scene: &render_scene::DroppedItemScene,
     ) -> Option<HeldScene> {
         let (settled, held, twice) = self.settled.as_ref()?;
-        (empty && *twice && *settled == revision && HeldScene::of(scene).as_ref() == Some(held))
-            .then(|| held.clone())
+        (empty
+            && *twice
+            && *settled == revision
+            && held.budget == Some(budget)
+            && HeldScene::of(scene).as_ref() == Some(held))
+        .then(|| held.clone())
     }
 
     /// Records a fully published frame. Debug and test builds also check that a frame
@@ -86,6 +92,42 @@ impl IdlePublication {
             }
             _ => None,
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use render_model::dropped_item::ItemModelBudget;
+
+    /// A settled empty scene is kept only while this frame's model budget matches the one it
+    /// published, so a replaced device with new limits republishes.
+    #[test]
+    fn a_changed_model_budget_republishes_a_settled_empty_scene() {
+        let budget = |side| {
+            ItemModelBudget::new(
+                assets::texture::policy::TexturePolicy::for_device(side),
+                256,
+                1 << 20,
+            )
+        };
+        let (old, new) = (budget(2048), budget(1024));
+        assert_ne!(old, new);
+        let scene = render_scene::DroppedItemScene {
+            model_budget: Some(old),
+            ..Default::default()
+        };
+        let mut idle = IdlePublication::default();
+        for _ in 0..2 {
+            idle.record((5, 5), true, &scene, None);
+        }
+        assert!(idle.holds((5, old), true, &scene).is_some());
+        assert!(
+            idle.holds((5, new), true, &scene).is_none(),
+            "a new budget must be published"
+        );
+        assert!(idle.holds((6, old), true, &scene).is_none());
+        assert!(idle.holds((5, old), false, &scene).is_none());
     }
 }
 

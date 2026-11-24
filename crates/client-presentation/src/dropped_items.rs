@@ -695,7 +695,7 @@ impl DroppedItemPublisher<'_, '_> {
         }
         let empty = dropped.is_empty() && candidates.is_empty() && carried_blocks.is_empty();
         let empty = empty && ropes.is_empty() && placement_icons.is_empty();
-        let held = idle.holds(cache.revision, empty, scene);
+        let held = idle.holds((cache.revision, budget), empty, scene);
         #[cfg(not(any(test, debug_assertions)))]
         if held.is_some() {
             return;
