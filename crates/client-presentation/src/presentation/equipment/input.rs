@@ -186,6 +186,8 @@ struct LocalInputFacts {
     /// Addresses of the item generation and runtime assets, kept alive by the cache.
     item_generation: usize,
     assets: usize,
+    /// The palette retained-block stacks resolve their block through.
+    palette: client_world::BlockPaletteIdentity,
     fishing_rod_cast: bool,
     sneaking: bool,
     sleeping: bool,
@@ -233,6 +235,7 @@ pub fn local_input_cached(
         ui: ui.is_some(),
         item_generation: std::sync::Arc::as_ptr(generation) as usize,
         assets: std::sync::Arc::as_ptr(runtime_assets) as usize,
+        palette: stream.authority().block_palette_identity(),
         fishing_rod_cast: fishing_rod_cast(stream, runtime_id),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
@@ -460,6 +463,11 @@ mod tests {
         );
         input(&stream, &mut cache);
         assert_eq!(cache.hits, 2);
+        stream.set_sequential_id_remap(assets::SequentialIdRemap::default());
+        input(&stream, &mut cache);
+        assert_eq!(cache.hits, 2, "a palette change rebuilds the input");
+        input(&stream, &mut cache);
+        assert_eq!(cache.hits, 3);
     }
 
     #[test]

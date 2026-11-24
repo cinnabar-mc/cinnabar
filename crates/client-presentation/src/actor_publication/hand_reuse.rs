@@ -176,8 +176,9 @@ pub(super) struct HandReuse {
     retained: Option<(ReuseKey, HandSource)>,
     /// Advances whenever the session's artwork or equipment runtime may have changed.
     pub(super) session: u64,
-    /// The last readiness check: the geometry catalog revision and projection it ran under.
-    pub(super) ready: Option<((u64, Option<u32>), bool)>,
+    /// The last readiness check: the geometry catalog revision, projection and hand motion it ran
+    /// under.
+    pub(super) ready: Option<((u64, Option<u32>, [u32; 16]), bool)>,
     /// Sources taken across frames since the state was created.
     #[cfg(test)]
     pub(super) reuses: u64,

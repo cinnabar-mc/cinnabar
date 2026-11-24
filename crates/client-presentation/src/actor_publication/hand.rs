@@ -172,7 +172,8 @@ pub(super) fn publish_hand_rig(
         atlases.clone(),
     );
     let held = published.holds(&inputs, scene.publication());
-    debug_assert!(
+    #[cfg(any(test, debug_assertions))]
+    assert!(
         !quick_hit || held,
         "a quickly kept frame must match its full inputs"
     );

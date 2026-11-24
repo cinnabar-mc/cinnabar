@@ -64,7 +64,7 @@ pub(super) fn animation_view(
 #[derive(Default)]
 pub(super) struct AnimationViewMemo(
     Option<(
-        bevy::prelude::Transform,
+        [u32; 10],
         [u32; 3],
         Option<actor_animation::ActorAnimationView>,
     )>,
@@ -83,11 +83,27 @@ impl AnimationViewMemo {
         // The fields `animation_view` reads.
         let perspective =
             [perspective.fov, perspective.aspect_ratio, perspective.near].map(f32::to_bits);
-        if let Some((cached_transform, cached_perspective, view)) = &self.0
-            && cached_transform == transform
+        // Compared by bits, so signed zeros and other equal floats that build different views
+        // never share one.
+        let placement = [
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z,
+            transform.rotation.w,
+            transform.scale.x,
+            transform.scale.y,
+            transform.scale.z,
+        ]
+        .map(f32::to_bits);
+        if let Some((cached_placement, cached_perspective, view)) = &self.0
+            && *cached_placement == placement
             && *cached_perspective == perspective
         {
-            debug_assert_eq!(
+            #[cfg(any(test, debug_assertions))]
+            assert_eq!(
                 format!("{view:?}"),
                 format!("{:?}", animation_view(transform, projection)),
                 "a reused animation view must match a fresh one"
@@ -95,7 +111,7 @@ impl AnimationViewMemo {
             return *view;
         }
         let view = animation_view(transform, projection);
-        self.0 = Some((*transform, perspective, view));
+        self.0 = Some((placement, perspective, view));
         view
     }
 }
