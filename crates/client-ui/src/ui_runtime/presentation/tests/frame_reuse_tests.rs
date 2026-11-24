@@ -532,6 +532,40 @@ fn a_download_finishing_while_frames_repeat_draws_next_frame() {
     harness.assert_changes("downloaded HUD image", true);
 }
 
+/// A HUD image hidden before its download finishes makes one frame build when it settles; with
+/// nothing drawing it, idle frames repeat again.
+#[test]
+fn a_download_settling_after_its_image_hides_lets_idle_frames_repeat() {
+    let download = Arc::new(Download(std::sync::Mutex::new(
+        ui_engine::sources::RemoteImage::Loading,
+    )));
+    let shared = Arc::clone(&download);
+    let mut harness = Harness::new(
+        move || fixture_presentation_with(shared.clone()),
+        FrameReuse::Skip,
+    )
+    .unwrap();
+    assert!(harness.frame());
+    harness.run(1_000, 16);
+    harness.present(|presentation| {
+        let mut settings = launcher::menu::settings_options::SettingsOptions::default();
+        settings.set(
+            launcher::menu::settings_options::SettingId::HideHud.index(),
+            1,
+        );
+        presentation.set_chat_settings_snapshot((std::sync::Arc::new(settings), None))
+    });
+    harness.assert_changes("hidden HUD", true);
+    download.set(ui_engine::sources::RemoteImage::Failed);
+    harness.run(200, 16);
+    let repeats = harness.repeats;
+    harness.run(200, 16);
+    assert!(
+        harness.repeats > repeats + 10,
+        "idle frames repeat once the hidden image's download settled"
+    );
+}
+
 /// A capture of unchanged inputs reports no change, whichever first-person state the HUD draws
 /// for, including a third-person or hidden hand.
 #[test]
@@ -562,6 +596,8 @@ fn captures_of_unchanged_inputs_report_no_change() {
 
 /// Auditing repeats replays them as skipping does and periodically builds one to compare: the
 /// script's frames still match fresh builds.
+// The audit compares only in debug builds.
+#[cfg(debug_assertions)]
 #[test]
 fn audited_repeats_match_fresh_builds() {
     let mut harness = Harness::new(fixture_presentation, FrameReuse::Audit).unwrap();
