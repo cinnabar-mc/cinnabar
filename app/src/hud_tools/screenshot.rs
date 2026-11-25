@@ -103,7 +103,10 @@ pub(super) fn configure(app: &mut App, dir: PathBuf) {
     })
     .add_systems(
         Update,
-        (capture_on_key, report_saved)
+        (
+            capture_on_key.in_set(client_shell::input_activity::RawInputReaders),
+            report_saved,
+        )
             .chain()
             .before(client_state::ClientFrameSet::UiPreparation),
     );
