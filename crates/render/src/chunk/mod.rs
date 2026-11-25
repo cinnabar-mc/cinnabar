@@ -63,7 +63,7 @@ use bevy::{
             TextureView, TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
             WgpuFeatures,
         },
-        renderer::{RenderAdapter, RenderDevice, RenderQueue},
+        renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderQueue},
         settings::Backends,
         sync_world::MainEntity,
         view::{
