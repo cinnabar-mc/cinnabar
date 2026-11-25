@@ -14,6 +14,8 @@ pub mod forms;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod gameplay_touch;
 #[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod idle_screens;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod input_owner;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod interaction;
