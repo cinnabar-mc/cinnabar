@@ -343,20 +343,69 @@ fn a_join_between_exit_checks_is_not_routed_to_an_exited_core() {
     );
 }
 
+/// Runs one frame of [`MenuRuntime::drive_account_services`] with `slot` as the account core.
+fn drive_account_services(slot: LauncherCoreSlot, menu: &mut MenuRuntime, world: &mut World) {
+    use bevy::{ecs::system::SystemState, prelude::ResMut};
+    world.insert_resource(slot);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut state: SystemState<(
+        Commands,
+        Option<ResMut<LauncherCoreSlot>>,
+        Option<ResMut<LauncherAccount>>,
+    )> = SystemState::new(world);
+    let (mut commands, slot, account) = state.get_mut(world).unwrap();
+    menu.drive_account_services(&mut commands, false, &player, false, slot, account, None);
+    state.apply(world);
+}
+
 #[test]
-fn a_pending_core_decision_checks_for_an_exit_before_it_is_taken() {
+fn a_decision_on_the_account_core_sees_an_exit_since_the_last_check() {
+    use launcher::menu::realm_membership::{Stage, State};
+    for decision in [
+        "held join",
+        "profile refresh",
+        "realm verify",
+        "realm accept",
+    ] {
+        let (mut slot, mut menu, mut world, _) = fixture(true);
+        // The last paced check found the core running; it exited since, and the next check is
+        // not due for a long time.
+        slot.next_exit_poll = Some(Instant::now() + Duration::from_secs(3600));
+        match decision {
+            "held join" => {
+                menu.intents.join_sign_in_deadline =
+                    Some(Instant::now() + Duration::from_secs(3600));
+            }
+            "profile refresh" => menu.feeds.profile_refresh_requested = true,
+            realm => {
+                menu.control_auth = Some(AuthState::Authenticated);
+                menu.realm_membership.state = Some(State {
+                    stage: if realm == "realm verify" {
+                        Stage::Verifying
+                    } else {
+                        Stage::Joining
+                    },
+                    ..Default::default()
+                });
+            }
+        }
+        drive_account_services(slot, &mut menu, &mut world);
+        assert!(
+            world.resource::<LauncherCoreSlot>().core.is_none(),
+            "{decision}: the exited core is retired in the same frame"
+        );
+        assert!(
+            menu.realm_membership.state.is_none(),
+            "{decision}: no reply from the exited core advances the Realm dialog"
+        );
+    }
+}
+
+#[test]
+fn without_a_pending_decision_the_exit_waits_for_the_paced_check() {
     let (mut slot, mut menu, mut world, _) = fixture(true);
-    let start = Instant::now();
-    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    slot.next_exit_poll = Some(Instant::now() + Duration::from_secs(3600));
     assert!(!menu.core_decision_pending());
-    menu.feeds.profile_refresh_requested = true;
-    assert!(menu.core_decision_pending());
-    // What drive_account_services does before driving the slot for such a frame.
-    slot.check_exit_now();
-    drive_at(&mut slot, &mut menu, &mut world, false, start);
-    assert!(
-        slot.core.is_none(),
-        "the exited core is retired in the same frame"
-    );
-    assert_eq!(slot.account_core().serving, None);
+    drive_account_services(slot, &mut menu, &mut world);
+    assert!(world.resource::<LauncherCoreSlot>().core.is_some());
 }
