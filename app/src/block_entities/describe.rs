@@ -4,7 +4,7 @@ mod item;
 use item::{held_item, map_id};
 
 use assets::{
-    banner::{MAX_BANNER_LAYERS, color_linear as banner_color, pattern_texture},
+    banner::{MAX_BANNER_LAYERS, color_unit as banner_color, pattern_texture},
     block_entity_geometry::shulker_color_from_block_name,
     facts::{BlockEntityBacking, BlockEntityMount, BlockEntityRenderer, BlockProperty},
 };

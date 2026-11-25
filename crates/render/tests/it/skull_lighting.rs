@@ -1,4 +1,5 @@
-//! Placed mob-head witnesses through the production mesh, vertex and fragment shaders.
+//! Placed block-entity lighting witnesses through the production mesh, vertex and fragment
+//! shaders.
 use crate::gpu_snapshot;
 use crate::shader_safety;
 use crate::shader_source;
@@ -6,8 +7,8 @@ use crate::shader_source;
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
 use render_model::{
-    BlockEntityKind, BlockEntityLight, BlockEntityScene, BlockEntitySubmission, LightmapInputs,
-    MIN_DYNAMIC_ATLAS_WIDTH, SceneClock, SkullKind, SkullModel, SkullMount,
+    BlockEntityKind, BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel,
+    LightmapInputs, MIN_DYNAMIC_ATLAS_WIDTH, SceneClock, SkullKind, SkullModel, SkullMount,
 };
 
 fn center_pixel() -> usize {
@@ -93,7 +94,7 @@ fn raster_from(
     )
 }
 
-/// Draws a production block model with its retained normals and lighting from `view`.
+/// Draws a production block model's solid pass with its retained normals and lighting from `view`.
 fn raster_model_from(
     gpu: &Gpu,
     assets: &assets::RuntimeBlockEntityAssets,
@@ -101,6 +102,20 @@ fn raster_model_from(
     inputs: LightmapInputs,
     kind: BlockEntityKind,
     view: (Vec3, Vec3),
+) -> Vec<u8> {
+    raster_pass_from(gpu, assets, light, inputs, kind, view, false)
+}
+
+/// Draws one production block-model pass from `view`: the solid pass, or with `overlay` the
+/// alpha-blended overlay pass.
+fn raster_pass_from(
+    gpu: &Gpu,
+    assets: &assets::RuntimeBlockEntityAssets,
+    light: BlockEntityLight,
+    inputs: LightmapInputs,
+    kind: BlockEntityKind,
+    view: (Vec3, Vec3),
+    overlay: bool,
 ) -> Vec<u8> {
     let (eye, target) = view;
     let mut scene = BlockEntityScene::default();
@@ -120,7 +135,12 @@ fn raster_model_from(
         0.1,
     ) * glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Y);
     let view = gpu.buffer(&gpu_snapshot::view(clip, eye), wgpu::BufferUsages::UNIFORM);
-    let vertices: &[f32] = bytemuck::cast_slice(&frame.solid);
+    let pass = if overlay {
+        &frame.overlay
+    } else {
+        &frame.solid
+    };
+    let vertices: &[f32] = bytemuck::cast_slice(pass);
     let vertices = gpu.buffer(vertices, wgpu::BufferUsages::STORAGE);
     let atlas = frame.atlas.as_ref().unwrap();
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -186,11 +206,15 @@ fn raster_model_from(
         &source(),
         "block_entity_vertex",
         &[Draw {
-            fragment: "block_entity_solid",
-            vertices: 0..frame.solid.len() as u32,
+            fragment: if overlay {
+                "block_entity_overlay"
+            } else {
+                "block_entity_solid"
+            },
+            vertices: 0..pass.len() as u32,
             bindings: &bindings,
-            blend: None,
-            write_depth: true,
+            blend: overlay.then_some(wgpu::BlendState::ALPHA_BLENDING),
+            write_depth: !overlay,
         }],
     )
 }
@@ -432,4 +456,63 @@ fn crystal_beam_lighting_normals_do_not_cull_the_beam_from_below() {
         visible, empty,
         "the beam remains visible below its lighting normals"
     );
+}
+
+#[test]
+fn active_conduit_wind_samples_the_environment_lightmap() {
+    let Some(gpu) = Gpu::for_fixture("active_conduit_wind_samples_the_environment_lightmap") else {
+        return;
+    };
+    let strips = [
+        assets::block_entity_geometry::textures::AtlasTexture::BlocksConduitWindHorizontal,
+        assets::block_entity_geometry::textures::AtlasTexture::BlocksConduitWindVertical,
+    ];
+    let encoded = assets::encode_block_entity_catalog(
+        b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
+        704,
+        &[200, 120, 60, 255].repeat(MIN_DYNAMIC_ATLAS_WIDTH as usize * 704),
+        &strips.map(|strip| assets::BlockEntityPlacement {
+            name: strip.path().into(),
+            x: if strip == strips[0] { 0 } else { 64 },
+            y: 0,
+            width: 64,
+            height: 704,
+        }),
+    )
+    .unwrap();
+    let assets = assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap();
+    let inputs = LightmapInputs {
+        ambient_adjustment: true,
+        sky_darken: 1.0,
+        ..Default::default()
+    };
+    let conduit = BlockEntityKind::Conduit(ConduitModel {
+        active: true,
+        hunting: false,
+        viewer_yaw_degrees: 0.0,
+    });
+    let center = Vec3::new(0.5, 0.5, 0.5);
+    let view = (center + Vec3::new(0.0, 0.0, 3.0), center);
+    let pixel = |block, sky| {
+        let pixels = raster_pass_from(
+            &gpu,
+            &assets,
+            BlockEntityLight::Actor { block, sky },
+            inputs,
+            conduit.clone(),
+            view,
+            true,
+        );
+        let offset = center_pixel();
+        [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
+    };
+    let lit = pixel(15, 15);
+    let dark = pixel(0, 0);
+    for channel in 0..3 {
+        assert!(
+            u16::from(dark[channel]) + 20 < u16::from(lit[channel]),
+            "channel {channel}: dark {dark:?} vs lit {lit:?}"
+        );
+    }
 }

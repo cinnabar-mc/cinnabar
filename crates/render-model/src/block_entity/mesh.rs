@@ -129,6 +129,22 @@ impl MeshBuilder {
         };
     }
 
+    /// Whether following quads sample the environment lightmap through the actor material.
+    pub(super) fn actor_lit(&self) -> bool {
+        self.actor_light != 0 && !self.unlit
+    }
+
+    /// Converts a gamma-space dye tint for the following quads: actor materials compose in
+    /// gamma, while the scalar path multiplies linear texels.
+    pub(super) fn gamma_tint(&self, rgb: [f32; 3]) -> [f32; 4] {
+        let [r, g, b] = if self.actor_lit() {
+            rgb
+        } else {
+            crate::celestial::rgb_to_linear(rgb)
+        };
+        [r, g, b, 1.0]
+    }
+
     /// Resolves a required model texture and records missing artwork without stopping emission.
     pub(super) fn required_texture(
         &mut self,
@@ -216,11 +232,7 @@ impl MeshBuilder {
                 continue;
             }
             let uv = texture.rect_uv(texels);
-            let shade = if self.actor_light == 0 || self.unlit {
-                shade
-            } else {
-                1.0
-            };
+            let shade = if self.actor_lit() { 1.0 } else { shade };
             let color = [tint[0] * shade, tint[1] * shade, tint[2] * shade, tint[3]];
             let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
             self.quad(layer, world.map(|point| point.to_array()), uv, color);
@@ -258,6 +270,7 @@ impl MeshBuilder {
         uvs: [[f32; 2]; 4],
         colors: [[f32; 4]; 4],
     ) {
+        let actor_lit = self.actor_lit();
         let target = match layer {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
@@ -275,7 +288,7 @@ impl MeshBuilder {
             self.light
         };
         let atlas_size = self.atlas_size;
-        let normal = if self.actor_light == 0 || self.unlit {
+        let normal = if !actor_lit {
             [0.0; 3]
         } else {
             let origin = Vec3::from_array(corners[0]);
@@ -297,10 +310,10 @@ impl MeshBuilder {
                 colors[corner][3],
             ],
             normal,
-            actor_light: if self.actor_light == 0 || self.unlit {
-                0
-            } else {
+            actor_light: if actor_lit {
                 self.actor_light | BLOCK_ENTITY_CULL_BACK_FACES
+            } else {
+                0
             },
         };
         let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
@@ -340,7 +353,7 @@ impl MeshBuilder {
         tint: [f32; 4],
     ) {
         let faces = assets::block_entity_geometry::tile_box_faces([min, max]);
-        let shaded = self.actor_light == 0 || self.unlit;
+        let shaded = !self.actor_lit();
         for ((corners, shade), rect) in faces
             .into_iter()
             .zip((0..6).map(|face| if shaded { tile_face_shade(face) } else { 1.0 }))

@@ -118,10 +118,10 @@ fn emit_frame_cuboid(
         });
         let world = corners[face]
             .map(|corner| matrix.transform_point3(Vec3::from_array(corner)).to_array());
-        let shade = if builder.actor_light == 0 || builder.unlit {
-            tile_face_shade(world_face)
-        } else {
+        let shade = if builder.actor_lit() {
             1.0
+        } else {
+            tile_face_shade(world_face)
         };
         builder.quad_uv(Layer::Solid, world, uvs, [shade, shade, shade, 1.0]);
     }
