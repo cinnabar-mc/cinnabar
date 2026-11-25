@@ -508,6 +508,16 @@ impl MenuRuntime {
         self.flush_skin_packet(send);
     }
 
+    /// Whether a skin change is being prepared by the worker or waits to reach the server.
+    pub(super) fn skin_change_in_progress(&self) -> bool {
+        self.dressing_room_worker
+            .as_ref()
+            .is_some_and(|worker| worker.pending != 0)
+            || self.skin_update_pending
+            || self.skin_outbound.is_some()
+            || self.skin_packet_pending.is_some()
+    }
+
     /// Retains a skin packet only while the current sender reports backpressure.
     fn flush_skin_packet(&mut self, send: Option<&SkinPacketSender<'_>>) {
         let Some(send) = send else { return };

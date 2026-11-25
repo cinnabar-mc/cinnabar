@@ -16,12 +16,13 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-/// How often a running core is asked whether it exited. Each check is a `wait4` syscall, so it
-/// is not made every frame. An exit is noticed within this interval, which nothing needs sooner:
-/// restarts wait at least the backoff's 500 ms base delay, the backoff only distinguishes runs
-/// shorter than its 60 s stable run, and a join routed in between checks the core itself (see
-/// [`LauncherCoreSlot::begin_join`]). A newly spawned core is checked on the next drive.
-const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(16);
+/// How often a running core is asked whether it exited: the shared service cadence. Each check
+/// is a `wait4` syscall, so it is not made every frame. An exit is noticed within this interval,
+/// which nothing needs sooner: restarts wait at least the backoff's 500 ms base delay, the
+/// backoff only distinguishes runs shorter than its 60 s stable run, and a join routed in between
+/// checks the core itself (see [`LauncherCoreSlot::begin_join`]). A newly spawned core is checked
+/// on the next drive.
+const EXIT_POLL_INTERVAL: Duration = super::services::SERVICE_POLL_INTERVAL;
 
 /// Allows auth updates beside a separate direct game core, but protects games this core owns.
 pub(super) fn account_core_idle(
