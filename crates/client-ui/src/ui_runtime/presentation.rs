@@ -69,7 +69,7 @@ use primitives::rect;
 #[cfg(any(test, feature = "test-support"))]
 pub use publish::commit::refresh_hud_frame;
 pub use publish::{
-    HudCapture, capture_hud_frame,
+    HudCapture, capture_hud_frame, capture_hud_frame_if_changed,
     commit::{PendingUiPublication, PreviewCapture, render_prepared_ui},
     item_icons::ItemIconFrames,
     reuse::FrameReuse,
@@ -145,6 +145,9 @@ pub struct UiPresentationRuntime {
     frame_reuse_mismatches: u64,
     /// Frames publication built rather than repeated.
     frames_built: u64,
+    /// HUD captures that ran rather than repeated.
+    #[cfg(test)]
+    hud_captures: usize,
     /// Repeats in a row since `FrameReuse::Audit` last checked one.
     #[cfg(debug_assertions)]
     repeats_since_check: u32,

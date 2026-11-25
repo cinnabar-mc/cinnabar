@@ -13,6 +13,10 @@ pub(in crate::ui_runtime::presentation) struct InventoryCache {
     projections: InventoryProjectionCache,
     /// The last observation of shield and trim art, which an unchanged observation repeats.
     pub(super) shield_art: Option<super::shield_art::ShieldArt>,
+    /// Advances whenever item artwork sources change: a refreshed source or a repacked atlas.
+    icon_epoch: u64,
+    /// The last HUD capture an unchanged capture repeats.
+    pub(super) hud_capture: Option<super::capture_reuse::CaptureRecord>,
 }
 
 struct Sources {
@@ -59,6 +63,7 @@ impl InventoryCache {
         self.sources = Some(next);
         let refreshed = refresh != ProjectionRefresh::default();
         if refreshed {
+            self.icon_epoch = self.icon_epoch.wrapping_add(1);
             presentation
                 .inventory_preparation_revision
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -84,7 +89,13 @@ impl InventoryCache {
 
     /// Drops cached artwork after a repack without repeating recipe matching.
     pub(in crate::ui_runtime::presentation) fn invalidate_icons(&mut self) {
+        self.icon_epoch = self.icon_epoch.wrapping_add(1);
         self.projections.invalidate_icons();
+    }
+
+    /// Advances whenever item artwork sources change; see [`Self::invalidate_icons`].
+    pub(super) fn icon_epoch(&self) -> u64 {
+        self.icon_epoch
     }
 
     /// Resolves inventory display changes before screen and selected-item observations.

@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::{PackReload, resource_packs::PackApplication};
-use bevy::prelude::{DetectChangesMut, Local, Projection, Transform};
+use bevy::prelude::{DetectChanges, DetectChangesMut, Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -12,12 +12,13 @@ use ui::mod_presentation::NametagVisibility;
 #[cfg(test)]
 mod camera_hand_tests;
 mod commit;
+mod consumed;
 mod cooldowns;
 mod loading;
 mod menu_icons;
 mod roster;
 use client_ui::ui_runtime::presentation::{
-    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
+    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame_if_changed, nametags,
     player_preview,
 };
 pub(crate) use commit::publish_ui_runtime;
@@ -72,6 +73,9 @@ pub(crate) struct PublishExtras<'w, 's> {
     melee: Res<'w, client_interaction::melee::MeleeRuntime>,
     movement: Res<'w, client_interaction::movement::MovementTicker>,
     physics: Res<'w, client_interaction::movement::LocalPhysicsController>,
+    /// The runtime revisions the last HUD capture read.
+    captured: Local<'s, consumed::ConsumedTicks>,
+    system_ticks: bevy::ecs::system::SystemChangeTick,
 }
 
 /// Observes UI authority and captures inventory, including this frame's outbound predictions.
@@ -124,6 +128,8 @@ pub(crate) fn prepare_ui_runtime(
         melee,
         movement,
         physics,
+        mut captured,
+        system_ticks,
     } = extras;
     #[cfg(not(target_arch = "wasm32"))]
     let (settings_snapshot, menu_skin, menu_visible, menu_scene, menu) = (
@@ -444,7 +450,11 @@ pub(crate) fn prepare_ui_runtime(
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
     let hud_first_person = first_person && !hide_hand;
-    let capture = capture_hud_frame(
+    // Writers mark the runtimes changed only when they change them, and publication marks
+    // neither, so ticks the last capture read mean it would store nothing new from them.
+    let runtimes_unchanged =
+        captured.unchanged(player_runtime.last_changed(), runtime.last_changed());
+    let capture = capture_hud_frame_if_changed(
         &player_runtime,
         runtime.bypass_change_detection(),
         presentation.bypass_change_detection(),
@@ -455,6 +465,7 @@ pub(crate) fn prepare_ui_runtime(
         hud_first_person,
         now_millis,
         icon_frames,
+        runtimes_unchanged,
     );
     if capture.runtime_changed {
         runtime.set_changed();
@@ -462,6 +473,11 @@ pub(crate) fn prepare_ui_runtime(
     if capture.presentation_changed {
         presentation.set_changed();
     }
+    captured.record(
+        player_runtime.last_changed(),
+        runtime.last_changed(),
+        system_ticks.this_run(),
+    );
     let item_icons = capture.icons;
     let hotbar_cooldowns = cooldowns::hotbar_cooldowns(
         &player_runtime,
