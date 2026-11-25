@@ -76,7 +76,7 @@ impl Guard {
     }
 
     /// Identifies the snapshot: while it is unchanged, every admission answer for a given time is
-    /// the same, and between [`Self::next_transition`] instants the time does not matter either.
+    /// the same, and within a [`Self::stable_window`] the time does not matter either.
     pub fn revision(&self) -> u64 {
         self.revision.load(Ordering::Acquire)
     }
