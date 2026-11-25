@@ -8,7 +8,7 @@ impl GuiScaleDrag {
         &mut self,
         runtime: Option<&client_ui::ui_runtime::UiRuntime>,
         menu: &mut MenuRuntime,
-        presentation: &mut UiPresentationRuntime,
+        presentation: &mut bevy::prelude::ResMut<crate::ui_resources::UiPresentationResource>,
         keyboard: &mut MessageReader<KeyboardInput>,
     ) -> bool {
         let Some(runtime) = runtime else {

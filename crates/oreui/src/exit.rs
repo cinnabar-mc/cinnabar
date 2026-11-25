@@ -127,7 +127,7 @@ mod tests {
             Vec::new()
         };
         screen
-            .finish_motion(&mut nodes, &mut next, seconds, size)
+            .finish_motion(&mut nodes, &mut next, &|| seconds, size)
             .unwrap();
         screen.transitions.end_frame();
         (nodes, hits)

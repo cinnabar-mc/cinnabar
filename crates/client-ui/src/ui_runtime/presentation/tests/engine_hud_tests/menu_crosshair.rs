@@ -123,6 +123,7 @@ fn cursor_diagnostics(
         player,
         runtime,
         &presentation.hud_frame,
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
         presentation.hud_textures.as_ref(),
         &launcher::menu::settings_options::SettingsOptions::default(),
     );
@@ -162,6 +163,7 @@ fn crosshair_is_first_person_only_and_mode_gated() {
             player_runtime,
             runtime,
             presentation.hud_frame(),
+            &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
             presentation.hud_textures.as_ref(),
             &Default::default(),
         )

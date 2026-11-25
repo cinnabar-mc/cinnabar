@@ -71,18 +71,19 @@ impl MenuRuntime {
     }
 }
 
-/// Sends roster changes to the Cinnabar lookup worker and badges the players it reports.
+/// Sends roster changes to the Cinnabar lookup worker and badges the players it reports,
+/// borrowing the runtime mutably only when the badges changed.
 pub fn sync_cinnabar_players(
     account: &launcher_account::LauncherAccount,
-    runtime: &mut client_ui::ui_runtime::UiRuntime,
+    runtime: &mut impl std::ops::DerefMut<Target = crate::ui_resources::UiRuntimeResource>,
 ) {
     account.0.set_cinnabar_roster(
         runtime.session_id(),
         runtime.session.player_roster.revision(),
         runtime.session.player_roster.lookup_ids(),
     );
-    runtime
-        .session
-        .player_roster
-        .set_cinnabar(account.0.cinnabar_players());
+    let reported = account.0.cinnabar_players();
+    if !runtime.session.player_roster.cinnabar_is(&reported) {
+        runtime.session.player_roster.set_cinnabar(reported);
+    }
 }

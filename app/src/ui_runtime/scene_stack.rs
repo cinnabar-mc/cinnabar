@@ -78,8 +78,10 @@ pub(crate) fn close_scenes_on_player_hurt(
             actor_position,
         );
     }
-    runtime.close_scenes_on_player_hurt(
-        &mut player_runtime,
-        menu.as_deref().map(|menu| menu as &dyn MenuScene),
-    );
+    if runtime.hurt_pending() {
+        runtime.close_scenes_on_player_hurt(
+            &mut player_runtime,
+            menu.as_deref().map(|menu| menu as &dyn MenuScene),
+        );
+    }
 }

@@ -16,6 +16,15 @@ impl InventorySession {
         self.flush_pending_inventory_send(now_millis, send)
     }
 
+    /// Whether a request waits for transport: only then does a flush change the session, by
+    /// sending it or by retiring furnace input it can no longer admit.
+    pub fn inventory_send_ready(&self) -> bool {
+        self.ledger()
+            .pending_batch()
+            .expect("the ledger retains only validated protocol requests")
+            .is_some()
+    }
+
     /// Refreshes admission and sends ready commands after the caller has polled timeouts.
     pub fn flush_pending_inventory_send<E>(
         &mut self,

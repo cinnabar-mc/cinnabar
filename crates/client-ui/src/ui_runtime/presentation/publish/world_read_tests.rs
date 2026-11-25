@@ -73,7 +73,7 @@ fn inventory_world_read_opens_lectern_before_same_frame_screen_and_title_capture
         &mut runtime,
         &mut presentation,
         Some(world.inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         0,
         Default::default(),
     );

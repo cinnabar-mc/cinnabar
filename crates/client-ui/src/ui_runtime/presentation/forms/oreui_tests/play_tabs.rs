@@ -22,7 +22,7 @@ fn installed_play_tabs_use_native_faces_and_keep_fixed_targets_while_pressed() {
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let mut frame = |pressed, seconds| {
         view.pressed = pressed;
-        runtime.menu_seconds = seconds;
+        runtime.set_menu_seconds(seconds);
         let (mut nodes, mut next) = (Vec::new(), 1);
         let hits = runtime
             .append_oreui_screen(

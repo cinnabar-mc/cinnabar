@@ -83,7 +83,9 @@ impl UiPresentationRuntime {
         self.equipment_catalog = catalog;
     }
 
-    /// Dresses the model using each stack's admitted identity, grip and intrinsic shine.
+    /// Dresses the model using each stack's admitted identity, grip and intrinsic shine. Returns
+    /// whether anything a frame draws without the model changed; the model's own state advances
+    /// [`Self::player_model_revision`].
     pub fn dress_player_preview(
         &mut self,
         player_runtime: &player_state::PlayerState,
@@ -91,13 +93,14 @@ impl UiPresentationRuntime {
         world: Option<client_world::ui_read::InventoryUi<'_>>,
         input: actor_animation::AttachableAnimationInput<'_>,
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
-    ) {
-        super::dynamic_textures::observe_session(self, runtime.session_id());
+    ) -> bool {
+        let mut changed = super::dynamic_textures::observe_session(self, runtime.session_id());
         // Held items read the session's wearable slots before this frame's dressing and capture.
         self.gui_models
             .trim_icons
             .observe_session_items(runtime.session_items());
-        super::publish::prepare_shield_art(player_runtime, runtime, self, world, &resolve);
+        changed |=
+            super::publish::prepare_shield_art(player_runtime, runtime, self, world, &resolve);
         use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
@@ -191,12 +194,22 @@ impl UiPresentationRuntime {
                 },
             );
         }
+        self.note_player_model_change();
+        let textures = Arc::as_ptr(&self.textures);
         self.finish_trim_art();
+        // Held shields share the inventory's shield pages.
+        changed
+            | !std::ptr::eq(textures, Arc::as_ptr(&self.textures))
+            | self.gui_models.shield_icons.dirty()
     }
 
     /// Chooses between server-pack hand models and their ordinary item sprites in previews.
-    pub fn set_player_preview_custom_item_models(&mut self, enabled: bool) {
-        self.player_preview_gear.show_custom_item_models = enabled;
+    /// Whether the choice changed.
+    pub fn set_player_preview_custom_item_models(&mut self, enabled: bool) -> bool {
+        std::mem::replace(
+            &mut self.player_preview_gear.show_custom_item_models,
+            enabled,
+        ) != enabled
     }
 
     /// Dresses armor and held items using session attachables first, then the base catalog.

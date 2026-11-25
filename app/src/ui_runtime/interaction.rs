@@ -115,21 +115,21 @@ pub(crate) fn drive_inventory_ui_actions(
         }
     }
     // Presses are this frame's only; modifiers stay held across frames.
-    let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
+    let (presses, shift, control) = if runtime.inventory_keys().has_presses() {
+        runtime.inventory_keys_mut().take_frame()
+    } else {
+        let (shift, control) = runtime.inventory_keys().modifiers();
+        (Vec::new(), shift, control)
+    };
     let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.inventory_open()
         || !input_available
         || !frame.reads(|scene| scene == Scene::Container)
     {
-        runtime.screen_state_mut().container_close_armed = false;
-        runtime.screen_state_mut().container_scroll_drag = None;
-        runtime.set_inventory_pointer_gui(None);
-        runtime.screen_state_mut().hover = None;
-        runtime.screen_state_mut().pointer.reset();
-        if !runtime.inventory_open() {
-            runtime.screen_state_mut().book = None;
-        }
+        client_shell::ui_resources::update(&mut runtime, |runtime| {
+            runtime.release_container_pointer()
+        });
         return;
     }
     // ButtonInput retains both edge flags for a release followed by a press.

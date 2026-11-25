@@ -2,6 +2,7 @@ use {super::*, ui::IconRef};
 
 pub mod commit;
 pub mod item_icons;
+pub mod reuse;
 use item_icons::{ItemIconFrames, ItemResolver};
 
 mod container;
@@ -10,34 +11,57 @@ mod observations;
 mod player_items;
 mod recipes;
 
-/// Captures HUD display values and applies its required local authority observations.
+/// What one HUD capture produced besides the frame values it stored.
+pub struct HudCapture {
+    /// The held and offhand item icons the first-person viewmodel draws.
+    pub icons: (Option<IconRef>, Option<IconRef>),
+    /// Whether the capture changed anything a frame build reads of the UI runtime.
+    pub runtime_changed: bool,
+    /// Whether it changed anything a frame build reads of the presentation.
+    pub presentation_changed: bool,
+}
+
+/// Replaces `slot` with `value`; whether it differed.
+fn store<T: PartialEq>(slot: &mut T, value: T) -> bool {
+    if *slot == value {
+        return false;
+    }
+    *slot = value;
+    true
+}
+
+/// Captures HUD display values and applies its required local authority observations, storing
+/// only values that changed so an idle capture changes nothing. `first_person` is whether the HUD
+/// draws for a first-person view with the hand shown.
 pub fn capture_hud_frame(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
     world: Option<client_world::ui_read::InventoryUi<'_>>,
-    perspective: semantic_input::PerspectiveMode,
+    first_person: bool,
     now_millis: u64,
     icon_frames: ItemIconFrames,
-) -> (Option<IconRef>, Option<IconRef>) {
-    dynamic_textures::observe_session(presentation, runtime.session_id());
-    presentation.capture_local_player_identity(
+) -> HudCapture {
+    let mut presentation_changed =
+        dynamic_textures::observe_session(presentation, runtime.session_id());
+    presentation_changed |= presentation.capture_local_player_identity(
         world.map(|world| world.local_player()),
         runtime.session_id(),
     );
-    runtime.sync_anvil_name(player_runtime);
-    observe_storage_block(runtime, player_runtime, world);
+    let mut runtime_changed = runtime.sync_anvil_name(player_runtime);
+    runtime_changed |= observe_storage_block(runtime, player_runtime, world);
     // Inventory capture precedes lectern opening and screen selection. Selected-item
     // and sleep observations run after item capture, immediately before publication.
     let armor = observations::armor(player_runtime, runtime, world);
-    runtime.set_derived_armor(armor);
+    runtime_changed |= runtime.set_derived_armor(armor);
     let mount_health = runtime
         .gameplay_hud()
         .mount_unique_id()
         .and_then(|unique| world.and_then(|world| world.actor_health_by_unique(unique)));
-    prepare_shield_art(player_runtime, runtime, presentation, world, |stack| {
-        world?.canonical_item_stack(stack)
-    });
+    presentation_changed |=
+        prepare_shield_art(player_runtime, runtime, presentation, world, |stack| {
+            world?.canonical_item_stack(stack)
+        });
     let mut inventory_cache = presentation
         .inventory_cache
         .take()
@@ -54,13 +78,14 @@ pub fn capture_hud_frame(
         .decorations
         .as_ref()
         .map_or(presentation.hud_frame.window_icons.ui, |(_, icons)| *icons);
-    observations::open_lectern(player_runtime, runtime, world);
+    runtime_changed |= observations::open_lectern(player_runtime, runtime, world);
     let items = ItemResolver {
         runtime,
         presentation,
         authority: world,
     };
-    let window_text = container::capture(player_runtime, &items, world, &mut window_icons);
+    let (window_text, book_changed) =
+        container::capture(player_runtime, &items, world, &mut window_icons);
     let cursor_icon = runtime
         .inventory_ledger(player_runtime)
         .cursor_stack()
@@ -81,6 +106,7 @@ pub fn capture_hud_frame(
         &items,
         &icon_frames,
     );
+    // Logging only; no frame reads it.
     presentation.note_hotbar(hotbar.logged);
     let equipment = player_items::equipment(
         player_runtime,
@@ -97,70 +123,79 @@ pub fn capture_hud_frame(
             .filter(|world| world.mount_has_jump(unique))
             .map(|_| runtime.mount_jump_charge(now_millis))
     });
-    let first_person = perspective == semantic_input::PerspectiveMode::FirstPerson;
-    let player_preview_icon = presentation.player_preview_icon();
-    let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
-    runtime.observe_selected_item_identity_value(selected.identity(), now_millis);
+    runtime_changed |=
+        runtime.observe_selected_item_identity_value(selected.identity(), now_millis);
     let sleeping = world
         .and_then(|world| world.local_player().actor())
         .is_some_and(|actor| actor.is_sleeping());
-    runtime.set_local_sleeping(sleeping);
+    runtime_changed |= runtime.set_local_sleeping(sleeping);
     let frame = presentation.hud_frame_mut();
-    frame.sleep.observe(sleeping, now_millis);
-    frame.first_person = first_person;
-    frame.mount_health = mount_health;
-    frame.hotbar_durability = hotbar.durability;
-    frame.hotbar_stacks = hotbar.stacks;
-    frame.offhand_durability = equipment.offhand_durability;
-    frame.hotbar_icons = hotbar.icons;
+    let mut changed = frame.sleep.observe(sleeping, now_millis);
+    changed |= store(&mut frame.first_person, first_person);
+    changed |= store(&mut frame.mount_health, mount_health);
+    changed |= store(&mut frame.hotbar_durability, hotbar.durability);
+    changed |= store(&mut frame.hotbar_stacks, hotbar.stacks);
+    changed |= store(&mut frame.offhand_durability, equipment.offhand_durability);
+    changed |= store(&mut frame.hotbar_icons, hotbar.icons);
     if let Some(contents) = projections.contents {
-        frame.inventory_icons = contents.inventory_icons;
-        frame.storage_icons = contents.storage_icons;
-        frame.crafting = contents.crafting;
+        changed |= store(&mut frame.inventory_icons, contents.inventory_icons);
+        changed |= store(&mut frame.storage_icons, contents.storage_icons);
+        changed |= store(&mut frame.crafting, contents.crafting);
     }
     if let Some(names) = projections.item_names {
-        frame.item_names = names;
+        changed |= store(&mut frame.item_names, names);
+    }
+    // The capture borrowed the retained recipe-book entries, so they return either way.
+    if book_changed || window_icons.differs_besides_book(&frame.window_icons) {
+        changed = true;
     }
     frame.window_icons = window_icons;
     if let Some((durability, _)) = projections.decorations {
-        frame.durability = durability;
+        changed |= store(&mut frame.durability, durability);
     }
-    frame.window_text = window_text;
-    frame.cursor_icon = cursor_icon;
-    frame.cursor_durability = cursor_durability;
-    frame.armor_icons = equipment.armor_icons;
-    frame.armor_durability = equipment.armor_durability;
-    frame.offhand_icon = equipment.offhand_icon;
-    frame.offhand_viewmodel_icon = None;
-    frame.held_item_icon = None;
-    frame.player_preview = player_preview_icon;
-    frame.left_hand = left_hand_icon;
-    frame.right_hand = right_hand_icon;
-    frame.viewmodel_pitch_degrees = world
-        .and_then(|world| world.local_player().actor())
-        .map_or(0.0, |actor| actor.pitch);
-    frame.selected_item_name = equipment.selected_item_name;
-    frame.holding_filled_map = equipment.holding_filled_map;
-    frame.mount_jump = mount_jump;
-    frame.attack_indicator_charge = Some(1.0);
+    changed |= store(&mut frame.window_text, window_text);
+    changed |= store(&mut frame.cursor_icon, cursor_icon);
+    changed |= store(&mut frame.cursor_durability, cursor_durability);
+    changed |= store(&mut frame.armor_icons, equipment.armor_icons);
+    changed |= store(&mut frame.armor_durability, equipment.armor_durability);
+    changed |= store(&mut frame.offhand_icon, equipment.offhand_icon);
+    // The preview, hand and viewmodel carriers are publication's: it sets them before every
+    // build from the preview and the returned icons.
+    changed |= store(
+        &mut frame.viewmodel_pitch_degrees,
+        world
+            .and_then(|world| world.local_player().actor())
+            .map_or(0.0, |actor| actor.pitch),
+    );
+    changed |= store(&mut frame.selected_item_name, equipment.selected_item_name);
+    changed |= store(&mut frame.holding_filled_map, equipment.holding_filled_map);
+    changed |= store(&mut frame.mount_jump, mount_jump);
+    changed |= store(&mut frame.attack_indicator_charge, Some(1.0));
+    // Logging only; no frame reads it.
     observations::note_diagnostics(runtime, presentation);
-    (equipment.held_item_icon, equipment.offhand_icon)
+    HudCapture {
+        icons: (equipment.held_item_icon, equipment.offhand_icon),
+        runtime_changed,
+        presentation_changed: presentation_changed | changed,
+    }
 }
 
 /// Keeps the visible stack set stable before inventory caches retain any icon addresses.
+/// Returns whether projections were invalidated or composed shield or trim art waits to be
+/// packed, either of which changes what a frame draws.
 pub(super) fn prepare_shield_art(
     player: &player_state::PlayerState,
     runtime: &UiRuntime,
     presentation: &mut UiPresentationRuntime,
     world: Option<client_world::ui_read::InventoryUi<'_>>,
     resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
-) {
+) -> bool {
     use inventory::inventory_ledger::InventoryTarget;
     let mut inventory_cache = presentation
         .inventory_cache
         .take()
         .expect("inventory cache retained");
-    inventory_cache.prepare(
+    let refreshed = inventory_cache.prepare(
         player,
         &ItemResolver {
             runtime,
@@ -216,6 +251,9 @@ pub(super) fn prepare_shield_art(
     }
     presentation.inventory_cache = Some(inventory_cache);
     presentation.prepare_shield_icons(appearances);
+    refreshed
+        || presentation.gui_models.shield_icons.dirty()
+        || presentation.gui_models.trim_icons.dirty()
 }
 
 /// The hovered container cell's stack and its custom name: what the tooltip shows, and what a
@@ -321,20 +359,20 @@ pub fn hovered_stack(
     })
 }
 
-/// Retains the block entity id under the open window, allocating only when it changes.
+/// Retains the block entity id under the open window, allocating only when it changes; whether
+/// it changed.
 fn observe_storage_block(
     runtime: &mut UiRuntime,
     player_runtime: &player_state::PlayerState,
     world: Option<client_world::ui_read::InventoryUi<'_>>,
-) {
+) -> bool {
     let position = runtime.inventory_ledger(player_runtime).window_position();
     let block = position
         .zip(world)
         .and_then(|(position, world)| world.block_entity_compound(position.into()));
     let (Some(position), Some(id)) = (position, block.as_deref().and_then(|nbt| nbt.string("id")))
     else {
-        runtime.session.storage_block = None;
-        return;
+        return runtime.session.storage_block.take().is_some();
     };
     if runtime
         .session
@@ -343,7 +381,9 @@ fn observe_storage_block(
         .is_none_or(|(retained, old)| *retained != position || **old != *id)
     {
         runtime.session.storage_block = Some((position, std::sync::Arc::from(id)));
+        return true;
     }
+    false
 }
 
 #[cfg(test)]

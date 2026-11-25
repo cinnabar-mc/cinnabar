@@ -61,6 +61,11 @@ pub(super) enum TrimItem {
 }
 
 impl TrimIcons {
+    /// Whether composed trim art waits to be repacked into its pages.
+    pub(in crate::ui_runtime::presentation) fn dirty(&self) -> bool {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).dirty
+    }
+
     /// Retires unused stack appearances without doing pixel work for unchanged frames.
     pub(in crate::ui_runtime::presentation) fn begin_frame(&self) {
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());

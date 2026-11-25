@@ -40,7 +40,7 @@ fn paper_dolls_draw_authored_particles_without_a_world() {
         let before = runtime.gui_player_mesh().unwrap();
         runtime.sync_player_particles(true);
         for frame in 1..=4 {
-            runtime.menu_seconds = f64::from(frame) / 8.0;
+            runtime.set_menu_seconds(f64::from(frame) / 8.0);
             runtime.sync_player_particles(true);
         }
         let mesh = runtime.gui_player_mesh().unwrap();
@@ -63,7 +63,7 @@ fn paper_dolls_draw_authored_particles_without_a_world() {
         let offset = (uv[1] as usize * texture.dimensions()[0] as usize + uv[0] as usize) * 4;
         assert_eq!(&texture.pixels()[offset..offset + 4], &[255, 80, 20, 255]);
         let texture = texture.clone();
-        runtime.menu_seconds += 0.125;
+        runtime.set_menu_seconds(runtime.menu_seconds() + 0.125);
         runtime.sync_player_particles(true);
         assert_eq!(
             texture.identity(),
@@ -96,18 +96,18 @@ fn paper_dolls_draw_authored_particles_without_a_world() {
 fn hidden_previews_drop_effects_and_resume_without_hidden_time() {
     let mut runtime = runtime();
     runtime.sync_player_particles(true);
-    runtime.menu_seconds = 0.25;
+    runtime.set_menu_seconds(0.25);
     runtime.sync_player_particles(true);
     assert!(runtime.gui_models.particles.mesh.is_some());
     runtime.sync_visible_cosmetic_previews(&[]);
     assert!(runtime.gui_models.particles.mesh.is_none());
-    runtime.menu_seconds = 1000.0;
+    runtime.set_menu_seconds(1000.0);
     runtime.sync_player_particles(true);
     assert!(
         runtime.gui_models.particles.mesh.is_none(),
         "hidden time does not emit a burst"
     );
-    runtime.menu_seconds += 0.25;
+    runtime.set_menu_seconds(runtime.menu_seconds() + 0.25);
     runtime.sync_player_particles(true);
     assert!(runtime.gui_models.particles.mesh.is_some());
 }
@@ -126,7 +126,7 @@ fn hud_particles_follow_the_captured_actor_attachment() {
         .emitters
         .push((item, 0, transform));
     runtime.sync_player_particles(true);
-    runtime.menu_seconds = 0.25;
+    runtime.set_menu_seconds(0.25);
     runtime.sync_player_particles(true);
     let first = runtime
         .gui_models
@@ -139,7 +139,7 @@ fn hud_particles_follow_the_captured_actor_attachment() {
     // Newly emitted particles follow a changed actor pose; existing world-space particles drain.
     transform.position[0] += 0.5;
     runtime.gui_models.live_player.emitters[0].2 = transform;
-    runtime.menu_seconds = 0.5;
+    runtime.set_menu_seconds(0.5);
     runtime.sync_player_particles(true);
     let mesh = runtime.gui_models.particles.mesh.as_ref().unwrap();
     assert!(
@@ -189,7 +189,7 @@ fn cosmetic_sprites_render_without_an_installed_particle_carrier() {
     let item = hats::fixture::sprite_crown();
     runtime.set_preview_cosmetics(&[item]);
     runtime.sync_player_particles(true);
-    runtime.menu_seconds = 0.25;
+    runtime.set_menu_seconds(0.25);
     runtime.sync_player_particles(true);
     let particles = &runtime.gui_models.particles;
     let mesh = particles.mesh.as_ref().unwrap();
@@ -205,7 +205,7 @@ fn cosmetic_sprites_render_without_an_installed_particle_carrier() {
         &sprite.pixels[(side - 1) * side * 4..(side - 1) * side * 4 + 4]
     );
     let installed = particles.page.as_ref().unwrap().identity();
-    runtime.menu_seconds = 0.5;
+    runtime.set_menu_seconds(0.5);
     runtime.sync_player_particles(true);
     assert_eq!(
         installed,
@@ -233,14 +233,14 @@ fn changing_hud_actor_identity_restarts_preview_effects() {
             .unwrap(),
     ));
     runtime.sync_player_particles(true);
-    runtime.menu_seconds = 0.25;
+    runtime.set_menu_seconds(0.25);
     runtime.sync_player_particles(true);
     assert!(runtime.gui_models.particles.mesh.is_some());
     runtime.gui_models.live_player.emitter_owner = Some((1, 2, 4));
-    runtime.menu_seconds = 0.5;
+    runtime.set_menu_seconds(0.5);
     runtime.sync_player_particles(true);
     assert!(runtime.gui_models.particles.mesh.is_none());
-    runtime.menu_seconds = 0.75;
+    runtime.set_menu_seconds(0.75);
     runtime.sync_player_particles(true);
     assert!(runtime.gui_models.particles.mesh.is_some());
 }

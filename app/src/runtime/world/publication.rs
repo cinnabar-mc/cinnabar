@@ -171,7 +171,9 @@ pub(crate) fn drive_world_stream(
     } else {
         time.delta_secs()
     });
-    ui_runtime.project_block_cracks(stream.block_crack_snapshot());
+    client_shell::ui_resources::update(&mut ui_runtime, |runtime| {
+        runtime.project_block_cracks(stream.block_crack_snapshot())
+    });
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world

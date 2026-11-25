@@ -48,7 +48,7 @@ impl UiPresentationRuntime {
         let screen = view.screen;
         self.menu_scrolls.configure_motion(
             view.settings_options.value(SettingId::ScreenAnimations) != 0,
-            self.menu_seconds,
+            self.clock.seconds(),
         );
         let title_artwork = if screen == MenuScreen::Home && !progress {
             self.home_title_icon()
@@ -84,7 +84,7 @@ impl UiPresentationRuntime {
             content: size,
             translate,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes: &mut *nodes,
             next: &mut *next,
             renderers: &mut [],
@@ -163,7 +163,7 @@ impl UiPresentationRuntime {
                     content: size,
                     translate,
                     language: [0; 3],
-                    now: self.menu_seconds,
+                    now: self.clock.seconds(),
                     nodes: &mut *nodes,
                     next: &mut *next,
                     renderers: &mut [],
@@ -212,7 +212,7 @@ impl UiPresentationRuntime {
             content: size,
             translate: &|_| None,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],
@@ -247,7 +247,7 @@ impl UiPresentationRuntime {
             content: size,
             translate: &|_| None,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],
@@ -283,7 +283,7 @@ impl UiPresentationRuntime {
             content: size,
             translate,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],
@@ -315,7 +315,7 @@ impl UiPresentationRuntime {
             content: size,
             translate: &|_| None,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],
@@ -340,10 +340,11 @@ impl UiPresentationRuntime {
         next: &mut u32,
         size: [f32; 2],
     ) -> Result<(), UiPresentationError> {
+        let clock = &self.clock;
         Ok(self
             .screens
             .oreui
-            .finish_motion(nodes, next, self.menu_seconds, size)?)
+            .finish_motion(nodes, next, &|| clock.seconds(), size)?)
     }
 
     pub(in super::super) fn append_oreui_loading(
@@ -380,7 +381,7 @@ impl UiPresentationRuntime {
             content: size,
             translate: &|_| None,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],
@@ -414,7 +415,7 @@ impl UiPresentationRuntime {
             content: size,
             translate: &|_| None,
             language: [0; 3],
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],
@@ -428,8 +429,9 @@ impl UiPresentationRuntime {
     }
 
     /// Track the pointer for next frame's hover state.
-    pub fn set_bed_pointer(&mut self, position: Option<UiPoint>) {
-        self.screens.bed.set_pointer(position);
+    /// Whether the pointer changed.
+    pub fn set_bed_pointer(&mut self, position: Option<UiPoint>) -> bool {
+        self.screens.bed.set_pointer(position)
     }
 
     /// The bed screen's hit rects from the last frame.
@@ -438,8 +440,9 @@ impl UiPresentationRuntime {
         self.screens.bed.hits()
     }
 
-    pub fn cancel_menu_server_list_input(&mut self) {
-        self.screens.oreui.cancel_server_list_input();
+    /// Whether a capture was dropped.
+    pub fn cancel_menu_server_list_input(&mut self) -> bool {
+        self.screens.oreui.cancel_server_list_input()
     }
 
     /// Section capture suppresses click activation until release, including outside the list.
@@ -454,7 +457,7 @@ impl UiPresentationRuntime {
             screen,
             pointer,
             (held, pressed),
-            self.menu_seconds,
+            self.clock.seconds(),
         );
         if scroll != 0.0 {
             self.menu_scrolls.scroll_by("servers.side_menu", scroll);

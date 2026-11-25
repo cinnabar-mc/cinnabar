@@ -776,6 +776,11 @@ impl BossBarStore {
         *self = Self::default();
     }
 
+    /// Whether every bar's actor passes `has_actor`, so [`Self::retain_actors`] would keep all.
+    pub fn retains_all(&self, mut has_actor: impl FnMut(i64) -> bool) -> bool {
+        self.bars.keys().all(|id| has_actor(*id))
+    }
+
     /// Retires local actor lifetimes without advancing the received wire sequence.
     pub fn retain_actors(&mut self, mut has_actor: impl FnMut(i64) -> bool) -> usize {
         let previous_count = self.bars.len();

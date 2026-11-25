@@ -11,12 +11,12 @@ pub(super) fn hud_model(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
     frame: &HudFrame,
+    now: u64,
     sidebar: Option<Sidebar>,
     icons: &mut Vec<IconRef>,
     settings: &launcher::menu::settings_options::SettingsOptions,
 ) -> HudModel {
     let seconds = |millis: u64| millis as f64 / 1_000.0;
-    let now = frame.now_millis;
     let mode = player_runtime.facts.player_game_mode();
     let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
     let selected = player_runtime.selected_hotbar_slot();
@@ -230,10 +230,9 @@ pub(super) fn world_text_lines(
             )
         });
     let days = frame
-        .world_time
+        .days_played
         .filter(|_| alive && rules.show_days_played())
-        .map(|time| {
-            let days = (time / f64::from(world::TICKS_PER_DAY)).floor();
+        .map(|days| {
             if days < 0.0 {
                 translate("hudScreen.daysPlayed.overflow", "Too many to count!", &[])
             } else {

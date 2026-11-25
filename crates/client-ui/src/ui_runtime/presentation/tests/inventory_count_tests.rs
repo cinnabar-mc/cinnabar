@@ -268,7 +268,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
             &mut runtime,
             &mut without_icon,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             1,
             Default::default(),
         );
@@ -279,7 +279,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
             &mut runtime,
             &mut presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             1,
             Default::default(),
         );
@@ -470,7 +470,13 @@ fn review_carried_item_draws_after_the_recipe_panel() {
     )
     .unwrap();
     layout
-        .append(&player_runtime, &runtime, &frame, true)
+        .append(
+            &player_runtime,
+            &runtime,
+            &frame,
+            &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
+            true,
+        )
         .unwrap();
     let cursor = nodes
         .iter()
@@ -590,7 +596,7 @@ fn recipe_book_entries_glint_like_inventory_slots() {
         &mut runtime,
         &mut presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         1,
         Default::default(),
     );

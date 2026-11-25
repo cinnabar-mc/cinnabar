@@ -28,6 +28,7 @@ mod fallback_crafting_ghost_tests;
 mod fallback_field_tests;
 mod fallback_inventory_layout_tests;
 mod forms_tests;
+mod frame_reuse_tests;
 mod hud_matrix_tests;
 mod hud_server_pack_tests;
 mod inventory_count_tests;

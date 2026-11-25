@@ -29,7 +29,13 @@ struct Sources {
 
 impl InventoryCache {
     /// Prepares revision-gated stack sources before any atlas placement or icon capture.
-    pub(super) fn prepare(&mut self, player: &player_state::PlayerState, items: &ItemResolver<'_>) {
+    /// Whether an external source changed, invalidating projections and closed-screen
+    /// preparation.
+    pub(super) fn prepare(
+        &mut self,
+        player: &player_state::PlayerState,
+        items: &ItemResolver<'_>,
+    ) -> bool {
         let runtime = items.runtime;
         let presentation = items.presentation;
         let next = Sources {
@@ -49,7 +55,8 @@ impl InventoryCache {
         };
         let refresh = next.refresh(self.sources.as_ref());
         self.sources = Some(next);
-        if refresh != ProjectionRefresh::default() {
+        let refreshed = refresh != ProjectionRefresh::default();
+        if refreshed {
             presentation
                 .inventory_preparation_revision
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -60,6 +67,7 @@ impl InventoryCache {
             refresh,
             || runtime.crafting_match(player),
         );
+        refreshed
     }
 
     /// Borrows artwork sources already produced by the inventory projection.

@@ -634,3 +634,42 @@ fn rejoining_prepares_a_fresh_inventory_lifetime_before_open() {
     assert!(warm.engine_container_placed() - placed < 32);
     assert!(warm.engine_inventory_rebuilt() - bound < 16);
 }
+
+/// Closed-inventory preparation finishes during frames that would otherwise repeat, never on
+/// the frame that opens the inventory.
+#[test]
+fn inventory_preparation_finishes_while_frames_would_repeat() {
+    use crate::ui_runtime::presentation::{
+        FrameReuse, PendingUiPublication, PreviewCapture, render_prepared_ui,
+    };
+    let (mut presentation, mut runtime, mut player) = inventory_fixture(once_name_screen());
+    populate(&mut runtime, &mut player);
+    presentation.set_frame_reuse(FrameReuse::Skip);
+    let mut publish = |presentation: &mut UiPresentationRuntime, now: u64, unchanged: bool| {
+        let prepared = PendingUiPublication {
+            inventory: runtime.capture_presentation_inventory(&player),
+            preview: PreviewCapture {
+                skin: None,
+                ready: false,
+                pose: Default::default(),
+                shown: false,
+                hands: false,
+            },
+            item_icons: (None, None),
+            now_millis: now,
+            physical_size: [320, 240],
+            dpi_scale: DpiScale::new(1.0).unwrap(),
+        };
+        render_prepared_ui(&player, &mut runtime, presentation, prepared, unchanged).unwrap()
+    };
+    assert!(publish(&mut presentation, 0, false).is_some());
+    let mut now = 0;
+    test_time::eventually(
+        "closed-inventory preparation under unchanged frames",
+        || {
+            now += 16;
+            publish(&mut presentation, now, true);
+            !presentation.engine_inventory_preparation_pending()
+        },
+    );
+}

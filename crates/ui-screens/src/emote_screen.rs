@@ -180,8 +180,9 @@ impl EmoteScreen {
         None
     }
 
-    pub fn set_pointer(&mut self, pointer: Option<UiPoint>) {
-        self.pointer = pointer;
+    /// Whether the pointer changed.
+    pub fn set_pointer(&mut self, pointer: Option<UiPoint>) -> bool {
+        std::mem::replace(&mut self.pointer, pointer) != pointer
     }
 
     /// Last active device; stationary cursor coordinates preserve modality.

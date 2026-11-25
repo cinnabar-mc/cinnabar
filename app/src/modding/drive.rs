@@ -704,9 +704,11 @@ pub(super) fn drive_mod(
 }
 
 /// Removes mod touch buttons and drops their taps while no mod can receive them.
-fn clear_touch_buttons(presentation: &mut UiPresentationResource) {
-    presentation.take_mod_touch_taps();
-    presentation.set_mod_touch_buttons(std::iter::empty());
+fn clear_touch_buttons(presentation: &mut ResMut<UiPresentationResource>) {
+    client_shell::ui_resources::update(presentation, |presentation| {
+        !presentation.take_mod_touch_taps().is_empty()
+            | presentation.set_mod_touch_buttons(std::iter::empty())
+    });
 }
 
 /// Builds this frame's packet observation with its captured look and real time, hands it to

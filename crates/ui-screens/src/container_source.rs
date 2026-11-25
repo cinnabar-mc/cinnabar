@@ -14,7 +14,7 @@ use ui::IconRef;
 use crate::{furnace_book::Entries, recipe_book::BookEntry};
 
 /// The predicted station result and its resolved item decorations.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StationOutput {
     pub stack: NetworkItemStack,
     pub icon: Option<IconRef>,

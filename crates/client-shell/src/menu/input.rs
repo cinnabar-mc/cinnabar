@@ -328,10 +328,8 @@ pub fn drive_menu_input(
     }
     menu.settings.slider_hovered = None;
     if consent.is_some_and(|consent| consent.0) || pack_cover {
-        presentation.cancel_touch_editor_pointer();
+        cancel_pointer_input(&mut presentation);
         gui_scale_drag.editor_touch = None;
-        presentation.cancel_menu_player_preview_input();
-        presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
@@ -400,10 +398,8 @@ pub fn drive_menu_input(
                 && (!menu.is_visible() || runtime.server_forms().settings_form_active())
             || runtime.data_driven_ui().owns_input() && !menu.is_visible()
     }) {
-        presentation.cancel_touch_editor_pointer();
+        cancel_pointer_input(&mut presentation);
         gui_scale_drag.editor_touch = None;
-        presentation.cancel_menu_player_preview_input();
-        presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
@@ -421,10 +417,8 @@ pub fn drive_menu_input(
     if driven.is_none()
         && (!window.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
     {
-        presentation.cancel_touch_editor_pointer();
+        cancel_pointer_input(&mut presentation);
         gui_scale_drag.editor_touch = None;
-        presentation.cancel_menu_player_preview_input();
-        presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
@@ -504,10 +498,8 @@ pub fn drive_menu_input(
         }
     }
     if !menu.is_visible() {
-        presentation.cancel_touch_editor_pointer();
+        cancel_pointer_input(&mut presentation);
         gui_scale_drag.editor_touch = None;
-        presentation.cancel_menu_player_preview_input();
-        presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
@@ -988,3 +980,13 @@ mod play_tab_tests;
 
 #[cfg(test)]
 mod press_sound_tests;
+
+/// Drops pointer gestures in progress on the menu's surfaces, borrowing the presentation mutably
+/// only when one was, so idle frames leave it unchanged for the UI frame's revision.
+fn cancel_pointer_input(presentation: &mut ResMut<UiPresentationResource>) {
+    crate::ui_resources::update(presentation, |presentation| {
+        presentation.cancel_touch_editor_pointer()
+            | presentation.cancel_menu_player_preview_input()
+            | presentation.cancel_menu_server_list_input()
+    });
+}

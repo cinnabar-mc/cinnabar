@@ -111,9 +111,12 @@ impl MenuPreview {
         self.slot().map_or(0.0, |slot| self.rotations[slot])
     }
 
-    fn cancel(&mut self) {
+    /// Drops any gesture; whether one was in progress.
+    fn cancel(&mut self) -> bool {
+        let active = self.captured || self.previous.is_some() || self.pointer.is_some();
         self.revoke_capture();
         self.pointer = None;
+        active
     }
 
     pub(crate) fn revoke_capture(&mut self) {
@@ -205,11 +208,12 @@ impl UiPresentationRuntime {
     }
 
     /// Revokes pointer capture when another screen owns input or the window loses focus.
-    pub fn cancel_menu_player_preview_input(&mut self) {
+    /// Whether a gesture was in progress.
+    pub fn cancel_menu_player_preview_input(&mut self) -> bool {
         if self.menu_preview.pointer.is_some() {
             self.last_frame = None;
         }
-        self.menu_preview.cancel();
+        self.menu_preview.cancel()
     }
 
     /// Registers and draws the shared interactive character under the caller's clip.
@@ -274,7 +278,7 @@ impl UiPresentationRuntime {
             .view(offset)
             .with_menu_rotation(self.menu_preview.rotation());
         if config.idle_animation {
-            self.player_preview_bob = super::bob_degrees(self.menu_seconds);
+            self.player_preview_bob = super::bob_degrees(self.clock.seconds());
         }
         if config.gesture_rotation {
             self.menu_preview.control = Some(PreviewControl {

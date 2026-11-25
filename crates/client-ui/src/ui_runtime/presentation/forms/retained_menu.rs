@@ -89,7 +89,7 @@ impl UiPresentationRuntime {
             && saved.look == self.screens.oreui.look
             && saved.offsets == *self.menu_scrolls.offsets()
             && !self.menu_scrolls.active()
-            && !self.screens.oreui.transitions.active(self.menu_seconds))
+            && !self.screens.oreui.transitions.active(self.clock.seconds()))
         .then(|| self.last_input.clone())
         .flatten()
     }
@@ -100,13 +100,13 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         frame: ([u32; 2], f32, SafeArea),
     ) {
+        // Only a retainable menu reads the transition clock.
         let view = if self.last_frame.is_some()
             && !self.menu_scrolls.active()
-            && !self.screens.oreui.transitions.active(self.menu_seconds)
+            && self.retainable_menu(runtime).is_some()
+            && !self.screens.oreui.transitions.active(self.clock.seconds())
         {
-            self.retainable_menu(runtime)
-                .and(self.menu_view.as_ref())
-                .map(Arc::clone)
+            self.menu_view.as_ref().map(Arc::clone)
         } else {
             None
         };

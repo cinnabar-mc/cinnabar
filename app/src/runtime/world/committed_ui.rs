@@ -1,5 +1,6 @@
 //! The sole FIFO committed-UI drain, before frame input authority.
 use super::{ClientWorld, FatalError, WorldClock, record_fatal_error};
+use bevy::prelude::DetectChangesMut;
 use bevy::{
     prelude::{Res, ResMut, Time},
     time::Real,
@@ -28,9 +29,16 @@ pub(crate) fn drain_committed_ui_before_authority(
                 && stream.inventory_committed_through().is_some()
         })
         .map(|stream| stream.biome_tint_identity().stream());
-    player_runtime
+    // Each write below is skipped when it would change nothing, so an idle frame leaves both
+    // resources unchanged for the UI frame's revision.
+    if !player_runtime
         .facts
-        .synchronize_local_abilities(session, ability_stream);
+        .local_abilities_synchronized(session, ability_stream)
+    {
+        player_runtime
+            .facts
+            .synchronize_local_abilities(session, ability_stream);
+    }
     let craft_identity = client_world
         .stream
         .as_ref()
@@ -42,27 +50,45 @@ pub(crate) fn drain_committed_ui_before_authority(
                 stream.inventory_committed_through(),
             )
         });
-    ui_runtime.synchronize_crafting_frontier(&mut player_runtime, session, craft_identity);
+    client_shell::ui_resources::update(&mut player_runtime, |player| {
+        ui_runtime
+            .bypass_change_detection()
+            .synchronize_crafting_frontier(player, session, craft_identity)
+    });
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
     let authority = stream.authority();
-    if let Some(name) = authority.actor_display_name(authority.local_player_unique_id()) {
+    if let Some(name) = authority.actor_display_name(authority.local_player_unique_id())
+        && *name != *ui_runtime.local_player_display_name()
+    {
         ui_runtime.set_local_player_display_name(name);
     }
-    ui_runtime.note_stream_dimension(stream.current_dimension());
+    if !ui_runtime.stream_dimension_noted(stream.current_dimension()) {
+        ui_runtime.note_stream_dimension(stream.current_dimension());
+    }
     let current_dimension = stream.current_dimension();
     let dimension_epoch = stream.form_dimension_epoch();
     #[cfg(not(target_arch = "wasm32"))]
-    {
+    if ui_runtime.session.experiences.epoch != dimension_epoch {
         ui_runtime.session.experiences.epoch = dimension_epoch;
     }
-    ui_runtime
-        .server_forms_mut()
-        .synchronize_epoch(session, dimension_epoch);
-    ui_runtime
-        .command_block_mut()
-        .synchronize_epoch(dimension_epoch);
+    if !ui_runtime
+        .server_forms()
+        .epoch_synchronized(session, dimension_epoch)
+    {
+        ui_runtime
+            .server_forms_mut()
+            .synchronize_epoch(session, dimension_epoch);
+    }
+    if !ui_runtime
+        .command_block()
+        .epoch_synchronized(dimension_epoch)
+    {
+        ui_runtime
+            .command_block_mut()
+            .synchronize_epoch(dimension_epoch);
+    }
     let committed_ui = stream.take_committed_ui();
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     if !committed_ui.is_empty() {
@@ -316,7 +342,10 @@ pub(crate) fn drain_committed_ui_before_authority(
         }
     }
     if let Some(stream) = client_world.stream.as_ref() {
-        ui_runtime.retain_boss_actors(|id| stream.authority().actor_by_unique_id(id).is_some());
+        let has_actor = |id| stream.authority().actor_by_unique_id(id).is_some();
+        if !ui_runtime.boss_bars().retains_all(has_actor) {
+            ui_runtime.retain_boss_actors(has_actor);
+        }
     }
 }
 
@@ -327,10 +356,7 @@ pub(super) fn refresh_player_list_cache_for_controls(
     ui_runtime: &mut UiRuntime,
     controls: &[CommittedControlEvent],
 ) {
-    if !controls
-        .iter()
-        .any(|control| matches!(control, CommittedControlEvent::PlayerListChanged { .. }))
-    {
+    if !player_list_changed(controls) {
         return;
     }
     ui_runtime.refresh_raw_text_identities(
@@ -342,6 +368,13 @@ pub(super) fn refresh_player_list_cache_for_controls(
         .player_roster
         .set_entries(stream.authority().player_list_roster());
     refresh_roster_skins(stream, ui_runtime);
+}
+
+/// Whether `controls` report that the authoritative roster changed.
+pub(super) fn player_list_changed(controls: &[CommittedControlEvent]) -> bool {
+    controls
+        .iter()
+        .any(|control| matches!(control, CommittedControlEvent::PlayerListChanged { .. }))
 }
 
 /// Copies admitted skin handles from the roster, without requiring a spawned actor.

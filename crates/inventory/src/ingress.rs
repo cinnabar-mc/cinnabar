@@ -102,18 +102,18 @@ impl InventorySession {
         Some(event)
     }
 
-    /// Bind crafting observations to the committed world frontier.
+    /// Bind crafting observations to the committed world frontier; whether anything changed.
     pub fn synchronize_crafting_frontier(
         &mut self,
         session: u64,
         identity: Option<(u64, u64, Option<u64>)>,
-    ) {
+    ) -> bool {
         self.crafting_authority
             .synchronize(if session == self.session_id {
                 identity
             } else {
                 None
-            });
+            })
     }
 
     /// Seed the passive crafting projection with startup registry and negotiation.
@@ -174,8 +174,9 @@ impl InventorySession {
     }
 
     /// Advance crafting once after all FIFO events and their presentation effects have drained.
-    pub fn finish_drain(&mut self) {
-        self.crafting_authority.advance();
+    /// Whether anything changed.
+    pub fn finish_drain(&mut self) -> bool {
+        self.crafting_authority.advance()
     }
 
     /// Apply a complete FIFO without application presentation effects.

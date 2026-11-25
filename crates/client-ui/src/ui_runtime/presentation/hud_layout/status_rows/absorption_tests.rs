@@ -45,6 +45,7 @@ fn painted(player: &player_state::PlayerState, runtime: &UiRuntime) -> HudPaint 
         player,
         runtime,
         &HudFrame::default(),
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
         None,
         &Default::default(),
     )
@@ -90,10 +91,8 @@ fn damage_hearts_draw_previous_and_current_health_on_the_actor_clock() {
     let much_later = capture(
         &player,
         &runtime,
-        &HudFrame {
-            now_millis: 90_000,
-            ..Default::default()
-        },
+        &HudFrame::default(),
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::new(90_000),
         None,
         &Default::default(),
     )

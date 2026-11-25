@@ -54,7 +54,7 @@ impl UiPresentationRuntime {
     /// Starts a menu frame: the view's blink phase from this frame's clock, and no
     /// text drawn yet.
     pub(super) fn begin_menu_caret(&mut self, view: &mut MenuView) {
-        let now = self.menu_seconds;
+        let now = self.clock.seconds();
         let state = &mut self.screens.menu_caret;
         state.spots.clear();
         let shown = state.blink.shown(view.caret.revision, now);

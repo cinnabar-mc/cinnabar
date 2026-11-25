@@ -9,7 +9,7 @@ use ui_engine::text_metrics::TextMetrics;
 
 fn loading(stage: LoadingStage, seconds: f64) -> Vec<ui::UiNode> {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.menu_seconds = seconds;
+    presentation.set_menu_seconds(seconds);
     let mut nodes = Vec::new();
     presentation
         .append_oreui_loading(
@@ -142,7 +142,7 @@ fn overworld_loading_keeps_the_installed_grass_block_square_and_static() {
     for dimension in [0, 37, -1] {
         presentation.hud_frame_mut().dimension = dimension;
         let mut frame = |seconds| {
-            presentation.menu_seconds = seconds;
+            presentation.set_menu_seconds(seconds);
             let mut nodes = Vec::new();
             presentation
                 .append_oreui_loading(

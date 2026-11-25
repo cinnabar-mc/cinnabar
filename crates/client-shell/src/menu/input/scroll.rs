@@ -6,14 +6,16 @@ use ui::UiPoint;
 
 /// Returns the finger whose scroll gesture must not activate a setting on press or release.
 pub(super) fn drive(
-    presentation: &mut UiPresentationRuntime,
+    presentation: &mut bevy::prelude::ResMut<crate::ui_resources::UiPresentationResource>,
     touches: &Touches,
     enabled: bool,
     owner: Option<u64>,
     captured: &mut Option<u64>,
 ) -> Option<u64> {
     if !enabled {
-        presentation.move_menu_touch_scroll(None, false);
+        if presentation.menu_touch_scrolling() {
+            presentation.move_menu_touch_scroll(None, false);
+        }
         *captured = None;
         return None;
     }

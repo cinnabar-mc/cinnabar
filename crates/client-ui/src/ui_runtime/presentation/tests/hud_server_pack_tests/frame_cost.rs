@@ -238,7 +238,9 @@ fn lobby_ui_publication_cost() {
             dpi_scale: DpiScale::new(2.0).unwrap(),
         };
         let captured = started.elapsed();
-        let input = render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+        let input = render_prepared_ui(&player, &mut runtime, &mut presentation, prepared, false)
+            .unwrap()
+            .expect("a changed frame builds");
         let built = started.elapsed();
         presentation.set_nametag_anchors(anchors.clone());
         let _tags = presentation.nametag_scene();
@@ -322,7 +324,9 @@ fn lobby_ui_publication_cost() {
             };
             let started = Instant::now();
             let input =
-                render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+                render_prepared_ui(&player, &mut runtime, &mut presentation, prepared, false)
+                    .unwrap()
+                    .expect("a changed frame builds");
             if update > 0 {
                 builds.push(started.elapsed());
             }

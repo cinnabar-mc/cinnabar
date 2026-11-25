@@ -14,22 +14,25 @@ mod cancel_tests;
 /// Drops keyboard input another owner handles while keeping inventory modifiers in step
 /// with the physical keys: observed edges still update them, and when input is unavailable
 /// (an unfocused window) every modifier counts as released.
+/// Borrows the runtime mutably only when a key arrives or held modifiers release, so idle frames
+/// leave it unchanged.
 pub(super) fn discard_keyboard(
-    runtime: &mut UiRuntime,
+    runtime: &mut bevy::prelude::ResMut<client_shell::ui_resources::UiRuntimeResource>,
     keyboard_messages: &mut MessageReader<KeyboardInput>,
     input_available: bool,
 ) {
-    let inventory_keys = runtime.inventory_keys_mut();
     if input_available {
         for input in keyboard_messages.read() {
-            inventory_keys.track_modifier(
+            runtime.inventory_keys_mut().track_modifier(
                 keyboard_key(input.key_code),
                 input.state == ButtonState::Pressed,
             );
         }
     } else {
         keyboard_messages.clear();
-        inventory_keys.release_modifiers();
+        if !runtime.inventory_keys().modifiers_released() {
+            runtime.inventory_keys_mut().release_modifiers();
+        }
     }
 }
 

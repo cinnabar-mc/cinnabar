@@ -479,7 +479,7 @@ impl UiPresentationRuntime {
         });
         let mut source = ContainerAuthority::new(player_runtime, runtime);
         if !prepare {
-            let now = self.menu_seconds;
+            let now = self.clock.seconds();
             let blink = &mut self.screens.container_caret;
             source.show_caret(|revision| blink.shown(revision, now));
         }
@@ -509,7 +509,7 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut renderers,
@@ -588,9 +588,9 @@ impl UiPresentationRuntime {
             || self.screens.containers.retains_prepared_inventory_inputs()
     }
 
-    /// Whether the closed inventory still owns unfinished preparation work.
-    #[cfg(test)]
-    pub fn engine_inventory_preparation_pending(&self) -> bool {
+    /// Whether the closed inventory still owns unfinished preparation work, which only builds
+    /// service.
+    pub(in crate::ui_runtime::presentation) fn engine_inventory_preparation_pending(&self) -> bool {
         self.screens.containers.inventory_preparation_pending()
     }
 
