@@ -290,4 +290,9 @@ fn consecutive_empty_rig_frames_are_the_same_empty_frame() {
     let drawn = scene.update(0.5, None, [source(7, 3.0, 0.0)]).clone();
     assert!(!drawn.same_empty_frame(&second));
     assert!(!second.same_empty_frame(&drawn));
+    // The shared geometry catalog compares by allocation: equal spans in a new allocation are
+    // a new catalog, and the check never reads vertex or span contents.
+    let mut copied = second.clone();
+    copied.rig.geometry_spans = Arc::from(&*second.rig.geometry_spans);
+    assert!(!copied.same_empty_frame(&second));
 }
