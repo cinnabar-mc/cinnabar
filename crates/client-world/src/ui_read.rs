@@ -89,6 +89,13 @@ impl<'a> LocalPlayerUi<'a> {
             .actor_bone_descends_from(self.runtime_id(), bone, ancestor)
     }
 
+    /// Identifies the local actor's snapshot and rig, including its HUD evaluation; see
+    /// [`crate::ActorPresentationRevision`].
+    pub fn presentation_revision(self) -> Option<crate::ActorPresentationRevision> {
+        self.authority
+            .actor_presentation_revision(self.runtime_id())
+    }
+
     /// Borrows the completed full-body pose, independently of first-person hand evaluation.
     pub fn pose(self) -> Option<&'a [BoneTransform]> {
         self.authority.actor_ui_pose(self.runtime_id())

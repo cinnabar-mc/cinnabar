@@ -105,6 +105,44 @@ pub(super) struct LivePlayer {
     pub(super) head_bones: Vec<bool>,
     pub(super) overlay_color: [f32; 4],
     pub(super) fire: super::fire::FirePlayback,
+    /// What the last capture of the pose and controller layers read; a capture with the same
+    /// key repeats its output.
+    captured: Option<CaptureKey>,
+    /// Whether this frame began a live capture that has not run yet.
+    awaiting_capture: bool,
+    /// Captures of the pose and layers that ran rather than repeated.
+    #[cfg(test)]
+    pub(super) captures: usize,
+}
+
+/// Everything a capture of the posed actor and its controller layers reads: the actor's
+/// presentation revision, which changes with its snapshot and rig, including the HUD evaluation's
+/// pose and layers, and the presentation's own inputs. Fire playback and held equipment read
+/// per-frame inputs and are captured every frame.
+struct CaptureKey {
+    actor: client_world::ActorPresentationRevision,
+    session: u64,
+    runtime_id: u64,
+    swimming: bool,
+    emote: Option<(cosmetics::emotes::Item, f64)>,
+    glide: Option<[f32; 2]>,
+    cosmetics: Vec<cosmetics::Item>,
+    hat_motion: std::collections::HashMap<cosmetics::Item, render_model::hats::Motion>,
+    cape_key: Option<String>,
+    wearing_elytra: bool,
+    cape_binding: Option<[u8; 32]>,
+    /// Held, so a replaced catalog never reuses its address.
+    textures: std::sync::Arc<render_model::UiRenderTextureArray>,
+    layers: Option<std::sync::Arc<assets::SessionEntityPack>>,
+}
+
+/// Compares two retained allocations by identity, including absence.
+fn same<T>(left: Option<&std::sync::Arc<T>>, right: Option<&std::sync::Arc<T>>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => std::sync::Arc::ptr_eq(left, right),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 /// The head bone in model space, kept apart from the model frame so that a frame's
@@ -142,8 +180,13 @@ impl UiPresentationRuntime {
     /// [`Self::player_model_revision`].
     pub fn begin_live_capture(&mut self) {
         self.note_player_model_change();
-        self.gui_models.live_player.fresh = false;
-        self.gui_models.player_layers.clear_capture();
+        let live = &mut self.gui_models.live_player;
+        live.fresh = false;
+        // A frame that captured nothing left no capture to repeat.
+        if std::mem::replace(&mut live.awaiting_capture, true) {
+            live.captured = None;
+        }
+        self.gui_models.player_layers.park_capture();
     }
 
     /// Counts changes to the player model's dressing and live pose, which a frame reads only
@@ -214,9 +257,184 @@ impl UiPresentationRuntime {
         swimming: bool,
         emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
+        self.gui_models.live_player.awaiting_capture = false;
+        let repeats = self.capture_repeats(local, swimming, emote);
+        self.observe_live_actor(local);
+        if repeats {
+            self.gui_models.player_layers.restore_capture();
+            #[cfg(debug_assertions)]
+            self.check_repeated_capture(local, swimming, emote);
+        } else {
+            self.gui_models.player_layers.reclaim_capture();
+            self.capture_live_pose(local, swimming, emote);
+            self.capture_player_layers(local);
+            self.record_capture(local, swimming, emote);
+            #[cfg(test)]
+            {
+                self.gui_models.live_player.captures += 1;
+            }
+        }
+        self.capture_live_equipment(local);
+    }
+
+    /// Whether the last capture of the pose and layers read exactly what one now would.
+    fn capture_repeats(
+        &self,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
+        swimming: bool,
+        emote: Option<(cosmetics::emotes::Item, f64)>,
+    ) -> bool {
+        let (Some(local), Some(key)) = (local, self.gui_models.live_player.captured.as_ref())
+        else {
+            return false;
+        };
+        local.presentation_revision() == Some(key.actor)
+            && local.session_id() == key.session
+            && local.runtime_id() == key.runtime_id
+            && swimming == key.swimming
+            && emote == key.emote
+            && self.gui_models.live_player.glide == key.glide
+            && self.menu_preview_model.cosmetics == key.cosmetics
+            && self.gui_models.live_player.hat_motion == key.hat_motion
+            && self.menu_preview_model.cape_key == key.cape_key
+            && self.gui_models.wearing_elytra == key.wearing_elytra
+            && self.cape_binding() == key.cape_binding
+            && std::sync::Arc::ptr_eq(&self.textures, &key.textures)
+            && same(self.gui_models.player_layers.source(), key.layers.as_ref())
+    }
+
+    /// Records what the capture just taken read, reusing the record's storage.
+    fn record_capture(
+        &mut self,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
+        swimming: bool,
+        emote: Option<(cosmetics::emotes::Item, f64)>,
+    ) {
+        let Some(actor) = local.and_then(|local| local.presentation_revision()) else {
+            self.gui_models.live_player.captured = None;
+            return;
+        };
+        let local = local.expect("a revision has a local actor");
+        let cape_binding = self.cape_binding();
+        let textures = std::sync::Arc::clone(&self.textures);
+        let layers = self.gui_models.player_layers.source().cloned();
+        let live = &mut self.gui_models.live_player;
+        let key = live.captured.get_or_insert_with(|| CaptureKey {
+            actor,
+            session: 0,
+            runtime_id: 0,
+            swimming,
+            emote,
+            glide: None,
+            cosmetics: Vec::new(),
+            hat_motion: Default::default(),
+            cape_key: None,
+            wearing_elytra: false,
+            cape_binding: None,
+            textures: std::sync::Arc::clone(&textures),
+            layers: None,
+        });
+        key.actor = actor;
+        key.session = local.session_id();
+        key.runtime_id = local.runtime_id();
+        key.swimming = swimming;
+        key.emote = emote;
+        key.glide = live.glide;
+        key.cosmetics.clone_from(&self.menu_preview_model.cosmetics);
+        key.hat_motion.clone_from(&live.hat_motion);
+        key.cape_key.clone_from(&self.menu_preview_model.cape_key);
+        key.wearing_elytra = self.gui_models.wearing_elytra;
+        key.cape_binding = cape_binding;
+        key.textures = textures;
+        key.layers = layers;
+    }
+
+    /// The bound cape's identity, which the captured cape pose depends on.
+    fn cape_binding(&self) -> Option<[u8; 32]> {
+        self.gui_models
+            .sources
+            .cape
+            .as_ref()
+            .map(render_model::cape::CapeRig::binding_key)
+    }
+
+    /// Advances what changes every frame regardless of the pose: whether this frame captured the
+    /// actor, its fire playback and its overlay colour.
+    fn observe_live_actor(&mut self, local: Option<client_world::ui_read::LocalPlayerUi<'_>>) {
+        let fire_frames = self.gui_models.fire.frames.len();
+        let live = &mut self.gui_models.live_player;
+        live.fresh = false;
+        live.fire_size = None;
+        live.overlay_color = [0.0; 4];
+        let Some(local) = local else {
+            live.fire = Default::default();
+            return;
+        };
+        live.fresh = true;
+        let id = local.runtime_id();
+        live.fire_size = local.actor().and_then(|actor| {
+            live.fire.observe(
+                (local.session_id(), id, actor.spawn_revision),
+                actor.is_on_fire(),
+                fire_frames,
+            );
+            live.overlay_color = super::fire::native_player_overlay(actor);
+            if !actor.is_on_fire() {
+                return None;
+            }
+            let (min, max) = actor.bounding_box()?;
+            Some([max[0] - min[0], max[1] - min[1]])
+        });
+    }
+
+    /// Captures again what a repeat kept and checks it is what the repeat kept.
+    #[cfg(debug_assertions)]
+    fn check_repeated_capture(
+        &mut self,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
+        swimming: bool,
+        emote: Option<(cosmetics::emotes::Item, f64)>,
+    ) {
+        let repeated = self.capture_digest();
         self.capture_live_pose(local, swimming, emote);
         self.capture_player_layers(local);
-        self.capture_live_equipment(local);
+        assert_eq!(
+            repeated,
+            self.capture_digest(),
+            "a repeated live capture differs from a fresh one"
+        );
+    }
+
+    /// A digest of the captured pose and layers, computed without allocating.
+    #[cfg(debug_assertions)]
+    fn capture_digest(&self) -> u64 {
+        let live = &self.gui_models.live_player;
+        let mut digest = debug_digest(&(
+            (
+                &live.bones,
+                live.body.geometry.is_some(),
+                &live.body.transforms,
+            ),
+            (live.cape.geometry.is_some(), &live.cape.transforms),
+            (
+                live.parts,
+                live.hands,
+                live.head_bone,
+                live.frame,
+                &live.head_bones,
+            ),
+            (&live.emitters, live.emitter_owner, live.outer_y),
+        ));
+        // Hats are unordered; their digests combine independently of iteration order.
+        for (item, hat) in &live.hats {
+            digest = digest.wrapping_add(debug_digest(&(
+                item,
+                hat.geometry.is_some(),
+                &hat.transforms,
+                hat.follows_head,
+            )));
+        }
+        digest ^ self.gui_models.player_layers.capture_digest()
     }
 
     /// Retains the animated body and unmasked attachment bones for the current capture.
@@ -226,7 +444,6 @@ impl UiPresentationRuntime {
         swimming: bool,
         emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
-        let fire_frames = self.gui_models.fire.frames.len();
         let draw_cape =
             self.menu_preview_model.cape_key.is_some() && !self.gui_models.wearing_elytra;
         let live = &mut self.gui_models.live_player;
@@ -241,13 +458,11 @@ impl UiPresentationRuntime {
         }
         live.emitters.clear();
         live.emitter_owner = None;
-        live.fresh = false;
         live.head = None;
         live.parts = [None; 6];
         live.hands = [None; 2];
         live.head_bone = None;
         live.frame = Affine3A::IDENTITY;
-        live.fire_size = None;
         live.body.geometry = None;
         live.cape.geometry = None;
         live.hats.retain(|item, model| {
@@ -259,30 +474,14 @@ impl UiPresentationRuntime {
         } else {
             0.0
         };
-        live.overlay_color = [0.0; 4];
         let Some(local) = local else {
             live.source = None;
-            live.fire = Default::default();
             return;
         };
-        live.fresh = true;
         let id = local.runtime_id();
         live.emitter_owner = local
             .actor()
             .map(|actor| (local.session_id(), id, actor.spawn_revision));
-        live.fire_size = local.actor().and_then(|actor| {
-            live.fire.observe(
-                (local.session_id(), id, actor.spawn_revision),
-                actor.is_on_fire(),
-                fire_frames,
-            );
-            live.overlay_color = super::fire::native_player_overlay(actor);
-            if !actor.is_on_fire() {
-                return None;
-            }
-            let (min, max) = actor.bounding_box()?;
-            Some([max[0] - min[0], max[1] - min[1]])
-        });
         let Some(rig) = local.rig() else {
             return;
         };
@@ -482,6 +681,22 @@ impl UiPresentationRuntime {
             discard_collapsed_faces(vertices);
         }
     }
+}
+
+/// Hashes `value`'s debug text without allocating it.
+#[cfg(debug_assertions)]
+pub(super) fn debug_digest(value: &dyn std::fmt::Debug) -> u64 {
+    use std::hash::Hasher;
+    struct Digest(std::collections::hash_map::DefaultHasher);
+    impl std::fmt::Write for Digest {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.0.write(text.as_bytes());
+            Ok(())
+        }
+    }
+    let mut digest = Digest(Default::default());
+    let _ = std::fmt::write(&mut digest, format_args!("{value:?}"));
+    digest.0.finish()
 }
 
 /// Converts a validated bone frame to block coordinates for equipment pose deltas.
