@@ -5215,6 +5215,7 @@ dependencies = [
 name = "json-ui"
 version = "0.2.1"
 dependencies = [
+ "foldhash 0.2.0",
  "pack-json",
  "serde",
  "serde_json",

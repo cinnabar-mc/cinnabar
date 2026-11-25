@@ -98,7 +98,10 @@ struct DestroyedRoot {
 /// Retained animation state for the controls a caller paints.
 #[derive(Default)]
 pub struct Animator {
-    components: HashMap<String, Component>,
+    /// Keyed by layout key, which server packs choose, so hashed with a per-process seed.
+    /// Every idle frame repeats a lookup per animated control, which the default hasher made
+    /// the bulk of a repeat's cost.
+    components: HashMap<String, Component, foldhash::fast::RandomState>,
     events: Vec<AnimEvent>,
     /// Button events fired this frame, replayed to components created after them.
     fired: Vec<String>,
