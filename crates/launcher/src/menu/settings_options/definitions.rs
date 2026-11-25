@@ -365,9 +365,9 @@ settings! {
     MacroModifier => "macro_modifier", dropdown("Macro Modifier", super::macro_modifier::MacroModifier::CHOICES, super::macro_modifier::MacroModifier::Alt as i32),
         [(SettingPanel::Keyboard, 4)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
-        [(SettingPanel::VideoGeneral, 2), (SettingPanel::Chat, 5)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 5)], [SettingsGroup::Chat], None, None;
     CinnabarChatInput => "cinnabar_chat_input", dropdown("Chat Input", super::chat::CHAT_INPUTS, 0),
-        [(SettingPanel::VideoGeneral, 3), (SettingPanel::Chat, 6)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
         [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),

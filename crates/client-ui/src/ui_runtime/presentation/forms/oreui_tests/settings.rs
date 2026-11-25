@@ -58,11 +58,29 @@ fn native_video_settings_exposes_animation_choices_and_hud_toggles() {
 }
 
 #[test]
-fn video_chat_position_and_input_choices_are_clickable_in_both_saved_states() {
+fn chat_position_and_input_choices_are_clickable_only_in_chat_settings() {
     use launcher::menu::settings_options::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    let mut view = settings_view("video_forced_index");
+    let mut video = settings_view("video_forced_index");
+    for option in [CHAT_POSITION_OPTION, CHAT_INPUT_OPTION] {
+        let index = option.id.index() as u16;
+        // Focus would scroll the row into view if Video drew it.
+        video.focused_action = Some(MenuAction::SettingsOption(index, option.min));
+        present(&mut presentation, &video, [1280.0, 720.0]);
+        assert!(
+            !presentation
+                .menu_hit_targets
+                .iter()
+                .any(|(target, _)| matches!(
+                    target,
+                    MenuAction::SettingsOption(row, _) if *row == index
+                )),
+            "Video must not show {}",
+            option.name
+        );
+    }
+    let mut view = settings_view("cinnabar_chat_index");
     for option in [CHAT_POSITION_OPTION, CHAT_INPUT_OPTION] {
         let index = option.id.index();
         for size in [[1280.0, 720.0], [1920.0, 1080.0]] {
@@ -71,15 +89,15 @@ fn video_chat_position_and_input_choices_are_clickable_in_both_saved_states() {
                 present(&mut presentation, &view, size);
                 for choice in option.min..=option.max {
                     let action = MenuAction::SettingsOption(index as u16, choice);
-                    // Platform-only rows above it, such as the Windows graphics API, can push
-                    // it below the viewport; focus reveals it as keyboard navigation would.
+                    // Rows above it can push it below the viewport; focus reveals it as
+                    // keyboard navigation would.
                     view.focused_action = Some(action);
                     present(&mut presentation, &view, size);
                     let bounds = presentation
                         .menu_hit_targets
                         .iter()
                         .find_map(|(target, bounds)| (*target == action).then_some(*bounds))
-                        .unwrap_or_else(|| panic!("Video exposes every {} choice", option.name));
+                        .unwrap_or_else(|| panic!("Chat exposes every {} choice", option.name));
                     assert_eq!(presentation.hit_test_menu(centre(bounds)), Some(action));
                 }
             }
