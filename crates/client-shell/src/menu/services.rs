@@ -1,7 +1,34 @@
 //! Launcher services driven after the app supplies its session observations.
 use super::*;
 use launcher::menu::settings_options::CINNABAR_VISIBILITY_OPTION;
+/// The cadence of launcher service work nothing waits on: core exit checks, and the service
+/// pass during play behind a hidden menu.
+pub(super) const SERVICE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
 impl MenuRuntime {
+    /// Whether the launcher service pass runs this frame. It runs every frame while anything may
+    /// wait on it: outside play, behind a visible menu (where every player action starts), while
+    /// connecting or a join or disconnect is queued, while a decision on the account core is
+    /// held, and while a skin change is prepared or sent. During play behind a hidden menu it
+    /// runs once per [`SERVICE_POLL_INTERVAL`], the first such frame at once.
+    pub fn services_due(&mut self, in_session: bool, now: std::time::Instant) -> bool {
+        let waited_on = !in_session
+            || self.visible
+            || self.is_connecting()
+            || self.intents.disconnect
+            || self.core_decision_pending()
+            || self.skin_change_in_progress();
+        if waited_on {
+            self.next_services_pass = None;
+            return true;
+        }
+        if self.next_services_pass.is_some_and(|due| now < due) {
+            return false;
+        }
+        self.next_services_pass = Some(now + SERVICE_POLL_INTERVAL);
+        true
+    }
+
     /// Advances the account core and local worlds using the current session state.
     #[allow(clippy::too_many_arguments)]
     pub fn drive_account_services(
@@ -86,3 +113,6 @@ pub fn sync_cinnabar_players(
         .player_roster
         .set_cinnabar(account.0.cinnabar_players());
 }
+
+#[cfg(test)]
+mod tests;

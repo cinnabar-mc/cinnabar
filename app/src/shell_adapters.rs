@@ -29,6 +29,9 @@ pub(crate) fn drive_menu_services(
     if menu.fixture_active() {
         return;
     }
+    if !menu.services_due(client_world.stream.is_some(), std::time::Instant::now()) {
+        return;
+    }
     let send = network
         .as_ref()
         .map(|network| move |generation, packet| network.send_settings_packet(generation, packet));
