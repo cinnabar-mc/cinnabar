@@ -95,6 +95,7 @@ mod portal_overlay;
 mod present_mode_policy;
 mod shaders;
 mod skull_lighting;
+mod sky_celestial;
 mod solid_terrain_raster;
 mod star_rotation;
 mod surface_patches;

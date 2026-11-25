@@ -224,8 +224,11 @@ fn sky_output(colour: vec3<f32>) -> vec4<f32> {
     return tint_to_linear(vec4(clamp(colour, vec3(0.0), vec3(1.0)), 1.0));
 }
 
+// Outside its quad a sprite adds `rgb * 0`, which is zero for every finite sample, so those
+// pixels skip the texture fetch and transfer.
 fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let mapping = celestial_uv(ray, direction, SUN_HALF_EXTENT);
+    if (mapping.z == 0.0) { return vec4(0.0); }
     let sampled = textureSampleLevel(sun_texture, atmosphere_sampler, mapping.xy, 0.0);
     let visible = celestial_visibility(0.0);
     return vec4(tint_to_gamma(sampled).rgb, sampled.a * mapping.z * visible * celestial_weather_alpha());
@@ -233,6 +236,7 @@ fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
 
 fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let mapping = celestial_uv(ray, direction, MOON_HALF_EXTENT);
+    if (mapping.z == 0.0) { return vec4(0.0); }
     let phase = u32(atmosphere.moon_direction_phase.w) % 8u;
     let phase_column = phase % 4u;
     let phase_row = phase / 4u;
