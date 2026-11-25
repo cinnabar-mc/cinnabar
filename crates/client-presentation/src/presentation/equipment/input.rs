@@ -200,7 +200,7 @@ pub struct LocalInputCache {
     entry: Option<(
         [Option<protocol::NetworkItemStack>; 6],
         LocalInputFacts,
-        ActorEquipmentInput,
+        std::sync::Arc<ActorEquipmentInput>,
     )>,
     _owners: Option<(std::sync::Arc<()>, std::sync::Arc<assets::RuntimeAssets>)>,
     /// Inputs reused since the cache was created.
@@ -216,7 +216,7 @@ pub fn local_input_cached(
     stream: &WorldStream,
     ui: Option<&UiRuntime>,
     runtime_id: u64,
-) -> ActorEquipmentInput {
+) -> std::sync::Arc<ActorEquipmentInput> {
     use inventory::inventory_ledger::InventoryTarget;
     let actor = stream.authority().actor(runtime_id);
     let ledger = ui.map(|ui| ui.inventory_ledger(player_runtime));
@@ -257,14 +257,18 @@ pub fn local_input_cached(
         {
             cache.hits += 1;
         }
-        return input.clone();
+        return std::sync::Arc::clone(input);
     }
-    let input = local_input(player_runtime, stream, ui, runtime_id);
+    let input = std::sync::Arc::new(local_input(player_runtime, stream, ui, runtime_id));
     cache._owners = Some((
         std::sync::Arc::clone(generation),
         std::sync::Arc::clone(runtime_assets),
     ));
-    cache.entry = Some((stacks.map(|stack| stack.cloned()), facts, input.clone()));
+    cache.entry = Some((
+        stacks.map(|stack| stack.cloned()),
+        facts,
+        std::sync::Arc::clone(&input),
+    ));
     input
 }
 
