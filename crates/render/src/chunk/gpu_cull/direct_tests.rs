@@ -262,7 +262,7 @@ fn one_device_poll_per_frame_still_delivers_occlusion_readbacks() {
         app.sub_app(RenderApp)
             .world()
             .resource::<crate::device_poll::DevicePolls>()
-            .0
+            .count()
     };
     let start = polls(&app);
     for frames in 1..=8 {
