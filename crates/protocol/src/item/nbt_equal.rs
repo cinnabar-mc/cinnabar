@@ -8,6 +8,11 @@ type CompoundEntry<'a> = (&'a [u8], u8, &'a [u8]);
 /// Compares parsed compound values and the unchanged item-data trailer.
 /// Unsupported or malformed data retains strict byte comparison.
 pub(super) fn same_extra(a: &[u8], b: &[u8]) -> bool {
+    // Both normalize to an empty compound with an empty trailer, which always compare equal;
+    // an empty held hand is compared every frame.
+    if a.is_empty() && b.is_empty() {
+        return true;
+    }
     compare_extra(a, b).unwrap_or_else(|| a == b)
 }
 
@@ -148,6 +153,19 @@ mod tests {
         bytes.push(0);
         bytes.extend_from_slice(&[0; 8]);
         bytes
+    }
+
+    /// Empty payloads compare as the parsed comparison does: equal to each other and to an
+    /// explicitly empty compound, and unequal to one with a field.
+    #[test]
+    fn empty_payloads_match_the_parsed_comparison() {
+        assert_eq!(same_extra(&[], &[]), compare_extra(&[], &[]).unwrap());
+        assert!(same_extra(&[], &[]));
+        assert!(same_extra(&[], &extra(&[])));
+        assert!(!same_extra(
+            &[],
+            &extra(&field(3, b"a", &1i32.to_le_bytes()))
+        ));
     }
 
     #[test]
