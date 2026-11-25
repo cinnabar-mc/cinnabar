@@ -68,6 +68,11 @@ pub(crate) trait PendingPipelines: Resource {
 struct WarmupRegistry {
     views: Vec<WarmView>,
     ids: WarmupIds,
+    /// Whether owners run this frame. Steady frames keep `ids` and skip every owner.
+    rewarm: bool,
+    /// Whether `ids` holds every owner's variants for `views`; an owner without its resource
+    /// clears it, so it runs again once that resource appears.
+    settled: bool,
     failed: HashSet<CachedRenderPipelineId>,
     /// Owned compiles still running this frame.
     pending: bool,
@@ -92,12 +97,7 @@ pub(crate) fn register<T: PrewarmPipelines>(app: &mut App) {
     if !render_app.world().contains_resource::<WarmupOwner<T>>() {
         render_app
             .insert_resource(WarmupOwner::<T>(std::marker::PhantomData))
-            .add_systems(
-                Render,
-                prewarm_owner::<T>
-                    .in_set(WarmupSet::Owners)
-                    .run_if(render_scene::startup_work::world_work_allowed),
-            );
+            .add_systems(Render, prewarm_owner::<T>.in_set(WarmupSet::Owners));
     }
 }
 
@@ -165,6 +165,13 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
                     .after(RenderSystems::Prepare)
                     .before(RenderSystems::Render),
             )
+            // One set condition replaces every owner's per-frame run.
+            .configure_sets(
+                Render,
+                WarmupSet::Owners
+                    .run_if(render_scene::startup_work::world_work_allowed)
+                    .run_if(rewarming),
+            )
             .add_systems(ExtractSchedule, extract_sample_request)
             .add_systems(Render, collect_views.in_set(WarmupSet::Views))
             .add_systems(Render, publish_readiness.in_set(RenderSystems::Cleanup));
@@ -206,13 +213,16 @@ pub(crate) fn requested_sample_mode(
     requested.filter(|_| world_camera && !shader_pack)
 }
 
+/// Collects this frame's view keys and decides whether owners must rebuild `ids`: when the
+/// keys change, an owner was missing, or world work is held (owners then add nothing).
 fn collect_views(
     views: ViewKeys,
     preflight: Res<SampleCountPreflight>,
+    admission: Option<Res<render_scene::startup_work::WorldWorkAdmission>>,
     mut registry: ResMut<WarmupRegistry>,
+    mut current: Local<Vec<WarmView>>,
 ) {
-    registry.views.clear();
-    registry.ids.clear();
+    current.clear();
     registry.pending = false;
     registry.requested = None;
     for (camera, msaa, target, enhanced, shader_pack, world_camera) in &views {
@@ -236,22 +246,37 @@ fn collect_views(
             .into_iter()
             .flatten()
         {
-            if !registry.views.contains(&key) {
-                registry.views.push(key);
+            if !current.contains(&key) {
+                current.push(key);
             }
         }
     }
+    let changed = *current != registry.views;
+    if changed {
+        std::mem::swap(&mut registry.views, &mut *current);
+    }
+    let admitted = render_scene::startup_work::world_work_allowed(admission);
+    registry.rewarm = changed || !registry.settled || !admitted;
+    if registry.rewarm {
+        registry.ids.clear();
+    }
+    registry.settled = admitted;
 }
 
-/// Specializes once per view configuration; later frames only compare keys.
+fn rewarming(registry: Res<WarmupRegistry>) -> bool {
+    registry.rewarm
+}
+
+/// Specializes once per view configuration; runs only on frames that rebuild the registry.
 fn prewarm_owner<T: PrewarmPipelines>(
     owner: Option<ResMut<T>>,
     cache: Res<PipelineCache>,
     mut registry: ResMut<WarmupRegistry>,
     mut warmed: Local<HashMap<WarmView, WarmupIds>>,
 ) {
-    // An owner that never initialised has nothing it could draw.
+    // An owner that never initialised has nothing it could draw yet.
     let Some(mut owner) = owner else {
+        registry.settled = false;
         return;
     };
     let WarmupRegistry { views, ids, .. } = &mut *registry;

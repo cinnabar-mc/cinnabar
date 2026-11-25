@@ -219,6 +219,108 @@ fn cancelled_sample_requests_do_not_hold_ready_views() {
     assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
 }
 
+#[derive(Resource, Default)]
+struct OwnerFrames(usize);
+
+fn count_owner_frame(mut frames: ResMut<OwnerFrames>) {
+    frames.0 += 1;
+}
+
+/// A render app with one registered owner whose resource is not inserted yet, plus a probe
+/// that counts the frames the owner set runs.
+fn owner_app() -> App {
+    let mut app = App::new();
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    register::<TwoModes>(&mut app);
+    let render = app.sub_app_mut(RenderApp);
+    render
+        .insert_resource(cache())
+        .init_resource::<OwnerFrames>()
+        .add_systems(Render, count_owner_frame.in_set(WarmupSet::Owners));
+    render.world_mut().spawn((
+        crate::render_test_support::camera(false),
+        Msaa::Off,
+        Camera3d::default(),
+    ));
+    app
+}
+
+#[test]
+fn steady_frames_skip_owners_until_the_views_change() {
+    let mut app = owner_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(TwoModes {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    world.run_schedule(Render);
+    world.resource_mut::<PipelineCache>().process_queue();
+    for _ in 0..3 {
+        world.run_schedule(Render);
+        assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+        assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
+    }
+    assert_eq!(
+        world.resource::<OwnerFrames>().0,
+        1,
+        "steady frames run no owner"
+    );
+
+    let camera = world
+        .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<Camera3d>>()
+        .single(world)
+        .unwrap();
+    world.entity_mut(camera).insert(Msaa::Sample4);
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<OwnerFrames>().0, 2);
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 4);
+    assert!(!world.resource::<PipelineWarmupReadiness>().is_ready());
+}
+
+#[test]
+fn an_owner_that_appears_late_still_warms_its_variants() {
+    let mut app = owner_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    for _ in 0..2 {
+        world.run_schedule(Render);
+    }
+    assert!(world.resource::<WarmupRegistry>().ids.is_empty());
+    world.insert_resource(TwoModes {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
+    assert!(!world.resource::<PipelineWarmupReadiness>().is_ready());
+    world.resource_mut::<PipelineCache>().process_queue();
+    world.run_schedule(Render);
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+}
+
+#[test]
+fn owners_wait_for_world_work_admission() {
+    let mut app = owner_app();
+    let admission = render_scene::startup_work::WorldWorkAdmission::after_menu();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(admission.clone());
+    world.insert_resource(TwoModes {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    for _ in 0..2 {
+        world.run_schedule(Render);
+    }
+    assert_eq!(world.resource::<OwnerFrames>().0, 0);
+    assert!(world.resource::<WarmupRegistry>().ids.is_empty());
+
+    admission.menu_presented();
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<OwnerFrames>().0, 1);
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
+}
+
 #[test]
 fn no_view_never_releases_loading() {
     let cache = cache();
