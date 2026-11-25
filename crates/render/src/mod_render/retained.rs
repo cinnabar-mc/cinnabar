@@ -67,15 +67,37 @@ pub(super) fn install(app: &mut App) {
 
 /// Registers drawing preparation and deferred resource release in the render schedule.
 fn install_systems(app: &mut SubApp) {
-    app.add_systems(
-        Render,
-        (
-            gpu::queue
-                .after(super::primitives::queue)
-                .in_set(RenderSystems::Queue),
-            pipeline::bindings.in_set(RenderSystems::PrepareBindGroups),
-            materials::retire.in_set(crate::device_poll::FrameSubmissions),
-            gpu::retire.in_set(crate::device_poll::FrameSubmissions),
-        ),
-    );
+    app.configure_sets(Render, RetainedSystems.run_if(has_retained_work))
+        .add_systems(
+            Render,
+            (
+                gpu::queue
+                    .after(super::primitives::queue)
+                    .in_set(RenderSystems::Queue),
+                pipeline::bindings.in_set(RenderSystems::PrepareBindGroups),
+                materials::retire.in_set(crate::device_poll::FrameSubmissions),
+                gpu::retire.in_set(crate::device_poll::FrameSubmissions),
+            )
+                .in_set(RetainedSystems),
+        );
+}
+
+/// The retained drawing systems: mesh and view preparation, bindings, clip targets and the
+/// deferred release of removed storage.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct RetainedSystems;
+
+/// Whether the retained drawing systems have anything to do: retained resources in the scene,
+/// or GPU, material or clip state left to release. The condition runs before the queue, so a
+/// frame that removes the last drawing still runs the release systems after it.
+fn has_retained_work(
+    scene: Option<Res<render_scene::ModRenderScene>>,
+    gpu: Option<Res<gpu::Gpu>>,
+    materials: Option<Res<materials::Materials>>,
+    targets: Option<Res<clips::Targets>>,
+) -> bool {
+    scene.is_some_and(|scene| !scene.retained.is_empty())
+        || gpu.is_some_and(|gpu| !gpu.at_rest())
+        || materials.is_some_and(|materials| !materials.at_rest())
+        || targets.is_some_and(|targets| !targets.at_rest())
 }
