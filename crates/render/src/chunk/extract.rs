@@ -1,7 +1,7 @@
 use bevy::render::{
     Extract, ExtractSchedule, sync_component::SyncComponentPlugin, sync_world::RenderEntity,
 };
-use render_scene::ChunkRenderInstance;
+use render_scene::{ChunkInstanceChanges, ChunkRenderInstance};
 
 use super::*;
 use render_scene::{RuntimeStage, RuntimeStageProfiler};
@@ -24,26 +24,51 @@ pub(in crate::chunk) fn install_chunk_extraction(app: &mut App) {
             ExtractResourcePlugin::<ModelWitnessRequest>::default(),
             ExtractResourcePlugin::<VisibilityDiagnosticsInput>::default(),
         ));
+    app.init_resource::<ChunkInstanceChanges>();
     app.sub_app_mut(RenderApp)
+        .init_resource::<ChunkInstanceChanges>()
         .add_systems(ExtractSchedule, extract_chunk_render_instances);
 }
 
+/// Copies the main-world instances marked since the previous extraction.
+///
+/// Debug builds check the marks against change detection, which would find the same set by
+/// scanning every instance.
 fn extract_chunk_render_instances(
     mut commands: Commands,
-    mut previous_len: Local<usize>,
-    query: Extract<Query<(RenderEntity, &ChunkRenderInstance), Changed<ChunkRenderInstance>>>,
+    mut marked: Local<Vec<Entity>>,
+    changes: Extract<Res<ChunkInstanceChanges>>,
+    instances: Extract<Query<(RenderEntity, &ChunkRenderInstance)>>,
+    #[cfg(debug_assertions)] changed: Extract<Query<Entity, Changed<ChunkRenderInstance>>>,
     profiler: Extract<Option<Res<RuntimeStageProfiler>>>,
 ) {
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::ChunkExtraction));
-    let mut values = Vec::with_capacity(*previous_len);
-    values.extend(
-        query
-            .iter()
-            .map(|(render_entity, instance)| (render_entity, instance.clone())),
-    );
-    *previous_len = values.len();
+    changes.take_into(&mut marked);
+    #[cfg(debug_assertions)]
+    {
+        for entity in &changed {
+            debug_assert!(
+                marked.binary_search(&entity).is_ok(),
+                "{entity} changed its chunk instance without marking ChunkInstanceChanges"
+            );
+        }
+        for &entity in marked.iter() {
+            debug_assert!(
+                !instances.contains(entity) || changed.contains(entity),
+                "{entity} was marked in ChunkInstanceChanges without changing its instance"
+            );
+        }
+    }
+    if marked.is_empty() {
+        return;
+    }
+    let values = marked
+        .iter()
+        .filter_map(|&entity| instances.get(entity).ok())
+        .map(|(render_entity, instance)| (render_entity, instance.clone()))
+        .collect::<Vec<_>>();
     commands.try_insert_batch(values);
 }
 
@@ -66,6 +91,7 @@ mod tests {
         let profiler = RuntimeStageProfiler::with_trace(true, Some(path.clone()));
         let mut app = App::new();
         app.insert_resource(profiler.clone())
+            .init_resource::<render_scene::ChunkInstanceChanges>()
             .add_systems(First, input_frame)
             .add_plugins(ExtractPlugin::<RenderApp>::new(
                 |_, _| {},

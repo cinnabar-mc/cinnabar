@@ -48,7 +48,8 @@ impl PreparedResourceGeometry {
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<ChunkGpuRemovalQueue>()
             .init_resource::<TransparentRetirementFence>()
-            .init_resource::<GpuUpdateFairness>();
+            .init_resource::<GpuUpdateFairness>()
+            .init_resource::<render_scene::ChunkInstanceChanges>();
         for instance in instances {
             let mut instance = instance.clone();
             instance.token = None;

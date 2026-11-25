@@ -43,6 +43,8 @@ pub use biome_tints::{
 };
 pub mod instance;
 pub use instance::ChunkRenderInstance;
+pub mod instance_changes;
+pub use instance_changes::ChunkInstanceChanges;
 pub mod texture_reload;
 pub use texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub mod textures;
