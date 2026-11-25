@@ -11,7 +11,7 @@ The focused history ends at the same bottom offset as HUD chat. The input bar
 and history share the pack's chat width. Focused history does not fade or give
 way to autocomplete; suggestions overlay it immediately above the input.
 
-Video settings expose **Chat Position** with **Bottom** (the existing default)
+Chat settings expose **Chat Position** with **Bottom** (the existing default)
 and **Top**. The saved preference moves HUD notifications and focused history.
 Top notifications reserve the native position and days-played label heights.
 The editor, suggestions, server HUD widgets and built-in chat priority retain

@@ -91,7 +91,7 @@ fn perspective_and_hotbar_can_share_a_key_across_remaps_reset_and_reload() {
 }
 
 #[test]
-fn chat_position_defaults_to_bottom_persists_and_resets_only_with_video() {
+fn chat_position_defaults_to_bottom_persists_and_resets_only_with_chat() {
     let mut settings = SettingsOptions::decode(br#"{"values":{}}"#).unwrap();
     assert!(!settings.chat_at_top());
     let index = SETTINGS_OPTIONS
@@ -101,9 +101,9 @@ fn chat_position_defaults_to_bottom_persists_and_resets_only_with_video() {
     settings.set(index, CHAT_POSITION_OPTION.max);
     let mut saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
     assert!(saved.chat_at_top());
-    saved.reset_group(SettingsGroup::Accessibility);
-    assert!(saved.chat_at_top());
     saved.reset_group(SettingsGroup::Video);
+    assert!(saved.chat_at_top());
+    saved.reset_group(SettingsGroup::Chat);
     assert!(!saved.chat_at_top());
 }
 

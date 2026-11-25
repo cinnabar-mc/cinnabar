@@ -761,7 +761,10 @@ the next seat update. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
 Authored base seats resolve mount scale and player riding height, then share the
 [native-origin conversion](docs/reference/rider-seat-origins.md) with streamed seat
-metadata for local and remote passenger placement. Unlocked player riders retain
+metadata for local and remote passenger placement. A passenger whose mount type has no
+seats and that streams no seat offset sits at the mount's origin, as vanilla's client places
+every passenger from its synced seat offset, which defaults to zero; the local player's
+inputs report that seat. Unlocked player riders retain
 look-driven body turns while seated, and explicit seat-facing locks still override
 the animation. Live bench camera/body alignment and special passenger families
 remain unqualified.
