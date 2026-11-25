@@ -8,9 +8,6 @@ use std::sync::Arc;
 use super::def::{AnimKind, AnimNode};
 use super::paint::ControlAnims;
 
-mod deferred;
-pub use deferred::SharedAnimator;
-
 /// Floor under a duration when normalizing elapsed time.
 const MIN_DURATION: f32 = 0.01;
 /// Floor under a flip-book's frames per second.
@@ -115,8 +112,6 @@ pub struct Animator {
     events_fired: u64,
     /// Samples for a draw that paints nothing, which may keep running without changing it.
     quiet: bool,
-    /// Idle repeats not applied yet; see [`Animator::defer_repeat`].
-    deferred: Option<deferred::DeferredRepeat>,
 }
 
 /// What one paint did to an [`Animator`]: the components it sampled, the destroyed roots it

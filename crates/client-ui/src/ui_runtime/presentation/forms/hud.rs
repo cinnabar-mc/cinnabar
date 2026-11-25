@@ -279,30 +279,6 @@ impl UiPresentationRuntime {
 impl UiPresentationRuntime {
     /// Repeats, for a frame at `now_millis` that is not built, what reusing the last build's
     /// settled HUD paints does besides drawing; `false` when a paint would draw differently.
-    /// [`Self::repeat_hud_paints`] followed by the animation frame end, with the animator's part
-    /// deferred while it would change nothing but sample times. Whether the frame repeated so;
-    /// when it did not, nothing was done.
-    pub(in super::super) fn defer_hud_repeat(&mut self, now_millis: u64) -> bool {
-        let Some(engine) = self.engine.as_deref() else {
-            return false;
-        };
-        let painted = self.hud_painted;
-        if !self
-            .screens
-            .hud
-            .defer_settled_animations(engine, painted, now_millis as f64 / 1_000.0)
-        {
-            return false;
-        }
-        for crosshair in [false, true] {
-            if painted[usize::from(crosshair)] {
-                self.screens.hud.repeat_settled_hunger(crosshair);
-            }
-        }
-        self.screens.oreui.transitions.end_frame();
-        true
-    }
-
     pub(in super::super) fn repeat_hud_paints(&mut self, now_millis: u64) -> bool {
         let Some(engine) = self.engine.as_deref() else {
             return !self.hud_painted.contains(&true);

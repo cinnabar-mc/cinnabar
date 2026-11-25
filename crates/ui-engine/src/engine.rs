@@ -92,7 +92,7 @@ pub struct FormEngine {
     /// Logical dependencies of recent immutable draw-node snapshots.
     dependencies: std::sync::Mutex<dependencies::DependencyCache>,
     /// Animation state of every drawn control, keyed by layout key.
-    animator: json_ui::SharedAnimator,
+    animator: std::sync::Mutex<json_ui::Animator>,
 }
 
 /// The strongest image change collected since the previous frame's poll.
@@ -122,7 +122,7 @@ pub struct FormCache {
 struct Art<'a> {
     assets: &'a RuntimeUiAssets,
     set: &'a TextureSet,
-    animator: &'a json_ui::SharedAnimator,
+    animator: &'a std::sync::Mutex<json_ui::Animator>,
     dependencies: &'a std::sync::Mutex<dependencies::DependencyCache>,
 }
 
@@ -196,7 +196,7 @@ impl FormEngine {
             server_ui: false,
             cache: None,
             passes: [0; 2],
-            animator: json_ui::SharedAnimator::default(),
+            animator: std::sync::Mutex::default(),
             dependencies: std::sync::Mutex::default(),
         }
     }
@@ -213,7 +213,9 @@ impl FormEngine {
     /// The animator every paint ticks: the dispatcher fires button events into
     /// it, drains its end and destroy events, and ends each presented frame.
     pub fn animator(&self) -> std::sync::MutexGuard<'_, json_ui::Animator> {
-        self.animator.lock()
+        self.animator
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     /// Which catalog forms resolve against, for the render-path log.
@@ -322,7 +324,10 @@ impl FormEngine {
             .get_mut()
             .unwrap_or_else(|poison| poison.into_inner()) =
             dependencies::DependencyCache::default();
-        *self.animator.get_mut() = json_ui::Animator::new();
+        *self
+            .animator
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner()) = json_ui::Animator::new();
     }
 
     pub fn assets(&self) -> &RuntimeUiAssets {

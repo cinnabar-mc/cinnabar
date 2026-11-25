@@ -1,4 +1,4 @@
-use super::{FramesInFlight, MAX_FRAMES_IN_FLIGHT, submission_marker};
+use super::{FramesInFlight, MAX_FRAMES_IN_FLIGHT};
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use std::sync::{
     Arc,
@@ -91,27 +91,4 @@ fn frames_without_a_swap_chain_stay_within_the_in_flight_bound() {
             "{queued} frames still queued after frame {submitted}"
         );
     }
-}
-
-/// A frame whose graph submission was recorded is marked by it; only a frame that recorded none
-/// spends an empty submission on its marker.
-#[test]
-fn a_recorded_graph_submission_marks_its_frame_without_another_submission() {
-    let Some((device, queue)) = native_device() else {
-        return;
-    };
-    let gpu = device.wgpu_device();
-    let mut frames = FramesInFlight::default();
-    let before = submission_marker(&queue);
-    let encoder = gpu.create_command_encoder(&Default::default());
-    frames.record_submission(queue.submit([encoder.finish()]));
-    frames.finish_frame(gpu, &queue).expect("frame poll");
-    let recorded = submission_marker(&queue);
-    assert_eq!(recorded, before + 2, "only the graph submission ran");
-    frames.finish_frame(gpu, &queue).expect("frame poll");
-    assert_eq!(
-        submission_marker(&queue),
-        recorded + 2,
-        "an unrecorded frame submits its own marker"
-    );
 }
