@@ -11,7 +11,11 @@ suppresses that adjustment. Streamed `SeatOffset` metadata already includes
 these adjustments and is used directly. Both resolved sources then use the
 native mount origin as the anchor and remove the rider's origin offset once
 to recover collision feet. Seat selection is retained.
-Unknown or unadmitted seats still retain the streamed rider position.
+A mount type with no seats, whose rider streams no `SeatOffset`, seats the
+rider at a zero offset: the rider's native origin is the mount's. Vanilla's
+client places every passenger from its synced seat offset, which is zero until
+the server sets one. Unadmitted authored seats still retain the streamed rider
+position.
 
 An unlocked player rider continues to turn its body with its look during the
 same ride. Riding suppresses the walking cycle, while the ordinary player body
