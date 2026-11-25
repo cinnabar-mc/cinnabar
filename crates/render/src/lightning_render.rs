@@ -52,6 +52,7 @@ pub(crate) fn install_lightning_render(app: &mut App) {
         .init_resource::<LightningPipeline>()
         .add_render_command::<Transparent3d, DrawLightningCommands>()
         .add_systems(RenderStartup, init_lightning_gpu)
+        .configure_sets(Render, LightningSystems.run_if(has_bolts))
         .add_systems(
             Render,
             (
@@ -60,8 +61,19 @@ pub(crate) fn install_lightning_render(app: &mut App) {
                 queue_lightning
                     .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
-            ),
+            )
+                .in_set(LightningSystems),
         );
+}
+
+/// The lightning systems: they upload bolt records and queue draws only for bolts.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct LightningSystems;
+
+/// Without bolts the lightning systems queue nothing, and the bind group they cache is rebuilt
+/// on the next frame with bolts.
+fn has_bolts(scene: Res<LightningScene>) -> bool {
+    !scene.records.is_empty()
 }
 
 #[derive(Resource)]
@@ -444,5 +456,42 @@ mod review_tests {
         assert_ne!(items[0].distance, items[1].distance);
         assert_eq!(items[0].batch_range, 0..1);
         assert_eq!(items[1].batch_range, 1..2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::upload_staging::BufferUploadStaging;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// Without bolts the lightning systems stage nothing, so the frame skips them.
+    #[test]
+    fn a_scene_without_bolts_skips_the_lightning_systems() {
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        let staging = BufferUploadStaging::new(world.resource());
+        world.insert_resource(staging);
+        world.insert_resource(LightningScene::default());
+        world.run_system_once(init_lightning_gpu).unwrap();
+        world.run_system_once(prepare_lightning_records).unwrap();
+        assert_eq!(
+            world
+                .resource::<BufferUploadStaging>()
+                .stats()
+                .staged_writes,
+            0
+        );
+        assert!(!world.run_system_once(has_bolts).unwrap());
+        world.resource_mut::<LightningScene>().records = vec![bytemuck::Zeroable::zeroed()];
+        world.run_system_once(prepare_lightning_records).unwrap();
+        assert_eq!(
+            world
+                .resource::<BufferUploadStaging>()
+                .stats()
+                .staged_writes,
+            1
+        );
+        assert!(world.run_system_once(has_bolts).unwrap());
     }
 }
