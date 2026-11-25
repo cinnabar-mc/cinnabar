@@ -11,7 +11,8 @@ pub struct MovementInput {
     /// Spectator travel ignores terrain collision and block contact effects.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spectator: bool,
-    /// Bypasses terrain clipping while preserving the selected travel physics.
+    /// Bypasses terrain clipping and block movement slowdowns while preserving
+    /// the selected travel physics.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_clip: bool,
     /// Independent pose flags request a compact body even when flight owns travel.

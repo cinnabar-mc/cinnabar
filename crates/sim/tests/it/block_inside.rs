@@ -336,6 +336,44 @@ fn stuck_blocks_slow_every_travel_mode_except_creative_flight() {
     );
 }
 
+/// NoClip passes through cobwebs, berry bushes and powder snow without their
+/// move slowdown, as spectator travel does.
+#[test]
+fn no_clip_bypasses_block_movement_slowdowns() {
+    let cases = [
+        (BlockPhysicsFlags::COBWEB, 0.25, 0.05),
+        (BlockPhysicsFlags::PASSABLE, 0.8, 0.75),
+        (BlockPhysicsFlags::POWDER_SNOW, 0.9, 1.5),
+    ];
+    for (flags, horizontal, vertical) in cases {
+        let blocked = Cells::default().with([0, 4, 0], slowing(flags, horizontal, vertical));
+        for mode in [MovementMode::Walking, MovementMode::Flying] {
+            let moved = |world: &Cells, no_clip| {
+                let mut state = PlayerState::new(Vec3::new(0.5, 4.2, 0.5));
+                state.velocity = Vec3::new(0.4, -0.4, 0.4);
+                tick(
+                    world,
+                    &mut state,
+                    MovementInput {
+                        mode,
+                        no_clip,
+                        ..MovementInput::default()
+                    },
+                )
+            };
+            let clipped = moved(&blocked, true);
+            let open = moved(&Cells::default(), true);
+            assert_eq!(clipped.movement, open.movement, "{flags:?} in {mode:?}");
+            assert_eq!(clipped.velocity, open.velocity, "{flags:?} in {mode:?}");
+            let colliding = moved(&blocked, false);
+            assert_ne!(
+                colliding.movement, open.movement,
+                "a colliding player still slows in {flags:?} while {mode:?}"
+            );
+        }
+    }
+}
+
 /// Bubble columns push once per cell after the move: inside the column, then at its surface.
 #[test]
 fn bubble_columns_push_per_cell_inside_then_at_the_surface() {
