@@ -288,7 +288,8 @@ impl MeshBuilder {
             self.light
         };
         let atlas_size = self.atlas_size;
-        let normal = if !actor_lit {
+        // Unlit parts keep geometric normals: held rigs reuse these quads with their own lighting.
+        let normal = if self.actor_light == 0 {
             [0.0; 3]
         } else {
             let origin = Vec3::from_array(corners[0]);
@@ -546,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn unlit_quads_bypass_the_lightmap_but_keep_authored_face_shades() {
+    fn unlit_quads_bypass_the_lightmap_but_keep_authored_face_shades_and_normals() {
         let mut builder = MeshBuilder::new([64, 64]);
         builder.light = 0.25;
         builder.actor_light = render_api::ACTOR_LIGHT_WORLD;
@@ -562,7 +563,8 @@ mod tests {
         for (face, shade) in builder.solid.as_chunks::<6>().0.iter().zip(BOX_SHADES) {
             for vertex in face {
                 assert_eq!(vertex.color, [shade, shade, shade, 1.0]);
-                assert_eq!(vertex.normal, [0.0; 3]);
+                let normal = Vec3::from_array(vertex.normal);
+                assert!((normal.length() - 1.0).abs() < 1.0e-5, "{normal}");
                 assert_eq!(vertex.actor_light, 0);
             }
         }
