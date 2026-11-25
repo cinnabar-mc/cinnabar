@@ -15,7 +15,6 @@ name = "json_ui"
 path = "src/lib.rs"
 
 [dependencies]
-foldhash = "0.2.0"
 pack-json = { path = "../pack-json" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
