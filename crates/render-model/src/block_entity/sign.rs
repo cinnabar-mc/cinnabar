@@ -120,12 +120,10 @@ pub(super) fn emit(builder: &mut MeshBuilder, block: [i32; 3], model: &SignModel
                 .transform_point3(glam::Vec3::from_array(corner))
                 .to_array()
         });
-        let saved = builder.light;
-        if face.glowing {
-            builder.light = 1.0;
-        }
+        let saved = builder.unlit;
+        builder.unlit = face.glowing;
         builder.textured_quad(Layer::Solid, corners, face.rect, WHITE);
-        builder.light = saved;
+        builder.unlit = saved;
     };
     draw(model.front, plane.front_z - TEXT_LIFT, false);
     if let Some(back_z) = plane.back_z {
