@@ -106,6 +106,22 @@ pub(super) fn prepare(
     }
 }
 
+/// Whether [`prepare`] would leave the atlas as it is: no new base or raw-view setting to install,
+/// no failed upload waiting to retry, and every published patch already uploaded.
+pub(super) fn settled(
+    frame: &ParticleGpuFrame,
+    gpu: &ParticleGpu,
+    raw_views: crate::actor::gpu::ArtworkRawViews,
+) -> bool {
+    let new_base = frame.base.as_ref().is_some_and(|base| {
+        gpu.texture_raw_views != raw_views
+            || gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
+    });
+    !new_base
+        && !gpu.atlas.retry.failed()
+        && (gpu.texture.is_none() || frame.patch_seq == gpu.uploaded_seq)
+}
+
 /// Uploads the current base at full size, then, when `reduce` allows, at halved sizes.
 fn install(gpu: &mut ParticleGpu, device: &RenderDevice, queue: &RenderQueue, reduce: bool) {
     let (Some(base), side) = (gpu.base.clone(), gpu.atlas.side) else {
