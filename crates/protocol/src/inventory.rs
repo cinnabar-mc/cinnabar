@@ -99,6 +99,7 @@ pub use request::{
     repeated_container_open_warning_packet,
 };
 use validation::validate_item_user_data;
+mod retained_digest;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
 pub const MAX_ITEM_NBT_BYTES: usize = 1_048_576;
 pub const MAX_STACK_RESPONSES: usize = 512;
@@ -371,7 +372,7 @@ impl VerifiedNetworkItemStack {
         expected_digest: [u8; 32],
     ) -> Result<Self, InventoryPacketError> {
         validate_stack_shape(&stack)?;
-        let actual: [u8; 32] = Sha256::digest(&stack.extra_data).into();
+        let actual = retained_digest::retained_digest(&stack.extra_data);
         if actual != stack.nbt_digest || actual != expected_digest {
             return Err(InventoryPacketError::DigestMismatch);
         }

@@ -44,6 +44,39 @@ impl<T> PartialEq for RegistryIdentity<T> {
     }
 }
 
+impl<T> RegistryIdentity<T> {
+    /// Whether `registry` is the allocation this identity names, without taking a reference.
+    fn names(&self, registry: &Arc<T>) -> bool {
+        std::ptr::eq(self.0.as_ptr(), Arc::as_ptr(registry))
+    }
+}
+
+impl InlineRegistryIdentity {
+    /// Whether `ids` resolves blocks as the inputs this identity captured, compared field by
+    /// field without capturing a new identity.
+    fn matches(&self, ids: &DecodeIds) -> bool {
+        let DecodeIds {
+            assets,
+            custom_blocks,
+            custom_identities,
+            remap,
+            session_id,
+            mode,
+            air,
+            diagnostics: _,
+            biome_tints: _,
+            default_biome: _,
+        } = ids;
+        self.assets.names(assets)
+            && self.custom_blocks == *custom_blocks
+            && self.custom_identities.names(custom_identities)
+            && self.remap.names(remap)
+            && self.session_id == *session_id
+            && self.mode == *mode
+            && self.air == *air
+    }
+}
+
 impl From<&DecodeIds> for InlineRegistryIdentity {
     /// Captures only inputs used by block resolution; biome and diagnostic data stay on jobs.
     fn from(ids: &DecodeIds) -> Self {
@@ -93,7 +126,7 @@ impl BlockIds for DecodeIds {
     fn inline_cache_context_matches(&self, context: &(dyn std::any::Any + Send + Sync)) -> bool {
         context
             .downcast_ref::<InlineRegistryIdentity>()
-            .is_some_and(|previous| *previous == InlineRegistryIdentity::from(self))
+            .is_some_and(|previous| previous.matches(self))
     }
 
     /// Returns the active registry's air value.
