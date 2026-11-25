@@ -14,6 +14,7 @@ use {super::UiPresentationRuntime, ui::IconRef};
 pub(super) mod cape;
 pub(super) mod controller;
 pub(super) mod dress_reuse;
+pub use dress_reuse::DressUnchanged;
 pub(in crate::ui_runtime::presentation) mod equipment;
 mod fitting;
 pub mod geometry;
