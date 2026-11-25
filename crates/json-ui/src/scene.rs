@@ -123,12 +123,16 @@ pub struct SceneEntry<K> {
 /// Live scenes bottom first, answering what draws, what gets input and who owns the mouse.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SceneStack<K> {
-    scenes: Vec<SceneEntry<K>>,
+    /// Inline room for a gameplay stack with its overlays: callers rebuild the stack several
+    /// times a frame, and a typical one then allocates nothing.
+    scenes: smallvec::SmallVec<[SceneEntry<K>; 8]>,
 }
 
 impl<K> Default for SceneStack<K> {
     fn default() -> Self {
-        Self { scenes: Vec::new() }
+        Self {
+            scenes: smallvec::SmallVec::new(),
+        }
     }
 }
 
