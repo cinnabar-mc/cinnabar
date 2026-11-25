@@ -15,11 +15,38 @@ pub(super) fn cached_device_budget<D: Clone, B: Copy>(
 }
 
 /// What the scene holds after an empty frame, apart from the glint clock that nothing draws.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub(super) struct HeldScene {
     models_revision: u64,
     terrain_session_id: Option<u64>,
     budget: Option<render_model::dropped_item::ItemModelBudget>,
+    /// The glint raster the renderer uploads even without instances. Holding its pixels keeps
+    /// their address from being reused while the scene compares by it.
+    glint: Option<render_model::EquipmentRaster>,
+}
+
+impl PartialEq for HeldScene {
+    fn eq(&self, other: &Self) -> bool {
+        self.models_revision == other.models_revision
+            && self.terrain_session_id == other.terrain_session_id
+            && self.budget == other.budget
+            && same_raster(self.glint.as_ref(), other.glint.as_ref())
+    }
+}
+
+/// Whether two glint rasters are the same allocation at the same size.
+fn same_raster(
+    left: Option<&render_model::EquipmentRaster>,
+    right: Option<&render_model::EquipmentRaster>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            (left.width, left.height) == (right.width, right.height)
+                && std::sync::Arc::ptr_eq(&left.rgba8, &right.rgba8)
+        }
+        _ => false,
+    }
 }
 
 impl HeldScene {
@@ -31,6 +58,7 @@ impl HeldScene {
             models_revision: scene.models_revision,
             terrain_session_id: scene.terrain_session_id,
             budget: scene.model_budget,
+            glint: scene.glint.clone(),
         })
     }
 }
@@ -48,11 +76,15 @@ pub(super) struct IdlePublication {
 
 impl IdlePublication {
     /// The scene to keep when this empty frame at cache `revision` with this frame's model
-    /// `budget` can skip publication. A new budget, such as after a device replacement, is
-    /// published.
+    /// `budget` and `glint` raster can skip publication. A new budget, such as after a device
+    /// replacement, or a new glint raster, such as after a pack reload, is published.
     pub(super) fn holds(
         &self,
-        (revision, budget): (u64, render_model::dropped_item::ItemModelBudget),
+        (revision, budget, glint): (
+            u64,
+            render_model::dropped_item::ItemModelBudget,
+            Option<&render_model::EquipmentRaster>,
+        ),
         empty: bool,
         scene: &render_scene::DroppedItemScene,
     ) -> Option<HeldScene> {
@@ -61,6 +93,7 @@ impl IdlePublication {
             && *twice
             && *settled == revision
             && held.budget == Some(budget)
+            && same_raster(held.glint.as_ref(), glint)
             && HeldScene::of(scene).as_ref() == Some(held))
         .then(|| held.clone())
     }
@@ -75,6 +108,9 @@ impl IdlePublication {
         held: Option<HeldScene>,
     ) {
         let published = HeldScene::of(scene);
+        // Release frames that hold return before publishing, so only checking builds see one.
+        #[cfg(not(any(test, debug_assertions)))]
+        let _ = held;
         #[cfg(any(test, debug_assertions))]
         assert!(
             held.is_none() || published == held,
@@ -121,13 +157,45 @@ mod tests {
         for _ in 0..2 {
             idle.record((5, 5), true, &scene, None);
         }
-        assert!(idle.holds((5, old), true, &scene).is_some());
+        assert!(idle.holds((5, old, None), true, &scene).is_some());
         assert!(
-            idle.holds((5, new), true, &scene).is_none(),
+            idle.holds((5, new, None), true, &scene).is_none(),
             "a new budget must be published"
         );
-        assert!(idle.holds((6, old), true, &scene).is_none());
-        assert!(idle.holds((5, old), false, &scene).is_none());
+        assert!(idle.holds((6, old, None), true, &scene).is_none());
+        assert!(idle.holds((5, old, None), false, &scene).is_none());
+    }
+
+    /// A settled empty scene is kept only while this frame supplies the glint raster it
+    /// published, so a pack reload that only replaces the glint uploads it at once.
+    #[test]
+    fn a_replaced_glint_raster_republishes_a_settled_empty_scene() {
+        let raster = || render_model::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: std::sync::Arc::from([255_u8, 0, 255, 255].as_slice()),
+        };
+        let (published, reloaded) = (raster(), raster());
+        let budget = ItemModelBudget::default();
+        let mut scene = render_scene::DroppedItemScene {
+            model_budget: Some(budget),
+            ..Default::default()
+        };
+        scene.set_glint(Some(published.clone()), [0.0; 3]);
+        let mut idle = IdlePublication::default();
+        for _ in 0..2 {
+            idle.record((5, 5), true, &scene, None);
+        }
+        assert!(
+            idle.holds((5, budget, Some(&published.clone())), true, &scene)
+                .is_some()
+        );
+        assert!(
+            idle.holds((5, budget, Some(&reloaded)), true, &scene)
+                .is_none(),
+            "equal pixels in a new raster must still be published"
+        );
+        assert!(idle.holds((5, budget, None), true, &scene).is_none());
     }
 }
 
