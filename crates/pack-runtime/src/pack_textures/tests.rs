@@ -267,6 +267,39 @@ fn resolved_images_keep_the_filename_selected_after_decode_and_texture_set_fallb
 }
 
 #[test]
+fn image_sources_decode_by_content_when_the_extension_disagrees() {
+    let png = png(16, 16);
+    let mut tga = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([20, 30, 200, 255]))
+        .write_to(&mut tga, ImageFormat::Tga)
+        .unwrap();
+    let view = LayeredPackView::new(crate::test_support::stack(&[
+        ("textures/blocks/tread_plate.tga", &png),
+        ("textures/blocks/legacy.png", tga.get_ref()),
+    ]));
+    let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
+    let png_in_tga =
+        resolve_pack_texture_with_policy(&view, "textures/blocks/tread_plate", policy, false)
+            .expect("PNG bytes in a .tga source decode");
+    assert_eq!(
+        png_in_tga.image_path,
+        image_identity(0, "textures/blocks/tread_plate.tga")
+    );
+    assert_eq!(
+        [png_in_tga.texture.width, png_in_tga.texture.height],
+        [16, 16]
+    );
+    let tga_in_png =
+        resolve_pack_texture_with_policy(&view, "textures/blocks/legacy", policy, false)
+            .expect("TGA bytes in a .png source decode");
+    assert_eq!(
+        tga_in_png.image_path,
+        image_identity(0, "textures/blocks/legacy.png")
+    );
+    assert_eq!(&tga_in_png.texture.rgba8[..4], &[20, 30, 200, 255]);
+}
+
+#[test]
 fn indexed_alias_candidates_preserve_precedence_without_reading_image_payloads() {
     let stack = crate::test_support::stack(&[
         ("textures/shared.png", b"metadata only"),

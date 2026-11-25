@@ -5,6 +5,7 @@ use std::io::Read;
 use std::path::{Component, Path};
 
 use assets::VanillaEntityRefs;
+use pack_compile_input::texture_path::detect_image_format;
 use rayon::prelude::*;
 use resource_pack::LayeredPackView;
 use serde_json::{Map, Value};
@@ -412,8 +413,8 @@ fn texture_set_colour(
             png(image::RgbaImage::from_pixel(1, 1, image::Rgba(*pixel)))?,
         ),
         TextureSetLayer::Image(name) => {
-            let (path, bytes) = set.image_file(name)?;
-            let format = image::ImageFormat::from_path(&path).ok()?;
+            let (_, bytes) = set.image_file(name)?;
+            let format = detect_image_format(&bytes);
             let key = (format, Sha256::digest(&bytes).into());
             let encoded = colours
                 .entry(key)

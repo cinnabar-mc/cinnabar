@@ -10,11 +10,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ::image::{ImageFormat, ImageReader, Limits};
+use ::image::{ImageReader, Limits};
 use assets::{
     AssetError, BlockEntityPlacement, MAX_BLOCK_ENTITY_ATLAS_SIDE, MAX_BLOCK_ENTITY_PLACEMENTS,
     canonical_source_manifest_sha256, encode_block_entity_catalog,
 };
+use pack_compile_input::texture_path::detect_image_format;
 use sha2::{Digest, Sha256};
 
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
@@ -258,10 +259,7 @@ fn decode(path: &Path, name: &str) -> Result<Outcome, AssetError> {
     if bytes.len() > MAX_SOURCE_BYTES {
         return Ok(Outcome::Oversized);
     }
-    let format = match path.extension().and_then(|extension| extension.to_str()) {
-        Some(extension) if extension.eq_ignore_ascii_case("tga") => ImageFormat::Tga,
-        _ => ImageFormat::Png,
-    };
+    let format = detect_image_format(&bytes);
     let Ok((width, height)) =
         ImageReader::with_format(Cursor::new(&bytes), format).into_dimensions()
     else {
@@ -481,7 +479,7 @@ mod tests {
         let image =
             ::image::RgbaImage::from_pixel(width, height, ::image::Rgba([shade, 0, 0, 255]));
         image
-            .write_to(&mut Cursor::new(&mut buffer), ImageFormat::Png)
+            .write_to(&mut Cursor::new(&mut buffer), ::image::ImageFormat::Png)
             .unwrap();
         fs::write(path, buffer).unwrap();
     }
@@ -531,6 +529,20 @@ mod tests {
         let atlas = runtime.atlas_rgba8();
         let offset = ((placement.y * ATLAS_WIDTH + placement.x) * 4) as usize;
         assert_eq!(atlas[offset], 20);
+    }
+
+    #[test]
+    fn png_pixels_in_a_tga_block_entity_texture_decode_by_content() {
+        let pack = tempfile::tempdir().unwrap();
+        write_png(
+            &pack.path().join("textures/entity/chest/normal.tga"),
+            64,
+            64,
+            10,
+        );
+        let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
+        let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
+        assert!(runtime.placement("textures/entity/chest/normal").is_some());
     }
 
     #[test]

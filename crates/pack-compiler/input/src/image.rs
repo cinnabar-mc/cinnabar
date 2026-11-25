@@ -8,6 +8,8 @@ use ::image::{ImageFormat, ImageReader, Limits};
 
 use assets::{AssetError, TILE_SIZE, TextureMip, downsample_linear_premultiplied};
 
+use crate::texture_path::detect_image_format;
+
 const MAX_TEXTURE_BYTES: usize = 1024 * 1024;
 const MAX_DECODE_ALLOC: u64 = 256 * 1024;
 const MAX_TEXTURE_DIMENSION: u32 = 4_096;
@@ -162,7 +164,8 @@ fn decode_texture_reader<R: BufRead + Seek>(
     mut input: R,
     model_budget: bool,
 ) -> Result<DecodedTexture, AssetError> {
-    let format = static_texture_format(path, key)?;
+    let named = static_texture_format(path, key)?;
+    let format = input.fill_buf().map_or(named, detect_image_format);
     let dimensions = ImageReader::with_format(&mut input, format)
         .into_dimensions()
         .map_err(|source| AssetError::TextureDecode {
@@ -291,7 +294,22 @@ pub fn replicated_tile(frame: Vec<u8>, size: u32, replicate: u32) -> (Box<[u8]>,
 mod tests {
     use sha2::{Digest, Sha256};
 
-    use super::{build_texture_mip_chain, normalize_texture_tile};
+    use super::{build_texture_mip_chain, decode_texture_bytes, normalize_texture_tile};
+
+    #[test]
+    fn png_pixels_in_a_tga_path_decode_by_content() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        ::image::RgbaImage::from_pixel(16, 16, ::image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut png, ::image::ImageFormat::Png)
+            .unwrap();
+        let decoded = decode_texture_bytes(
+            std::path::Path::new("textures/blocks/tread_plate.tga"),
+            "tread_plate",
+            png.get_ref(),
+        )
+        .unwrap();
+        assert_eq!((decoded.width, decoded.height), (16, 16));
+    }
 
     fn pattern(size: u32, seed: u32) -> Box<[u8]> {
         (0..size * size)

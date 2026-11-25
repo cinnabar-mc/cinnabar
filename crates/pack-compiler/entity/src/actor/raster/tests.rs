@@ -181,8 +181,8 @@ fn unusable_images_do_not_affect_planning_or_the_usable_source_cutoff() {
         |source| {
             calls.lock().unwrap().push(source);
             let bytes = images[source as usize];
-            Ok((raster_decoded_bytes("fixture.png", bytes), move || {
-                decode_raster("fixture.png", bytes, true)
+            Ok((raster_decoded_bytes(bytes), move || {
+                decode_raster(bytes, true)
             }))
         },
         64,
@@ -313,32 +313,28 @@ fn encoded_header_bounds_cover_decoded_png_and_tga_pixels() {
     use image::{DynamicImage, ImageBuffer, Luma, Rgb};
     let cases = [
         (
-            "fixture.png",
             ImageFormat::Png,
             DynamicImage::ImageLuma8(ImageBuffer::from_pixel(5, 7, Luma([42]))),
         ),
         (
-            "fixture.tga",
             ImageFormat::Tga,
             DynamicImage::ImageRgb8(ImageBuffer::from_pixel(5, 7, Rgb([11, 22, 33]))),
         ),
         (
-            "fixture.png",
             ImageFormat::Png,
             DynamicImage::ImageRgba8(RgbaImage::from_pixel(5, 7, Rgba([11, 22, 33, 255]))),
         ),
         (
-            "fixture.png",
             ImageFormat::Png,
             DynamicImage::ImageRgba16(ImageBuffer::from_pixel(5, 7, Rgba([11, 22, 33, u16::MAX]))),
         ),
     ];
-    for (path, format, image) in cases {
+    for (format, image) in cases {
         let mut bytes = Cursor::new(Vec::new());
         image.write_to(&mut bytes, format).unwrap();
         let bytes = bytes.into_inner();
-        let bound = raster_decoded_bytes(path, &bytes);
-        let raster = decode_raster(path, &bytes, false).unwrap();
+        let bound = raster_decoded_bytes(&bytes);
+        let raster = decode_raster(&bytes, false).unwrap();
         assert!(bound >= raster.pixels.len());
         assert_eq!((raster.width, raster.height), (5, 7));
         assert_eq!(raster.pixels, image.into_rgba8().into_raw());
@@ -363,8 +359,8 @@ fn unverified_material_alpha_rounds_at_half_instead_of_refusing_the_raster() {
             .map(|pixel| pixel[3])
             .collect::<Vec<_>>()
     };
-    let rounded = decode_raster("fixture.png", &bytes, true).unwrap();
+    let rounded = decode_raster(&bytes, true).unwrap();
     assert_eq!(alphas(rounded), [0, 0, 255, 255]);
-    let kept = decode_raster("fixture.png", &bytes, false).unwrap();
+    let kept = decode_raster(&bytes, false).unwrap();
     assert_eq!(alphas(kept), [4, 127, 128, 255]);
 }

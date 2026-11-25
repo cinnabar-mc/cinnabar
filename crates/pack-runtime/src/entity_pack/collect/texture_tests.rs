@@ -163,6 +163,17 @@ fn shared_entity_texture_set_colours_reuse_validation_conversions_and_failures()
 }
 
 #[test]
+fn texture_set_colours_decode_png_pixels_from_a_tga_source() {
+    let colour = solid_image(4, 2, image::ImageFormat::Png);
+    let (view, plain) = texture_sets(&STEMS[..1], &colour, "tga");
+    assert_ne!(colour, plain);
+    let mut colours = TextureSetColours::default();
+    let (path, bytes) = texture_file(&view, None, STEMS[0], &mut colours).unwrap();
+    assert_eq!(path.as_ref(), "textures/0_first.png");
+    assert_eq!(bytes, colour);
+}
+
+#[test]
 fn cancelled_entity_compiles_stop_collecting_texture_set_colours() {
     let colour = solid_image(2, 2, image::ImageFormat::Png);
     let (view, _) = texture_sets(&STEMS, &colour, "png");

@@ -10,7 +10,8 @@ use assets::{
     MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, encode_actor_catalog, encode_entity_blob,
     neutral_actor_geometry_uvs_are_supported,
 };
-use image::{ColorType, ImageDecoder, ImageFormat, ImageReader, Limits};
+use image::{ColorType, ImageDecoder, ImageReader, Limits};
+use pack_compile_input::texture_path::detect_image_format;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -165,28 +166,14 @@ struct SourceDecoder {
 
 impl SourceDecoder {
     /// Decodes a source, rounding its alpha unless a drawing material reads it.
-    fn decode(
-        &self,
-        entities: &CompiledEntityAssets,
-        source: u32,
-        bytes: &[u8],
-    ) -> Option<DecodedRaster> {
-        decode_raster(
-            entities.sources[source as usize].path.as_ref(),
-            bytes,
-            !self.lenient && !self.keeps_alpha.contains(&source),
-        )
+    fn decode(&self, source: u32, bytes: &[u8]) -> Option<DecodedRaster> {
+        decode_raster(bytes, !self.lenient && !self.keeps_alpha.contains(&source))
     }
 }
 
 /// Creates the same bounded image reader for header inspection and full decoding.
-fn raster_reader<'a>(path: &str, bytes: &'a [u8]) -> ImageReader<Cursor<&'a [u8]>> {
-    let format = if path.ends_with(".png") {
-        ImageFormat::Png
-    } else {
-        ImageFormat::Tga
-    };
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+fn raster_reader(bytes: &[u8]) -> ImageReader<Cursor<&[u8]>> {
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), detect_image_format(bytes));
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_ACTOR_TEXTURE_SIDE.into());
     limits.max_image_height = Some(MAX_ACTOR_TEXTURE_SIDE.into());
@@ -196,8 +183,8 @@ fn raster_reader<'a>(path: &str, bytes: &'a [u8]) -> ImageReader<Cursor<&'a [u8]
 }
 
 /// Bounds decoded pixels and any color-conversion buffer without allocating those pixels.
-fn raster_decoded_bytes(path: &str, bytes: &[u8]) -> usize {
-    let Ok(decoder) = raster_reader(path, bytes).into_decoder() else {
+fn raster_decoded_bytes(bytes: &[u8]) -> usize {
+    let Ok(decoder) = raster_reader(bytes).into_decoder() else {
         return usize::MAX;
     };
     let (width, height) = decoder.dimensions();
@@ -214,8 +201,8 @@ fn raster_decoded_bytes(path: &str, bytes: &[u8]) -> usize {
 
 /// Decodes actor art; `round_alpha` rounds every alpha byte at 0.5, which is how a material
 /// with an unverified definition draws (see [`assets::actor_sources_keeping_alpha`]).
-fn decode_raster(path: &str, bytes: &[u8], round_alpha: bool) -> Option<DecodedRaster> {
-    let image = raster_reader(path, bytes).decode().ok()?;
+fn decode_raster(bytes: &[u8], round_alpha: bool) -> Option<DecodedRaster> {
+    let image = raster_reader(bytes).decode().ok()?;
     let (width, height) = (
         u16::try_from(image.width()).ok()?,
         u16::try_from(image.height()).ok()?,
@@ -267,12 +254,9 @@ fn build_artwork<B: AsRef<[u8]> + Send>(
         layer_rasters,
         |source| {
             let bytes = read(source)?;
-            let size =
-                raster_decoded_bytes(&entities.sources[source as usize].path, bytes.as_ref());
+            let size = raster_decoded_bytes(bytes.as_ref());
             let decoder = &decoder;
-            Ok((size, move || {
-                decoder.decode(entities, source, bytes.as_ref())
-            }))
+            Ok((size, move || decoder.decode(source, bytes.as_ref())))
         },
         MAX_ACTOR_PIXEL_BYTES,
         MAX_ACTOR_TEXTURES,
@@ -363,7 +347,7 @@ fn build_artwork<B: AsRef<[u8]> + Send>(
                     let bytes = read(source)?;
                     slot.insert(
                         decoder
-                            .decode(entities, source, bytes.as_ref())
+                            .decode(source, bytes.as_ref())
                             .map(SharedRaster::from),
                     );
                 }
@@ -448,7 +432,7 @@ fn build_artwork<B: AsRef<[u8]> + Send>(
                 let bytes = read(source)?;
                 slot.insert(
                     decoder
-                        .decode(entities, source, bytes.as_ref())
+                        .decode(source, bytes.as_ref())
                         .map(SharedRaster::from),
                 );
             }
