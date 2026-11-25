@@ -1,6 +1,6 @@
 //! Whether raw input reached this frame, for systems that only react to it.
 use bevy::{
-    ecs::{message::Messages, schedule::SystemSet},
+    ecs::{message::Messages, schedule::SystemSet, system::SystemParam},
     input::{
         ButtonInput,
         gamepad::Gamepad,
@@ -17,30 +17,49 @@ use bevy::{
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RawInputReaders;
 
-/// Whether this frame carries raw input: a key or mouse button changed state, a keyboard or
-/// keyboard-focus message is buffered, a touch is down or just ended, or a gamepad is connected.
-/// A missing input resource counts as input, so harnesses without one run every reader.
-pub fn raw_input_activity(
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    mouse: Option<Res<ButtonInput<MouseButton>>>,
-    keyboard: Option<Res<Messages<KeyboardInput>>>,
-    focus_lost: Option<Res<Messages<KeyboardFocusLost>>>,
-    touches: Option<Res<Touches>>,
-    gamepads: Query<(), With<Gamepad>>,
-) -> bool {
-    fn changed<T: Copy + Eq + std::hash::Hash + Send + Sync>(buttons: &ButtonInput<T>) -> bool {
-        buttons.get_just_pressed().next().is_some() || buttons.get_just_released().next().is_some()
+/// The raw input a frame can carry, read without consuming any of it.
+#[derive(SystemParam)]
+pub struct RawInput<'w, 's> {
+    keys: Option<Res<'w, ButtonInput<KeyCode>>>,
+    mouse: Option<Res<'w, ButtonInput<MouseButton>>>,
+    keyboard: Option<Res<'w, Messages<KeyboardInput>>>,
+    focus_lost: Option<Res<'w, Messages<KeyboardFocusLost>>>,
+    touches: Option<Res<'w, Touches>>,
+    gamepads: Query<'w, 's, (), With<Gamepad>>,
+}
+
+impl RawInput<'_, '_> {
+    /// Whether this frame carries raw input: a key or mouse button changed state, a keyboard or
+    /// keyboard-focus message is buffered, a touch is down or just ended, or a gamepad is
+    /// connected. A missing input resource counts as input, so harnesses without one run every
+    /// reader.
+    pub fn active(&self) -> bool {
+        fn changed<T: Copy + Eq + std::hash::Hash + Send + Sync>(buttons: &ButtonInput<T>) -> bool {
+            buttons.get_just_pressed().next().is_some()
+                || buttons.get_just_released().next().is_some()
+        }
+        self.keys.as_deref().is_none_or(changed)
+            || self.mouse.as_deref().is_none_or(changed)
+            || self
+                .keyboard
+                .as_deref()
+                .is_none_or(|messages| !messages.is_empty())
+            || self
+                .focus_lost
+                .as_deref()
+                .is_none_or(|messages| !messages.is_empty())
+            || self.touches.as_deref().is_none_or(|touches| {
+                touches.iter().next().is_some()
+                    || touches.iter_just_released().next().is_some()
+                    || touches.iter_just_canceled().next().is_some()
+            })
+            || !self.gamepads.is_empty()
     }
-    keys.is_none_or(|keys| changed(&keys))
-        || mouse.is_none_or(|mouse| changed(&mouse))
-        || keyboard.is_none_or(|messages| !messages.is_empty())
-        || focus_lost.is_none_or(|messages| !messages.is_empty())
-        || touches.is_none_or(|touches| {
-            touches.iter().next().is_some()
-                || touches.iter_just_released().next().is_some()
-                || touches.iter_just_canceled().next().is_some()
-        })
-        || !gamepads.is_empty()
+}
+
+/// Runs [`RawInputReaders`] only on a frame that carries raw input; see [`RawInput::active`].
+pub fn raw_input_activity(input: RawInput) -> bool {
+    input.active()
 }
 
 #[cfg(test)]

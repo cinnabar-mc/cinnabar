@@ -25,6 +25,11 @@ impl WorldAuthority {
         });
     }
 
+    /// Whether a sign-edit request is waiting to be taken.
+    pub const fn has_pending_sign_edit(&self) -> bool {
+        self.pending_sign_edit.is_some()
+    }
+
     /// Takes the pending sign-edit request, if any.
     pub fn take_pending_sign_edit(&mut self) -> Option<SignEditRequest> {
         self.pending_sign_edit.take()
