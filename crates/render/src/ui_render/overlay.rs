@@ -459,6 +459,9 @@ pub(crate) fn ui_overlay(
         context,
         world,
     );
+    if native.is_some() {
+        crate::scene_target::ensure_resolved(world, view_entity, context);
+    }
     // Keep screen UI reachable in the reduced view if native composition is unavailable.
     let native = native.filter(|native| {
         UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
@@ -522,6 +525,7 @@ pub(crate) fn ui_overlay(
         .filter(|(_, batch, _)| batch.world_projection == 0)
         .partition(|(_, batch, _)| super::backdrop::is_backdrop(batch));
     if !backdrops.is_empty() {
+        crate::scene_target::ensure_resolved(world, view_entity, context);
         super::backdrop::apply_backdrops(
             context,
             &super::backdrop::BackdropDraw {
@@ -552,53 +556,24 @@ pub(crate) fn ui_overlay(
     let profile = world.get_resource::<super::profile::UiProfile>();
     // A leading invert whose pixels the deferred layer never covers draws in the final
     // composite's pass instead of its own; see `deferred_invert`.
-    let postponed = super::deferred_invert::leading_invert(&plan, &batches)
-        .filter(|_| viewport.is_none() && !target.is_native())
-        .and_then(|position| {
-            let input = publication.as_ref()?;
-            let extent = crate::render_bounds::extent(target.main_texture_view());
-            if input.viewport_size != extent || output_extent.is_some_and(|output| output != extent)
-            {
-                return None;
-            }
-            let (index, batch, location) = batches[position];
-            let last = plan.segments.last()?;
-            let layered = batches[last.layered.clone()]
-                .iter()
-                .map(|(_, batch, _)| *batch);
-            if !super::deferred_invert::disjoint(input, batch, layered) {
-                return None;
-            }
-            pipeline_cache.get_render_pipeline(*invert)?;
-            let pipelines = gpu.composite_pipelines.get(&view_entity)?;
-            pipeline_cache.get_render_pipeline(pipelines.main)?;
-            let output = if layer.direct_output() {
-                pipeline_cache.get_render_pipeline(pipelines.output?)?;
-                let main_format = view_target.main_texture_format();
-                let out_format = view_target.out_texture_view_format()?;
-                if !super::deferred_invert::blends_alike(main_format, out_format) {
-                    return None;
-                }
-                Some(if main_format == out_format {
-                    *invert
-                } else {
-                    world
-                        .resource::<super::deferred_invert::OutputInvertPipelines>()
-                        .ready(pipeline_cache, *invert, out_format)?
-                })
-            } else {
-                None
-            };
-            let invert = super::deferred_invert::DeferredInvert {
-                index,
-                skip: skip.clone(),
-                batch: *batch,
-                location,
-                main: *invert,
-                output,
-            };
-            Some((position, invert))
-        });
+    let postponed = super::deferred_invert::plan(
+        &plan,
+        &batches,
+        &super::deferred_invert::PlanInputs {
+            world,
+            view: view_entity,
+            view_target,
+            target,
+            layer,
+            gpu,
+            cache: pipeline_cache,
+            invert: *invert,
+            publication: publication.as_deref(),
+            full_viewport: viewport.is_none(),
+            output_extent,
+            skip: skip.as_ref(),
+        },
+    );
     // Alpha batches blend in the gamma-space layer; an invert batch (the
     // crosshair) must see the scene, so the layer composites before it.
     let raster_count = plan.layer_count();
@@ -712,6 +687,13 @@ pub(crate) fn ui_overlay(
             }
             (true, encoded, nonempty)
         } else {
+            // Element filters may sample the scene.
+            if layered
+                .iter()
+                .any(|(_, batch, _)| batch.filter_group.is_some())
+            {
+                crate::scene_target::ensure_resolved(world, view_entity, context);
+            }
             let drawn = super::filter::draw_layer(
                 context,
                 &layer_draw,
@@ -768,6 +750,10 @@ pub(crate) fn ui_overlay(
             layer.defer_present();
         }
         let composited = encoded && !segment.present;
+        // Both read or write the resolved scene.
+        if composited || invert.is_some() {
+            crate::scene_target::ensure_resolved(world, view_entity, context);
+        }
         let shared = super::segments::invert_shares_composite(
             composited,
             invert.as_ref().map(|(_, depth, _)| *depth),
@@ -845,6 +831,7 @@ pub(crate) fn ui_overlay(
         if layer.present_deferred() {
             layer.deferred_invert.set(Some(invert));
         } else {
+            crate::scene_target::ensure_resolved(world, view_entity, context);
             frame_encoded |= super::deferred_invert::own_pass(
                 context,
                 world,

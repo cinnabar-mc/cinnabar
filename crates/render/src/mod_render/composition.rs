@@ -617,6 +617,7 @@ fn draw(
                 }
             }
         }
+        crate::scene_target::ensure_resolved(world, entity, &mut context);
         let Some(binding) = style_gpu.binding(target.main_texture_view().id()) else {
             continue;
         };

@@ -13,6 +13,7 @@ type UiPresentQuery = (
     Option<&'static ExtractedCamera>,
     Option<&'static UiLayerTexture>,
     Option<&'static NativeUiTarget>,
+    Option<&'static crate::scene_target::SceneTarget>,
 );
 
 /// Presents native screen UI after the world upscale, with or without a final alpha layer.
@@ -22,7 +23,7 @@ pub(crate) fn ui_present(
     mut context: RenderContext,
 ) {
     let entity = view.entity();
-    let (output, _, camera, layer, native) = view.into_inner();
+    let (output, _, camera, layer, native, scene) = view.into_inner();
     if let Some(layer) = layer {
         layer.presented.store(false, Ordering::Relaxed);
         layer.content_presented.store(false, Ordering::Relaxed);
@@ -66,19 +67,42 @@ pub(crate) fn ui_present(
                 if let Some(scissor) = scissor {
                     attachment.ops.load = composite_load(attachment.ops.load, scissor);
                     let extent = crate::render_bounds::extent(attachment.view);
-                    let mut pass = encode_composite(
-                        &mut context,
-                        world,
-                        CompositeSources {
-                            layer,
-                            scene: target.main_texture_view(),
-                            target,
-                        },
-                        attachment,
-                        scissor,
-                        pipeline,
-                        &layout,
-                    );
+                    // A full-output composite over a pending two-sample resolve resolves the
+                    // samples itself, so the frame encodes no resolve pass.
+                    let fused = scissor
+                        .is_none()
+                        .then_some(())
+                        .and(scene.and_then(crate::scene_target::SceneTarget::pending_samples))
+                        .zip(world.get_resource::<crate::scene_target::resolve_lut::ResolveLut>())
+                        .zip(output.out_texture_view_format())
+                        .and_then(|((samples, table), format)| {
+                            let fused = world.resource::<super::fused::FusedComposite>();
+                            Some((fused, samples, table, fused.pipeline(cache, format)?))
+                        });
+                    let mut pass = if let Some((fused, samples, table, pipeline)) = fused {
+                        fused.encode(
+                            &mut context,
+                            world,
+                            (layer, samples, &table.view),
+                            attachment,
+                            pipeline,
+                        )
+                    } else {
+                        crate::scene_target::ensure_resolved(world, entity, &mut context);
+                        encode_composite(
+                            &mut context,
+                            world,
+                            CompositeSources {
+                                layer,
+                                scene: target.main_texture_view(),
+                                target,
+                            },
+                            attachment,
+                            scissor,
+                            pipeline,
+                            &layout,
+                        )
+                    };
                     if let Some(invert) = layer.deferred_invert.take()
                         && let Some(pipeline) =
                             invert.output.and_then(|id| cache.get_render_pipeline(id))
@@ -95,6 +119,7 @@ pub(crate) fn ui_present(
                 return;
             }
         }
+        crate::scene_target::ensure_resolved(world, entity, &mut context);
         if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
             // Both ping-pong main textures share this extent.
             let extent = crate::render_bounds::extent(target.main_texture_view());
@@ -108,6 +133,8 @@ pub(crate) fn ui_present(
             layer.composited.store(true, Ordering::Relaxed);
         }
     }
+    // Native composition and the output blit read the resolved scene.
+    crate::scene_target::ensure_resolved(world, entity, &mut context);
     if let Some(native) = native {
         native.present(world, &mut context, output);
     }
