@@ -40,6 +40,28 @@ impl EquipmentSelection {
         layer.runtime.evaluate(identifier, actor, rig, input)
     }
 
+    /// Whether selecting `identifier` in either catalog evaluates an owner condition, which may
+    /// read per-frame owner state.
+    pub(in crate::ui_runtime::presentation) fn conditional(
+        &self,
+        base: Option<&RuntimeEquipmentCatalog>,
+        pack: Option<&RuntimeEquipmentCatalog>,
+        identifier: &str,
+    ) -> bool {
+        [(base, &self.base), (pack, &self.pack)]
+            .into_iter()
+            .any(|(catalog, layer)| {
+                let (Some(catalog), Some(layer)) = (catalog, layer) else {
+                    return false;
+                };
+                catalog.bindings_for(identifier).iter().any(|binding| {
+                    layer
+                        .runtime
+                        .has_item_condition(binding.attachable_identifier())
+                })
+            })
+    }
+
     /// Selects session artwork before startup, sharing the caller's budget across both layers.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::ui_runtime::presentation) fn binding<'a>(

@@ -367,3 +367,80 @@ fn repeated_observations_retire_removed_trims_and_follow_artwork_reloads() {
     observe(&mut presentation, &player);
     assert_eq!(texel(&presentation).as_deref(), Some(&[9, 8, 7, 255][..]));
 }
+
+/// Compositions a recording marked survive the sweep when marked again; once one is gone,
+/// marking again refuses, so the calls that compose it run instead.
+#[test]
+fn recorded_trim_marks_keep_compositions_until_one_is_gone() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let texture = |identifier: &str, pixel: [u8; 4]| assets::EquipmentTexture {
+        identifier: identifier.into(),
+        width: 1,
+        height: 1,
+        rgba8: Arc::from(pixel),
+    };
+    presentation.set_equipment_catalog(Some(Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [7; 32],
+            Vec::new(),
+            vec![
+                texture("textures/trims/sentry", [100, 100, 100, 255]),
+                texture(
+                    "textures/trims/color_palettes/trim_palette",
+                    [100, 100, 100, 255],
+                ),
+                texture("textures/trims/color_palettes/gold", [240, 170, 20, 255]),
+            ],
+        )
+        .unwrap(),
+    )));
+    let base = player_preview::PreviewTexture {
+        width: 1,
+        height: 1,
+        rgba: Arc::from([10, 20, 30, 255]),
+        tint: None,
+    };
+    let trim = render_api::ItemTrim {
+        material: "gold".into(),
+        pattern: "sentry".into(),
+    };
+    presentation.gui_models.trim_icons.begin_frame();
+    presentation
+        .gui_models
+        .trim_icons
+        .record_marks(TrimMarks::default());
+    let preview = presentation
+        .trim_preview(
+            &base,
+            "textures/models/armor/diamond_1",
+            None,
+            &trim,
+            "minecraft:diamond_chestplate",
+        )
+        .unwrap();
+    let marks = presentation.gui_models.trim_icons.take_marks();
+    presentation.finish_trim_art();
+    for _ in 0..3 {
+        presentation.gui_models.trim_icons.begin_frame();
+        assert!(presentation.gui_models.trim_icons.mark_again(&marks));
+        presentation.finish_trim_art();
+        assert!(
+            presentation
+                .gui_models
+                .trim_icons
+                .region(&preview)
+                .is_some()
+        );
+    }
+    presentation.gui_models.trim_icons.begin_frame();
+    presentation.finish_trim_art();
+    assert!(
+        presentation
+            .gui_models
+            .trim_icons
+            .region(&preview)
+            .is_none()
+    );
+    assert!(!presentation.gui_models.trim_icons.mark_again(&marks));
+}

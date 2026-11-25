@@ -13,6 +13,7 @@ use {super::UiPresentationRuntime, ui::IconRef};
 
 pub(super) mod cape;
 pub(super) mod controller;
+pub(super) mod dress_reuse;
 pub(in crate::ui_runtime::presentation) mod equipment;
 mod fitting;
 pub mod geometry;
@@ -233,6 +234,8 @@ impl UiPresentationRuntime {
         hands: [Option<(PreviewHandItem, bool)>; 2],
         owner: Option<PreviewEquipmentOwner<'_>>,
     ) {
+        // Gear set any other way leaves no dressing to repeat.
+        self.gui_models.dress_record = None;
         let pack = self.gui_models.pack_equipment.source.clone();
         let base = self.equipment_catalog.clone();
         let show_custom_item_models = self.player_preview_gear.show_custom_item_models;

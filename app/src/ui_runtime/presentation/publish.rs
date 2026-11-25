@@ -283,8 +283,11 @@ pub(crate) fn prepare_ui_runtime(
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
     } else {
+        // Writers mark the runtimes changed only when they change them, and publication marks
+        // neither, so unchanged ticks mean the dressing would select nothing new from them.
+        let runtimes_unchanged = !player_runtime.is_changed() && !runtime.is_changed();
         client_shell::ui_resources::update(&mut presentation, |presentation| {
-            presentation.dress_player_preview(
+            presentation.dress_player_preview_if_changed(
                 &player_runtime,
                 &runtime,
                 stream.map(|stream| stream.authority().inventory_ui()),
@@ -300,6 +303,7 @@ pub(crate) fn prepare_ui_runtime(
                         .authority()
                         .canonical_item_stack(stack)
                 },
+                runtimes_unchanged,
             )
         });
     }
