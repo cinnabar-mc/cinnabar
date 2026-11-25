@@ -12,6 +12,15 @@ use super::super::{UiPresentationRuntime, gui_models::trim_icons::TrimMarks};
 use inventory::inventory_ledger::InventoryTarget;
 use std::sync::Arc;
 
+/// What the caller vouches did not change since the last dressing.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DressUnchanged {
+    /// Neither the player nor the UI runtime changed.
+    pub runtimes: bool,
+    /// Nothing else changed the presentation.
+    pub presentation: bool,
+}
+
 /// The last dressing's inputs besides the runtimes, and the trim compositions it marked.
 pub(in crate::ui_runtime::presentation) struct DressRecord {
     key: Key,
@@ -78,9 +87,13 @@ impl Key {
 }
 
 impl UiPresentationRuntime {
-    /// [`Self::dress_player_preview`], repeating the last dressing when `runtimes_unchanged`,
-    /// the caller's word that neither `player_runtime` nor `runtime` changed since the last call,
-    /// and nothing else the dressing reads changed either.
+    /// [`Self::dress_player_preview`], repeating the last dressing when the caller vouches the
+    /// runtimes are `unchanged` since the last call and nothing else the dressing reads changed
+    /// either. With the presentation unchanged too, a
+    /// repeat with the inventory closed and no shield or trim art waiting also skips the
+    /// per-frame shield and trim observation: it would request the art already composed. It
+    /// then also skips that frame's sweep of trim compositions nothing requested, which only
+    /// frees them later.
     pub fn dress_player_preview_if_changed(
         &mut self,
         player_runtime: &player_state::PlayerState,
@@ -88,15 +101,26 @@ impl UiPresentationRuntime {
         world: Option<client_world::ui_read::InventoryUi<'_>>,
         input: actor_animation::AttachableAnimationInput<'_>,
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
-        runtimes_unchanged: bool,
+        unchanged: DressUnchanged,
     ) -> bool {
         let key = Key::of(self, runtime, world);
         let record = self.gui_models.dress_record.take();
-        let repeats = runtimes_unchanged
+        let repeats = unchanged.runtimes
             && record
                 .as_ref()
                 .is_some_and(|record| !record.conditional && record.key.matches(&key));
         if let Some(record) = record.filter(|_| repeats) {
+            if unchanged.presentation
+                && !runtime.inventory_open()
+                && !self.gui_models.shield_icons.dirty()
+                && !self.gui_models.trim_icons.dirty()
+            {
+                self.follow_frame_input(input);
+                #[cfg(debug_assertions)]
+                self.check_quiet_dressing(player_runtime, runtime, world, input, &resolve, &record);
+                self.gui_models.dress_record = Some(record);
+                return false;
+            }
             // What the dressing does every frame besides selecting gear.
             let mut changed = super::super::dynamic_textures::observe_session(self, key.session);
             self.gui_models
@@ -182,6 +206,42 @@ impl UiPresentationRuntime {
             stored.delta_seconds = input.delta_seconds;
             stored.hand_charged = input.hand_charged;
         }
+    }
+
+    /// Runs the per-frame shield and trim observation a quiet repeat skipped and checks it
+    /// changes nothing, then dresses again as [`Self::check_repeated_dressing`] does.
+    #[cfg(debug_assertions)]
+    fn check_quiet_dressing(
+        &mut self,
+        player_runtime: &player_state::PlayerState,
+        runtime: &crate::ui_runtime::UiRuntime,
+        world: Option<client_world::ui_read::InventoryUi<'_>>,
+        input: actor_animation::AttachableAnimationInput<'_>,
+        resolve: &impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
+        record: &DressRecord,
+    ) {
+        let mut changed =
+            super::super::dynamic_textures::observe_session(self, runtime.session_id());
+        self.gui_models
+            .trim_icons
+            .observe_session_items(runtime.session_items());
+        changed |= super::super::publish::prepare_shield_art(
+            player_runtime,
+            runtime,
+            self,
+            world,
+            resolve,
+        );
+        assert!(
+            self.gui_models.trim_icons.mark_again(&record.trims),
+            "a quiet dressing's trim compositions are gone"
+        );
+        self.check_repeated_dressing(player_runtime, runtime, world, input, resolve);
+        self.finish_trim_art();
+        assert!(
+            !changed && !self.gui_models.shield_icons.dirty(),
+            "a quiet dressing's shield and trim observation changed what a frame draws"
+        );
     }
 
     /// Dresses again and checks the repeated gear and held input are what a dressing produces.

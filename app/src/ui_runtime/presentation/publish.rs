@@ -74,9 +74,11 @@ pub(crate) struct PublishExtras<'w, 's> {
     movement: Res<'w, client_interaction::movement::MovementTicker>,
     physics: Res<'w, client_interaction::movement::LocalPhysicsController>,
     /// The runtime revisions the last HUD capture read.
-    captured: Local<'s, consumed::ConsumedTicks>,
+    captured: Local<'s, consumed::ConsumedTicks<2>>,
     /// The runtime revisions the last dressing of the player model read.
-    dressed: Local<'s, consumed::ConsumedTicks>,
+    dressed: Local<'s, consumed::ConsumedTicks<2>>,
+    /// The presentation revision the last dressing read.
+    dressed_presentation: Local<'s, consumed::ConsumedTicks<1>>,
     system_ticks: bevy::ecs::system::SystemChangeTick,
 }
 
@@ -132,6 +134,7 @@ pub(crate) fn prepare_ui_runtime(
         physics,
         mut captured,
         mut dressed,
+        mut dressed_presentation,
         system_ticks,
     } = extras;
     #[cfg(not(target_arch = "wasm32"))]
@@ -289,7 +292,8 @@ pub(crate) fn prepare_ui_runtime(
         // Writers mark the runtimes changed only when they change them, and publication marks
         // neither, so ticks the last dressing read mean it would select nothing new from them.
         let runtimes_unchanged =
-            dressed.unchanged(player_runtime.last_changed(), runtime.last_changed());
+            dressed.unchanged([player_runtime.last_changed(), runtime.last_changed()]);
+        let presentation_unchanged = dressed_presentation.unchanged([presentation.last_changed()]);
         client_shell::ui_resources::update(&mut presentation, |presentation| {
             presentation.dress_player_preview_if_changed(
                 &player_runtime,
@@ -307,14 +311,17 @@ pub(crate) fn prepare_ui_runtime(
                         .authority()
                         .canonical_item_stack(stack)
                 },
-                runtimes_unchanged,
+                player_preview::DressUnchanged {
+                    runtimes: runtimes_unchanged,
+                    presentation: presentation_unchanged,
+                },
             )
         });
         dressed.record(
-            player_runtime.last_changed(),
-            runtime.last_changed(),
+            [player_runtime.last_changed(), runtime.last_changed()],
             system_ticks.this_run(),
         );
+        dressed_presentation.record([presentation.last_changed()], system_ticks.this_run());
     }
     let doll_state = client_world
         .stream
@@ -466,7 +473,7 @@ pub(crate) fn prepare_ui_runtime(
     // Writers mark the runtimes changed only when they change them, and publication marks
     // neither, so ticks the last capture read mean it would store nothing new from them.
     let runtimes_unchanged =
-        captured.unchanged(player_runtime.last_changed(), runtime.last_changed());
+        captured.unchanged([player_runtime.last_changed(), runtime.last_changed()]);
     let capture = capture_hud_frame_if_changed(
         &player_runtime,
         runtime.bypass_change_detection(),
@@ -487,8 +494,7 @@ pub(crate) fn prepare_ui_runtime(
         presentation.set_changed();
     }
     captured.record(
-        player_runtime.last_changed(),
-        runtime.last_changed(),
+        [player_runtime.last_changed(), runtime.last_changed()],
         system_ticks.this_run(),
     );
     let item_icons = capture.icons;
