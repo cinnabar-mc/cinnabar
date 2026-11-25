@@ -330,6 +330,59 @@ fn prepare_displays(world: &mut bevy::prelude::World, delta: std::time::Duration
     world.run_system_cached(prepare_spawner_actors).unwrap();
 }
 
+/// Passes with no spawner in reach and no display alive publish nothing (test builds check the
+/// whole pass against the idle shortcut), and a spawner admitted afterwards draws on its first
+/// pass.
+#[test]
+fn idle_passes_without_spawners_publish_nothing_until_one_arrives() {
+    let mut world = system_fixture(serde_json::json!({}), "query.frame_alpha");
+    prepare_displays(&mut world, simulation_clock::TICK_DURATION);
+    {
+        let mut client = world.resource_mut::<ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream
+            .submit(
+                2,
+                protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                    dimension: 0,
+                    position: [1024.0, 66.0, 1024.0],
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        stream.poll([1024.0, 66.0, 1024.0], 0);
+    }
+    let displayed = |world: &bevy::prelude::World| {
+        world
+            .resource::<PreparedActorPublication>()
+            .submissions()
+            .unwrap_or_default()
+            .iter()
+            .filter(|body| body.input.identity.runtime_id != 1)
+            .count()
+    };
+    for _ in 0..4 {
+        prepare_displays(&mut world, simulation_clock::TICK_DURATION);
+        assert_eq!(displayed(&world), 0, "no spawner, no display");
+        let pool = world.resource::<SpawnerDisplayPublisher>();
+        assert!(pool.0.as_ref().unwrap().actors.is_empty());
+    }
+    {
+        let mut client = world.resource_mut::<ClientWorld>();
+        admit_spawner(client.stream.as_mut().unwrap(), [1024, 64, 1024], 3);
+    }
+    prepare_displays(&mut world, simulation_clock::TICK_DURATION);
+    let pool = world
+        .resource::<SpawnerDisplayPublisher>()
+        .0
+        .as_ref()
+        .unwrap();
+    assert!(
+        !pool.actors.is_empty(),
+        "the admitted spawner shows a display"
+    );
+}
+
 #[test]
 fn regression_dimension_change_reuses_publication_ticks_and_fraction() {
     let mut world = system_fixture(serde_json::json!({}), "query.frame_alpha");
