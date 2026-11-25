@@ -122,12 +122,19 @@ struct Target {
 }
 
 #[derive(Resource, Default)]
-struct Targets {
+pub(super) struct Targets {
     targets: HashMap<(Entity, u64), Target>,
     masks: HashMap<pipeline::Key, CachedRenderPipelineId>,
     contents: HashMap<pipeline::Key, CachedRenderPipelineId>,
     ledgers: HashMap<u64, mod_render::GpuLedger>,
     retiring: HashMap<u64, Arc<AtomicU64>>,
+}
+
+impl Targets {
+    /// Holds no clip target, owner ledger or attachment storage still retiring.
+    pub(super) fn at_rest(&self) -> bool {
+        self.targets.is_empty() && self.ledgers.is_empty() && self.retiring.is_empty()
+    }
 }
 
 /// Defers an affordable replacement while earlier attachment storage is retiring.
@@ -169,7 +176,8 @@ pub(super) fn install(app: &mut SubApp) {
         Render,
         prepare
             .in_set(RenderSystems::PrepareBindGroups)
-            .after(pipeline::bindings),
+            .after(pipeline::bindings)
+            .in_set(super::RetainedSystems),
     );
     install_graph(app.world_mut());
 }

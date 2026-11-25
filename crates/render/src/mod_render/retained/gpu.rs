@@ -442,6 +442,18 @@ pub(super) fn queue(
     }
 }
 
+impl Gpu {
+    /// Holds no mesh, view state, draw or retired storage: preparing with no live drawing
+    /// changes nothing.
+    pub(super) fn at_rest(&self) -> bool {
+        self.meshes.is_empty()
+            && self.views.is_empty()
+            && self.draws.is_empty()
+            && self.retired.is_empty()
+            && self.retired_views.is_empty()
+    }
+}
+
 /// Keeps removed geometry charged until the last submitted GPU work using it has completed.
 pub(super) fn retire(mut gpu: ResMut<Gpu>, queue: Res<RenderQueue>) {
     if gpu.retired.is_empty() && gpu.retired_views.is_empty() {
