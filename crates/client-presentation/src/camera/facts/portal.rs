@@ -5,7 +5,8 @@ use sim::Aabb;
 // Contacts exclude exact block boundaries without growing the actor body.
 const CONTACT_INSET: f32 = 0.001;
 
-pub(super) fn touches_portal(body: Aabb, mut is_portal: impl FnMut([i32; 3]) -> bool) -> bool {
+/// The inclusive block cells `body` contacts, or `None` when they leave the block grid.
+pub(super) fn contact_cells(body: Aabb) -> Option<([i32; 3], [i32; 3])> {
     let minimum =
         [body.min.x, body.min.y, body.min.z].map(|value| (value as f32 + CONTACT_INSET).floor());
     let maximum =
@@ -15,10 +16,22 @@ pub(super) fn touches_portal(body: Aabb, mut is_portal: impl FnMut([i32; 3]) -> 
             || f64::from(value) < f64::from(i32::MIN)
             || f64::from(value) > f64::from(i32::MAX)
     }) {
-        return false;
+        return None;
     }
-    let minimum = minimum.map(|value| value as i32);
-    let maximum = maximum.map(|value| value as i32);
+    Some((
+        minimum.map(|value| value as i32),
+        maximum.map(|value| value as i32),
+    ))
+}
+
+/// Whether any of `cells` is a portal.
+pub(super) fn cells_touch_portal(
+    cells: Option<([i32; 3], [i32; 3])>,
+    mut is_portal: impl FnMut([i32; 3]) -> bool,
+) -> bool {
+    let Some((minimum, maximum)) = cells else {
+        return false;
+    };
     // Contact uses complete cells rather than the portal's thin visual bounds.
     for x in minimum[0]..=maximum[0] {
         for y in minimum[1]..=maximum[1] {
@@ -30,6 +43,11 @@ pub(super) fn touches_portal(body: Aabb, mut is_portal: impl FnMut([i32; 3]) -> 
         }
     }
     false
+}
+
+#[cfg(test)]
+fn touches_portal(body: Aabb, is_portal: impl FnMut([i32; 3]) -> bool) -> bool {
+    cells_touch_portal(contact_cells(body), is_portal)
 }
 
 #[cfg(test)]

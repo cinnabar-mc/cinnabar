@@ -323,6 +323,36 @@ pub fn local_input(
     }
 }
 
+/// The ids of the filled maps in the local player's main hand and offhand, as [`local_input`]
+/// reports them in `main` and `off`, without resolving the rest of the equipment.
+pub fn local_held_map_ids(
+    player_runtime: &player_state::PlayerState,
+    stream: &WorldStream,
+    ui: Option<&UiRuntime>,
+) -> [Option<i64>; 2] {
+    use inventory::inventory_ledger::InventoryTarget;
+    let map_id = |stack: &protocol::NetworkItemStack| {
+        held_map_id(&stream.authority().canonical_item_stack(stack)?)
+    };
+    [
+        ui.and_then(|_| player_runtime.selected_stack())
+            .and_then(map_id),
+        ui.and_then(|ui| {
+            ui.inventory_ledger(player_runtime)
+                .target_stack(InventoryTarget::Offhand)
+        })
+        .and_then(map_id),
+    ]
+}
+
+/// The map id a held stack draws, matching the filled-map item [`worn_item`] would report.
+fn held_map_id(item: &CanonicalItemStack) -> Option<i64> {
+    (!item.identity.is_empty()
+        && item.identifier.as_deref() == Some(assets::facts::FILLED_MAP_IDENTIFIER))
+    .then_some(item.map_id)
+    .flatten()
+}
+
 /// Builds a canonical test stack with independent enchantment and intrinsic shine.
 #[cfg(test)]
 pub(super) fn canonical_fixture(
@@ -355,6 +385,35 @@ pub(super) fn canonical_fixture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The hand map lookup reports exactly the map ids the full equipment conversion reports for
+    /// filled maps, and nothing for other or empty stacks.
+    #[test]
+    fn held_map_ids_match_the_worn_filled_maps() {
+        let with_map = |identifier: &str, empty: bool| CanonicalItemStack {
+            map_id: Some(7),
+            identity: if empty {
+                assets::ItemStackIdentity::empty()
+            } else {
+                canonical_fixture(identifier, false, false).identity
+            },
+            ..canonical_fixture(identifier, false, false)
+        };
+        for (item, expected) in [
+            (
+                with_map(assets::facts::FILLED_MAP_IDENTIFIER, false),
+                Some(7),
+            ),
+            (with_map("minecraft:stick", false), None),
+            (with_map(assets::facts::FILLED_MAP_IDENTIFIER, true), None),
+        ] {
+            let worn = worn_item(&item, None, Default::default(), false)
+                .filter(|worn| worn.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER)
+                .and_then(|worn| worn.map_id);
+            assert_eq!(held_map_id(&item), expected);
+            assert_eq!(held_map_id(&item), worn);
+        }
+    }
 
     #[test]
     fn local_equipment_ownership_is_independent_of_attachable_perspective() {
