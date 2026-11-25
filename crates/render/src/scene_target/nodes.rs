@@ -7,7 +7,7 @@ use bevy::{
     render::{
         camera::ExtractedCamera,
         render_phase::ViewBinnedRenderPhases,
-        render_resource::{RenderPassDescriptor, StoreOp},
+        render_resource::{LoadOp, RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
         view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
@@ -84,6 +84,34 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     {
         return;
     }
+    let sky_first = draws_sky && sky_pass::precedes_geometry(world);
+    let mut color = color;
+    let opaque_sky = draws_sky
+        && scene.is_some()
+        && super::clear::skips_clear(
+            world,
+            entity,
+            &super::clear::OpaqueSkyPass {
+                colour: &color.ops.load,
+                depth: &depth
+                    .depth_ops
+                    .as_ref()
+                    .map_or(LoadOp::Load, |ops| ops.load),
+                full_target: viewport.is_none(),
+                sky_first,
+                phases,
+            },
+        );
+    if let Some(scene) = scene {
+        scene
+            .skipped_clear
+            .store(opaque_sky, std::sync::atomic::Ordering::Relaxed);
+    }
+    if opaque_sky {
+        // SAFETY: `skips_clear` admitted this pass, so the stock sky with opaque alpha and the
+        // queued geometry write every colour sample before anything reads or stores it.
+        color.ops.load = LoadOp::DontCare(unsafe { wgpu::LoadOpDontCare::enabled() });
+    }
     let diagnostics = context.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let colors = [Some(color)];
@@ -115,13 +143,12 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     // layers blend only over their own first layer), so a sky at the far plane drawn after them
     // shades only the pixels they leave uncovered. `precedes_geometry` keeps the sky first for
     // the pack skybox and for actors that break that assumption.
-    let sky_first = draws_sky && sky_pass::precedes_geometry(world);
     if sky_first {
-        sky_pass::draw(world, entity, &mut pass);
+        sky_pass::draw_with_alpha(world, entity, &mut pass, opaque_sky);
     }
     let Some((opaque, cutout)) = phases else {
         if draws_sky && !sky_first {
-            sky_pass::draw(world, entity, &mut pass);
+            sky_pass::draw_with_alpha(world, entity, &mut pass, opaque_sky);
         }
         span.end(&mut pass);
         return;
@@ -137,7 +164,7 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         bevy::log::error!("Error rendering the cutout scene: {error:?}");
     }
     if draws_sky && !sky_first {
-        sky_pass::draw(world, entity, &mut pass);
+        sky_pass::draw_with_alpha(world, entity, &mut pass, opaque_sky);
     }
     if scene.is_none()
         && let (Some(pipeline), Some(group), Some(offset)) = (sky_pipeline, sky_group, offset)

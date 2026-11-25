@@ -50,6 +50,7 @@ fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
                     hdr: false,
                     stars,
                     skybox: false,
+                    opaque_alpha: false,
                 },
                 &mut descriptor,
             )
@@ -61,6 +62,65 @@ fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
             super::ColorWrites::RED | super::ColorWrites::GREEN | super::ColorWrites::BLUE
         );
         assert_eq!(descriptor.multisample.count, 4);
+    }
+}
+
+/// Only the stock sky writes alpha, and only in its opaque-alpha variant; stars and the pack
+/// skybox keep their colour-only masks.
+#[test]
+fn only_the_opaque_alpha_stock_sky_writes_alpha() {
+    use bevy::render::render_resource::{
+        ColorTargetState, FragmentState, RenderPipelineDescriptor, Specializer,
+    };
+    for (stars, skybox, opaque_alpha) in [
+        (false, false, false),
+        (false, false, true),
+        (true, false, true),
+        (false, true, true),
+    ] {
+        let mut descriptor = RenderPipelineDescriptor {
+            fragment: Some(FragmentState {
+                targets: vec![Some(ColorTargetState {
+                    format: render_scene::SCENE_COLOR_FORMAT,
+                    blend: None,
+                    write_mask: super::ColorWrites::ALL,
+                })],
+                ..Default::default()
+            }),
+            depth_stencil: Some(bevy::render::render_resource::DepthStencilState {
+                format: bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(bevy::render::render_resource::CompareFunction::GreaterEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            ..Default::default()
+        };
+        super::AtmospherePipelineSpecializer
+            .specialize(
+                super::AtmospherePipelineKey {
+                    msaa: super::Msaa::Sample4,
+                    hdr: false,
+                    stars,
+                    skybox,
+                    opaque_alpha,
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        let target = descriptor.fragment.unwrap().targets.remove(0).unwrap();
+        let expected = if opaque_alpha && !stars && !skybox {
+            super::ColorWrites::ALL
+        } else {
+            super::ColorWrites::COLOR
+        };
+        assert_eq!(
+            target.write_mask, expected,
+            "{stars} {skybox} {opaque_alpha}"
+        );
+        if !stars && !skybox {
+            assert_eq!(target.blend, None);
+        }
     }
 }
 

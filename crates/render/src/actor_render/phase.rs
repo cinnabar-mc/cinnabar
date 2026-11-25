@@ -212,6 +212,49 @@ fn opaque_spans_need_sky_first(spans: &[crate::actor::gpu::ActorDrawSpan]) -> bo
     })
 }
 
+/// Whether every opaque-phase actor span draws through a pipeline variant `replaces` accepts.
+/// The actor draw command binds each span's own material variant, not its batch's pipeline.
+fn opaque_spans_replace_samples(
+    spans: &[crate::actor::gpu::ActorDrawSpan],
+    variant: impl Fn(&crate::actor::gpu::ActorDrawSpan) -> Option<CachedRenderPipelineId>,
+    replaces: impl Fn(CachedRenderPipelineId) -> bool,
+) -> bool {
+    spans
+        .iter()
+        .filter(|span| !sorted(span.material, &span.raster))
+        .all(|span| variant(span).is_some_and(&replaces))
+}
+
+/// Whether every actor `view` would draw in the opaque phase binds a pipeline that `replaces`
+/// accepts. True when no actor is prepared, since nothing is then queued.
+pub(crate) fn opaque_draws_replace_samples(
+    world: &World,
+    view: Entity,
+    replaces: impl Fn(CachedRenderPipelineId) -> bool,
+) -> bool {
+    let (Some(gpu), Some(pipeline)) = (
+        world.get_resource::<ActorGpu>(),
+        world.get_resource::<ActorPipeline>(),
+    ) else {
+        return true;
+    };
+    if gpu.instance_count == 0 {
+        return true;
+    }
+    let (Some(msaa), Some(camera)) = (
+        world.get::<Msaa>(view),
+        world.get::<bevy::render::camera::ExtractedCamera>(view),
+    ) else {
+        return false;
+    };
+    let enhanced = world.get::<render_scene::EnhancedRendering>(view).is_some();
+    opaque_spans_replace_samples(
+        &gpu.spans,
+        |span| pipeline.draw_variant(*msaa, camera.hdr, enhanced, span.material, span.raster),
+        replaces,
+    )
+}
+
 impl ActorGpu {
     /// Whether an actor draw queued in the opaque phase skips depth or colour writes, so a sky
     /// drawn after that phase would change the image where the actor meets open sky.
@@ -379,6 +422,63 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
             maximum_vertices: gpu.maximum_vertex_count,
         });
         RenderCommandResult::Success
+    }
+}
+
+#[cfg(test)]
+mod replaces_samples_tests {
+    use super::{ActorPipeline, opaque_spans_replace_samples};
+    use crate::actor::{gpu::ActorDrawSpan, test_material::TestMaterial};
+    use bevy::prelude::{Msaa, Mut};
+    use bevy::render::render_resource::PipelineCache;
+
+    /// Opaque actors draw their own material variants; one whose authored state disables alpha
+    /// writes must keep the scene clear even though the batch's default pipeline writes RGBA.
+    #[test]
+    fn alpha_masked_actor_variants_keep_the_scene_clear() {
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        world.init_resource::<ActorPipeline>();
+        let msaa = Msaa::Sample4;
+        let opaque = TestMaterial {
+            depth_write: true,
+            ..Default::default()
+        };
+        let rgb_only = TestMaterial {
+            disable_alpha_write: true,
+            ..opaque
+        };
+        let span = |material: TestMaterial| ActorDrawSpan {
+            material: material.word(assets::EntityRenderMaterial::Default),
+            raster: material.raster(),
+            page: Default::default(),
+            first: 0,
+            count: 1,
+            vertex_count: 36,
+        };
+        let spans = [span(opaque), span(rgb_only)];
+        world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+            let cache = world.resource::<PipelineCache>();
+            for span in &spans {
+                pipeline
+                    .prewarm_rasters(cache, (msaa, false, false), [(span.material, span.raster)])
+                    .unwrap();
+            }
+        });
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        world.resource_mut::<PipelineCache>().process_queue();
+        let pipeline = world.resource::<ActorPipeline>();
+        let cache = world.resource::<PipelineCache>();
+        let replaces = |spans: &[ActorDrawSpan]| {
+            opaque_spans_replace_samples(
+                spans,
+                |span| pipeline.draw_variant(msaa, false, false, span.material, span.raster),
+                |id| crate::scene_target::clear::replaces_samples(cache, id),
+            )
+        };
+        assert!(replaces(&spans[..1]));
+        assert!(!replaces(&spans));
+        assert!(replaces(&[]));
     }
 }
 
