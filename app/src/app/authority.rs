@@ -79,7 +79,9 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),
             synchronize_semantic_input_authority.after(client_state::ShellFrameSet::Focus),
-            drive_world_inventory_keys.in_set(OrdinaryInputSet),
+            drive_world_inventory_keys
+                .in_set(OrdinaryInputSet)
+                .in_set(client_shell::input_activity::RawInputReaders),
         )
             .chain()
             .in_set(ClientFrameSet::UiAuthority),
