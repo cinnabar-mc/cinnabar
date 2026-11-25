@@ -10,6 +10,8 @@ pub(super) mod inventory_cache;
 mod observations;
 mod player_items;
 mod recipes;
+mod shield_art;
+pub(super) use shield_art::prepare_shield_art;
 
 /// What one HUD capture produced besides the frame values it stored.
 pub struct HudCapture {
@@ -178,82 +180,6 @@ pub fn capture_hud_frame(
         runtime_changed,
         presentation_changed: presentation_changed | changed,
     }
-}
-
-/// Keeps the visible stack set stable before inventory caches retain any icon addresses.
-/// Returns whether projections were invalidated or composed shield or trim art waits to be
-/// packed, either of which changes what a frame draws.
-pub(super) fn prepare_shield_art(
-    player: &player_state::PlayerState,
-    runtime: &UiRuntime,
-    presentation: &mut UiPresentationRuntime,
-    world: Option<client_world::ui_read::InventoryUi<'_>>,
-    resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
-) -> bool {
-    use inventory::inventory_ledger::InventoryTarget;
-    let mut inventory_cache = presentation
-        .inventory_cache
-        .take()
-        .expect("inventory cache retained");
-    let refreshed = inventory_cache.prepare(
-        player,
-        &ItemResolver {
-            runtime,
-            presentation,
-            authority: world,
-        },
-    );
-    let ledger = runtime.inventory_ledger(player);
-    let mut appearances = Vec::new();
-    presentation.gui_models.trim_icons.begin_frame();
-    let mut observe = |stack: &protocol::NetworkItemStack| {
-        if let Some(item) = resolve(stack) {
-            if let Some(pattern) = item.shield_pattern {
-                appearances.push(pattern);
-            }
-            if let (Some(trim), Some(identifier)) = (item.trim, item.identifier) {
-                presentation.trim_icon(
-                    &identifier,
-                    stack.metadata,
-                    &trim,
-                    runtime.stack_facts(stack).custom_color,
-                );
-            }
-        }
-    };
-    for stack in inventory_cache.stacks() {
-        observe(stack);
-    }
-    if runtime.inventory_open() {
-        let creative =
-            crate::ui_runtime::inventory_actions::visible_creative_entries(player, runtime);
-        for item in creative
-            .iter()
-            .skip(runtime.screen_state().creative_row * screens::GRID_COLUMNS)
-            .take(screens::GRID_CELLS)
-        {
-            observe(&item.stack);
-        }
-        for stack in recipes::screen_previews(player, runtime).stacks() {
-            observe(stack);
-        }
-    }
-    // Worn armor icons are resolved every frame, so their trims stay packed while the inventory is closed.
-    for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
-        observe(stack);
-    }
-    for stack in ledger
-        .cursor_stack()
-        .into_iter()
-        .chain(runtime.local_offhand_stack(player))
-    {
-        observe(stack);
-    }
-    presentation.inventory_cache = Some(inventory_cache);
-    presentation.prepare_shield_icons(appearances);
-    refreshed
-        || presentation.gui_models.shield_icons.dirty()
-        || presentation.gui_models.trim_icons.dirty()
 }
 
 /// The hovered container cell's stack and its custom name: what the tooltip shows, and what a
