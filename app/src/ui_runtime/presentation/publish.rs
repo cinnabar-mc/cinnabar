@@ -75,6 +75,8 @@ pub(crate) struct PublishExtras<'w, 's> {
     physics: Res<'w, client_interaction::movement::LocalPhysicsController>,
     /// The runtime revisions the last HUD capture read.
     captured: Local<'s, consumed::ConsumedTicks>,
+    /// The runtime revisions the last dressing of the player model read.
+    dressed: Local<'s, consumed::ConsumedTicks>,
     system_ticks: bevy::ecs::system::SystemChangeTick,
 }
 
@@ -129,6 +131,7 @@ pub(crate) fn prepare_ui_runtime(
         movement,
         physics,
         mut captured,
+        mut dressed,
         system_ticks,
     } = extras;
     #[cfg(not(target_arch = "wasm32"))]
@@ -284,8 +287,9 @@ pub(crate) fn prepare_ui_runtime(
         presentation.set_player_preview_gear([None; 4], None);
     } else {
         // Writers mark the runtimes changed only when they change them, and publication marks
-        // neither, so unchanged ticks mean the dressing would select nothing new from them.
-        let runtimes_unchanged = !player_runtime.is_changed() && !runtime.is_changed();
+        // neither, so ticks the last dressing read mean it would select nothing new from them.
+        let runtimes_unchanged =
+            dressed.unchanged(player_runtime.last_changed(), runtime.last_changed());
         client_shell::ui_resources::update(&mut presentation, |presentation| {
             presentation.dress_player_preview_if_changed(
                 &player_runtime,
@@ -306,6 +310,11 @@ pub(crate) fn prepare_ui_runtime(
                 runtimes_unchanged,
             )
         });
+        dressed.record(
+            player_runtime.last_changed(),
+            runtime.last_changed(),
+            system_ticks.this_run(),
+        );
     }
     let doll_state = client_world
         .stream

@@ -227,8 +227,21 @@ impl UiPresentationRuntime {
         &mut self,
         appearances: impl IntoIterator<Item = Arc<render_api::ShieldPattern>>,
     ) {
+        let mut appearances = appearances.into_iter().peekable();
+        if appearances.peek().is_none() {
+            let cache = self
+                .gui_models
+                .shield_icons
+                .cache
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            // No shield is shown and none was: the full path would keep the cache as it is and
+            // find nothing to publish.
+            if cache.wanted.is_empty() && !cache.dirty {
+                return;
+            }
+        }
         let appearances: BTreeSet<_> = appearances
-            .into_iter()
             .map(|appearance| appearance.as_ref().clone())
             .collect();
         let hands = self

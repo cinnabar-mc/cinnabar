@@ -204,7 +204,12 @@ impl CraftingAuthority {
 
     /// Retains the committed recipe allocation for numeric inventory admission.
     pub(super) fn catalog_snapshot(&self) -> Option<Arc<RecipeCatalog>> {
-        self.catalog().map(|_| Arc::clone(&self.catalog))
+        self.catalog_allocation().cloned()
+    }
+
+    /// The committed recipe allocation while it is available, borrowed.
+    pub(super) fn catalog_allocation(&self) -> Option<&Arc<RecipeCatalog>> {
+        self.catalog().map(|_| &self.catalog)
     }
 
     /// The committed name authority; recipe and unlock observations share one FIFO.
