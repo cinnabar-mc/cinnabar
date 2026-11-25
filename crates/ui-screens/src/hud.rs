@@ -379,6 +379,24 @@ impl HudScreens {
         engine.repeat_retained(&retained.paint, now)
     }
 
+    /// Defers repeating the animations of the painted screens' reused paints, `painted` being
+    /// `[hud, crosshair]`, and the animation frame end after them; see
+    /// [`FormEngine::defer_repeats`]. Whether they were deferred.
+    pub fn defer_settled_animations(
+        &self,
+        engine: &FormEngine,
+        painted: [bool; 2],
+        now: f64,
+    ) -> bool {
+        let (hud, crosshair) = (&self.hud_paint.paint, &self.crosshair_paint.paint);
+        match painted {
+            [true, true] => engine.defer_repeats([hud, crosshair], now),
+            [true, false] => engine.defer_repeats([hud], now),
+            [false, true] => engine.defer_repeats([crosshair], now),
+            [false, false] => engine.defer_repeats([], now),
+        }
+    }
+
     /// Advances the hunger controls a reused paint of the HUD screen, or the crosshair overlay,
     /// would, for a frame that is not built.
     pub fn repeat_settled_hunger(&mut self, crosshair: bool) {

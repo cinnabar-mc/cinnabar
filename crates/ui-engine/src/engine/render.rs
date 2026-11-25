@@ -41,6 +41,19 @@ impl FormEngine {
         retained.repeat(&self.animator, now)
     }
 
+    /// Defers [`Self::repeat_retained`] of every paint in `retained` at `now`, and the
+    /// animation frame end after them, when they would change nothing but sample times; see
+    /// [`json_ui::Animator::defer_repeat`]. Whether they were deferred; when they were not, the
+    /// caller repeats them itself.
+    pub fn defer_repeats<const N: usize>(&self, retained: [&RetainedPaint; N], now: f64) -> bool {
+        let records = retained.map(RetainedPaint::animation);
+        if records.iter().any(Option::is_none) {
+            return false;
+        }
+        self.animator
+            .defer_repeat(&records.map(|record| record.expect("checked above")), now)
+    }
+
     /// [`Self::draw`] that reuses `retained`'s last paint while the layout, frame, art, textures
     /// and animations it read are unchanged and its animations have settled. `reuse` is the
     /// caller's word that `frame`'s renderers and `art`'s callbacks draw as they did then.
@@ -183,10 +196,7 @@ fn paint(
         residual: None,
         paint_bounds: None,
         filter: None,
-        animator: textures
-            .animator
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner()),
+        animator: textures.animator.lock(),
     };
     if inputs.is_some() {
         canvas.animator.record();
@@ -229,12 +239,8 @@ fn paint(
             inputs,
             layout: std::sync::Arc::clone(&render.nodes),
             textures: textures.set.revision(&atlas),
-            events_fired: textures
-                .animator
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .events_fired(),
-            animation,
+            events_fired: textures.animator.lock().events_fired(),
+            animation: std::sync::Arc::new(animation),
             rasters,
             nodes: frame.nodes[start..].to_vec(),
             next: *frame.next,

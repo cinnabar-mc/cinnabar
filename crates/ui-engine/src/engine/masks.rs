@@ -310,7 +310,7 @@ mod tests {
         let set = crate::textures::TextureSet::new(0, Arc::new(Offline), ImageWork::inline());
         let atlas = ServerAtlas::new(&[], None, 1);
         let font = crate::test_support::fixture_font();
-        let animator = std::sync::Mutex::new(json_ui::Animator::default());
+        let animator = json_ui::SharedAnimator::default();
         let mut canvas = Canvas {
             paint_bounds: None,
             prepared: Default::default(),
@@ -337,7 +337,7 @@ mod tests {
             nodes: &mut Vec::new(),
             next: &mut 0,
             clip: None,
-            animator: animator.lock().unwrap(),
+            animator: animator.lock(),
             length_scale: 1.,
             residual: Some(json_ui::transform::Affine {
                 linear: [64., 0., 0., 64.],

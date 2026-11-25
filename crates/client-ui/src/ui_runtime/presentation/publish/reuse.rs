@@ -142,6 +142,9 @@ impl UiPresentationRuntime {
     /// Does what building the repeated frame at `now_millis` would have done besides drawing it;
     /// `false` when the frame would draw differently after all, so it must be built.
     pub(super) fn repeat_built_frame(&mut self, now_millis: u64) -> bool {
+        if self.defer_hud_repeat(now_millis) {
+            return true;
+        }
         if !self.repeat_hud_paints(now_millis) {
             return false;
         }

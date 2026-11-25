@@ -1,6 +1,6 @@
 //! Server-form binding, current layout geometry and painting share one cached owner.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use json_ui::{
     FormModel, FormRender, GeometryLayout, LayoutEnv, ResolvedControl, ViewState, bind_form_over,
@@ -48,20 +48,14 @@ impl FormLayout {
     /// Publishes the current form's paint and input geometry; only automatic entrances pre-sample.
     fn frame(
         &mut self,
-        animator: &Mutex<json_ui::Animator>,
+        animator: &json_ui::SharedAnimator,
         now: f64,
         env: &LayoutEnv,
         view: &ViewState,
     ) -> Arc<FormRender> {
         match self {
             Self::Static(render) => Arc::clone(render),
-            Self::Geometry(layout) => layout.sample(
-                &mut animator.lock().unwrap_or_else(|poison| poison.into_inner()),
-                now,
-                None,
-                env,
-                view,
-            ),
+            Self::Geometry(layout) => layout.sample(&mut animator.lock(), now, None, env, view),
         }
     }
 }

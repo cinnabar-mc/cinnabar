@@ -28,7 +28,7 @@ pub(super) struct Painted {
     pub(super) layout: Arc<[DrawNode]>,
     pub(super) textures: TextureRevision,
     pub(super) events_fired: u64,
-    pub(super) animation: AnimationRecord,
+    pub(super) animation: Arc<AnimationRecord>,
     pub(super) rasters: PreparedRasters,
     /// The nodes the paint appended, mask sprites resolved.
     pub(super) nodes: Vec<UiNode>,
@@ -101,6 +101,11 @@ impl RetainedPaint {
         self.last = None;
     }
 
+    /// What the kept paint did to the animator.
+    pub(super) fn animation(&self) -> Option<&Arc<AnimationRecord>> {
+        self.last.as_ref().map(|last| &last.animation)
+    }
+
     /// Keeps a completed paint whose animations have all settled.
     pub(super) fn remember(&mut self, painted: Painted) {
         debug_assert!(!painted.animation.playing());
@@ -112,23 +117,20 @@ impl RetainedPaint {
     /// Whether the last paint was kept and, its other inputs unchanged, would be reused: every
     /// animation it drew has settled. Animations it only ticked may still run; repeating the
     /// paint's bookkeeping each frame (see [`Self::repeat`]) keeps them advancing.
-    pub(super) fn settled(&self, animator: &std::sync::Mutex<json_ui::Animator>) -> bool {
-        self.last.as_ref().is_some_and(|last| {
-            animator
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .can_replay(&last.animation)
-        })
+    pub(super) fn settled(&self, animator: &json_ui::SharedAnimator) -> bool {
+        self.last
+            .as_ref()
+            .is_some_and(|last| animator.lock().can_replay(&last.animation))
     }
 
     /// Repeats the kept paint's animation bookkeeping at `now` for a frame that is not painted,
     /// as reusing it would; `false` when the paint would now draw differently: a ticked
     /// animation fired an event or destroyed a control.
-    pub(super) fn repeat(&self, animator: &std::sync::Mutex<json_ui::Animator>, now: f64) -> bool {
+    pub(super) fn repeat(&self, animator: &json_ui::SharedAnimator, now: f64) -> bool {
         let Some(last) = self.last.as_ref() else {
             return false;
         };
-        let mut animator = animator.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut animator = animator.lock();
         let events = animator.pending_events();
         animator.can_replay(&last.animation)
             && animator.replay(&last.animation, now)
@@ -149,10 +151,7 @@ impl RetainedPaint {
             return None;
         }
         let mut atlas = textures.set.lock();
-        let mut animator = textures
-            .animator
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let mut animator = textures.animator.lock();
         if textures.set.revision(&atlas) != last.textures
             || animator.events_fired() != last.events_fired
             || !animator.can_replay(&last.animation)

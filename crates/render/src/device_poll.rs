@@ -4,6 +4,8 @@
 //! so owners never poll themselves: completion and map callbacks fire here, and readers consume
 //! what arrived by the previous frame's poll.
 //!
+//! The frame's graph submission doubles as its marker, so a frame normally submits once.
+//!
 //! The poll also bounds how far the CPU runs ahead of the GPU. Every queued frame keeps its
 //! command lists, queue-write staging and indirect-validation buffers until the GPU finishes it.
 //! A presented window waits on its swap chain, but hidden clients render with none, so without
@@ -15,7 +17,10 @@ use bevy::{
     render::{
         Render, RenderSystems,
         render_resource::PollType,
-        renderer::{RenderDevice, RenderQueue, render_system},
+        renderer::{
+            PendingCommandBuffers, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
+            encode_screenshot_and_readback_commands, render_system,
+        },
     },
 };
 use std::collections::VecDeque;
@@ -30,21 +35,32 @@ pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 3;
 
 /// Submission markers of the frames that may still be on the GPU, oldest first.
 #[derive(Resource, Default)]
-pub(crate) struct FramesInFlight(VecDeque<wgpu::SubmissionIndex>);
+pub(crate) struct FramesInFlight {
+    queued: VecDeque<wgpu::SubmissionIndex>,
+    /// This frame's own graph submission, which marks the frame without another submission.
+    frame: Option<wgpu::SubmissionIndex>,
+}
 
 impl FramesInFlight {
+    /// Records the frame's graph submission as its marker.
+    pub(crate) fn record_submission(&mut self, index: wgpu::SubmissionIndex) {
+        self.frame = Some(index);
+    }
+
     /// Marks the end of this frame's submissions and polls the device once: without blocking
     /// while at most [`MAX_FRAMES_IN_FLIGHT`] frames are outstanding, otherwise until the oldest
-    /// one completes. Callbacks of every finished submission fire before it returns.
+    /// one completes. Callbacks of every finished submission fire before it returns. A frame
+    /// without a recorded graph submission is marked by an empty one.
     pub(crate) fn finish_frame(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<wgpu::PollStatus, wgpu::PollError> {
-        self.0.push_back(queue.submit([]));
-        let poll = if self.0.len() > MAX_FRAMES_IN_FLIGHT {
+        let marker = self.frame.take().unwrap_or_else(|| queue.submit([]));
+        self.queued.push_back(marker);
+        let poll = if self.queued.len() > MAX_FRAMES_IN_FLIGHT {
             PollType::Wait {
-                submission_index: self.0.pop_front(),
+                submission_index: self.queued.pop_front(),
                 timeout: None,
             }
         } else {
@@ -81,7 +97,27 @@ pub(crate) fn install(render_app: &mut SubApp) {
             poll_device
                 .in_set(RenderSystems::Render)
                 .after(FrameSubmissions),
+        )
+        .add_systems(
+            RenderGraph,
+            submit_frame
+                .in_set(RenderGraphSystems::Submit)
+                .before(encode_screenshot_and_readback_commands),
         );
+}
+
+/// Submits the graph's recorded command buffers and keeps the submission as the frame's marker,
+/// sparing the poll an empty submission. Screenshot and readback copies, encoded after it, reach
+/// the GPU in Bevy's own later submission.
+fn submit_frame(
+    mut pending: ResMut<PendingCommandBuffers>,
+    queue: Res<RenderQueue>,
+    mut frames: ResMut<FramesInFlight>,
+) {
+    let mut buffers = pending.finish().peekable();
+    if buffers.peek().is_some() {
+        frames.record_submission(queue.submit(buffers));
+    }
 }
 
 /// Runs callback from a device poll after all submissions so far, including this frame, complete.
