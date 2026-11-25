@@ -20,12 +20,15 @@ pub(super) struct UiModelDepths {
 }
 
 impl UiModelDepths {
-    pub(super) fn synchronize_device(&mut self, device: &RenderDevice) {
-        if self.device.as_ref() != Some(device.wgpu_device()) {
-            self.views.clear();
-            self.failed = Default::default();
-            self.device = Some(device.wgpu_device().clone());
+    /// Drops every depth target of another device; whether it did.
+    pub(super) fn synchronize_device(&mut self, device: &RenderDevice) -> bool {
+        if self.device.as_ref() == Some(device.wgpu_device()) {
+            return false;
         }
+        self.views.clear();
+        self.failed = Default::default();
+        self.device = Some(device.wgpu_device().clone());
+        true
     }
 
     pub(super) fn ensure(

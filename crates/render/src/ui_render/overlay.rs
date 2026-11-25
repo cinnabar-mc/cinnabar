@@ -180,6 +180,60 @@ type UiOverlayView = (
     Option<&'static ViewTarget>,
 );
 
+/// What the last queue of UI pipelines read, and whether it found every pipeline it needed. A
+/// queue reading the same again would specialize the same pipelines and keep the same entries.
+#[derive(Default)]
+pub(super) struct QueuedPipelines {
+    /// Held weakly, so later batches never reuse its address.
+    batches: Option<std::sync::Weak<[UiRenderBatch]>>,
+    buffers: bool,
+    views: Vec<QueuedView>,
+    complete: bool,
+}
+
+/// What queueing reads of one view.
+#[derive(Clone, Copy, PartialEq)]
+struct QueuedView {
+    entity: Entity,
+    hdr: bool,
+    msaa: Msaa,
+    output: Option<TextureFormat>,
+    depth: bool,
+    layer: Option<bevy::render::render_resource::TextureId>,
+}
+
+impl QueuedView {
+    fn of(
+        (entity, _, camera, msaa, depth, layer, target): <UiOverlayView as bevy::ecs::query::QueryData>::Item<'_, '_>,
+    ) -> Self {
+        Self {
+            entity,
+            hdr: camera.hdr,
+            msaa: *msaa,
+            output: target.and_then(ViewTarget::out_texture_view_format),
+            depth: depth.is_some(),
+            layer: layer.map(|layer| layer.texture.id()),
+        }
+    }
+}
+
+impl QueuedPipelines {
+    /// Whether a queue of `gpu`'s batches for `views` would read exactly what the last one did,
+    /// which found every pipeline.
+    fn repeats(&self, gpu: &UiGpu, views: &Query<'_, '_, UiOverlayView>) -> bool {
+        self.complete
+            && self.batches.as_ref().is_some_and(|batches| {
+                std::ptr::addr_eq(batches.as_ptr(), Arc::as_ptr(&gpu.batches))
+            })
+            && self.buffers == (gpu.vertex_buffer.is_some() && gpu.index_buffer.is_some())
+            && self.views.len() == views.iter().len()
+            && views
+                .iter()
+                .zip(&self.views)
+                .all(|(view, queued)| QueuedView::of(view) == *queued)
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Independent Bevy render resources and view query.
 pub(super) fn queue_ui_overlay(
     pipeline_cache: Res<PipelineCache>,
@@ -190,6 +244,7 @@ pub(super) fn queue_ui_overlay(
     render_device: Res<RenderDevice>,
     mut model_depths: ResMut<super::model_depth::UiModelDepths>,
     coverage: Option<Res<UiHandCoverage>>,
+    mut queued: bevy::prelude::Local<QueuedPipelines>,
 ) {
     #[cfg(test)]
     gpu.world_passes
@@ -198,6 +253,13 @@ pub(super) fn queue_ui_overlay(
     // unchanged accepted revisions, before any preparation/queue early return.
     if let Some(coverage) = coverage {
         coverage.clear();
+    }
+    // A new device dropped the model depth targets, which only a full queue recreates.
+    if model_depths.synchronize_device(&render_device) {
+        queued.complete = false;
+    }
+    if queued.repeats(&gpu, &views) {
+        return;
     }
     // Retain unchanged view entries rather than freeing/reallocating tree nodes
     // every frame; only departed views release their cached pair.
@@ -208,7 +270,6 @@ pub(super) fn queue_ui_overlay(
         .retain(|(view, _, _, _), _| views.contains(*view));
     gpu.model_view_pipelines
         .retain(|(view, _, _), _| views.contains(*view));
-    model_depths.synchronize_device(&render_device);
     model_depths.views.retain(|view, _| views.contains(*view));
     if gpu.batches.is_empty() || gpu.vertex_buffer.is_none() || gpu.index_buffer.is_none() {
         return;
@@ -227,6 +288,7 @@ pub(super) fn queue_ui_overlay(
     if !needs_model_depth {
         model_depths.views.clear();
     }
+    let mut complete = true;
     for (view_entity, _view, camera, msaa, depth, layer, target) in &views {
         let Ok(pipeline_id) = pipeline.variants.specialize(
             &pipeline_cache,
@@ -242,6 +304,7 @@ pub(super) fn queue_ui_overlay(
             },
         ) else {
             gpu.view_pipelines.remove(&view_entity);
+            complete = false;
             continue;
         };
         let invert_pipeline_id = if needs_invert {
@@ -250,6 +313,7 @@ pub(super) fn queue_ui_overlay(
                 .specialize(&pipeline_cache, hud_invert_pipeline_key(camera.hdr))
             else {
                 gpu.view_pipelines.remove(&view_entity);
+                complete = false;
                 continue;
             };
             id
@@ -271,6 +335,7 @@ pub(super) fn queue_ui_overlay(
             }
             None => {
                 gpu.composite_pipelines.remove(&view_entity);
+                complete = false;
             }
         }
         if needs_model_depth && let Some(layer) = layer {
@@ -329,6 +394,7 @@ pub(super) fn queue_ui_overlay(
                 } else {
                     gpu.model_view_pipelines
                         .remove(&(view_entity, depth_test, depth_write));
+                    complete = false;
                 }
             }
         } else {
@@ -393,11 +459,17 @@ pub(super) fn queue_ui_overlay(
                             depth_write,
                             attached_depth,
                         ));
+                        complete = false;
                     }
                 }
             }
         }
     }
+    queued.batches = Some(Arc::downgrade(&gpu.batches));
+    queued.buffers = true;
+    queued.views.clear();
+    queued.views.extend(views.iter().map(QueuedView::of));
+    queued.complete = complete;
 }
 
 pub(crate) fn retain_view_pipeline_entries(

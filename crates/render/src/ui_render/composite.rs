@@ -314,6 +314,7 @@ pub(crate) fn prepare_ui_layers(
         Option<&NativeUiTarget>,
     )>,
     gpu: Option<Res<UiGpu>>,
+    mut planned: bevy::prelude::Local<PlannedLayers>,
 ) {
     let store = &mut *store;
     store.synchronize_device(&device);
@@ -321,24 +322,7 @@ pub(crate) fn prepare_ui_layers(
     let requested = gpu
         .as_ref()
         .filter(|gpu| gpu.accepted_revision.is_some())
-        .map_or(0, |gpu| {
-            let batches: Vec<_> = gpu
-                .batches
-                .iter()
-                .enumerate()
-                .filter(|(_, batch)| {
-                    batch.world_projection == 0 && !super::backdrop::is_backdrop(batch)
-                })
-                .map(|(index, batch)| (index, batch, ()))
-                .collect();
-            super::segments::plan_ui_passes(&batches, false).layer_count()
-        });
-    let mut writers = HashMap::<_, usize>::new();
-    for (_, target, _, _) in &views {
-        if let Some(output) = target.out_texture() {
-            *writers.entry(output.id()).or_default() += 1;
-        }
-    }
+        .map_or(0, |gpu| planned.layer_count(&gpu.batches));
     for (entity, target, camera, native) in &views {
         let target = UiTarget::new(target, native);
         let size = target.main_texture().size();
@@ -371,7 +355,15 @@ pub(crate) fn prepare_ui_layers(
         });
         let direct_output = unblended
             && target.out_texture().is_some_and(|output| {
-                writers[&output.id()] == 1
+                views
+                    .iter()
+                    .filter(|(_, other, _, _)| {
+                        other
+                            .out_texture()
+                            .is_some_and(|other| other.id() == output.id())
+                    })
+                    .count()
+                    == 1
                     && crate::render_bounds::extent(output) == [size.width, size.height]
             });
         let mut frame = frame_layer(
@@ -383,6 +375,39 @@ pub(crate) fn prepare_ui_layers(
             .map(|layer| frame_layer(layer, false))
             .collect();
         commands.entity(entity).insert(frame);
+    }
+}
+
+/// The layer count planned for the last accepted batches, which the same batches would plan
+/// again.
+#[derive(Default)]
+pub(crate) struct PlannedLayers {
+    /// Held weakly, so later batches never reuse its address.
+    batches: Option<std::sync::Weak<[render_model::UiRenderBatch]>>,
+    count: usize,
+}
+
+impl PlannedLayers {
+    /// How many rasters `batches`' screen passes use, planned once per distinct batch list.
+    fn layer_count(&mut self, batches: &Arc<[render_model::UiRenderBatch]>) -> usize {
+        if self
+            .batches
+            .as_ref()
+            .is_some_and(|planned| std::ptr::addr_eq(planned.as_ptr(), Arc::as_ptr(batches)))
+        {
+            return self.count;
+        }
+        let screen: Vec<_> = batches
+            .iter()
+            .enumerate()
+            .filter(|(_, batch)| {
+                batch.world_projection == 0 && !super::backdrop::is_backdrop(batch)
+            })
+            .map(|(index, batch)| (index, batch, ()))
+            .collect();
+        self.count = super::segments::plan_ui_passes(&screen, false).layer_count();
+        self.batches = Some(Arc::downgrade(batches));
+        self.count
     }
 }
 
