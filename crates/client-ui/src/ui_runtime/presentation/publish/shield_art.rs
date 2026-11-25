@@ -20,7 +20,6 @@ pub(in crate::ui_runtime::presentation) struct ShieldArt {
 /// already cover. Only a closed inventory is repeated: an open one also shows creative and recipe
 /// stacks, so an observation made while it was open never repeats, even when the projected stacks
 /// did not change across the close.
-#[derive(PartialEq)]
 struct Key {
     stacks: u64,
     open: bool,
@@ -59,33 +58,37 @@ pub(in crate::ui_runtime::presentation) fn prepare_shield_art(
         },
     );
     let ledger = runtime.inventory_ledger(player);
-    let key = Key {
-        stacks: inventory_cache.stacks_epoch(),
-        open: runtime.inventory_open(),
-        armor: std::array::from_fn(|slot| {
-            ledger
-                .target_stack(InventoryTarget::Armor(slot as u8))
-                .cloned()
-        }),
-        cursor: ledger.cursor_stack().cloned(),
-        offhand: runtime.local_offhand_stack(player).cloned(),
-    };
+    let stacks = inventory_cache.stacks_epoch();
+    let armor = |slot: usize| ledger.target_stack(InventoryTarget::Armor(slot as u8));
+    let offhand = runtime.local_offhand_stack(player);
+    // Compared in place, so a repeat clones no stack.
     let repeats = !refreshed
         && !runtime.inventory_open()
-        && inventory_cache
-            .shield_art
-            .as_ref()
-            .is_some_and(|last| last.key == key);
-    let requests = if repeats {
+        && inventory_cache.shield_art.as_ref().is_some_and(|last| {
+            last.key.stacks == stacks
+                && !last.key.open
+                && (0..4).all(|slot| last.key.armor[slot].as_ref() == armor(slot))
+                && last.key.cursor.as_ref() == ledger.cursor_stack()
+                && last.key.offhand.as_ref() == offhand
+        });
+    let (key, requests) = if repeats {
         let last = inventory_cache.shield_art.take().expect("checked above");
         debug_assert_eq!(
             last.requests,
-            observe(player, runtime, &inventory_cache, &key, &resolve),
+            observe(player, runtime, &inventory_cache, &last.key, &resolve),
             "a repeated shield and trim observation differs from a fresh one"
         );
-        last.requests
+        (last.key, last.requests)
     } else {
-        observe(player, runtime, &inventory_cache, &key, &resolve)
+        let key = Key {
+            stacks,
+            open: runtime.inventory_open(),
+            armor: std::array::from_fn(|slot| armor(slot).cloned()),
+            cursor: ledger.cursor_stack().cloned(),
+            offhand: offhand.cloned(),
+        };
+        let requests = observe(player, runtime, &inventory_cache, &key, &resolve);
+        (key, requests)
     };
     presentation.gui_models.trim_icons.begin_frame();
     for (identifier, metadata, trim, color) in &requests.trims {
