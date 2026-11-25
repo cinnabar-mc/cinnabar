@@ -158,6 +158,7 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
         .init_resource::<ChunkGpuRemovalQueue>()
         .init_resource::<TransparentRetirementFence>()
         .init_resource::<GpuUpdateFairness>()
+        .init_resource::<render_scene::ChunkInstanceChanges>()
         .init_resource::<TransparentSortRuntime>()
         .init_resource::<TransparentModelSortRuntime>()
         .init_resource::<TransparentUploadBudget>()

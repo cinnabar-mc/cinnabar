@@ -78,6 +78,7 @@ pub use chunk::biome_tints::{
 };
 pub use chunk::frame_evidence::{MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_WITNESS_KEYS};
 pub use chunk::instance::ChunkRenderInstance;
+pub use chunk::instance_changes::ChunkInstanceChanges;
 pub use chunk::metrics::{ModelWorkloadMetrics, TransparentSortMetrics};
 pub use chunk::model_witness::{
     ModelWitnessEvent, ModelWitnessEvidence, ModelWitnessFrameAck, ModelWitnessManifestRecord,

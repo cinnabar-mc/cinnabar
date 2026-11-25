@@ -112,6 +112,9 @@ fn blocked_replacement_releases_obsolete_validation_allocations() {
         .get_mut::<ChunkRenderInstance>(entity)
         .unwrap()
         .model_lighting = Arc::from([PackedQuadLighting::new([0; 4])]);
+    app.world()
+        .resource::<render_scene::ChunkInstanceChanges>()
+        .mark(entity);
     app.insert_resource(ChunkUploadBudget::new(0, 0));
     let stats = prepare(&mut app);
     assert_eq!(stats.model_streams_validated, 0);

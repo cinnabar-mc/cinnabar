@@ -1,8 +1,8 @@
 use crate::chunk::*;
 use meshing::liquid::LIQUID_FACE_INSET;
 use render_scene::{
-    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements,
-    ChunkUploadBudget, RuntimeStageProfiler,
+    ChunkBiomeTints, ChunkInstanceChanges, ChunkRenderInstance, ChunkTextureAssets,
+    ChunkUploadAcknowledgements, ChunkUploadBudget, RuntimeStageProfiler,
 };
 mod arena_writes;
 #[allow(
@@ -22,8 +22,11 @@ pub(in crate::chunk) use model_draw_bases::absolutize_model_draw_refs;
 pub(in crate::chunk) use model_draw_bases::absolutize_partitioned_model_draw_refs;
 use publication_removals::prepare_publication_removals;
 type AllChunkInstances<'w, 's> = Query<'w, 's, (Entity, &'static ChunkRenderInstance)>;
-type ChangedChunkInstances<'w, 's> =
-    Query<'w, 's, (Entity, &'static ChunkRenderInstance), Changed<ChunkRenderInstance>>;
+/// Change detection over every instance, scanned only to check the marked changes.
+#[cfg(debug_assertions)]
+type ChangedChunkInstances<'w, 's> = Query<'w, 's, Entity, Changed<ChunkRenderInstance>>;
+#[cfg(not(debug_assertions))]
+type ChangedChunkInstances<'w, 's> = ();
 #[derive(SystemParam)]
 pub(in crate::chunk) struct ChunkInstanceQueries<'w, 's> {
     queries: ParamSet<
@@ -35,6 +38,49 @@ pub(in crate::chunk) struct ChunkInstanceQueries<'w, 's> {
             Query<'w, 's, &'static mut ChunkRenderInstance>,
         ),
     >,
+    changes: Res<'w, ChunkInstanceChanges>,
+    marked: Local<'s, MarkedChunkInstances>,
+}
+/// Instances marked since the previous preparation, and what checking them needs.
+#[derive(Default)]
+pub(in crate::chunk) struct MarkedChunkInstances {
+    entities: Vec<Entity>,
+    /// Instances this system changed itself; change detection reports them next run, but
+    /// their uploads already match, so the plan would skip them anyway.
+    #[cfg(debug_assertions)]
+    completed: Vec<Entity>,
+    #[cfg(debug_assertions)]
+    ran: bool,
+}
+impl ChunkInstanceQueries<'_, '_> {
+    /// Takes the instances inserted or marked since this system last ran.
+    ///
+    /// Debug builds check them against change detection, except on a system's first run,
+    /// where change detection reports every instance.
+    fn take_marked(&mut self) {
+        let marked = &mut *self.marked;
+        self.changes.take_into(&mut marked.entities);
+        #[cfg(debug_assertions)]
+        {
+            let completed = std::mem::take(&mut marked.completed);
+            if std::mem::replace(&mut marked.ran, true) {
+                let changed = self.queries.p1().iter().collect::<Vec<_>>();
+                for entity in &changed {
+                    debug_assert!(
+                        marked.entities.binary_search(entity).is_ok() || completed.contains(entity),
+                        "{entity} changed its chunk instance without marking ChunkInstanceChanges"
+                    );
+                }
+                let all_instances = self.queries.p0();
+                for entity in &marked.entities {
+                    debug_assert!(
+                        changed.contains(entity) || !all_instances.contains(*entity),
+                        "{entity} was marked in ChunkInstanceChanges without changing its instance"
+                    );
+                }
+            }
+        }
+    }
 }
 #[derive(SystemParam)]
 pub(in crate::chunk) struct ChunkUploadPublication<'w> {
@@ -91,6 +137,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::GpuPreparation));
+    instances.take_marked();
     release_completed_transparent_retirements(&mut arena, retirement_fence.completed_epoch());
     if recovery.as_ref().is_some_and(|recovery| recovery.waiting()) {
         *upload_stats = default();
@@ -98,7 +145,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     }
     let active_tint_identity = biome_tints.table_identity();
     let tint_identity_changed = fairness.last_tint_identity != Some(active_tint_identity);
-    let candidates = if tint_identity_changed || fairness.recover_untracked {
+    let candidates: Vec<_> = if tint_identity_changed || fairness.recover_untracked {
         instances
             .queries
             .p0()
@@ -106,25 +153,25 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             .map(|(entity, instance)| GpuUpdateCandidate::from_instance(entity, instance))
             .collect()
     } else {
-        let mut candidates = Vec::with_capacity(fairness.wait_ages.len());
-        {
-            let all_instances = instances.queries.p0();
-            candidates.extend(fairness.wait_ages.keys().filter_map(|&entity| {
+        let marked = &instances.marked.entities;
+        let all_instances = instances.queries.p0();
+        fairness
+            .wait_ages
+            .keys()
+            .copied()
+            .chain(
+                marked
+                    .iter()
+                    .copied()
+                    .filter(|entity| !fairness.wait_ages.contains_key(entity)),
+            )
+            .filter_map(|entity| {
                 all_instances
                     .get(entity)
                     .ok()
                     .map(|(_, instance)| GpuUpdateCandidate::from_instance(entity, instance))
-            }));
-        }
-        candidates.extend(
-            instances
-                .queries
-                .p1()
-                .iter()
-                .filter(|(entity, _)| !fairness.wait_ages.contains_key(entity))
-                .map(|(entity, instance)| GpuUpdateCandidate::from_instance(entity, instance)),
-        );
-        candidates
+            })
+            .collect()
     };
     let urgent_updates = candidates
         .iter()
@@ -718,6 +765,11 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 instance.publication_permit = None;
             }
         }
+        #[cfg(debug_assertions)]
+        instances
+            .marked
+            .completed
+            .extend_from_slice(&successful_updates);
     } else {
         for (key, token, _) in applied_tokens {
             acknowledgements.cancel(key, token);
