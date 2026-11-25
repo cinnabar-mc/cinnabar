@@ -74,4 +74,18 @@ fn screen_readers_settle_once_after_input_then_skip() {
     assert_eq!(runs(&app), 5, "the frame after the request settles");
     app.update();
     assert_eq!(runs(&app), 5);
+
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .emotes_mut()
+        .open();
+    app.update();
+    assert_eq!(runs(&app), 6, "an open emote wheel runs them");
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .emotes_mut()
+        .close();
+    app.update();
+    app.update();
+    assert_eq!(runs(&app), 7, "they settle once after it closes, then skip");
 }

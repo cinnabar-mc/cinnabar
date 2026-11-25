@@ -70,7 +70,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_server_form_input.in_set(OrdinaryInputSet),
             // Runs while consent owns input too, to drain the ordered events it must not replay.
             crate::ui_runtime::data_driven::drive_data_driven_input,
-            crate::ui_runtime::emotes::drive_emote_input,
+            crate::ui_runtime::emotes::drive_emote_input.in_set(IdleScreenReaders),
             crate::ui_runtime::mob_effects::drive_mob_effect_screen_input.in_set(IdleScreenReaders),
             drive_chat_ui_actions
                 .in_set(OrdinaryInputSet)

@@ -7,17 +7,18 @@ use super::input_owner::top_scene;
 use crate::runtime::world::ClientWorld;
 
 /// Screen drivers whose work on a frame without raw input, with gameplay on top, the menu
-/// hidden and no editor open or requested, is only to settle what the frame before left: the
-/// mob effects screen, the sign and command block editors and the chat pointer actions. Once a
-/// whole such frame has passed they would do nothing, so the set runs only under
-/// [`screen_readers_due`].
+/// hidden and no editor, emote or mob effects screen open, requested or playing, is only to
+/// settle what the frame before left: the emote wheel, the mob effects screen, the sign and
+/// command block editors and the chat pointer actions. Once a whole such frame has passed they
+/// would do nothing, so the set runs only under [`screen_readers_due`].
 #[derive(bevy::prelude::SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct IdleScreenReaders;
 
 /// Whether [`IdleScreenReaders`] run: this frame or the one before carried raw input, a screen
-/// above gameplay, a visible menu, consent-owned input or an open or requested editor or mob
-/// effects screen. The frame after any of these still runs them, so state they keep from one
-/// frame to the next, such as whether they owned the cursor, settles first.
+/// above gameplay, a visible menu, consent-owned input, screen-consumed input, an open or
+/// requested editor, an open emote wheel or mob effects screen, or a playing emote. The frame
+/// after any of these still runs them, so state they keep from one frame to the next, such as
+/// whether they owned the cursor, settles first.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn screen_readers_due(
     input: RawInput,
@@ -25,12 +26,16 @@ pub(crate) fn screen_readers_due(
     runtime: Res<UiRuntimeResource>,
     menu: Option<Res<MenuRuntime>>,
     consent: Option<Res<client_state::ConsentInput>>,
+    consumed: Option<Res<client_state::ScreenInputConsumed>>,
     world: Option<Res<ClientWorld>>,
     mut busy_before: Local<bool>,
 ) -> bool {
     let busy = input.active()
         || menu.as_deref().is_some_and(MenuRuntime::is_visible)
         || consent.is_some_and(|consent| consent.0)
+        || consumed.is_some_and(|consumed| consumed.0)
+        || runtime.emotes().is_open()
+        || runtime.emotes().playback().is_some()
         || runtime.sign_editor().is_open()
         || runtime.command_block().is_open()
         || runtime.command_block().requested()
