@@ -243,7 +243,7 @@ pub(super) fn sample<'a>(
                             && remote_emote_pose.is_none()
                             && !(local && (first_person || input.custom_emote.is_some())))
                         .then(|| {
-                            let local = local.then_some(&input.local_equipment);
+                            let local = local.then_some(&*input.local_equipment);
                             java::third_person(stream, &rig, actor, local, partial_tick, java_poses)
                         })
                         .flatten();

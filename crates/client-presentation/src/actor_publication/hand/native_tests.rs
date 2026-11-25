@@ -808,7 +808,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
             local_feed: None,
             predicted_eye: Some([0.0, 65.62, 0.0]),
             predicted_feet: Some([0.0, 64.0, 0.0]),
-            local_equipment: input.clone(),
+            local_equipment: (input.clone()).into(),
             swing_progress: None,
             renders_game: true,
             hide_hand: false,
