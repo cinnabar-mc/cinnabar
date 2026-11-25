@@ -113,6 +113,46 @@ impl ActorRenderFrame {
     pub fn artwork_pages(&self) -> &ActorArtworkPages {
         &self.artwork
     }
+
+    /// Whether this frame and `other` both draw nothing and are equal in every field but the
+    /// rig's frame generation, which the renderer reads only to decide uploads and nothing
+    /// uploads for a frame without instances. Republishing such a frame changes nothing drawn.
+    #[must_use]
+    pub fn same_empty_frame(&self, other: &Self) -> bool {
+        let Self {
+            mask_only_runtime_ids,
+            main_pass_instance_count,
+            instances,
+            skins,
+            instance_revision,
+            skin_revision,
+            rig,
+            artwork,
+            instance_pages,
+            authored_rasters,
+        } = self;
+        let empty = |frame: &Self| {
+            frame.rig.instances.is_empty()
+                && frame.rig.manifest.is_empty()
+                && frame.instances.is_empty()
+                && frame.mask_only_runtime_ids.is_empty()
+        };
+        empty(self)
+            && empty(other)
+            && *mask_only_runtime_ids == other.mask_only_runtime_ids
+            && *main_pass_instance_count == other.main_pass_instance_count
+            && *instances == other.instances
+            && Arc::ptr_eq(skins, &other.skins)
+            && *instance_revision == other.instance_revision
+            && *skin_revision == other.skin_revision
+            && Arc::ptr_eq(artwork, &other.artwork)
+            && *instance_pages == other.instance_pages
+            && *authored_rasters == other.authored_rasters
+            && ActorRigRenderFrame {
+                frame_generation: other.rig.frame_generation,
+                ..rig.clone()
+            } == other.rig
+    }
 }
 
 impl Default for ActorRenderFrame {
