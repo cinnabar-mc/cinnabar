@@ -1,4 +1,4 @@
-use super::{FramesInFlight, MAX_FRAMES_IN_FLIGHT};
+use super::{FramesInFlight, MAX_FRAMES_IN_FLIGHT, submission_marker};
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use std::sync::{
     Arc,
@@ -91,4 +91,25 @@ fn frames_without_a_swap_chain_stay_within_the_in_flight_bound() {
             "{queued} frames still queued after frame {submitted}"
         );
     }
+}
+
+/// A frame whose graph submitted work marks itself with that submission instead of submitting
+/// again; a frame with nothing to submit still gets a marker.
+#[test]
+fn a_frame_with_graph_work_reaches_the_queue_in_one_submission() {
+    let Some((device, queue)) = native_device() else {
+        return;
+    };
+    let gpu = device.wgpu_device();
+    let mut frames = FramesInFlight::default();
+    let before = submission_marker(&queue);
+    let encoder = gpu.create_command_encoder(&Default::default());
+    frames.submit_graph(&queue, [encoder.finish()]);
+    frames.finish_frame(gpu, &queue).expect("frame poll");
+    // The frame's one submission, then the marker this check reads.
+    assert_eq!(submission_marker(&queue), before + 2);
+    frames.submit_graph(&queue, []);
+    frames.finish_frame(gpu, &queue).expect("frame poll");
+    // An empty graph leaves the frame's own empty marker submission.
+    assert_eq!(submission_marker(&queue), before + 4);
 }
