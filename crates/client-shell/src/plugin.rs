@@ -1,4 +1,5 @@
 //! Registers the menu shell at the shared frame boundaries.
+use crate::input_activity::{RawInputReaders, raw_input_activity};
 use crate::{fullscreen, menu, settings_runtime};
 use bevy::prelude::{App, IntoScheduleConfigs, Last, Plugin, Startup, Update};
 use client_state::{ClientFrameSet, ShellFrameSet};
@@ -12,6 +13,7 @@ impl Plugin for ClientShellPlugin {
             .init_resource::<client_state::ScreenFocus>()
             .init_resource::<client_state::GameplayScreenControls>()
             .add_plugins(crate::local_worlds::LocalWorldsPlugin)
+            .configure_sets(Update, RawInputReaders.run_if(raw_input_activity))
             .add_systems(Startup, settings_runtime::initialize_render_distance)
             .add_systems(
                 Last,
@@ -23,8 +25,8 @@ impl Plugin for ClientShellPlugin {
             .add_systems(
                 Update,
                 (
-                    menu::observe_keyboard_labels,
-                    fullscreen::toggle_fullscreen_hotkey,
+                    menu::observe_keyboard_labels.in_set(RawInputReaders),
+                    fullscreen::toggle_fullscreen_hotkey.in_set(RawInputReaders),
                     menu::drive_menu_input,
                     menu::drive_window_ime,
                     fullscreen::apply_runtime_fullscreen_setting,

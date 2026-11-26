@@ -3,6 +3,7 @@
 pub mod discord_presence;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fullscreen;
+pub mod input_activity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod local_worlds;
 #[cfg(not(target_arch = "wasm32"))]
