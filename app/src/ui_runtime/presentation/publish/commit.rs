@@ -30,9 +30,12 @@ pub(crate) fn publish_ui_runtime(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPublication));
+    // Publication presents the captured inventory by swapping it into the runtime and back, so
+    // it leaves the runtime as it found it: the runtime's change tick stays a revision of what
+    // other systems wrote.
     let built = match client_ui::ui_runtime::presentation::render_prepared_ui(
         &player_runtime,
-        &mut runtime,
+        runtime.bypass_change_detection(),
         &mut presentation,
         prepared,
         !inputs_changed.0,
