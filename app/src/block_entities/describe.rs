@@ -18,7 +18,10 @@ use render_model::{
 };
 use world::NbtCompound;
 
-use super::{sign_text::SignTextSpec, state::BlockState};
+use super::{
+    sign_text::{HANGING_WRAP_PIXELS, STANDING_WRAP_PIXELS, SignTextSpec},
+    state::BlockState,
+};
 
 const DEFAULT_SIGN_COLOR: i32 = -0x1000000;
 
@@ -287,8 +290,8 @@ pub(super) fn piston_arm(
     })
 }
 
-/// Keeps visible text and its retained appearance.
-fn sign_face(face: &NbtCompound) -> Option<SignTextSpec> {
+/// Keeps visible text and its retained appearance, wrapping at the board's text width.
+fn sign_face(face: &NbtCompound, wrap_width_pixels: u32) -> Option<SignTextSpec> {
     let spec = SignTextSpec::new(
         face.string("Text")?.to_owned(),
         face.integer("SignTextColor")
@@ -296,6 +299,7 @@ fn sign_face(face: &NbtCompound) -> Option<SignTextSpec> {
             .unwrap_or(DEFAULT_SIGN_COLOR),
         face.boolean("IgnoreLighting").unwrap_or(false),
         face.boolean("HideGlowOutline").unwrap_or(false),
+        wrap_width_pixels,
     );
     spec.is_visible().then_some(spec)
 }
@@ -307,13 +311,20 @@ fn sign(
     nbt: &NbtCompound,
 ) -> Option<Template> {
     let mount = sign_mount(backing, state)?;
+    let wrap_width_pixels = match mount {
+        SignMount::Hanging { .. } | SignMount::HangingWall(_) => HANGING_WRAP_PIXELS,
+        SignMount::Standing { .. } | SignMount::Wall(_) => STANDING_WRAP_PIXELS,
+    };
     let (front, back) = match (nbt.compound("FrontText"), nbt.compound("BackText")) {
         (None, None) => (
             // Pre-1.19.80 signs carry one face's text at the root.
-            sign_face(nbt),
+            sign_face(nbt, wrap_width_pixels),
             None,
         ),
-        (front, back) => (front.and_then(sign_face), back.and_then(sign_face)),
+        (front, back) => (
+            front.and_then(|face| sign_face(face, wrap_width_pixels)),
+            back.and_then(|face| sign_face(face, wrap_width_pixels)),
+        ),
     };
     (front.is_some() || back.is_some()).then_some(Template::Sign { mount, front, back })
 }
