@@ -127,7 +127,7 @@ pub(crate) fn prepare_ui_resources(
         && previous
             .as_deref()
             .is_some_and(|previous| input.shares_draw_buffers(previous))
-        && gpu.textures.resident(&input.textures);
+        && gpu.textures.shared_resident(&input.textures);
     let animated = if gpu.accepted_revision == Some(input.revision) || retained_geometry {
         gpu.animated
     } else {
@@ -198,7 +198,7 @@ pub(crate) fn prepare_ui_resources(
             );
             return;
         }
-        if gpu.textures.resident(&input.textures) {
+        if gpu.textures.shared_resident(&input.textures) {
             return;
         }
     }

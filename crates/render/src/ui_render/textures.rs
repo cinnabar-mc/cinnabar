@@ -159,9 +159,44 @@ pub(super) struct UiGpuTextures {
     allocation_plan: Option<UiTexturePlan>,
     retry: Option<(Duration, u64)>,
     pub(super) residency_generation: u64,
+    /// Changes whenever anything [`Self::resident`] reads may have changed.
+    residency_epoch: ResidencyEpoch,
+    /// The catalog last found resident, at [`Self::residency_epoch`]; held weakly so a later
+    /// catalog never reuses its address.
+    resident_memo: Option<(std::sync::Weak<UiTextureCatalog>, u64)>,
+}
+
+/// A process-wide stamp, so a replaced texture store never repeats one its predecessor held.
+struct ResidencyEpoch(u64);
+
+impl Default for ResidencyEpoch {
+    fn default() -> Self {
+        Self(next_residency_epoch())
+    }
+}
+
+/// A stamp no texture store has held before.
+fn next_residency_epoch() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl UiGpuTextures {
+    /// [`Self::resident`] for a shared catalog, answered without comparing plans while it is
+    /// the catalog last found resident and nothing it reads has changed since.
+    pub(super) fn shared_resident(&mut self, catalog: &std::sync::Arc<UiTextureCatalog>) -> bool {
+        if let Some((memo, epoch)) = &self.resident_memo
+            && std::ptr::eq(memo.as_ptr(), std::sync::Arc::as_ptr(catalog))
+            && *epoch == self.residency_epoch.0
+        {
+            return true;
+        }
+        let resident = self.resident(catalog);
+        self.resident_memo =
+            resident.then(|| (std::sync::Arc::downgrade(catalog), self.residency_epoch.0));
+        resident
+    }
+
     /// Reports whether the requested page has successfully uploaded storage.
     pub(super) fn page_resident(&self, page: usize) -> bool {
         self.state.uploaded.get(page).is_some_and(Option::is_some)
@@ -174,6 +209,7 @@ impl UiGpuTextures {
 
     /// Invalidates failed glyph writes and delays another attempt on the same plan.
     pub(super) fn failed_font_uploads(&mut self, pages: &[usize], bytes: u64, now: Duration) {
+        self.residency_epoch.0 = next_residency_epoch();
         self.state.forget(pages);
         self.fonts.clear();
         self.retry = Some((now.saturating_add(TEXTURE_RETRY_DELAY), bytes));
@@ -218,6 +254,8 @@ impl UiGpuTextures {
         profile: Option<&super::profile::UiProfile>,
         now: Duration,
     ) -> Result<(), UiRenderRejectReason> {
+        // Preparing may upload, forget, rebind or reallocate pages.
+        self.residency_epoch.0 = next_residency_epoch();
         let limits = device.limits();
         catalog.plan().validate_device(
             limits.max_texture_dimension_2d,
