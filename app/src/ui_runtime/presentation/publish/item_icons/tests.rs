@@ -228,7 +228,7 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
             ui,
             &mut presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             tick * 50,
             ItemIconFrames(std::array::from_fn(|slot| {
                 item_use.inventory_animation_frame(player_runtime, &stream, ui, slot as u8, tick)

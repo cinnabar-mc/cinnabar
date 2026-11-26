@@ -159,11 +159,12 @@ impl ModUi {
 
     /// Projects every layer's world and actor points through the current camera; `actor`
     /// returns an actor's interpolated feet. Without a camera every projection hides.
+    /// Whether a surface or panel may have moved: any exists. The camera alone draws nothing.
     pub fn set_hud_projection(
         &mut self,
         clip_from_world: Option<[f32; 16]>,
         actor: &dyn Fn(u64) -> Option<ProjectedActor>,
-    ) {
+    ) -> bool {
         let surfaces = &mut self.hud_surfaces;
         surfaces.camera = clip_from_world
             .filter(|matrix| matrix.iter().all(|value| value.is_finite()))
@@ -177,6 +178,7 @@ impl ModUi {
         if let Some(panel) = self.mod_panel.as_mut() {
             panel.project(root, camera.as_ref(), actor, self.panel_actor_authority);
         }
+        !surfaces.layers.is_empty() || self.mod_panel.is_some()
     }
 
     /// Which actors the selected panel's projections may follow.

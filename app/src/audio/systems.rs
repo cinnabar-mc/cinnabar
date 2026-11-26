@@ -64,6 +64,10 @@ pub(crate) fn drive_inventory_audio(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::Audio));
+    // Borrowing the player mutably for no drop would mark it changed for the UI frame.
+    if !player_runtime.inventory.ledger().world_drops_pending() {
+        return;
+    }
     client_audio::audio::inventory::drive_inventory_audio(
         &mut player_runtime,
         client_audio::observations::WorldObservation {

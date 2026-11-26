@@ -23,7 +23,6 @@ impl UiPresentationRuntime {
         next: &mut u32,
         metrics: TextMetrics,
         content: [f32; 2],
-        now_millis: u64,
     ) -> Result<(), UiPresentationError> {
         self.screens.hud.toast_press = None;
         let Some(renderer) = self.engine.as_deref() else {
@@ -32,7 +31,11 @@ impl UiPresentationRuntime {
         if runtime.hides_toasts() {
             return Ok(());
         }
-        let Some(toast) = runtime.hud().showing_toast(now_millis) else {
+        // Without a queued or standing toast nothing shows, whatever the time.
+        if runtime.hud().toasts().is_empty() && runtime.hud().standing_toast().is_none() {
+            return Ok(());
+        }
+        let Some(toast) = runtime.hud().showing_toast(self.clock.millis()) else {
             return Ok(());
         };
         let translate = |key: &str| runtime.translation(key);
@@ -45,7 +48,7 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],

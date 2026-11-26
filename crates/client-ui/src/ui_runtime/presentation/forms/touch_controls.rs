@@ -112,13 +112,16 @@ impl UiPresentationRuntime {
     }
 
     /// Selects the controls the touch overlay shows; measured geometry follows the new set.
-    pub fn set_touch_control_mode(&mut self, mode: TouchControlMode) {
+    /// Whether the mode changed.
+    pub fn set_touch_control_mode(&mut self, mode: TouchControlMode) -> bool {
         let state = &mut self.screens.touch;
-        if state.mode != mode {
-            state.mode = mode;
-            state.base_viewport = None;
-            state.editor_viewport = None;
+        if state.mode == mode {
+            return false;
         }
+        state.mode = mode;
+        state.base_viewport = None;
+        state.editor_viewport = None;
+        true
     }
 
     /// Whether the touch mode replaces the crosshair with interacting where the finger is.
@@ -272,7 +275,7 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language,
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes,
             next,
             renderers: &mut [],

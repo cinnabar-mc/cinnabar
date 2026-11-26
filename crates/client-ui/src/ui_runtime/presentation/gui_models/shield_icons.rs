@@ -356,6 +356,14 @@ impl UiPresentationRuntime {
 }
 
 impl ShieldIcons {
+    /// Whether composed shield art waits to be published into its pages.
+    pub(in crate::ui_runtime::presentation) fn dirty(&self) -> bool {
+        self.cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .dirty
+    }
+
     /// Discards addresses whose source catalog or session has changed.
     pub(in crate::ui_runtime::presentation) fn clear(&mut self) {
         *self = Self::default();

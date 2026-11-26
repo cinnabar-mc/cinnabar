@@ -92,8 +92,8 @@ impl ContainerScreen {
         self.preparing.is_some() || self.inventory.as_ref().is_some_and(|cache| !cache.live)
     }
 
-    /// Whether a closed inventory still owns unfinished preparation work.
-    #[cfg(any(test, feature = "test-support"))]
+    /// Whether a closed inventory still owns unfinished preparation work, which only builds
+    /// service.
     pub fn inventory_preparation_pending(&self) -> bool {
         self.preparing.is_some()
     }

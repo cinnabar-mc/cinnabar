@@ -138,10 +138,31 @@ impl LivePlayer {
 }
 
 impl UiPresentationRuntime {
-    /// Marks the next frame's actor capture as not yet taken; call before capturing.
+    /// Marks the next frame's actor capture as not yet taken; call before capturing. Advances
+    /// [`Self::player_model_revision`].
     pub fn begin_live_capture(&mut self) {
+        self.note_player_model_change();
         self.gui_models.live_player.fresh = false;
         self.gui_models.player_layers.clear_capture();
+    }
+
+    /// Counts changes to the player model's dressing and live pose, which a frame reads only
+    /// when it draws the model.
+    pub fn player_model_revision(&self) -> u64 {
+        self.player_model_revision
+    }
+
+    /// Records that the player model's dressing or pose may have changed.
+    pub(in crate::ui_runtime::presentation) fn note_player_model_change(&mut self) {
+        self.player_model_revision = self.player_model_revision.wrapping_add(1);
+    }
+
+    /// Whether the last build drew the player model in any preview, so a later frame reads
+    /// its dressing and pose.
+    pub(in crate::ui_runtime::presentation) fn player_model_drawn(&self) -> bool {
+        self.gui_models
+            .player_model_drawn
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether a screen drew a live player renderer in the last published frame.

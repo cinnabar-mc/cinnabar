@@ -16,7 +16,7 @@ fn frame(transitions: &mut Transitions, view: &MenuView, seconds: f64) -> Vec<ui
     drop(canvas);
     transitions
         .effects
-        .finish(&mut nodes, &mut next, seconds, [1280.0, 720.0])
+        .finish(&mut nodes, &mut next, &|| seconds, [1280.0, 720.0])
         .unwrap();
     transitions.end_frame();
     nodes

@@ -347,6 +347,51 @@ impl HudScreens {
         drawn
     }
 
+    /// Whether the HUD screen's, or the crosshair overlay's, last paint would be reused while
+    /// everything it was painted from holds: it was kept, no animation it drew still runs, and no
+    /// hunger icon shakes.
+    pub fn settled(&self, engine: &FormEngine, crosshair: bool) -> bool {
+        let retained = if crosshair {
+            &self.crosshair_paint
+        } else {
+            &self.hud_paint
+        };
+        engine.retained_settled(&retained.paint)
+            && retained.drawn.as_ref().is_some_and(|(paint, _, _)| {
+                !paint.hunger.saturation_empty || retained.hunger.is_empty()
+            })
+    }
+
+    /// Ticks a settled paint's animations at `now` for a frame that is not built, as reusing it
+    /// would; `false` when the HUD screen's, or the crosshair overlay's, paint would now draw
+    /// differently. Ticking again at the same `now` changes nothing.
+    pub fn repeat_settled_animations(
+        &self,
+        engine: &FormEngine,
+        crosshair: bool,
+        now: f64,
+    ) -> bool {
+        let retained = if crosshair {
+            &self.crosshair_paint
+        } else {
+            &self.hud_paint
+        };
+        engine.repeat_retained(&retained.paint, now)
+    }
+
+    /// Advances the hunger controls a reused paint of the HUD screen, or the crosshair overlay,
+    /// would, for a frame that is not built.
+    pub fn repeat_settled_hunger(&mut self, crosshair: bool) {
+        let retained = if crosshair {
+            &self.crosshair_paint
+        } else {
+            &self.hud_paint
+        };
+        for (key, instance) in &retained.hunger {
+            self.hunger_animation.advance(key, *instance);
+        }
+    }
+
     /// The last HUD paint's visible effect artwork, in logical pixels relative to safe content.
     pub fn effect_bounds(&self) -> Option<[f32; 4]> {
         self.hud_paint.effect_bounds

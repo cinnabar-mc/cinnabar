@@ -32,6 +32,11 @@ impl<F: PartialEq> MenuScrolls<F> {
         true
     }
 
+    /// Whether a touch scroll is in progress, which [`Self::move_touch`] advances.
+    pub fn touching(&self) -> bool {
+        self.touch.is_some()
+    }
+
     /// Follows the captured viewport; returns whether scrolling consumed this finger's press.
     /// A release includes its final position, while cancellation passes no position.
     pub fn move_touch(&mut self, point: Option<UiPoint>, held: bool) -> bool {

@@ -133,18 +133,23 @@ impl EquipmentSelection {
 }
 
 /// Keeps predicate state until the immutable catalog changes, then drops its cached results.
-fn sync(layer: &mut Option<SelectionAssets>, source: Option<Arc<assets::RuntimeEntityAssets>>) {
+/// Whether `layer` was replaced.
+fn sync(
+    layer: &mut Option<SelectionAssets>,
+    source: Option<Arc<assets::RuntimeEntityAssets>>,
+) -> bool {
     if match (layer.as_ref(), source.as_ref()) {
         (Some(old), Some(source)) => Arc::ptr_eq(&old.source, source),
         (None, None) => true,
         _ => false,
     } {
-        return;
+        return false;
     }
     *layer = source.map(|source| SelectionAssets {
         runtime: AttachablesRuntime::new(Arc::clone(&source)),
         source,
     });
+    true
 }
 
 /// The player and completed animation inputs that a worn preview observes.
@@ -157,13 +162,14 @@ pub struct PreviewEquipmentOwner<'a> {
 
 impl UiPresentationRuntime {
     /// Supplies the immutable startup and session catalogs that own item conditions.
+    /// Whether either catalog changed.
     pub fn set_preview_equipment_assets(
         &mut self,
         base: Option<Arc<assets::RuntimeEntityAssets>>,
         pack: Option<Arc<assets::RuntimeEntityAssets>>,
-    ) {
-        sync(&mut self.preview_equipment_selection.base, base);
-        sync(&mut self.preview_equipment_selection.pack, pack);
+    ) -> bool {
+        sync(&mut self.preview_equipment_selection.base, base)
+            | sync(&mut self.preview_equipment_selection.pack, pack)
     }
 
     /// Dresses a preview using its player's inputs and each slot's stack enchantment flag.

@@ -55,7 +55,7 @@ pub fn cosmetic_particle_preview(
     }
     let frames = (seconds * 60.0).ceil() as u32;
     for frame in 0..=frames {
-        runtime.menu_seconds = (f64::from(frame) / 60.0).min(seconds);
+        runtime.set_menu_seconds((f64::from(frame) / 60.0).min(seconds));
         runtime.sync_cosmetic_previews(true);
         runtime.sync_player_particles(emitting);
     }

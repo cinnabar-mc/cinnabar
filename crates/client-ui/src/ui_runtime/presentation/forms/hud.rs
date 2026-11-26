@@ -81,7 +81,6 @@ impl UiPresentationRuntime {
         next: &mut u32,
         metrics: TextMetrics,
         content: [f32; 2],
-        now_millis: u64,
         crosshair: bool,
     ) -> Result<bool, UiPresentationError> {
         let Some(renderer) = self.engine.as_deref() else {
@@ -120,9 +119,8 @@ impl UiPresentationRuntime {
         {
             return Ok(true);
         }
-        // Project at the caller clock, then restore the published frame before fallible painting.
-        let captured_clock = std::mem::replace(&mut self.hud_frame.now_millis, now_millis);
         let frame = &self.hud_frame;
+        let clock = &self.clock;
         let catalog = self.mod_hud_bindings.catalog(renderer.catalog());
         let options = self.screens.chat.settings.options();
         let mut sidebar_shown = false;
@@ -144,6 +142,7 @@ impl UiPresentationRuntime {
                 player_runtime,
                 runtime,
                 frame,
+                clock,
                 sidebar,
                 sidebar_key,
                 options,
@@ -172,11 +171,11 @@ impl UiPresentationRuntime {
             player_runtime,
             runtime,
             frame,
+            clock,
             self.hud_textures.as_ref(),
             self.screens.chat.settings.options(),
         );
         let player_preview = frame.player_preview;
-        self.hud_frame.now_millis = captured_clock;
         // Packs may replace the native cursor renderer with ordinary image controls.
         // Gate the whole overlay so these controls obey the same camera and HUD settings.
         if crosshair && paint.crosshair.is_none() {
@@ -203,6 +202,7 @@ impl UiPresentationRuntime {
         let renderers_unchanged = drew.preview == player_preview;
         let translate = |key: &str| runtime.translation(key);
         let preview_view = std::cell::Cell::new(None);
+        let time = self.clock.engine();
         let mut preview = PreviewRenderer {
             preview: player_preview,
             view: Some(&preview_view),
@@ -218,7 +218,7 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-            now: now_millis as f64 / 1_000.0,
+            now: time.seconds(),
             nodes: &mut *nodes,
             next: &mut *next,
             renderers: &mut renderers,
@@ -240,6 +240,8 @@ impl UiPresentationRuntime {
             },
             &mut paint_frame,
         )?;
+        time.settled(self.screens.hud.settled(renderer, crosshair));
+        self.hud_painted[usize::from(crosshair)] = true;
         if hide_crosshair {
             nodes.truncate(rollback.0);
             *next = rollback.1;
@@ -271,6 +273,37 @@ impl UiPresentationRuntime {
             self.player_preview_view = view;
         }
         Ok(true)
+    }
+}
+
+impl UiPresentationRuntime {
+    /// Repeats, for a frame at `now_millis` that is not built, what reusing the last build's
+    /// settled HUD paints does besides drawing; `false` when a paint would draw differently.
+    pub(in super::super) fn repeat_hud_paints(&mut self, now_millis: u64) -> bool {
+        let Some(engine) = self.engine.as_deref() else {
+            return !self.hud_painted.contains(&true);
+        };
+        // The time the paints would have read, as `EngineTime` gives it.
+        let seconds = now_millis as f64 / 1_000.0;
+        let painted = [false, true].map(|crosshair| self.hud_painted[usize::from(crosshair)]);
+        // Every paint ticks before any hunger control advances, so a frame that must be built
+        // after all advances them once, in its build.
+        for crosshair in [false, true] {
+            if painted[usize::from(crosshair)]
+                && !self
+                    .screens
+                    .hud
+                    .repeat_settled_animations(engine, crosshair, seconds)
+            {
+                return false;
+            }
+        }
+        for crosshair in [false, true] {
+            if painted[usize::from(crosshair)] {
+                self.screens.hud.repeat_settled_hunger(crosshair);
+            }
+        }
+        true
     }
 }
 

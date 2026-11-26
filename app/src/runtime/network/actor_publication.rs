@@ -28,7 +28,7 @@ pub(crate) fn publish_local_actor_damage(
     fatal_error: Res<FatalError>,
     mut ui: Option<ResMut<UiRuntimeResource>>,
 ) {
-    let Some(ui) = ui.as_deref_mut() else {
+    let Some(ui) = ui.as_mut() else {
         return;
     };
     let actor = world
@@ -36,7 +36,7 @@ pub(crate) fn publish_local_actor_damage(
         .as_ref()
         .filter(|_| fatal_error.0.is_none() && world.transfer_notice.is_none())
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
-    ui.publish_local_actor_health(actor);
+    client_shell::ui_resources::update(ui, |ui| ui.publish_local_actor_health(actor));
 }
 
 /// App-owned inputs borrowed only while this frame's presentation is prepared.

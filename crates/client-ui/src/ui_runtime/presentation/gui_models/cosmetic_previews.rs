@@ -137,7 +137,13 @@ impl UiPresentationRuntime {
                 }
             }
         }
-        self.gui_models.cosmetics.sync(&active, self.menu_seconds);
+        // Without an active preview nothing animates, so no time is read.
+        let now = if active.is_empty() {
+            0.0
+        } else {
+            self.clock.seconds()
+        };
+        self.gui_models.cosmetics.sync(&active, now);
         self.gui_models.cosmetics.active = active;
     }
 

@@ -26,6 +26,11 @@ impl MenuRuntime {
         }
     }
 
+    /// Whether a language change waits for [`Self::sync_language`].
+    pub const fn language_pending(&self) -> bool {
+        self.language_pending
+    }
+
     /// Installs a selected carrier once; missing optional translations fall back to English.
     pub fn sync_language(&mut self, runtime: &mut UiRuntime) {
         if !self.language_pending {

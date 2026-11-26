@@ -217,6 +217,12 @@ impl Outlines {
         self.submit(job);
     }
 
+    /// Whether a submitted outline has not finished yet.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn in_flight(&self) -> bool {
+        self.pending && self.receiver.is_empty() && self.retry.is_none()
+    }
+
     /// Publishes worker results before retained frames decide whether they need repainting.
     pub(super) fn collect(&mut self) -> bool {
         if let Some(job) = self.retry.take() {

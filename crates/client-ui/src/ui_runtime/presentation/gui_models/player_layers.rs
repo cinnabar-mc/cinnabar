@@ -49,20 +49,25 @@ impl PlayerLayers {
 
 impl UiPresentationRuntime {
     /// Replaces the immutable catalog; geometry and texture identities never cross pack changes.
-    pub fn set_preview_player_layers(&mut self, source: Option<Arc<assets::SessionEntityPack>>) {
+    /// Whether the pack changed.
+    pub fn set_preview_player_layers(
+        &mut self,
+        source: Option<Arc<assets::SessionEntityPack>>,
+    ) -> bool {
         let old = &self.gui_models.player_layers.source;
         if match (old, &source) {
             (Some(old), Some(new)) => Arc::ptr_eq(old, new),
             (None, None) => true,
             _ => false,
         } {
-            return;
+            return false;
         }
         self.gui_models.player_layers = PlayerLayers {
             source,
             ..Default::default()
         };
         self.rebuild_dynamic_textures();
+        true
     }
 
     /// Whether this session can supply authored player-controller layers to HUD controls.

@@ -207,7 +207,7 @@ impl UiPresentationRuntime {
                 content,
                 translate: &translate,
                 language: runtime.text_generation(),
-                now: self.menu_seconds,
+                now: self.clock.seconds(),
                 nodes,
                 next,
                 renderers: &mut [],
@@ -275,10 +275,13 @@ impl UiPresentationRuntime {
         }
     }
     /// Cancels a finger independently from Save/Cancel for the whole draft.
-    pub fn cancel_touch_editor_pointer(&mut self) {
+    /// Whether the layout editor was open to cancel its pointer.
+    pub fn cancel_touch_editor_pointer(&mut self) -> bool {
         if let Some(editor) = &mut self.screens.touch.editor {
             editor.cancel_pointer();
+            return true;
         }
+        false
     }
     /// Samples Shift independently of key repetition for continuous snap bypass.
     pub fn touch_editor_modifiers(&mut self, modifiers: ui::mod_panel::FieldModifiers) {
@@ -293,13 +296,15 @@ impl UiPresentationRuntime {
         }
     }
     /// Drops an abandoned settings surface and all retained input geometry.
-    pub fn close_touch_editor(&mut self) {
+    /// Whether the editor was open or left anything to install.
+    pub fn close_touch_editor(&mut self) -> bool {
         let state = &mut self.screens.touch;
-        state.editor = None;
-        state.editor_viewport = None;
+        let mut changed = state.editor.take().is_some() | state.editor_viewport.take().is_some();
         if let Some(buttons) = state.deferred_mod_buttons.take() {
             state.install_mod_buttons(buttons.iter().map(|(owner, button)| (*owner, button)));
+            changed = true;
         }
+        changed
     }
     /// A completed transaction: Save returns its layout; Cancel returns no replacement.
     pub fn take_touch_editor_result(&mut self) -> Option<Option<TouchLayout>> {

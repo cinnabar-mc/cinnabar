@@ -64,6 +64,11 @@ impl ModUi {
         Ok(())
     }
 
+    /// Whether a mod HUD is set, which its paint draws.
+    pub fn has_mod_hud(&self) -> bool {
+        self.mod_hud.is_some()
+    }
+
     /// Draws the extension's label; the caller shows it only while the gameplay HUD owns focus.
     pub fn paint_mod_hud(&mut self, renderer: &FormEngine, paint_frame: &mut PaintFrame<'_>) {
         let Some(hud) = self.mod_hud.as_mut() else {

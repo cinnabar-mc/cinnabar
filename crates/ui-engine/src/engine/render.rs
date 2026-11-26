@@ -29,6 +29,18 @@ impl FormEngine {
         prepare_with(self.art(), frame, art, draw, None)
     }
 
+    /// Whether `retained` kept its last paint and would reuse it while the paint's other inputs
+    /// hold: no animation it drew still runs.
+    pub fn retained_settled(&self, retained: &RetainedPaint) -> bool {
+        retained.settled(&self.animator)
+    }
+
+    /// Repeats `retained`'s settled paint bookkeeping at `now` for a frame that is not painted;
+    /// `false` when the paint would now draw differently.
+    pub fn repeat_retained(&self, retained: &RetainedPaint, now: f64) -> bool {
+        retained.repeat(&self.animator, now)
+    }
+
     /// [`Self::draw`] that reuses `retained`'s last paint while the layout, frame, art, textures
     /// and animations it read are unchanged and its animations have settled. `reuse` is the
     /// caller's word that `frame`'s renderers and `art`'s callbacks draw as they did then.

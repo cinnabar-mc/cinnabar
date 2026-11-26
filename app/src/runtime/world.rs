@@ -400,7 +400,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     }
     movement.set_control_fence_pending(false);
-    refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
+    if committed_ui::player_list_changed(&controls) {
+        refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
+    }
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {

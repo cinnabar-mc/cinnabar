@@ -352,6 +352,13 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
     }
 }
 
+impl SessionIconPage {
+    /// Whether the session's icons are still being packed on a worker.
+    pub(super) fn packing(&self) -> bool {
+        self.packing.is_some()
+    }
+}
+
 /// Installs `icons` with their page packed at relative page 0, onto the session icon page.
 fn install(
     runtime: &mut UiPresentationRuntime,

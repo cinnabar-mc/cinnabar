@@ -85,7 +85,7 @@ impl TouchControls {
     pub(super) fn install_mod_buttons<'a>(
         &mut self,
         buttons: impl Iterator<Item = (u64, &'a TouchButton)> + Clone,
-    ) {
+    ) -> bool {
         let buttons = buttons.take(MAX_PRESENTED_TOUCH_BUTTONS);
         let identity = |owner: &u64, button: &TouchButton| (*owner, button.id.clone());
         let identities_changed = !self
@@ -105,24 +105,26 @@ impl TouchControls {
             .iter()
             .eq(buttons.clone().map(|(_, button)| button))
         {
-            return;
+            return identities_changed;
         }
         self.mod_buttons = buttons.map(|(_, button)| button.clone()).collect();
         self.catalog = None;
         self.base = None;
         self.base_viewport = None;
         self.screen = CachedScreen::default();
+        true
     }
 }
 
 impl UiPresentationRuntime {
     /// Presents mod buttons in load order. While the layout editor is open its controls stay
     /// fixed, and the latest set is installed when it closes.
-    /// Each button carries its owning instance's token, which its taps report.
+    /// Each button carries its owning instance's token, which its taps report. Returns whether
+    /// anything changed.
     pub fn set_mod_touch_buttons<'a>(
         &mut self,
         buttons: impl Iterator<Item = (u64, &'a TouchButton)> + Clone,
-    ) {
+    ) -> bool {
         let state = &mut self.screens.touch;
         if state.editor.is_some() {
             state.deferred_mod_buttons = Some(
@@ -131,8 +133,9 @@ impl UiPresentationRuntime {
                     .map(|(owner, button)| (owner, button.clone()))
                     .collect(),
             );
+            true
         } else {
-            state.install_mod_buttons(buttons);
+            state.install_mod_buttons(buttons)
         }
     }
 

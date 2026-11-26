@@ -90,7 +90,7 @@ fn dressing_room_character_fits_its_stage_through_rotation_head_look_and_idle() 
                 for seconds in [0.0, 1.0] {
                     presentation.menu_preview.rotations[2] = rotation;
                     presentation.menu_preview.pointer = pointer;
-                    presentation.menu_seconds = seconds;
+                    presentation.set_menu_seconds(seconds);
                     let mut nodes = Vec::new();
                     let mut next = 1;
                     presentation

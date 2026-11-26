@@ -70,8 +70,9 @@ impl BedScreen {
     }
 
     /// Tracks the pointer for next frame's hover state.
-    pub fn set_pointer(&mut self, position: Option<UiPoint>) {
-        self.pointer = position;
+    /// Whether the pointer changed.
+    pub fn set_pointer(&mut self, position: Option<UiPoint>) -> bool {
+        std::mem::replace(&mut self.pointer, position) != position
     }
 
     /// The last frame's targets.

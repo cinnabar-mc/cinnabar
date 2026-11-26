@@ -1,9 +1,10 @@
 //! Pure UI rasterization, layout and publication after input enqueue.
 use super::*;
-use bevy::prelude::DetectChangesMut;
+use bevy::prelude::{DetectChanges, DetectChangesMut};
 use std::sync::Arc;
 
-/// Publishes the UI captured during preparation.
+/// Publishes the UI captured during preparation, repeating the last frame when nothing it was
+/// built from changed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
     player_runtime: Res<client_state::PlayerRuntime>,
@@ -17,26 +18,33 @@ pub(crate) fn publish_ui_runtime(
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
     profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
     mut item_glint: Option<ResMut<render_scene::UiItemGlintTexture>>,
+    mut inputs_changed: Local<InputsChanged>,
 ) {
+    // The frame's revisioned inputs: change ticks of every resource a build reads. This system's
+    // own writes never count, and changes accumulate until a build has seen them.
+    inputs_changed.0 |=
+        runtime.is_changed() || player_runtime.is_changed() || presentation.is_changed();
     let Some(prepared) = prepared.0.take() else {
         return;
     };
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPublication));
-    let input = match client_ui::ui_runtime::presentation::render_prepared_ui(
+    let built = match client_ui::ui_runtime::presentation::render_prepared_ui(
         &player_runtime,
         &mut runtime,
         &mut presentation,
         prepared,
+        !inputs_changed.0,
     ) {
-        Ok(input) => input,
+        Ok(built) => built,
         Err(error) => {
             hand.clear();
             presentation.record_frame_failure(&error);
             return;
         }
     };
+    inputs_changed.0 = false;
     if let Some(mut scene) = nametag_scene {
         // Writing only a changed scene keeps the resource unchanged, so render extraction
         // neither clones nor re-uploads identical labels.
@@ -45,6 +53,19 @@ pub(crate) fn publish_ui_runtime(
             scene.0 = next;
         }
     }
+    let Some(input) = built else {
+        // The published frame repeats; the hand still binds this frame's capture to it.
+        if !hand_rig.is_active()
+            && let Some(input) = scene.input.as_deref()
+        {
+            hand.bind_cpu_fallback(
+                input,
+                presentation.cpu_empty_hand_fallback(),
+                presentation.hud_frame().held_item_icon,
+            );
+        }
+        return;
+    };
     if !hand_rig.is_active() {
         hand.bind_cpu_fallback(
             &input,
@@ -61,6 +82,7 @@ pub(crate) fn publish_ui_runtime(
     }
     if let Err(error) = result {
         hand.clear();
+        presentation.forget_built_frame();
         presentation.record_frame_failure(&UiPresentationError::Render(error));
     } else if let Some(item_glint) = item_glint.as_mut() {
         let next = presentation.item_glint_texture();
@@ -74,6 +96,10 @@ pub(crate) fn publish_ui_runtime(
         }
     }
 }
+
+/// Whether a revisioned input of the UI frame changed since the last build saw them.
+#[derive(Default)]
+pub(crate) struct InputsChanged(bool);
 
 #[cfg(test)]
 mod tests {

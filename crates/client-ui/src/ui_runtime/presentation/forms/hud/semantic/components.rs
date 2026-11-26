@@ -42,9 +42,8 @@ pub(super) fn world_text_input(runtime: &UiRuntime, frame: &HudFrame) -> WorldTe
             .player_block
             .filter(|_| alive && (rules.show_coordinates() || frame.holding_filled_map)),
         days: frame
-            .world_time
-            .filter(|_| alive && rules.show_days_played())
-            .map(|time| (time / f64::from(world::TICKS_PER_DAY)).floor()),
+            .days_played
+            .filter(|_| alive && rules.show_days_played()),
     }
 }
 

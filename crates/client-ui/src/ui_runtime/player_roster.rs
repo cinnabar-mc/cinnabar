@@ -33,11 +33,14 @@ impl PlayerRoster {
 
     /// Replaces the mod spans drawn on roster rows, keyed by the player's roster UUID; rows
     /// rebuild only when the spans change.
-    pub fn set_annotations(&mut self, annotations: HashMap<[u8; 16], Arc<Spans>>) {
-        if self.annotations != annotations {
-            self.annotations = annotations;
-            self.rebadge();
+    /// Whether the annotations changed.
+    pub fn set_annotations(&mut self, annotations: HashMap<[u8; 16], Arc<Spans>>) -> bool {
+        if self.annotations == annotations {
+            return false;
         }
+        self.annotations = annotations;
+        self.rebadge();
+        true
     }
     /// Replaces the `(username, xuid, uuid)` roster; the revision advances only when it changed.
     pub fn set_entries(&mut self, entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>) {
@@ -83,6 +86,11 @@ impl PlayerRoster {
         })
     }
 
+    /// Whether [`Self::set_cinnabar`] with `reported` would change nothing.
+    pub fn cinnabar_is(&self, reported: &Arc<HashSet<String>>) -> bool {
+        Arc::ptr_eq(&self.reported, reported)
+    }
+
     /// Applies the XUIDs and UUIDs the API reported as Cinnabar players.
     pub fn set_cinnabar(&mut self, reported: Arc<HashSet<String>>) {
         if !Arc::ptr_eq(&self.reported, &reported) {
@@ -109,12 +117,15 @@ impl PlayerRoster {
     }
 
     /// Controls both tab-list and name-tag badges without changing API visibility or answers.
-    pub fn set_show_badges(&mut self, show: bool) {
+    /// Whether the choice changed.
+    pub fn set_show_badges(&mut self, show: bool) -> bool {
         let hide = !show;
-        if self.hide_badges != hide {
-            self.hide_badges = hide;
-            self.rebadge();
+        if self.hide_badges == hide {
+            return false;
         }
+        self.hide_badges = hide;
+        self.rebadge();
+        true
     }
 
     /// Whether this roster identity has a visible, currently reported badge.

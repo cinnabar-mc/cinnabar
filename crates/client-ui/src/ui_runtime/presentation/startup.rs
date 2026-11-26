@@ -132,6 +132,15 @@ impl StartupPresentationState {
         )
     }
 
+    /// Releases `session`'s startup as its first presented terrain would, for tests of the
+    /// in-game frames after loading.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn release(&mut self, session: u64) {
+        self.session_generation = Some(session);
+        self.released = true;
+        self.completion_queued = true;
+    }
+
     pub fn observe(&mut self, input: StartupReadinessInput) -> bool {
         let latest_frame_generation = input
             .diagnostics_frame_generation

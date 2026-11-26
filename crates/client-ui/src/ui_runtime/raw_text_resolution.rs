@@ -32,8 +32,9 @@ impl UiRuntime {
     }
 
     /// Momentary gameplay input; cleared along with the roster at session boundaries.
-    pub fn set_player_list_held(&mut self, held: bool) {
-        self.session.player_list_held = held;
+    /// Whether the held state changed.
+    pub fn set_player_list_held(&mut self, held: bool) -> bool {
+        std::mem::replace(&mut self.session.player_list_held, held) != held
     }
 
     pub fn player_list_held(&self) -> bool {

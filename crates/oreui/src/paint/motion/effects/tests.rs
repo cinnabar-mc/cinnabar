@@ -28,7 +28,7 @@ fn overlay_frame(effects: &mut Effects, alpha: Option<u8>, seconds: f64) -> Vec<
         next += 1;
     }
     effects
-        .finish(&mut nodes, &mut next, seconds, SIZE)
+        .finish(&mut nodes, &mut next, &|| seconds, SIZE)
         .unwrap();
     assert!(nodes.iter().any(
         |node| matches!(node.visual(), UiVisual::Solid { color, .. } if *color == [50, 60, 70, 255])
@@ -68,7 +68,7 @@ fn first_screen_after_empty_frames_is_dimmed_at_once() {
     let mut effects = Effects::default();
     for seconds in [0.0, 0.5] {
         effects
-            .finish(&mut Vec::new(), &mut 1, seconds, SIZE)
+            .finish(&mut Vec::new(), &mut 1, &|| seconds, SIZE)
             .unwrap();
     }
     assert_eq!(dim_alpha(&overlay_frame(&mut effects, Some(96), 1.0)), 96);
@@ -101,7 +101,9 @@ fn exit_frame(effects: &mut Effects, seconds: f64) -> Vec<UiNode> {
         None,
         rect(0.0, 0.0, 100.0, 100.0).unwrap(),
     )];
-    effects.finish(&mut nodes, &mut 3, seconds, SIZE).unwrap();
+    effects
+        .finish(&mut nodes, &mut 3, &|| seconds, SIZE)
+        .unwrap();
     let mut tree = ui::UiTree::new(nodes.clone()).unwrap();
     let frame = tree
         .layout(
@@ -169,11 +171,13 @@ fn reopening_cancels_exit_and_resize_discards_stale_geometry() {
     exit_frame(&mut effects, 1.0);
     effects.capture(Surface::Dialog(1), &source, 10.0, SIZE);
     let mut reopened = source.clone();
-    effects.finish(&mut reopened, &mut 4, 1.02, SIZE).unwrap();
+    effects
+        .finish(&mut reopened, &mut 4, &|| 1.02, SIZE)
+        .unwrap();
     assert_eq!(reopened, source);
     let mut resized = Vec::new();
     effects
-        .finish(&mut resized, &mut 1, 1.03, [640.0, 360.0])
+        .finish(&mut resized, &mut 1, &|| 1.03, [640.0, 360.0])
         .unwrap();
     assert!(resized.is_empty());
 }
@@ -194,7 +198,7 @@ fn unregistered_json_ui_backgrounds_keep_their_authored_alpha() {
         }),
     ];
     let authored = nodes.clone();
-    effects.finish(&mut nodes, &mut 2, 1.0, SIZE).unwrap();
+    effects.finish(&mut nodes, &mut 2, &|| 1.0, SIZE).unwrap();
     assert_eq!(nodes, authored);
     assert!(effects.overlays.is_empty());
 }

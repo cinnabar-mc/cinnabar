@@ -133,7 +133,7 @@ fn selected_item_name_reads_nbt_and_restarts_for_same_kind_in_another_slot() {
             &mut runtime,
             &mut presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             now,
             Default::default(),
         );
@@ -152,7 +152,7 @@ fn selected_item_name_reads_nbt_and_restarts_for_same_kind_in_another_slot() {
             &mut runtime,
             &mut presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             now + 100,
             Default::default(),
         );
@@ -199,7 +199,7 @@ fn selected_item_name_keeps_empty_custom_names_and_localizes_only_defaults() {
             &mut runtime,
             &mut presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             1_000 + u64::from(slot),
             Default::default(),
         );
@@ -375,7 +375,7 @@ fn selected_item_name_names_the_held_potion() {
         &mut runtime,
         &mut presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         1_000,
         Default::default(),
     );
@@ -418,7 +418,7 @@ fn potion_component_names_take_precedence_in_tooltip_and_hud() {
             &mut runtime,
             &mut presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             1_000,
             Default::default(),
         );

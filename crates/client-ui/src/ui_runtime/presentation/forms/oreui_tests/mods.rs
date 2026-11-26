@@ -89,7 +89,7 @@ fn mod_headers_share_pointer_and_navigation_activation_and_keep_focus_when_close
                                 ))
                         );
                     }
-                    presentation.menu_seconds += 1.0;
+                    presentation.set_menu_seconds(presentation.menu_seconds() + 1.0);
                 }
                 let remove = MenuAction::Mods(Action::Remove(id));
                 assert_eq!(

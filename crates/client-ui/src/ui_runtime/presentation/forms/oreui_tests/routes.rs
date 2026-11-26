@@ -207,7 +207,7 @@ fn create_world_tab_changes_keep_the_header_and_sidebar_mounted() {
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let mut frame = |tab, seconds| {
         view.local.tab = tab;
-        presentation.menu_seconds = seconds;
+        presentation.set_menu_seconds(seconds);
         let (mut nodes, mut next) = (Vec::new(), 1);
         presentation
             .append_oreui_screen(
@@ -242,7 +242,7 @@ fn closing_add_server_animates_its_visuals_after_releasing_its_inputs() {
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let mut frame = |screen, seconds| {
         view.screen = screen;
-        presentation.menu_seconds = seconds;
+        presentation.set_menu_seconds(seconds);
         let (mut nodes, mut next) = (Vec::new(), 1);
         let hits = presentation
             .append_oreui_screen(
@@ -855,7 +855,7 @@ fn screen_animation_setting_drives_oreui_motion_through_the_adapter() {
         view.screen = MenuScreen::Friends;
         presentation.set_menu_view(Some(view.clone()));
         presentation.configure_oreui_settings();
-        presentation.menu_seconds = 1.0;
+        presentation.set_menu_seconds(1.0);
         append(&mut presentation, &view, [1280.0, 720.0]);
         // Midway through the route's entrance.
         assert_eq!(

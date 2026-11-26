@@ -1,4 +1,5 @@
 use super::*;
+use crate::sources::RemoteImage;
 use resource_pack::test_support::{layered_pack_view, pack_view};
 use std::sync::Mutex;
 
@@ -521,4 +522,102 @@ fn a_host_without_workers_completes_large_images_inline() {
         atlas.placement(local).is_some(),
         "a large encoding decodes inline"
     );
+}
+
+// A miss left for a later frame stays waiting until the next frame starts, whichever request in
+// this frame comes after it, so a retained frame never outlives it.
+#[test]
+fn a_deferred_miss_waits_until_the_next_frame_whatever_follows_it() {
+    let files = [("textures/ui/d0.png".to_owned(), png(16, 16))];
+    let spent = clocked(test_time::ManualClock::new(), INLINE_DECODE_BUDGET, false);
+    let mut atlas = ServerAtlas::new(&files, None, 1).with_image_work(spent);
+    atlas.begin_frame();
+    atlas.require(["textures/ui/d0"]);
+    assert!(
+        atlas.completions_waiting(),
+        "the miss waits for a later frame"
+    );
+    atlas.require(["textures/ui/absent"]);
+    assert!(
+        atlas.completions_waiting(),
+        "a later request in the frame keeps the miss waiting"
+    );
+    atlas.begin_frame();
+    assert!(!atlas.completions_waiting(), "the next frame retries it");
+}
+
+// A worker decode that another texture's request collects changes what paints resolve, even
+// before its own texture is placed, so a paint drawn before it cannot be repeated.
+#[test]
+fn a_decode_collected_by_another_request_changes_the_atlas_revision() {
+    let files = [("textures/ui/w0.png".to_owned(), png(16, 16))];
+    let spent = clocked(test_time::ManualClock::new(), INLINE_DECODE_BUDGET, true);
+    let mut atlas = ServerAtlas::new(&files, None, 1).with_image_work(spent);
+    atlas.require(["textures/ui/w0"]);
+    assert!(atlas.placement("textures/ui/w0").is_none());
+    let before = atlas.revision();
+    test_time::eventually("the worker decode finishes", || {
+        atlas.decodes.jobs.completion_waiting()
+    });
+    atlas.require(["textures/ui/absent"]);
+    assert!(atlas.placement("textures/ui/w0").is_none());
+    assert_ne!(atlas.revision(), before);
+}
+
+/// A download whose state the test sets.
+struct Download(Mutex<RemoteImage>);
+
+impl RemoteSource for Download {
+    fn state(&self, _url: &str) -> RemoteImage {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+// A paint that asked for a still-loading download drew without it; once the download settles a
+// retained frame must not outlive it.
+#[test]
+fn a_download_a_paint_found_loading_counts_once_it_settles() {
+    let download = Arc::new(Download(Mutex::new(RemoteImage::Loading)));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let url = "https://example.invalid/crosshair.png";
+    atlas.begin_frame();
+    atlas.require([url]);
+    assert!(atlas.placement(url).is_none());
+    assert!(
+        !atlas.completions_waiting(),
+        "a loading download has nothing to collect yet"
+    );
+    *download.0.lock().unwrap() = RemoteImage::Ready(png(16, 16).into());
+    assert!(
+        atlas.completions_waiting(),
+        "the finished download makes the next frame build"
+    );
+    atlas.begin_frame();
+    atlas.require([url]);
+    assert!(atlas.placement(url).is_some());
+    assert!(!atlas.completions_waiting());
+}
+
+// A paint that found a download loading may stop drawing it before it settles, as a crosshair
+// does when the HUD hides. The settled download makes one frame build; with no paint asking for
+// it again, later frames are idle.
+#[test]
+fn a_settled_download_no_paint_asks_for_again_stops_waiting() {
+    let download = Arc::new(Download(Mutex::new(RemoteImage::Loading)));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let url = "https://example.invalid/crosshair.png";
+    atlas.begin_frame();
+    atlas.require([url]);
+    *download.0.lock().unwrap() = RemoteImage::Failed;
+    assert!(
+        atlas.completions_waiting(),
+        "the settled download builds once"
+    );
+    atlas.begin_frame();
+    assert!(
+        !atlas.completions_waiting(),
+        "a frame that no longer asks for it leaves nothing waiting"
+    );
+    atlas.begin_frame();
+    assert!(!atlas.completions_waiting());
 }

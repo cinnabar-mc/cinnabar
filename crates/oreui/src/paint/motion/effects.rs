@@ -109,7 +109,7 @@ impl Effects {
         &mut self,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
-        seconds: f64,
+        seconds: &dyn Fn() -> f64,
         size: [f32; 2],
     ) -> Result<(), PaintError> {
         if !self.enabled {
@@ -117,6 +117,11 @@ impl Effects {
         }
         self.overlays(nodes, next, seconds, size)?;
         self.overlay_ids.clear();
+        if self.dialogs.is_empty() {
+            self.primed |= !nodes.is_empty();
+            return Ok(());
+        }
+        let seconds = seconds();
         self.dialogs.retain(|dialog| {
             dialog.size == size
                 && dialog
@@ -155,9 +160,12 @@ impl Effects {
         &mut self,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
-        seconds: f64,
+        seconds: &dyn Fn() -> f64,
         size: [f32; 2],
     ) -> Result<(), PaintError> {
+        // Read only when an overlay is drawn or fading.
+        let time = std::cell::OnceCell::new();
+        let seconds = || *time.get_or_init(seconds);
         let mut count = 0;
         for node in nodes.iter_mut() {
             if !self.overlay_ids.contains(&node.id()) {
@@ -190,7 +198,7 @@ impl Effects {
             }
             let overlay = &mut self.overlays[count];
             overlay.page = *texture_page;
-            let alpha = overlay.alpha.retarget(target, OVERLAY_SECONDS, seconds);
+            let alpha = overlay.alpha.retarget(target, OVERLAY_SECONDS, seconds());
             *node = node.clone().with_visual(UiVisual::Solid {
                 texture_page: overlay.page,
                 color: [0, 0, 0, alpha.round() as u8],
@@ -198,7 +206,7 @@ impl Effects {
             count += 1;
         }
         for (index, overlay) in self.overlays.iter_mut().enumerate().skip(count) {
-            let alpha = overlay.alpha.retarget(0.0, EXIT_SECONDS, seconds);
+            let alpha = overlay.alpha.retarget(0.0, EXIT_SECONDS, seconds());
             if alpha > 0.0 {
                 let node = UiNode::new(
                     UiNodeId::new(allocate(next, 1)?),
@@ -220,7 +228,7 @@ impl Effects {
             && self
                 .overlays
                 .last()
-                .is_some_and(|overlay| overlay.alpha.sample(seconds) == 0.0)
+                .is_some_and(|overlay| overlay.alpha.sample(seconds()) == 0.0)
         {
             self.overlays.pop();
         }

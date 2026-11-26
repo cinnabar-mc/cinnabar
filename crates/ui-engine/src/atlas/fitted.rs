@@ -85,6 +85,17 @@ impl FittedDecodes {
         self.pending.as_deref()
     }
 
+    /// Whether a finished decode or a retry waits for the next [`Self::collect`].
+    pub(super) fn completion_waiting(&self) -> bool {
+        !self.receiver.is_empty() || self.retry.is_some()
+    }
+
+    /// Whether a submitted decode has not finished yet.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn in_flight(&self) -> bool {
+        self.pending.is_some() && self.receiver.is_empty() && self.retry.is_none()
+    }
+
     /// Admits one source without decoding inline or retaining later misses on backpressure.
     pub(super) fn request(&mut self, key: &str, source: &Source) {
         self.request_to(key, source, worker().map(super::jobs::Worker::sender));
