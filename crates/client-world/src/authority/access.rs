@@ -1,8 +1,9 @@
 use super::*;
 
-/// Identifies the palette that resolves wire block ids: the network id mode, air, the custom
-/// block range and identities, and the sequential remap. Equal values resolve every wire id
-/// alike, and the shared tables it holds keep their addresses from being reused.
+/// Identifies the session tables that map wire block ids to store ids: the network id mode, air,
+/// the custom block range and identities, and the sequential remap. Resolving a store id to a
+/// block state also reads the runtime assets, which consumers compare separately. The shared
+/// tables it holds keep their addresses from being reused.
 #[derive(Clone, Debug)]
 pub struct BlockPaletteIdentity {
     mode: NetworkIdMode,
