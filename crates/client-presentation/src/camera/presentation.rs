@@ -16,8 +16,8 @@ use super::{
     hurt::CameraHurtState,
     java::{JavaCameraState, JavaCameraTick, java_hurt_roll},
     overlay::{
-        HeadMedium, PortalProgress, ScreenEffectInputs, ScreenOverlays, VisionEffects,
-        compute_overlays, probe_head_medium,
+        HeadMedium, HeadMediumCache, PortalProgress, ScreenEffectInputs, ScreenOverlays,
+        VisionEffects, compute_overlays,
     },
     portal_projection::{apply_distortion, distortion_changes, portal_distortion},
     server_view::{ActorView, ServerCameraView, ViewContext},
@@ -270,6 +270,7 @@ pub fn update_screen_overlays(
     ui: Option<&client_ui::ui_runtime::UiRuntime>,
     client_world: Option<crate::observations::WorldObservation<'_>>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
+    (head_cache, registry_changed): (&mut HeadMediumCache, bool),
     mut portal: ResMut<PortalProgress>,
     mut medium: ResMut<HeadMedium>,
     mut vision: ResMut<VisionEffects>,
@@ -282,15 +283,13 @@ pub fn update_screen_overlays(
     portal.observe_session(stream.map(|stream| stream.authority().actor_session_id()));
     portal.observe_dimension(stream.map(|stream| stream.current_dimension()));
     *medium = match (stream, collisions) {
-        (Some(stream), Some(collisions)) => {
-            let world = sim::PaletteWorld::new(
-                stream.collision_store(),
-                collisions.registry(stream.network_id_mode()),
-                stream.current_dimension(),
-                Default::default(),
-            );
-            probe_head_medium(&world, view.eye_translation())
-        }
+        (Some(stream), Some(collisions)) => head_cache.probe(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            registry_changed,
+            stream.current_dimension(),
+            view.eye_translation(),
+        ),
         _ => HeadMedium::Air,
     };
 
