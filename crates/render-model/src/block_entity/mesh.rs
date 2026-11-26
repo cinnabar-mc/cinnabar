@@ -77,6 +77,8 @@ pub struct MeshBuilder {
     pub(super) actor_light: u32,
     /// Emits following quads without the environment lightmap, retaining authored face shades.
     pub(super) unlit: bool,
+    /// Whether following actor-lit quads cull their faces from behind.
+    pub(super) cull_back_faces: bool,
     /// Whether a required model texture was absent from the atlas.
     pub(super) missing_required_texture: bool,
     /// Reused when layered models construct an atlas texture name.
@@ -97,6 +99,7 @@ impl MeshBuilder {
             light: 1.0,
             actor_light: 0,
             unlit: false,
+            cull_back_faces: false,
             missing_required_texture: false,
             texture_name: String::new(),
             rejected_quads: 0,
@@ -311,10 +314,10 @@ impl MeshBuilder {
                 colors[corner][3],
             ],
             normal,
-            actor_light: if actor_lit {
-                self.actor_light | BLOCK_ENTITY_CULL_BACK_FACES
-            } else {
-                0
+            actor_light: match (actor_lit, self.cull_back_faces) {
+                (false, _) => 0,
+                (true, false) => self.actor_light,
+                (true, true) => self.actor_light | BLOCK_ENTITY_CULL_BACK_FACES,
             },
         };
         let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
