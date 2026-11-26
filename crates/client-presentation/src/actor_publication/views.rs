@@ -60,6 +60,46 @@ pub(super) fn animation_view(
         })
 }
 
+/// The last animation view with the camera it was built from; an unchanged camera reuses it.
+#[derive(Default)]
+pub(super) struct AnimationViewMemo(
+    Option<(
+        bevy::prelude::Transform,
+        [u32; 3],
+        Option<actor_animation::ActorAnimationView>,
+    )>,
+);
+
+impl AnimationViewMemo {
+    /// [`animation_view`] for this camera, rebuilt only when its transform or perspective changes.
+    pub(super) fn view(
+        &mut self,
+        transform: &bevy::prelude::Transform,
+        projection: &Projection,
+    ) -> Option<actor_animation::ActorAnimationView> {
+        let Projection::Perspective(perspective) = projection else {
+            return animation_view(transform, projection);
+        };
+        // The fields `animation_view` reads.
+        let perspective =
+            [perspective.fov, perspective.aspect_ratio, perspective.near].map(f32::to_bits);
+        if let Some((cached_transform, cached_perspective, view)) = &self.0
+            && cached_transform == transform
+            && *cached_perspective == perspective
+        {
+            debug_assert_eq!(
+                format!("{view:?}"),
+                format!("{:?}", animation_view(transform, projection)),
+                "a reused animation view must match a fresh one"
+            );
+            return *view;
+        }
+        let view = animation_view(transform, projection);
+        self.0 = Some((*transform, perspective, view));
+        view
+    }
+}
+
 impl super::ActorPresentationState<'_, '_> {
     /// Keeps the hand's independent perspective through the world's portal projection.
     pub(super) fn hand_camera_fov(&self) -> Option<f32> {
