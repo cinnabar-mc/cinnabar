@@ -74,7 +74,7 @@ pub struct ActorFrameInput {
     pub local_feed: Option<LocalPlayerFeed>,
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
-    pub local_equipment: crate::presentation::equipment::ActorEquipmentInput,
+    pub local_equipment: std::sync::Arc<crate::presentation::equipment::ActorEquipmentInput>,
     pub swing_progress: Option<actor_animation::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,

@@ -31,7 +31,7 @@ fn readiness_and_prepare_reuse_sampling_without_allocating() {
             local_feed: None,
             predicted_eye: None,
             predicted_feet: None,
-            local_equipment: input.clone(),
+            local_equipment: (input.clone()).into(),
             swing_progress: None,
             renders_game: true,
             hide_hand: false,
