@@ -196,6 +196,12 @@ impl InventorySession {
         self.crafting_authority.catalog_snapshot()
     }
 
+    /// The available recipe catalog's allocation, borrowed: comparing it by identity tells
+    /// whether [`Self::crafting_catalog_snapshot`] would return a different catalog.
+    pub fn crafting_catalog_allocation(&self) -> Option<&std::sync::Arc<protocol::RecipeCatalog>> {
+        self.crafting_authority.catalog_allocation()
+    }
+
     /// The recipe the presented crafting grid forms against the committed
     /// catalog; `Unavailable` without a catalog or known grid identities.
     #[must_use]
