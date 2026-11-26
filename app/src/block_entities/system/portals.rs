@@ -71,7 +71,6 @@ pub(super) fn submit(
     submissions: &mut Vec<BlockEntitySubmission>,
     cells: &[PortalCell],
     eye: Vec3,
-    daylight: f32,
     mut sample: impl FnMut([f32; 3]) -> (u8, u8),
 ) {
     for (block, kind) in cells {
@@ -85,7 +84,7 @@ pub(super) fn submit(
                 _ => {
                     super::piston_arms::light_sample(kind, *block).map_or(1.0.into(), |position| {
                         let (block, sky) = sample(position);
-                        super::model_light(kind, block, sky, daylight)
+                        super::model_light(kind, block, sky)
                     })
                 }
             };

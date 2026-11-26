@@ -118,7 +118,11 @@ fn emit_frame_cuboid(
         });
         let world = corners[face]
             .map(|corner| matrix.transform_point3(Vec3::from_array(corner)).to_array());
-        let shade = tile_face_shade(world_face);
+        let shade = if builder.actor_lit() {
+            1.0
+        } else {
+            tile_face_shade(world_face)
+        };
         builder.quad_uv(Layer::Solid, world, uvs, [shade, shade, shade, 1.0]);
     }
 }
@@ -135,10 +139,8 @@ pub(super) fn emit(
         return;
     };
     let matrix = frame_matrix(block, model.outward) * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
-    let light = builder.light;
-    if model.glow {
-        builder.light = 1.0;
-    }
+    let unlit = builder.unlit;
+    builder.unlit |= model.glow;
     // Legacy servers can send a filled map without updating the block's map bit.
     let (half, rim_front) = if model.full_face || model.map.is_some() {
         (MAP_PANEL_HALF, PANEL_BACK - MAP_RIM_DEPTH)
@@ -187,7 +189,7 @@ pub(super) fn emit(
     if let Some(map) = model.map {
         emit_map(builder, matrix, map);
     }
-    builder.light = light;
+    builder.unlit = unlit;
 }
 
 /// Covers the whole block face with the map image, turned in quarter steps of the frame rotation.

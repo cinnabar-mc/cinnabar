@@ -828,7 +828,7 @@ fn decoded_transaction(packet: protocol::Packet) -> InventoryTransactionPacketDa
     built.transaction
 }
 
-fn held_request() -> HeldItemRequest {
+pub(super) fn held_request() -> HeldItemRequest {
     HeldItemRequest {
         hand: protocol::ItemUseHand::Mainhand,
         selected_slot: 3,
@@ -909,7 +909,7 @@ fn snowballs(count: u16) -> VerifiedNetworkItemStack {
     .unwrap()
 }
 
-fn decoded_inventory_packet(packet: protocol::Packet) -> InventoryTransaction {
+pub(super) fn decoded_inventory_packet(packet: protocol::Packet) -> InventoryTransaction {
     let bytes = encode(&packet).unwrap();
     let packets::Packet::InventoryTransaction(built) = *decode_batch(bytes).unwrap().remove(0).data
     else {

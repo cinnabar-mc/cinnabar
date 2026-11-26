@@ -1,6 +1,7 @@
 //! Wire suites that need crate-private packet decoding or session transport.
 
 mod actors;
+mod armor_equip_packets;
 mod audio_packets;
 mod available_commands;
 mod biome_definition_list;

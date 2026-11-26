@@ -26,8 +26,9 @@ pub(super) fn stuck_multiplier(
     sampled: &SampledEnvironment,
     input: &MovementInput,
 ) -> Option<[f32; 3]> {
-    // Only creative flight is immune.
-    if input.mode == MovementMode::Flying && input.creative_flight {
+    // Creative flight and NoClip pass through block movement slowdowns; spectator
+    // travel never reaches this path.
+    if input.no_clip || (input.mode == MovementMode::Flying && input.creative_flight) {
         return None;
     }
     let cobweb = sampled

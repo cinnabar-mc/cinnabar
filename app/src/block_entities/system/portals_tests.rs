@@ -38,7 +38,6 @@ fn submit_sub_chunk(
         submissions,
         &sub_chunk_cells(grid, sub_chunk, classify),
         eye,
-        1.0,
         |_| (0, 0),
     );
 }
@@ -74,7 +73,6 @@ fn palette_beds_use_both_halves_light_before_entity_nbt_arrives() {
                 &mut submissions,
                 &cells,
                 Vec3::from_array(center),
-                1.0,
                 |position| {
                     sampled.push(position);
                     if position == center {
@@ -110,7 +108,7 @@ fn palette_submission_preserves_portal_and_piston_lighting() {
     ];
     let mut submissions = Vec::new();
     let mut sampled = Vec::new();
-    submit(&mut submissions, &cells, Vec3::ZERO, 0.0, |position| {
+    submit(&mut submissions, &cells, Vec3::ZERO, |position| {
         sampled.push(position);
         (3, 7)
     });

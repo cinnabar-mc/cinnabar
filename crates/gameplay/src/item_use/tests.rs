@@ -11,6 +11,7 @@ use super::fixtures::classify;
 use {super::*, inventory::crossbow_animation_frame};
 
 mod admission;
+mod armor_equip;
 mod crossbow;
 mod frame_order;
 mod progress;

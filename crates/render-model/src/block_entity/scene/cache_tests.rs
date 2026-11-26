@@ -79,7 +79,9 @@ fn reference_frame(
     let text = scene.text.as_ref().unwrap();
     let mut builder = MeshBuilder::new(atlas.size());
     for submission in submissions {
-        submission.light.apply(&mut builder);
+        submission
+            .light
+            .apply(&mut builder, submission.kind.culls_back_faces());
         emit_submission(
             &mut builder,
             atlas,
@@ -88,7 +90,7 @@ fn reference_frame(
             clock,
         );
     }
-    BlockEntityLight::Scalar(1.0).apply(&mut builder);
+    BlockEntityLight::Scalar(1.0).apply(&mut builder, false);
     for crack in cracks {
         emit_crack(&mut builder, atlas, crack);
     }
