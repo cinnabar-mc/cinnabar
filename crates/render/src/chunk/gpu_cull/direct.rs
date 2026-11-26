@@ -642,7 +642,10 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
 }
 
 /// Maps the verdict the terrain pass copied out; a frame that never encoded it frees the slot.
-pub(super) fn submit_direct_occlusion(mut occlusion: ResMut<DirectOcclusion>) {
+pub(super) fn submit_direct_occlusion(
+    mut occlusion: ResMut<DirectOcclusion>,
+    completion: crate::device_poll::FrameCompletion,
+) {
     let occlusion = &mut *occlusion;
     let Some(plan) = occlusion.plan.take() else {
         return;
@@ -659,22 +662,25 @@ pub(super) fn submit_direct_occlusion(mut occlusion: ResMut<DirectOcclusion>) {
     let frame = occlusion.frame;
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("terrain.occlusion_map_request", slot, frame).entered();
-    occlusion.readbacks[slot]
-        .slice(..)
-        .map_async(wgpu::MapMode::Read, move |result| {
-            #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!(
-                "terrain.occlusion_map_callback",
-                slot,
-                frame,
-                ok = result.is_ok()
-            )
-            .entered();
-            state.store(
-                if result.is_ok() { MAPPED } else { FAILED },
-                Ordering::Release,
-            );
-        });
+    let readback = occlusion.readbacks[slot].clone();
+    completion.after_submit(move || {
+        readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "terrain.occlusion_map_callback",
+                    slot,
+                    frame,
+                    ok = result.is_ok()
+                )
+                .entered();
+                state.store(
+                    if result.is_ok() { MAPPED } else { FAILED },
+                    Ordering::Release,
+                );
+            });
+    });
 }
 
 /// The view's pose half of a verdict basis; depth size and world come from prepare.

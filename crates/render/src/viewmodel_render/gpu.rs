@@ -524,7 +524,7 @@ pub(super) fn hand_pipeline_descriptor(
 
 /// Publishes hand coverage once the frame's device poll sees its encoded draw complete.
 pub(super) fn submit_completion(
-    queue: Res<RenderQueue>,
+    completion: crate::device_poll::FrameCompletion,
     drawn: Res<HandDrawn>,
     gate: Res<ViewmodelCompletionGate>,
     gpu: Res<HandGpu>,
@@ -542,7 +542,7 @@ pub(super) fn submit_completion(
     }
     if let Some(reservation) = token.and_then(|token| gate.reserve(token)) {
         let callback = gate.clone();
-        crate::device_poll::on_frame_complete(&queue, move || {
+        completion.on_frame_complete(move || {
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("viewmodel.completion_callback").entered();
             callback.complete(reservation);

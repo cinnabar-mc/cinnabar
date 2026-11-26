@@ -287,7 +287,7 @@ impl GpuCullFeedback {
     }
 
     /// Maps copied decisions, or retries a reserved sample whose late pass did not run.
-    fn finish_frame(&mut self) {
+    fn finish_frame(&mut self, completion: &crate::device_poll::FrameWork) {
         let Some(sample) = &self.sample else {
             return;
         };
@@ -296,15 +296,17 @@ impl GpuCullFeedback {
                 self.next_sample = sample.frame.saturating_add(PROBE_INTERVAL);
                 sample.state.store(PENDING, Ordering::Release);
                 let state = sample.state.clone();
-                sample
-                    .buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read, move |result| {
-                        state.store(
-                            if result.is_ok() { MAPPED } else { FAILED },
-                            Ordering::Release,
-                        );
-                    });
+                let buffer = sample.buffer.clone();
+                completion.after_submit(move || {
+                    buffer
+                        .slice(..)
+                        .map_async(wgpu::MapMode::Read, move |result| {
+                            state.store(
+                                if result.is_ok() { MAPPED } else { FAILED },
+                                Ordering::Release,
+                            );
+                        });
+                });
             }
             RECORDING => {
                 sample.state.store(IDLE, Ordering::Release);
@@ -318,8 +320,11 @@ impl GpuCullFeedback {
 }
 
 /// Requests the map after render submission, without an additional poll or submission.
-pub(super) fn submit_feedback(mut feedback: ResMut<GpuCullFeedback>) {
-    feedback.finish_frame();
+pub(super) fn submit_feedback(
+    mut feedback: ResMut<GpuCullFeedback>,
+    completion: crate::device_poll::FrameCompletion,
+) {
+    feedback.finish_frame(&completion.work());
 }
 
 /// Counts only live, enabled, frustum-visible candidates and their current-depth rejections.

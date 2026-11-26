@@ -729,11 +729,11 @@ impl GpuTimestamps {
 
     /// Maps submitted copies and retains Metal query slots until their writing submission completes.
     /// A frame that recorded no queries gives its slot back; rendering never waits on the GPU.
-    fn request_readback(&mut self, queue: &RenderQueue) {
+    fn request_readback(&mut self, completion: &crate::device_poll::FrameWork) {
         if cfg!(target_os = "macos") {
             for target in &self.slots {
                 if target.state.load(Ordering::Acquire) == RESOLVED {
-                    map_readback(target);
+                    map_readback(target, completion);
                 }
             }
         }
@@ -759,31 +759,33 @@ impl GpuTimestamps {
         if cfg!(target_os = "macos") {
             target.state.store(PENDING, Ordering::Relaxed);
             let state = target.state.clone();
-            crate::device_poll::on_frame_complete(queue, move || {
+            completion.on_frame_complete(move || {
                 state.store(WRITTEN, Ordering::Release);
             });
         } else {
-            map_readback(target);
+            map_readback(target, completion);
         }
         self.ring.submit(index);
     }
 }
 
 /// Maps a submitted copy and publishes completion only after its bytes are readable.
-fn map_readback(target: &ReadbackSlot) {
+fn map_readback(target: &ReadbackSlot, completion: &crate::device_poll::FrameWork) {
     #[cfg(feature = "tracy")]
     let _zone = bevy::log::info_span!("gpu.timestamps.map_request").entered();
     target.state.store(PENDING, Ordering::Relaxed);
     let state = target.state.clone();
-    target
-        .buffer
-        .slice(..)
-        .map_async(wgpu::MapMode::Read, move |result| {
-            state.store(
-                if result.is_ok() { MAPPED } else { FAILED },
-                Ordering::Release,
-            );
-        });
+    let buffer = target.buffer.clone();
+    completion.after_submit(move || {
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                state.store(
+                    if result.is_ok() { MAPPED } else { FAILED },
+                    Ordering::Release,
+                );
+            });
+    });
 }
 
 fn init_gpu_timestamps(
@@ -847,8 +849,11 @@ fn begin_gpu_frame(
     });
 }
 
-fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>, queue: Res<RenderQueue>) {
+fn request_gpu_frame_readback(
+    timestamps: Option<ResMut<GpuTimestamps>>,
+    completion: crate::device_poll::FrameCompletion,
+) {
     if let Some(mut timestamps) = timestamps {
-        timestamps.request_readback(&queue);
+        timestamps.request_readback(&completion.work());
     }
 }

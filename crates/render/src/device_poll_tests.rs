@@ -306,3 +306,84 @@ fn a_render_thread_tail_polls_after_the_frame() {
         "the tail bounds the frame's submission"
     );
 }
+
+/// Encodes a frame and submits it as the render graph does, in the frame tail when allowed.
+fn submit_frame_in_tail(world: &mut bevy::prelude::World) {
+    let tail_submission = bevy::render::renderer::frame_tail_submission(world);
+    let device = world.resource::<RenderDevice>().clone();
+    let queue = world.resource::<RenderQueue>().clone();
+    let mut pending = world.resource_mut::<PendingCommandBuffers>();
+    pending
+        .command_encoder(&device)
+        .insert_debug_marker("frame");
+    let (tail, submission) = tail_submission.expect("the render world submits in the tail");
+    pending.submit_in_tail(&queue, &tail, &submission);
+}
+
+#[derive(Resource, Clone, Default)]
+struct AfterGraph(Arc<AtomicBool>);
+
+/// Registers work after the graph, as FrameSubmissions systems do.
+fn register_after_graph(completion: super::FrameCompletion, after: Res<AfterGraph>) {
+    let after = after.0.clone();
+    completion.after_submit(move || after.store(true, Ordering::Release));
+}
+
+/// A graph submitted in the frame tail keeps later work, the frame's bound and its poll behind
+/// that submission, and the poll makes no submission of its own.
+#[test]
+fn work_after_a_tail_submitted_graph_follows_the_submission() {
+    use bevy::render::renderer::{FrameSubmission, FrameTailOnRenderThread, RenderFrameTail};
+    let (mut app, _) = crate::queue_review_support::app();
+    app.add_schedule(Render::base_schedule())
+        .init_resource::<PendingCommandBuffers>()
+        .init_resource::<RenderFrameTail>()
+        .init_resource::<FrameSubmission>()
+        .init_resource::<AfterGraph>()
+        .insert_resource(FrameTailOnRenderThread);
+    super::install(app.main_mut());
+    app.add_systems(
+        Render,
+        (
+            submit_frame_in_tail
+                .in_set(RenderSystems::Render)
+                .before(FrameSubmissions),
+            register_after_graph.in_set(FrameSubmissions),
+        ),
+    );
+    let queue = app.world().resource::<RenderQueue>().clone();
+    let after = app.world().resource::<AfterGraph>().0.clone();
+    let frames = app.world().resource::<FramesInFlight>().clone();
+    let tail = app.world().resource::<RenderFrameTail>().clone();
+
+    let before = submission_marker(&queue);
+    app.world_mut().run_schedule(Render);
+    assert!(
+        !after.load(Ordering::Acquire),
+        "the graph is not submitted yet"
+    );
+    assert!(frames.0.lock().unwrap().is_empty());
+    tail.run();
+    assert!(after.load(Ordering::Acquire));
+    let bound = frames
+        .0
+        .lock()
+        .unwrap()
+        .back()
+        .cloned()
+        .expect("frame bound");
+    let bound: u64 = format!("{bound:?}")
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .expect("recorded index");
+    let after_marker = submission_marker(&queue);
+    // The tail's graph submission and the marker read itself: no poll submission.
+    assert_eq!(after_marker - before, 2);
+    assert_eq!(
+        bound + 1,
+        after_marker,
+        "the tail's submission bounds the frame"
+    );
+}

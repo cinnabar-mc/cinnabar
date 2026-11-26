@@ -343,7 +343,7 @@ fn begin_frame(mut timer: ResMut<NodeTimer>) {
 
 /// Maps the slot this frame resolved into after its submission; a frame that resolved
 /// nothing returns its slot.
-fn request_readback(mut timer: ResMut<NodeTimer>) {
+fn request_readback(mut timer: ResMut<NodeTimer>, completion: crate::device_poll::FrameCompletion) {
     let timer = &mut *timer;
     let slot = timer.slot.swap(NO_SLOT, Ordering::AcqRel);
     if slot == NO_SLOT {
@@ -366,14 +366,17 @@ fn request_readback(mut timer: ResMut<NodeTimer>) {
         *node = span.load(Ordering::Relaxed);
     }
     let state = target.state.clone();
-    target
-        .buffer
-        .slice(..u64::from(target.spans) * 2 * 8)
-        .map_async(wgpu::MapMode::Read, move |result| {
-            state.store(
-                if result.is_ok() { MAPPED } else { FAILED },
-                Ordering::Release,
-            );
-        });
+    let buffer = target.buffer.clone();
+    let bytes = u64::from(target.spans) * 2 * 8;
+    completion.after_submit(move || {
+        buffer
+            .slice(..bytes)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                state.store(
+                    if result.is_ok() { MAPPED } else { FAILED },
+                    Ordering::Release,
+                );
+            });
+    });
     timer.ring.submit(index);
 }
