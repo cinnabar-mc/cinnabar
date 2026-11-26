@@ -5,7 +5,7 @@ use meshing::{
 };
 
 /// The user's cloud visibility preference, copied into the render world each frame.
-#[derive(Resource, ExtractResource, Clone, Copy)]
+#[derive(Resource, ExtractResource, Clone, Copy, PartialEq)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct CloudVisibility(pub bool);
 

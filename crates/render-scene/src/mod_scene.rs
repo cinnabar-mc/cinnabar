@@ -80,10 +80,12 @@ impl ModRenderScene {
     }
 
     /// Publishes changed personal content without comparing it to the merged server layer.
-    pub fn apply_if_changed(&mut self, output: &RenderOutput) {
-        if self.personal != *output {
+    pub fn apply_if_changed(&mut self, output: &RenderOutput) -> bool {
+        let changed = self.personal != *output;
+        if changed {
             self.apply(output, self.personal_generation.wrapping_add(1));
         }
+        changed
     }
 
     /// Publishes session-owned client-part drawing beside personal mod output.

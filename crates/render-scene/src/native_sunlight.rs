@@ -11,7 +11,7 @@ const SUN_COLOUR_SUBTRACTION: f32 = 0.2;
 
 /// CPU-only view inputs; the fixed-size atmosphere GPU contract is unchanged.
 /// Weather fog is the native precipitation-lattice accumulator, not rain level.
-#[derive(Resource, ExtractResource, Clone, Copy, Debug, Default)]
+#[derive(Resource, ExtractResource, Clone, Copy, Debug, Default, PartialEq)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct AtmosphereViewInputs {
     pub forward: [f32; 3],

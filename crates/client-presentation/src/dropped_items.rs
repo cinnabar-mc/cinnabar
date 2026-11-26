@@ -19,7 +19,7 @@ use {
         ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
         dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
     },
-    render_scene::{ChunkTextureAssets, DroppedItemScene},
+    render_scene::{ChunkTextureAssets, DroppedItemRepublish, DroppedItemScene},
 };
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
@@ -605,7 +605,9 @@ impl DroppedItemPublisher<'_, '_> {
         } = frame;
         let (camera, cull_view) = camera;
         let frustum = self.culling_view(cull_view);
-        let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
+        let (Some(mut scene), Some(icons)) =
+            (self.scene.as_mut().map(DroppedItemRepublish::new), icons)
+        else {
             return;
         };
         let Some(stream) = stream else {
@@ -954,7 +956,6 @@ fn dropped_icon_key<'a>(
             )
         })
 }
-
 #[cfg(test)]
 #[path = "dropped_items/tests.rs"]
 mod palette_tests;

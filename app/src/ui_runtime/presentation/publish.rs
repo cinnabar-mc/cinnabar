@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::{PackReload, resource_packs::PackApplication};
-use bevy::prelude::{Local, Projection, Transform};
+use bevy::prelude::{DetectChangesMut, Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -166,13 +166,9 @@ pub(crate) fn prepare_ui_runtime(
     runtime.set_control_settings(Arc::clone(&settings_snapshot.0));
     if let Some(mut glint_settings) = glint_settings {
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            *glint_settings = menu_runtime.ui_glint_settings();
-        }
+        glint_settings.set_if_neq(menu_runtime.ui_glint_settings());
         #[cfg(target_arch = "wasm32")]
-        {
-            *glint_settings = render_scene::UiGlintSettings::default();
-        }
+        glint_settings.set_if_neq(render_scene::UiGlintSettings::default());
     }
     let Ok(window) = windows.single() else {
         hand.clear();
@@ -197,12 +193,15 @@ pub(crate) fn prepare_ui_runtime(
     }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
+    // Loading writes only the startup-probe flag, and the input is extracted whenever it counts
+    // as changed, so only a flipped flag marks it.
+    let probe_enabled = diagnostics_input.startup_probe_enabled();
     loading::prepare_loading(
         &mut client_world,
         &mut fatal_error.0,
         &mut presentation,
         &runtime,
-        &mut diagnostics_input,
+        diagnostics_input.bypass_change_detection(),
         &network,
         loading::LoadingObservation {
             restart,
@@ -221,6 +220,9 @@ pub(crate) fn prepare_ui_runtime(
             now: time.elapsed(),
         },
     );
+    if diagnostics_input.startup_probe_enabled() != probe_enabled {
+        diagnostics_input.set_changed();
+    }
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     presentation.set_preview_cosmetics(&menu_skin.cosmetics);

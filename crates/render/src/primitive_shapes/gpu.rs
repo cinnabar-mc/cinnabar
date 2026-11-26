@@ -294,7 +294,7 @@ pub(super) fn prepare(
         .unwrap_or_else(|error| error.into_inner());
     let mut work = ShapeWork::default();
     let frame = [
-        ((scene.clock / 3600.0).floor() * 3600.0).to_bits(),
+        scene.clock_hour().to_bits(),
         scene.dimension as u32,
         scene.render_distance.to_bits(),
         0,
