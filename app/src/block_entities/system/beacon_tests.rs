@@ -169,7 +169,6 @@ fn fixture(beacon_count: usize, eye: Vec3, fill_portals: bool) -> World {
     )));
     world.init_resource::<render_scene::BlockEntityFrameResource>();
     world.init_resource::<render_scene::StaticItemPlacementsResource>();
-    world.init_resource::<AtmosphereFrame>();
     world.init_resource::<ActorFramePartialTick>();
     world.init_resource::<Time<Real>>();
     world

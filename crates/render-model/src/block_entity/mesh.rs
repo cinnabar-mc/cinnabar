@@ -75,6 +75,10 @@ pub struct MeshBuilder {
     /// Multiplier applied to model RGB; encoded portal planes bypass lighting.
     pub light: f32,
     pub(super) actor_light: u32,
+    /// Emits following quads without the environment lightmap, retaining authored face shades.
+    pub(super) unlit: bool,
+    /// Whether following actor-lit quads cull their faces from behind.
+    pub(super) cull_back_faces: bool,
     /// Whether a required model texture was absent from the atlas.
     pub(super) missing_required_texture: bool,
     /// Reused when layered models construct an atlas texture name.
@@ -94,6 +98,8 @@ impl MeshBuilder {
             additive: Vec::new(),
             light: 1.0,
             actor_light: 0,
+            unlit: false,
+            cull_back_faces: false,
             missing_required_texture: false,
             texture_name: String::new(),
             rejected_quads: 0,
@@ -124,6 +130,22 @@ impl MeshBuilder {
             texture_name,
             ..Self::new(atlas_size)
         };
+    }
+
+    /// Whether following quads sample the environment lightmap through the actor material.
+    pub(super) fn actor_lit(&self) -> bool {
+        self.actor_light != 0 && !self.unlit
+    }
+
+    /// Converts a gamma-space dye tint for the following quads: actor materials compose in
+    /// gamma, while the scalar path multiplies linear texels.
+    pub(super) fn gamma_tint(&self, rgb: [f32; 3]) -> [f32; 4] {
+        let [r, g, b] = if self.actor_lit() {
+            rgb
+        } else {
+            crate::celestial::rgb_to_linear(rgb)
+        };
+        [r, g, b, 1.0]
     }
 
     /// Resolves a required model texture and records missing artwork without stopping emission.
@@ -213,7 +235,7 @@ impl MeshBuilder {
                 continue;
             }
             let uv = texture.rect_uv(texels);
-            let shade = if self.actor_light == 0 { shade } else { 1.0 };
+            let shade = if self.actor_lit() { 1.0 } else { shade };
             let color = [tint[0] * shade, tint[1] * shade, tint[2] * shade, tint[3]];
             let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
             self.quad(layer, world.map(|point| point.to_array()), uv, color);
@@ -251,6 +273,7 @@ impl MeshBuilder {
         uvs: [[f32; 2]; 4],
         colors: [[f32; 4]; 4],
     ) {
+        let actor_lit = self.actor_lit();
         let target = match layer {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
@@ -262,12 +285,13 @@ impl MeshBuilder {
             return;
         }
         // Portal RGB encodes the plane normal; lighting would corrupt the projector.
-        let light = if layer == Layer::Portal {
+        let light = if layer == Layer::Portal || self.unlit {
             1.0
         } else {
             self.light
         };
         let atlas_size = self.atlas_size;
+        // Unlit parts keep geometric normals: held rigs reuse these quads with their own lighting.
         let normal = if self.actor_light == 0 {
             [0.0; 3]
         } else {
@@ -290,10 +314,10 @@ impl MeshBuilder {
                 colors[corner][3],
             ],
             normal,
-            actor_light: if self.actor_light == 0 {
-                0
-            } else {
-                self.actor_light | BLOCK_ENTITY_CULL_BACK_FACES
+            actor_light: match (actor_lit, self.cull_back_faces) {
+                (false, _) => 0,
+                (true, false) => self.actor_light,
+                (true, true) => self.actor_light | BLOCK_ENTITY_CULL_BACK_FACES,
             },
         };
         let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
@@ -333,9 +357,10 @@ impl MeshBuilder {
         tint: [f32; 4],
     ) {
         let faces = assets::block_entity_geometry::tile_box_faces([min, max]);
+        let shaded = !self.actor_lit();
         for ((corners, shade), rect) in faces
             .into_iter()
-            .zip((0..6).map(tile_face_shade))
+            .zip((0..6).map(|face| if shaded { tile_face_shade(face) } else { 1.0 }))
             .zip(rects)
         {
             let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
@@ -521,6 +546,30 @@ mod tests {
             let front = Mat4::from_rotation_y(facing.yaw_degrees().to_radians())
                 .transform_vector3(Vec3::NEG_Z);
             assert!(front.abs_diff_eq(expected, 1.0e-5), "{facing:?} {front:?}");
+        }
+    }
+
+    #[test]
+    fn unlit_quads_bypass_the_lightmap_but_keep_authored_face_shades_and_normals() {
+        let mut builder = MeshBuilder::new([64, 64]);
+        builder.light = 0.25;
+        builder.actor_light = render_api::ACTOR_LIGHT_WORLD;
+        builder.unlit = true;
+        builder.cuboid(
+            Layer::Solid,
+            &texture(),
+            Mat4::IDENTITY,
+            BoxSpec::new([-4.0, 0.0, -4.0], [8.0; 3], [0.0, 0.0]),
+            WHITE,
+        );
+        assert_eq!(builder.solid.len(), 36);
+        for (face, shade) in builder.solid.as_chunks::<6>().0.iter().zip(BOX_SHADES) {
+            for vertex in face {
+                assert_eq!(vertex.color, [shade, shade, shade, 1.0]);
+                let normal = Vec3::from_array(vertex.normal);
+                assert!((normal.length() - 1.0).abs() < 1.0e-5, "{normal}");
+                assert_eq!(vertex.actor_light, 0);
+            }
         }
     }
 

@@ -70,7 +70,11 @@ Both the head and hat emit outward world normals after mounting and yaw,
 without terrain face coefficients. The block-entity solid shader uses the
 shared actor lightmap, normal shading, gamma transfer and distance fog.
 Environment changes update the shared lightmap even when cached geometry is
-reused. Other block-entity models retain their scalar lighting path.
+reused. Every other world-lit block-entity model uses the same shared lightmap
+coordinates, so night vision, brightness, darkness, ambient adjustment and
+colored light reach containers and signs too. End portal and gateway surfaces
+stay unlit, and glowing model parts use an explicit unlit flag rather than a
+scalar brightness override.
 
 The previous scalar `max(block_curve, sky_curve * daylight)` bypassed colored
 light, ambient adjustment, brightness and effects, reaching exactly zero in

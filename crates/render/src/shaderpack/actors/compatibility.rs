@@ -131,6 +131,43 @@ mod tests {
     }
 
     #[test]
+    fn actor_lit_containers_stay_on_the_pack_path() {
+        let width = render_model::MIN_DYNAMIC_ATLAS_WIDTH;
+        let bytes = assets::encode_block_entity_catalog(
+            b"{}",
+            width,
+            64,
+            &vec![255; width as usize * 64 * 4],
+            &[assets::BlockEntityPlacement {
+                name: "textures/entity/chest/normal".into(),
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64,
+            }],
+        )
+        .unwrap();
+        let mut scene = render_model::BlockEntityScene::default();
+        scene.install_assets(&assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap());
+        let frame = scene.update(
+            render_model::SceneClock::default(),
+            &[],
+            &[render_model::BlockEntitySubmission {
+                block: [0; 3],
+                light: render_model::BlockEntityLight::Actor { block: 4, sky: 11 },
+                kind: render_model::BlockEntityKind::Chest(render_model::ChestModel {
+                    variant: render_model::ChestVariant::Normal,
+                    facing: render_model::Facing::South,
+                    pair: render_model::ChestPair::Single,
+                    lid: 0.0,
+                }),
+            }],
+        );
+        assert!(!frame.solid.is_empty());
+        assert!(frame_supported(None, None, Some(frame)));
+    }
+
+    #[test]
     fn emissive_alpha_materials_keep_native_coverage_and_lighting() {
         let instance = ActorGpuInstance {
             material: crate::actor::test_material::TestMaterial {

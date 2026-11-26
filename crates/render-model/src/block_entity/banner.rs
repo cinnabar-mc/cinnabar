@@ -34,14 +34,14 @@ pub enum BannerMount {
 pub struct BannerLayer {
     /// Texture stem after `banner_`, for example `stripe_bottom`.
     pub pattern: &'static str,
-    /// Linear-space RGB dye color.
+    /// Gamma-space RGB dye color.
     pub color: [f32; 3],
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BannerModel {
     pub mount: BannerMount,
-    /// Linear-space RGB base dye color.
+    /// Gamma-space RGB base dye color.
     pub base: [f32; 3],
     pub layers: Arc<[BannerLayer]>,
 }
@@ -92,14 +92,13 @@ pub(super) fn emit(
     let sway = sway_degrees(block, clock);
     let hinge = Vec3::from(geometry::BANNER_CLOTH_PIVOT) * Vec3::new(1.0, -1.0, 1.0);
     let cloth = base * Mat4::from_translation(hinge) * Mat4::from_rotation_x(sway.to_radians());
-    let tint = |color: [f32; 3]| [color[0], color[1], color[2], 1.0];
     let cloth_box = |inflate: f32| world_box(geometry::BANNER_CLOTH).inflated(inflate);
     builder.cuboid(
         Layer::Solid,
         &base_texture,
         cloth,
         cloth_box(0.0),
-        tint(model.base),
+        builder.gamma_tint(model.base),
     );
     // The same name buffer serves every pattern and subsequent frames.
     let mut name = std::mem::take(&mut builder.texture_name);
@@ -110,12 +109,13 @@ pub(super) fn emit(
         let Some(texture) = atlas.texture(&name, [64.0, 64.0]) else {
             continue;
         };
+        let tint = builder.gamma_tint(layer.color);
         builder.cuboid(
             Layer::Solid,
             &texture,
             cloth,
             cloth_box(LAYER_INFLATE_STEP * (index + 1) as f32),
-            tint(layer.color),
+            tint,
         );
     }
     builder.texture_name = name;

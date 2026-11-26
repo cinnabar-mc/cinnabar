@@ -80,6 +80,35 @@ impl BlockEntityKind {
         )
     }
 
+    /// Whether actor-lit faces cull when they point away from the camera. Entity models whose
+    /// layers overlap (heads, beds, books, piston arms and effects) need it; the other models
+    /// draw both faces, which shader-pack block draws can reproduce.
+    const fn culls_back_faces(&self) -> bool {
+        match self {
+            Self::Skull(_)
+            | Self::Bed(_)
+            | Self::Chalkboard(_)
+            | Self::EnchantTable { .. }
+            | Self::PistonArm(_)
+            | Self::CrystalBeam(_)
+            | Self::LoyaltyRope(_)
+            | Self::DragonDeath(_) => true,
+            Self::Chest(_)
+            | Self::Shulker(_)
+            | Self::Banner(_)
+            | Self::Sign(_)
+            | Self::Lectern { .. }
+            | Self::Bell(_)
+            | Self::ItemFrame(_)
+            | Self::Conduit(_)
+            | Self::DecoratedPot(_)
+            | Self::Statue(_)
+            | Self::Beacon(_)
+            | Self::EndPortal
+            | Self::EndGateway => false,
+        }
+    }
+
     /// Whether the authored model has a fixed block reach independent of installed geometry.
     pub const fn has_fixed_cull_reach(&self) -> bool {
         match self {
@@ -139,10 +168,11 @@ impl From<f32> for BlockEntityLight {
 }
 
 impl BlockEntityLight {
-    fn apply(self, builder: &mut MeshBuilder) {
-        (builder.light, builder.actor_light) = match self {
-            Self::Scalar(value) => (value.clamp(0.0, 1.0), 0),
-            Self::Actor { block, sky } => (1.0, crate::pack_actor_light(block, sky)),
+    /// Configures the following quads' lighting; `culled` actor-lit faces cull from behind.
+    fn apply(self, builder: &mut MeshBuilder, culled: bool) {
+        (builder.light, builder.actor_light, builder.cull_back_faces) = match self {
+            Self::Scalar(value) => (value.clamp(0.0, 1.0), 0, false),
+            Self::Actor { block, sky } => (1.0, crate::pack_actor_light(block, sky), culled),
         };
     }
 }
@@ -423,7 +453,9 @@ impl BlockEntityScene {
             }
             let start = cache::vertex_counts(builder);
             let rejected_before = builder.rejected_quads;
-            submission.light.apply(builder);
+            submission
+                .light
+                .apply(builder, submission.kind.culls_back_faces());
             emit_submission(
                 builder,
                 atlas,
@@ -446,7 +478,7 @@ impl BlockEntityScene {
             }
         }
         self.spare_submissions = previous_fragments.into_cleared_list();
-        BlockEntityLight::Scalar(1.0).apply(builder);
+        BlockEntityLight::Scalar(1.0).apply(builder, false);
         for crack in cracks {
             emit_crack(builder, atlas, crack);
         }
@@ -481,7 +513,9 @@ impl BlockEntityScene {
         let mut builder = MeshBuilder::new([1; 2]);
         for submission in submissions {
             if let BlockEntityKind::DragonDeath(model) = &submission.kind {
-                submission.light.apply(&mut builder);
+                submission
+                    .light
+                    .apply(&mut builder, submission.kind.culls_back_faces());
                 super::dragon_death::emit(&mut builder, model);
             }
         }

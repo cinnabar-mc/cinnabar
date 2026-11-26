@@ -103,10 +103,8 @@ pub(super) fn emit(
         let Some(texture) = texture else {
             continue;
         };
-        let saved = builder.light;
-        if bright {
-            builder.light = 1.0;
-        }
+        let saved = builder.unlit;
+        builder.unlit = bright;
         for head_box in &geometry.boxes {
             builder.cuboid(
                 Layer::Solid,
@@ -116,7 +114,7 @@ pub(super) fn emit(
                 WHITE,
             );
         }
-        builder.light = saved;
+        builder.unlit = saved;
     }
 }
 

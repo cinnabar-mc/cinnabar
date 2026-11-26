@@ -218,3 +218,38 @@ fn warmed_banner_publications_reuse_arrays_and_preserve_retained_frames() {
     assert_eq!(frame.additive, expected.additive);
     assert_eq!(frame.dynamic_rgba8, expected.dynamic_rgba8);
 }
+
+#[test]
+fn dye_tints_match_the_color_space_of_their_lighting_path() {
+    use crate::{BlockEntityKind, BlockEntityLight, BlockEntityScene, BlockEntitySubmission};
+
+    let dye = [0.5, 0.25, 0.75];
+    let model = BannerModel {
+        base: dye,
+        ..patterned_banner()
+    };
+    let assets = artwork(crate::block_entity::MIN_DYNAMIC_ATLAS_WIDTH);
+    for (light, expected) in [
+        (BlockEntityLight::Actor { block: 15, sky: 15 }, dye),
+        (1.0.into(), crate::celestial::rgb_to_linear(dye)),
+    ] {
+        let mut scene = BlockEntityScene::default();
+        scene.install_assets(&assets);
+        let frame = scene.update(
+            SceneClock::default(),
+            &[],
+            &[BlockEntitySubmission {
+                block: [0; 3],
+                light,
+                kind: BlockEntityKind::Banner(model.clone()),
+            }],
+        );
+        assert!(
+            frame
+                .solid
+                .iter()
+                .any(|vertex| vertex.color[..3] == expected),
+            "{light:?} cloth tint"
+        );
+    }
+}

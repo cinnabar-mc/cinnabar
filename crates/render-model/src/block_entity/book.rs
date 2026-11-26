@@ -314,7 +314,11 @@ pub(super) fn emit_lectern_stand(
         geometry::lectern_faces().into_iter().enumerate()
     {
         let [u0, v0, u1, v1] = textures[texture_index].rect_uv(texels);
-        let shade = super::mesh::tile_face_shade(index % 6);
+        let shade = if builder.actor_lit() {
+            1.0
+        } else {
+            super::mesh::tile_face_shade(index % 6)
+        };
         builder.quad_uv(
             Layer::Solid,
             corners.map(|corner| base.transform_point3(Vec3::from_array(corner)).to_array()),
