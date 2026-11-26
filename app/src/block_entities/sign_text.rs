@@ -141,6 +141,9 @@ fn layout_request<'a>(
         font,
         wrap: TextWrap {
             align: TextLineAlign::Center,
+            // Ask for one line past the four drawn so the layout's `...` lands on the
+            // discarded line, and it stops before the wrap-line limit on huge text.
+            max_lines: Some(LINES as u16 + 1),
             ..TextWrap::default()
         },
     }
@@ -302,7 +305,13 @@ mod tests {
 
     #[test]
     fn color_decoding_ignores_alpha_and_black_outlines_are_light() {
-        let face = SignTextSpec::new("x".into(), 0x00FF8040u32 as i32, false, false, 90);
+        let face = SignTextSpec::new(
+            "x".into(),
+            0x00FF8040u32 as i32,
+            false,
+            false,
+            STANDING_WRAP_PIXELS,
+        );
         assert_eq!(face.base_rgb(), [0xFF, 0x80, 0x40]);
         assert_eq!(spec("x").outline_rgb(), BLACK_OUTLINE_RGB);
         assert_eq!(face.outline_rgb(), [102, 51, 25]);
@@ -312,8 +321,20 @@ mod tests {
     fn keys_track_every_visible_input() {
         let base = spec("hello");
         assert_eq!(base.cache_key(), spec("hello").cache_key());
-        let glowing = SignTextSpec::new("hello".into(), -0x1000000, true, false, 90);
-        let hanging = SignTextSpec::new("hello".into(), -0x1000000, false, false, 60);
+        let glowing = SignTextSpec::new(
+            "hello".into(),
+            -0x1000000,
+            true,
+            false,
+            STANDING_WRAP_PIXELS,
+        );
+        let hanging = SignTextSpec::new(
+            "hello".into(),
+            -0x1000000,
+            false,
+            false,
+            HANGING_WRAP_PIXELS,
+        );
         assert_ne!(base.cache_key(), glowing.cache_key());
         assert_ne!(base.cache_key(), hanging.cache_key());
         assert_ne!(base.cache_key(), spec("world").cache_key());
@@ -334,6 +355,20 @@ mod tests {
             );
         }
         assert!(!line_has_ink(&canvas, 3));
+    }
+
+    #[test]
+    fn trailing_lines_beyond_the_layout_limit_keep_the_visible_prefix() {
+        let font = ui_engine::test_support::fixture_font();
+        let mut layouts = TextLayoutCache::new(4, 64 * 1024);
+        let text = "hi\n".repeat(1_025);
+        let canvas = rasterize(&spec(&text), &font, &mut layouts).unwrap();
+        for line in 0..LINES as i32 {
+            assert!(
+                line_has_ink(&canvas, line),
+                "visual line {line} drew no ink"
+            );
+        }
     }
 
     #[test]
