@@ -314,6 +314,7 @@ impl ActorStore {
             runtime_id,
             actor: self.actors.revision(runtime_id)?,
             rig: self.animation.presentation_revision(runtime_id),
+            appearance_ready: self.appearance_ready(self.actors.get(&runtime_id)?),
         })
     }
     /// Advances whenever the camera rotation or position that frame samples read changes.
