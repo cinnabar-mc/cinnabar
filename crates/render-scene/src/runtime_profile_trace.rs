@@ -40,6 +40,15 @@ fn trace_capacity(value: Option<&str>) -> usize {
         .unwrap_or(TRACE_CAPACITY)
 }
 
+/// The calling thread's id, read once per thread: `std::thread::current` clones and drops the
+/// thread handle on every call, and every recorded span names its thread.
+fn current_thread() -> ThreadId {
+    thread_local! {
+        static CURRENT: ThreadId = std::thread::current().id();
+    }
+    CURRENT.with(|id| *id)
+}
+
 #[derive(Debug, Clone)]
 struct TraceEvent {
     name: &'static str,
@@ -126,7 +135,7 @@ impl FrameTrace {
             name,
             started,
             elapsed: Duration::ZERO,
-            thread: std::thread::current().id(),
+            thread: current_thread(),
             frame_id: Some(frame_id),
             args: TraceArgs::Span { thread_cpu: None },
         });
@@ -191,7 +200,7 @@ impl FrameTrace {
             name: stage.name(),
             started: started.saturating_duration_since(self.epoch),
             elapsed,
-            thread: std::thread::current().id(),
+            thread: current_thread(),
             frame_id: Some(frame_id),
             args: TraceArgs::Span { thread_cpu },
         });
@@ -203,7 +212,7 @@ impl FrameTrace {
             name: stage.name(),
             started: self.epoch.elapsed(),
             elapsed: Duration::ZERO,
-            thread: std::thread::current().id(),
+            thread: current_thread(),
             frame_id: None,
             args: TraceArgs::BackgroundSample {
                 nanos: nanos(elapsed),
@@ -223,7 +232,7 @@ impl FrameTrace {
             name: "frame_start",
             started: self.epoch.elapsed(),
             elapsed: Duration::ZERO,
-            thread: std::thread::current().id(),
+            thread: current_thread(),
             frame_id: Some(frame_id),
             args: TraceArgs::Focus {
                 focused,
@@ -255,7 +264,7 @@ impl FrameTrace {
             name: "slow_frame",
             started: self.epoch.elapsed(),
             elapsed: Duration::ZERO,
-            thread: std::thread::current().id(),
+            thread: current_thread(),
             frame_id: (event.frame_id != 0).then_some(event.frame_id),
             args: TraceArgs::SlowFrame(event),
         });
@@ -265,7 +274,7 @@ impl FrameTrace {
     pub fn gpu_frame(&self, frame: &crate::GpuFrameTimes) {
         let sequence = self.gpu_sequence.fetch_add(1, Ordering::Relaxed) + 1;
         let started = self.epoch.elapsed();
-        let thread = std::thread::current().id();
+        let thread = current_thread();
         for (stage, elapsed) in frame.iter() {
             self.push(TraceEvent {
                 name: stage.name(),
