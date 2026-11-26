@@ -586,6 +586,7 @@ pub(crate) fn mod_passes(
         let Some(mask_views) = mask_views else {
             continue;
         };
+        crate::scene_target::ensure_resolved(world, view, context);
         let stage = RuntimeStage::GPU_MOD_PASSES[slot.min(RuntimeStage::GPU_MOD_PASSES.len() - 1)];
         crate::gpu_timing::timed(world, context, stage, |context| {
             let post = target.post_process_write();

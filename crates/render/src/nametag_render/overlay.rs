@@ -255,6 +255,7 @@ fn draw(
             phase.render_range(&mut pass, world, entity, range)?;
         }
     }
+    crate::scene_target::ensure_resolved(world, entity, &mut context);
     let post = target.post_process_write();
     let device = world.resource::<RenderDevice>().wgpu_device();
     let mut bindings = overlay.bindings.lock().expect("nametag composite bindings");

@@ -187,8 +187,30 @@ pub(crate) fn scene_finish(
     query: bevy::render::renderer::ViewQuery<SceneFinishQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
+    let view = query.entity();
     let (target, scene) = query.into_inner();
     let context = &mut context;
-    scene.finish(context, world, target);
+    scene.finish_lazily(context, world, target, resolves_lazily(world, view));
     Ok(())
 }
+
+/// Whether `view`'s final resolve may wait for the first consumer of the resolved scene. Every
+/// Cinnabar pass after [`super::ScenePass::Finish`] calls `scene_target::ensure_resolved` before
+/// touching the main texture, and the UI output composite can resolve two samples itself through
+/// [`super::resolve_lut`]. Stock Bevy passes cannot ask, so views that run one keep the eager
+/// resolve: tonemapping and bloom only run for HDR cameras, and FXAA when enabled. Shader packs,
+/// Enhanced rendering and render scale keep it too.
+pub(super) fn resolves_lazily(world: &World, view: Entity) -> bool {
+    world.contains_resource::<super::resolve_lut::ResolveLut>()
+        && world.contains_resource::<crate::ui_render::composite::output::UiPresentInstalled>()
+        && world
+            .get::<ExtractedCamera>(view)
+            .is_some_and(|camera| !camera.hdr)
+        && !world
+            .get::<bevy::anti_alias::fxaa::Fxaa>(view)
+            .is_some_and(|fxaa| fxaa.enabled)
+        && world.get::<render_scene::shaderpack::ShaderPackRendering>(view).is_none()
+        && world.get::<render_scene::EnhancedRendering>(view).is_none()
+        && world.get::<crate::render_scale::RenderScaleOutput>(view).is_none()
+}
+

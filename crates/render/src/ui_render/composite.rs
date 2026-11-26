@@ -791,6 +791,8 @@ fn encode_composite<'c>(
     pass
 }
 
+#[path = "composite/fused.rs"]
+pub(crate) mod fused;
 #[path = "composite/output.rs"]
 pub(crate) mod output;
 
