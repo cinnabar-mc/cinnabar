@@ -396,6 +396,8 @@ struct AtmospherePipelineKey {
     hdr: bool,
     stars: bool,
     skybox: bool,
+    /// The stock sky also writes its opaque alpha, so it can stand in for the scene clear.
+    opaque_alpha: bool,
 }
 
 // Target Stars material uses OneMinusDestColor→One and disables alpha writes.
@@ -436,7 +438,11 @@ impl Specializer<RenderPipeline> for AtmospherePipelineSpecializer {
         } else {
             None
         };
-        target.write_mask = ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE;
+        target.write_mask = if key.opaque_alpha && !key.stars && !key.skybox {
+            ColorWrites::ALL
+        } else {
+            ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE
+        };
         if key.skybox {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare =
                 Some(CompareFunction::Greater);
@@ -461,7 +467,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for AtmospherePipeline {
         view: crate::pipeline_warmup::WarmView,
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
-        for (stars, skybox) in [(false, false), (true, false), (false, true)] {
+        for (stars, skybox, opaque_alpha) in SKY_VARIANTS {
             ids.push(self.variants.specialize(
                 cache,
                 AtmospherePipelineKey {
@@ -469,6 +475,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for AtmospherePipeline {
                     hdr: view.hdr,
                     stars,
                     skybox,
+                    opaque_alpha,
                 },
             )?);
         }
@@ -559,6 +566,14 @@ fn prepare_atmosphere_bind_group(
     gpu.bound_asset_identity = Some(asset_identity);
 }
 
+/// Stars, pack skybox and opaque-alpha flags of every sky pipeline a view draws with.
+const SKY_VARIANTS: [(bool, bool, bool); 4] = [
+    (false, false, false),
+    (false, false, true),
+    (true, false, false),
+    (false, true, false),
+];
+
 /// Prepares only the current views' sky pipelines for the ordered sky pass.
 fn queue_atmosphere(
     pipeline_cache: Res<PipelineCache>,
@@ -568,12 +583,13 @@ fn queue_atmosphere(
 ) {
     gpu.pipelines.clear();
     for (view, msaa) in &views {
-        for (stars, skybox) in [(false, false), (true, false), (false, true)] {
+        for (stars, skybox, opaque_alpha) in SKY_VARIANTS {
             let key = AtmospherePipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
                 stars,
                 skybox,
+                opaque_alpha,
             };
             if let Ok(id) = pipeline.variants.specialize(&pipeline_cache, key) {
                 gpu.pipelines.insert(key, id);
@@ -590,6 +606,10 @@ mod tests;
 #[cfg(test)]
 #[path = "atmosphere_render/sky_pass_tests.rs"]
 mod sky_pass_tests;
+
+#[cfg(test)]
+#[path = "scene_target/clear_tests.rs"]
+mod scene_clear_tests;
 
 #[cfg(test)]
 #[path = "atmosphere_pipeline_tests.rs"]

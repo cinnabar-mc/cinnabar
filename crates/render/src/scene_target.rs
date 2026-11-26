@@ -1,5 +1,7 @@
 //! Main-pass colour retains sample coverage until the final resolve before post-processing.
 
+#[path = "scene_target/clear.rs"]
+pub(crate) mod clear;
 #[path = "scene_target/nodes.rs"]
 pub(crate) mod nodes;
 #[cfg(test)]
@@ -29,6 +31,8 @@ pub(crate) struct SceneTarget {
     linear: TextureView,
     format: TextureFormat,
     resolved: AtomicBool,
+    /// The last opaque pass began without clearing colour; see `clear`.
+    skipped_clear: AtomicBool,
 }
 
 impl SceneTarget {
@@ -75,6 +79,7 @@ impl SceneTarget {
             linear,
             format,
             resolved: AtomicBool::new(false),
+            skipped_clear: AtomicBool::new(false),
         })
     }
 
@@ -162,6 +167,12 @@ impl SceneTarget {
     ) -> RenderPassColorAttachment<'a> {
         self.resolved.store(true, Ordering::Relaxed);
         self.resolve_attachment(destination, StoreOp::Discard)
+    }
+
+    /// Whether the last opaque pass skipped its colour clear.
+    #[cfg(test)]
+    pub(crate) fn skipped_clear(&self) -> bool {
+        self.skipped_clear.load(Ordering::Relaxed)
     }
 
     /// Lets overlays continue drawing after an effect has restored the scene colour.

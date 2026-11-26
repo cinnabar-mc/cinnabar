@@ -79,6 +79,19 @@ mod screen_overlay_render {
     }
 }
 
+/// The standalone UI fixture prepares no actors.
+mod actor_render {
+    pub(crate) mod phase {
+        pub(crate) fn opaque_draws_replace_samples(
+            _: &bevy::prelude::World,
+            _: bevy::prelude::Entity,
+            _: impl Fn(bevy::render::render_resource::CachedRenderPipelineId) -> bool,
+        ) -> bool {
+            true
+        }
+    }
+}
+
 mod atmosphere_render {
     /// The standalone UI fixture draws no sky.
     pub(crate) mod sky_pass {
@@ -93,11 +106,18 @@ mod atmosphere_render {
         pub(crate) fn precedes_geometry(_: &bevy::prelude::World) -> bool {
             true
         }
-        pub(crate) fn draw(
+        pub(crate) fn draw_with_alpha(
             _: &bevy::prelude::World,
             _: bevy::prelude::Entity,
             _: &mut bevy::render::render_phase::TrackedRenderPass,
+            _: bool,
         ) {
+        }
+        pub(crate) fn covers_with_opaque_alpha(
+            _: &bevy::prelude::World,
+            _: bevy::prelude::Entity,
+        ) -> bool {
+            false
         }
     }
 }
