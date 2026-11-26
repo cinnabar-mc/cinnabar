@@ -361,3 +361,58 @@ fn trading_shield_previews_reduce_with_the_visible_atlas_demand() {
     capture(&mut runtime, &mut ui);
     assert_eq!(first, ui.hud_frame.window_icons.recipe);
 }
+
+/// Repeated observations of unchanged stacks keep the shield art they need, and a shield that
+/// appears afterwards, in the inventory or the cursor, gets its own.
+#[test]
+fn repeated_shield_observations_keep_their_art_and_new_shields_get_theirs() {
+    let mut ui = presentation();
+    let registry = registry();
+    let mut player = player(&registry);
+    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    let mut world = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(world.seed_item_registry(registry));
+    let pattern = |base| protocol::item_shield_pattern(&stack(base).extra_data).unwrap();
+    let observe = |ui: &mut UiPresentationRuntime, player: &player_state::PlayerState| {
+        let authority = world.authority().inventory_ui();
+        crate::ui_runtime::presentation::publish::prepare_shield_art(
+            player,
+            &runtime,
+            ui,
+            Some(authority),
+            |stack| authority.canonical_item_stack(stack),
+        );
+    };
+    for _ in 0..3 {
+        observe(&mut ui, &player);
+        for base in 0..4 {
+            assert!(ui.shield_icon(&pattern(base)).is_some(), "base {base}");
+        }
+    }
+    assert!(ui.shield_icon(&pattern(5)).is_none());
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Content(
+            protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(
+                    protocol::PLAYER_INVENTORY_WINDOW_ID,
+                ),
+                slots: [0, 1, 2, 3, 5].map(stack).to_vec().into(),
+                storage_item: Default::default(),
+            },
+        ));
+    observe(&mut ui, &player);
+    assert!(
+        ui.shield_icon(&pattern(5)).is_some(),
+        "a shield that appears after repeated observations gets its art"
+    );
+}

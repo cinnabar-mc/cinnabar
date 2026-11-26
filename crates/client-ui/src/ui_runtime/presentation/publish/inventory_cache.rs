@@ -11,6 +11,8 @@ use ui_screens::inventory_capture::cache::{
 pub(in crate::ui_runtime::presentation) struct InventoryCache {
     sources: Option<Sources>,
     projections: InventoryProjectionCache,
+    /// The last observation of shield and trim art, which an unchanged observation repeats.
+    pub(super) shield_art: Option<super::shield_art::ShieldArt>,
 }
 
 struct Sources {
@@ -68,6 +70,11 @@ impl InventoryCache {
             || runtime.crafting_match(player),
         );
         refreshed
+    }
+
+    /// See [`InventoryProjectionCache::stacks_epoch`].
+    pub(super) fn stacks_epoch(&self) -> u64 {
+        self.projections.stacks_epoch()
     }
 
     /// Borrows artwork sources already produced by the inventory projection.
