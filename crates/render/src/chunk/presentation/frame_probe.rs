@@ -571,7 +571,7 @@ impl ActiveFrameProbe {
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn submit_presented_frame_probe(
-    render_queue: Res<RenderQueue>,
+    completion: crate::device_poll::FrameCompletion,
     frame_probe: Res<ActiveFrameProbe>,
     presented_frame_gate: Res<PresentedFrameGate>,
     transparent_metrics: Res<TransparentSortMetrics>,
@@ -639,7 +639,7 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
     let callback_witness_evidence = witness_evidence.clone();
     let callback_visibility_diagnostics = visibility_diagnostics.clone();
     let callback_visibility_completion_fence = visibility_completion_fence.clone();
-    crate::device_poll::on_frame_complete(&render_queue, move || {
+    completion.on_frame_complete(move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "terrain.completion_callback",

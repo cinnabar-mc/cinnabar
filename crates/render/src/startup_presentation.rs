@@ -11,8 +11,7 @@ use bevy::{
         With,
     },
     render::{
-        Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
-        renderer::{RenderQueue, render_system},
+        Extract, ExtractSchedule, Render, RenderApp, RenderSystems, renderer::render_system,
         view::window::ExtractedWindow,
     },
     window::PrimaryWindow,
@@ -127,7 +126,7 @@ fn observe_presentation(
         &bevy::render::camera::ExtractedCamera,
         &crate::ui_render::composite::UiLayerTexture,
     )>,
-    queue: Res<RenderQueue>,
+    completion: crate::device_poll::FrameCompletion,
     feedback: Res<StartupPresentation>,
     epoch: Res<ExtractedSurfaceEpoch>,
     admission: Res<render_scene::startup_work::WorldWorkAdmission>,
@@ -146,7 +145,7 @@ fn observe_presentation(
         timing.mark("content_submitted");
         let timing = timing.clone();
         let admission = admission.clone();
-        crate::device_poll::on_frame_complete(&queue, move || {
+        completion.on_frame_complete(move || {
             timing.record_offscreen_content(web_time::Instant::now());
             timing.seal_samples();
             admission.menu_presented();
@@ -164,7 +163,7 @@ fn observe_presentation(
     {
         probe.mode_submitted = Some(mode);
         let feedback = feedback.clone();
-        crate::device_poll::on_frame_complete(&queue, move || {
+        completion.on_frame_complete(move || {
             feedback.record_mode_frame(mode);
         });
     }
@@ -182,7 +181,7 @@ fn observe_presentation(
         }
         let feedback = feedback.clone();
         let admission = admission.clone();
-        crate::device_poll::on_frame_complete(&queue, move || {
+        completion.on_frame_complete(move || {
             feedback.record_content_frame(epoch, web_time::Instant::now());
             if feedback.has_presented_content() {
                 if let Some(timing) = render_scene::startup_timing::current() { timing.seal_samples(); }
@@ -192,7 +191,7 @@ fn observe_presentation(
     }
     if probe.take_presented(consumed) {
         let feedback = feedback.clone();
-        crate::device_poll::on_frame_complete(&queue, move || {
+        completion.on_frame_complete(move || {
             if let Some(timing) = render_scene::startup_timing::current() {
                 timing.mark("first_gpu_complete");
             }

@@ -52,7 +52,7 @@ pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 mod dropped_item_render;
 mod frame_boundary;
 mod hand_rig_render;
-pub use device_poll::FrameSubmissions;
+pub use device_poll::{FrameCompletion, FrameSubmissions, FrameWork};
 pub use frame_boundary::{FrameEnd, FrameStart};
 #[cfg(not(target_arch = "wasm32"))]
 mod input_pacing;

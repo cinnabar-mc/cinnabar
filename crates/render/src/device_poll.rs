@@ -12,13 +12,14 @@
 //! memory.
 
 use bevy::{
+    ecs::system::SystemParam,
     prelude::{IntoScheduleConfigs, Res, ResMut, Resource, SubApp, SystemSet, warn},
     render::{
         Render, RenderSystems,
         render_resource::PollType,
         renderer::{
-            FrameTailOnRenderThread, PendingCommandBuffers, RenderDevice, RenderFrameTail,
-            RenderQueue, render_system,
+            FrameSubmission, FrameTailOnRenderThread, PendingCommandBuffers, RenderDevice,
+            RenderFrameTail, RenderQueue, SubmitInFrameTail, render_system,
         },
     },
 };
@@ -86,10 +87,94 @@ impl DevicePolls {
     }
 }
 
+/// Completion callbacks and buffer maps for [`FrameSubmissions`] systems, which run after the
+/// render graph. The graph's command buffers may be submitted later, in the render frame tail, so
+/// this work waits for that submission instead of attaching to the previous frame's.
+#[derive(SystemParam)]
+pub struct FrameCompletion<'w> {
+    queue: Res<'w, RenderQueue>,
+    submission: Option<Res<'w, FrameSubmission>>,
+}
+
+impl FrameCompletion<'_> {
+    /// Runs `callback` from a device poll once the GPU finishes this frame's submissions.
+    pub fn on_frame_complete(&self, callback: impl FnOnce() + Send + 'static) {
+        self.work().on_frame_complete(callback);
+    }
+
+    /// Runs `work`, such as a `map_async` request for a buffer this frame writes, once this
+    /// frame's command buffers are submitted.
+    pub fn after_submit(&self, work: impl FnOnce() + Send + 'static) {
+        self.work().after_submit(work);
+    }
+
+    /// An owned handle for helpers that register this work outside the system.
+    pub fn work(&self) -> FrameWork {
+        FrameWork {
+            queue: self.queue.clone(),
+            submission: self.submission.as_deref().cloned(),
+        }
+    }
+}
+
+/// Owned form of [`FrameCompletion`].
+#[derive(Clone)]
+pub struct FrameWork {
+    queue: RenderQueue,
+    submission: Option<FrameSubmission>,
+}
+
+impl FrameWork {
+    /// Work for a render world that submits each frame before registering it.
+    #[cfg(test)]
+    pub(crate) fn immediate(queue: RenderQueue) -> Self {
+        Self {
+            queue,
+            submission: None,
+        }
+    }
+
+    /// Runs `callback` from a device poll once the GPU finishes this frame's submissions.
+    pub fn on_frame_complete(&self, callback: impl FnOnce() + Send + 'static) {
+        let queue = self.queue.clone();
+        self.after_submit(move || {
+            queue.on_submitted_work_done(callback);
+        });
+    }
+
+    /// Runs `work` once this frame's command buffers are submitted.
+    pub fn after_submit(&self, work: impl FnOnce() + Send + 'static) {
+        match &self.submission {
+            Some(submission) => submission.after_submit(work),
+            None => work(),
+        }
+    }
+}
+
+/// Keeps the render graph's submission on the render thread before the render app is handed
+/// back, for diagnostics that submit their own work after the graph and time it.
+#[derive(Resource, Default)]
+pub(crate) struct SynchronousFrameSubmission;
+
+/// Makes the render world submit every frame before the render app is handed back.
+#[cfg(target_os = "macos")]
+pub(crate) fn require_synchronous_submission(render_world: &mut bevy::prelude::World) {
+    render_world.init_resource::<SynchronousFrameSubmission>();
+    render_world.remove_resource::<SubmitInFrameTail>();
+}
+
 /// Idempotent, so every owner that relies on callbacks installs it.
 pub(crate) fn install(render_app: &mut SubApp) {
     if render_app.world().contains_resource::<DevicePolls>() {
         return;
+    }
+    // Every completion callback and map request made after the graph goes through
+    // FrameCompletion, so the graph's submission may move into the frame tail.
+    if !render_app
+        .world()
+        .contains_resource::<SynchronousFrameSubmission>()
+    {
+        render_app.init_resource::<SubmitInFrameTail>();
     }
     render_app
         .init_resource::<DevicePolls>()
@@ -108,9 +193,10 @@ pub(crate) fn install(render_app: &mut SubApp) {
         );
 }
 
-/// Runs callback from a device poll after all submissions so far, including this frame, complete.
-/// Call after the resource's last submission. Before rendering, only retire storage that
-/// this frame no longer uses; FrameSubmissions systems may also retire this frame's storage.
+/// Runs callback from a device poll after all submissions made so far complete. Call it while
+/// preparing the frame, before the render graph, to retire storage this frame no longer uses.
+/// [`FrameSubmissions`] systems use [`FrameCompletion`] instead, which also waits for this frame's
+/// submission.
 pub(crate) fn on_frame_complete(queue: &RenderQueue, callback: impl FnOnce() + Send + 'static) {
     queue.on_submitted_work_done(callback);
 }
@@ -145,6 +231,7 @@ fn frame_submission(
 /// polls in the render frame tail when the render thread runs one: the poll and the callbacks it
 /// fires need no render world, so the next extraction overlaps them. They still run before the
 /// next render frame, so readers keep seeing what arrived by the previous frame's poll.
+#[allow(clippy::too_many_arguments)]
 fn poll_device(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
@@ -153,18 +240,38 @@ fn poll_device(
     polls: Res<DevicePolls>,
     tail: Option<Res<RenderFrameTail>>,
     on_render_thread: Option<Res<FrameTailOnRenderThread>>,
+    tail_submission: Option<Res<FrameSubmission>>,
 ) {
-    let submission = frame_submission(&queue, pending.map(ResMut::into_inner));
+    let tail = tail.filter(|_| on_render_thread.is_some());
+    let mut pending = pending.map(ResMut::into_inner);
+    // A graph submitted in the frame tail reports its index there, before this poll runs.
+    let submitted = pending
+        .as_deref_mut()
+        .and_then(PendingCommandBuffers::take_submission);
+    let tail_submission = tail_submission
+        .filter(|_| tail.is_some() && submitted.is_none())
+        .map(|submission| submission.clone());
+    let submission = match (submitted, &tail_submission) {
+        (Some(index), _) => Some(index),
+        (None, Some(_)) => None,
+        (None, None) => Some(frame_submission(&queue, pending)),
+    };
+    let queue = queue.clone();
     let (device, frames, polls) = (device.wgpu_device().clone(), frames.clone(), polls.clone());
     let poll = move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("render.device_poll").entered();
+        let submission = submission.unwrap_or_else(|| {
+            tail_submission
+                .and_then(|submission| submission.take_index())
+                .unwrap_or_else(|| queue.submit([]))
+        });
         if let Err(error) = frames.finish_frame(&device, submission) {
             warn!(?error, "could not poll the render device");
         }
         polls.0.fetch_add(1, Ordering::Relaxed);
     };
-    match tail.filter(|_| on_render_thread.is_some()) {
+    match tail {
         Some(tail) => tail.defer(poll),
         None => poll(),
     }
