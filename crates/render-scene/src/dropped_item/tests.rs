@@ -52,3 +52,29 @@ fn transform_rotates_about_up_and_translates() {
 }
 
 use render_model::DroppedItemSprite;
+
+#[test]
+fn empty_terrain_publications_keep_their_list_until_candidates_arrive() {
+    let mut scene = DroppedItemScene::default();
+    scene.publish_terrain_instances(7, &[]);
+    let empty = Arc::clone(&scene.terrain_instances);
+    scene.publish_terrain_instances(8, &[]);
+    assert!(Arc::ptr_eq(&empty, &scene.terrain_instances));
+    assert_eq!(scene.terrain_session_id, Some(8));
+    let candidate = TerrainItemInstance {
+        instance: DroppedItemInstance {
+            model: 0,
+            world_from_item: dropped_item_transform([0.0; 3], 0.0, 1.0),
+            block_level: 0,
+            sky_level: 15,
+            overlay_rgba8: 0,
+            glint: false,
+        },
+        visible: true,
+        transitions: Arc::from([]),
+    };
+    scene.publish_terrain_instances(8, &[candidate]);
+    assert_eq!(scene.terrain_instances.len(), 1);
+    scene.publish_terrain_instances(8, &[]);
+    assert!(scene.terrain_instances.is_empty());
+}

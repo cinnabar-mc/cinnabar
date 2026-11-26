@@ -2,9 +2,16 @@
 use super::*;
 
 /// Gates with downstream variable writers retain the full sampler's ordering.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Mode {
     Queries,
+    /// Gate variables come only from the tick baseline and engine writes, so the rig's setup
+    /// scripts cannot change a gate and need not be replayed. Setup and gates are loop-free,
+    /// so together they charge at most `reserve` ops; a sample with less budget left replays
+    /// setup, since the full sampler could exhaust its budget and keep the fallback.
+    Gates {
+        reserve: usize,
+    },
     Variables,
     Full,
 }
@@ -33,7 +40,12 @@ impl Plan {
 }
 
 /// Finds gates independent of the scripts that visibility-only sampling skips.
-fn plan(assets: &RuntimeEntityAssets, state: &ActorRigState, frame: &FrameState) -> Option<Mode> {
+fn plan(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    state: &ActorRigState,
+    frame: &FrameState,
+) -> Option<Mode> {
     let rig = assets.rig_bindings().get(state.rig_binding)?;
     // Empty material choices need the full evaluation to distinguish draws from fallbacks.
     if assets.render_layers(state.rig_binding).iter().any(|layer| {
@@ -101,19 +113,89 @@ fn plan(assets: &RuntimeEntityAssets, state: &ActorRigState, frame: &FrameState)
         assets,
         state.rig_binding,
     ));
-    for expression in skipped {
+    if !independent(assets, &variables, skipped)? {
+        return None;
+    }
+    // Setup's only other gate writers are the engine's swing, spear and item-rotation writes;
+    // the rotation factor copies a value setup computes, so a gate reading it needs setup.
+    let rotation_gate = layout
+        .engine
+        .first_person_item_rotation_factor
+        .is_some_and(|slot| {
+            variables
+                .iter()
+                .any(|&symbol| layout.variable_slot(symbol) == Some(slot))
+        });
+    let setup = || rig.held_item_scale.into_iter().chain(rig.pre_animation);
+    let gates = assets
+        .render_layers(state.rig_binding)
+        .iter()
+        .filter_map(|layer| layer.condition)
+        .chain(rig.hide_held_items);
+    let reserve = worst_case_ops(assets, setup())
+        .zip(worst_case_ops(assets, gates))
+        .map(|(setup, gates)| setup + gates);
+    Some(match reserve {
+        Some(reserve) if !rotation_gate && independent(assets, &variables, setup())? => {
+            Mode::Gates { reserve }
+        }
+        _ => Mode::Variables,
+    })
+}
+
+/// The most ops `expressions` can charge when every branch only jumps forward and none
+/// loops, so each op runs at most once; `None` when that cannot be shown.
+fn worst_case_ops(
+    assets: &RuntimeEntityAssets,
+    expressions: impl IntoIterator<Item = u32>,
+) -> Option<usize> {
+    let mut total = 0;
+    for expression in expressions {
+        let ops = ops(assets, expression)?;
+        for (pc, op) in ops.iter().enumerate() {
+            let target = match op {
+                MolangOp::Jump(target)
+                | MolangOp::JumpIfFalse(target)
+                | MolangOp::JumpIfTrue(target)
+                | MolangOp::Arrow(target)
+                | MolangOp::Coalesce(assets::MolangBranch { target, .. }) => *target,
+                MolangOp::LoopStart(_)
+                | MolangOp::LoopNext(_)
+                | MolangOp::LoopBreak(_)
+                | MolangOp::ForEachStart(_)
+                | MolangOp::ForEachNext(_) => return None,
+                _ => continue,
+            };
+            if usize::from(target) <= pc {
+                return None;
+            }
+        }
+        total += ops.len();
+    }
+    Some(total)
+}
+
+/// Whether `expressions` cannot write any of `variables`; `None` for invalid bytecode.
+fn independent(
+    assets: &RuntimeEntityAssets,
+    variables: &std::collections::BTreeSet<u32>,
+    expressions: impl IntoIterator<Item = u32>,
+) -> Option<bool> {
+    for expression in expressions {
         for op in ops(assets, expression)? {
             match op {
-                MolangOp::StoreVariable(symbol) if variables.contains(symbol) => return None,
+                MolangOp::StoreVariable(symbol) if variables.contains(symbol) => {
+                    return Some(false);
+                }
                 // Dynamic actor/iteration contexts cannot prove independence of gate variables.
                 MolangOp::Arrow(_) | MolangOp::ForEachStart(_) | MolangOp::ForEachNext(_) => {
-                    return None;
+                    return Some(false);
                 }
                 _ => {}
             }
         }
     }
-    Some(Mode::Variables)
+    Some(true)
 }
 
 /// Returns a validated expression slice without allocating a per-frame program copy.
@@ -143,7 +225,7 @@ pub(super) fn sample(
         .is_none_or(|plan| !plan.matches(state, frame))
     {
         scratch.visibility = Some(Plan {
-            mode: plan(assets, state, frame).unwrap_or(Mode::Full),
+            mode: plan(assets, evaluator.layout, state, frame).unwrap_or(Mode::Full),
             clips: frame.motion.clips.iter().map(|clip| clip.clip).collect(),
             controllers: state
                 .controllers
@@ -152,19 +234,31 @@ pub(super) fn sample(
                 .collect(),
         });
     }
-    let mode = scratch.visibility.as_ref()?.mode;
+    let mode = match scratch.visibility.as_ref()?.mode {
+        Mode::Gates { reserve } if budget.actor_left < reserve || *budget.world_left < reserve => {
+            Mode::Variables
+        }
+        mode => mode,
+    };
     if matches!(mode, Mode::Full)
-        || (matches!(mode, Mode::Variables) && !frame.motion.server_effects.is_empty())
+        || (matches!(mode, Mode::Variables | Mode::Gates { .. })
+            && !frame.motion.server_effects.is_empty())
     {
         return None;
     }
     let mut variables = scratch.variables.lease(&frame.motion.variables);
-    if matches!(mode, Mode::Variables) {
-        variables
-            .without_expression_cache(|variables| {
-                sampling::prepare_variables(evaluator, state, swing, variables, budget)
-            })
-            .ok()?;
+    match mode {
+        Mode::Variables => {
+            variables
+                .without_expression_cache(|variables| {
+                    sampling::prepare_variables(evaluator, state, swing, variables, budget)
+                })
+                .ok()?;
+        }
+        Mode::Gates { .. } => {
+            sampling::prepare_engine_variables(evaluator, state, swing, &mut variables)
+        }
+        Mode::Queries | Mode::Full => {}
     }
     let mut active = false;
     for layer in layers {
