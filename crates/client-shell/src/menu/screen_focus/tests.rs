@@ -97,7 +97,7 @@ fn shell_controls_publish_ctrl_pick_data_modifier() {
         );
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
+            .release(key);
         app.world_mut()
             .run_system_once(publish_gameplay_screen_controls)
             .unwrap();
