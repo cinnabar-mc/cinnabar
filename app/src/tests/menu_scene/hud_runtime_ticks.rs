@@ -71,3 +71,25 @@ fn a_hotbar_change_during_a_zero_size_window_reaches_the_hud() {
         "the change made while hidden"
     );
 }
+
+/// Publication finishes preparing the closed inventory, which stops the capture naming its items,
+/// without marking anything: the next capture runs, and later ones repeat, which debug builds
+/// check against a fresh capture.
+#[test]
+fn a_held_item_keeps_reaching_the_hud_after_publication_prepares_the_inventory() {
+    use crate::ui_runtime::presentation::publish_ui_runtime;
+    let mut world = fixture_world();
+    world.init_resource::<render_scene::UiRenderSceneResource>();
+    world.init_resource::<render_scene::UiRenderStatsResource>();
+    world
+        .resource_mut::<UiPresentationResource>()
+        .startup_mut()
+        .release(1);
+    hold(&mut world, 2);
+    for _ in 0..6 {
+        world.run_system_cached(prepare_ui_runtime).unwrap();
+        world.run_system_cached(publish_ui_runtime).unwrap();
+        world.increment_change_tick();
+    }
+    assert_eq!(hotbar_count(&world), Some(2));
+}
