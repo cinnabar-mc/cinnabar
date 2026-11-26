@@ -76,7 +76,7 @@ fn frames_without_a_swap_chain_stay_within_the_in_flight_bound() {
         }],
     });
     let completed = Arc::new(AtomicUsize::new(0));
-    let mut frames = FramesInFlight::default();
+    let frames = FramesInFlight::default();
     for submitted in 1..=4 * MAX_FRAMES_IN_FLIGHT {
         let mut encoder = gpu.create_command_encoder(&Default::default());
         {
@@ -132,7 +132,12 @@ fn polling_a_frame_makes_no_submission_of_its_own() {
         // The frame's submission and the marker read itself.
         assert_eq!(submission_marker(&queue) - before, 2, "frame {frame}");
         assert_eq!(
-            app.world().resource::<FramesInFlight>().0.len(),
+            app.world()
+                .resource::<FramesInFlight>()
+                .0
+                .lock()
+                .unwrap()
+                .len(),
             (frame + 1).min(MAX_FRAMES_IN_FLIGHT),
             "frame {frame} is bounded by its own submission"
         );
@@ -185,7 +190,15 @@ fn a_frame_without_a_graph_submission_sends_its_staged_writes() {
     app.world_mut().run_schedule(Render);
     // The poll's own submission and the marker read itself.
     assert_eq!(submission_marker(&queue) - before, 2);
-    assert_eq!(app.world().resource::<FramesInFlight>().0.len(), 1);
+    assert_eq!(
+        app.world()
+            .resource::<FramesInFlight>()
+            .0
+            .lock()
+            .unwrap()
+            .len(),
+        1
+    );
     let mapped = Arc::new(AtomicBool::new(false));
     let receipt = Arc::clone(&mapped);
     buffer
@@ -243,7 +256,15 @@ fn work_submitted_after_the_graph_is_inside_the_frame_bound() {
     let after = submission_marker(&queue);
     // The graph's submission, the late one, and the marker read itself: no poll submission.
     assert_eq!(after - before, 3);
-    let bound = format!("{:?}", app.world().resource::<FramesInFlight>().0.back());
+    let bound = format!(
+        "{:?}",
+        app.world()
+            .resource::<FramesInFlight>()
+            .0
+            .lock()
+            .unwrap()
+            .back()
+    );
     let bound: u64 = bound
         .chars()
         .filter(char::is_ascii_digit)
@@ -251,4 +272,37 @@ fn work_submitted_after_the_graph_is_inside_the_frame_bound() {
         .parse()
         .expect("recorded index");
     assert_eq!(bound + 1, after, "the late submission bounds the frame");
+}
+
+/// With a render thread that runs the frame tail, the poll moves behind the hand-back of the
+/// render app: the frame takes its submission index, and the tail records it and polls.
+#[test]
+fn a_render_thread_tail_polls_after_the_frame() {
+    use bevy::render::renderer::{FrameTailOnRenderThread, RenderFrameTail};
+    let (mut app, _) = crate::queue_review_support::app();
+    app.add_schedule(Render::base_schedule())
+        .init_resource::<PendingCommandBuffers>()
+        .init_resource::<RenderFrameTail>()
+        .insert_resource(FrameTailOnRenderThread);
+    super::install(app.main_mut());
+    app.add_systems(
+        Render,
+        submit_frame
+            .in_set(RenderSystems::Render)
+            .before(FrameSubmissions),
+    );
+    let polls = app.world().resource::<super::DevicePolls>().clone();
+    let frames = app.world().resource::<FramesInFlight>().clone();
+    let tail = app.world().resource::<RenderFrameTail>().clone();
+
+    app.world_mut().run_schedule(Render);
+    assert_eq!(polls.count(), 0, "the frame leaves the poll to the tail");
+    assert!(frames.0.lock().unwrap().is_empty());
+    tail.run();
+    assert_eq!(polls.count(), 1);
+    assert_eq!(
+        frames.0.lock().unwrap().len(),
+        1,
+        "the tail bounds the frame's submission"
+    );
 }
