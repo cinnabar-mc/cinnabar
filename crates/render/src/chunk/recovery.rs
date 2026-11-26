@@ -70,6 +70,14 @@ pub(in crate::chunk) fn begin_recovery(world: &mut World) {
     if !world.resource::<TerrainGpuRecovery>().failures.failed() {
         return;
     }
+    // Required terrain storage outranks the optional tint cache: free it before any retry, and
+    // drop the bind groups that still reference it.
+    let mut arena = world.resource_mut::<ChunkGpuArena>();
+    if arena.tint_cache.release_for_required_storage() {
+        arena.bind_group = None;
+        arena.transparent_bind_group = None;
+        arena.bind_group_buffers = None;
+    }
     let arena = world.resource::<ChunkGpuArena>();
     let release_revision = arena.release_revision;
     let budget = *world.resource::<render_scene::ChunkUploadBudget>();

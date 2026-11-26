@@ -32,6 +32,8 @@ mod rod_snapshot;
 mod shader_safety;
 #[path = "support/shader_source.rs"]
 mod shader_source;
+#[path = "../../src/chunk/gpu/tint_bake_plan.rs"]
+mod tint_bake_plan;
 #[path = "../../src/ui_render/shader.rs"]
 mod ui_shader;
 

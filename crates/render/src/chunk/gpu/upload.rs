@@ -641,6 +641,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             metadata_index,
         };
         commands.entity(entity).insert(gpu.clone());
+        arena.tint_cache.queue_bake(entity);
         if let Some(coverage) = coverage.as_deref_mut() {
             coverage.publish_full(instance.key, instance.generation);
         }
