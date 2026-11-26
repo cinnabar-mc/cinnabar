@@ -107,6 +107,7 @@ impl Plugin for ParticleRenderPlugin {
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Blend as u8 }>>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Add as u8 }>>()
             .add_systems(RenderStartup, init_particle_gpu)
+            .configure_sets(Render, ParticleSystems.run_if(has_particle_work))
             .add_systems(
                 Render,
                 (
@@ -115,9 +116,39 @@ impl Plugin for ParticleRenderPlugin {
                     queue_particles
                         .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
-                ),
+                )
+                    .in_set(ParticleSystems),
             );
     }
+}
+
+/// The particle systems: instance and atlas uploads, the bind group, and pending view draws.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct ParticleSystems;
+
+/// Whether the particle systems have anything to do. At rest there are no instances, no view
+/// still holds pending draws for the transparent sort to merge, the instance buffer has been
+/// released after its retention, and the atlas holds the frame's base and every patch with no
+/// retry waiting. Then preparing changes nothing, there is no buffer to bind, and queueing adds
+/// no draw.
+fn has_particle_work(
+    frame: Res<ParticleGpuFrame>,
+    gpu: Option<Res<ParticleGpu>>,
+    pending: Res<ParticlePhase>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+) -> bool {
+    let Some(gpu) = gpu else {
+        return true;
+    };
+    frame.instance_count() != 0
+        || pending.0.values().any(ParticleViewDraws::has_pending)
+        || gpu.capacity != 0
+        || gpu.buffer.is_some()
+        || !atlas::settled(
+            &frame,
+            &gpu,
+            crate::actor::gpu::ArtworkRawViews::current(raw_views),
+        )
 }
 
 #[derive(Resource)]

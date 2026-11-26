@@ -875,3 +875,72 @@ fn the_particle_atlas_allows_raw_views_only_while_a_pack_draws() {
         assert_eq!(gpu.atlas_texture().is_some(), pack);
     }
 }
+
+/// The particle systems stay on until the atlas, the instance buffer's retention and every
+/// view's pending draws have settled, and turn back on for new instances or pending draws.
+#[test]
+fn particle_systems_idle_only_once_uploads_retention_and_pending_draws_settle() {
+    use bevy::render::renderer::{RenderDevice, RenderQueue};
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.init_resource::<ParticlePhase>();
+    world.run_system_once(init_particle_gpu).unwrap();
+    let side = 16;
+    world.insert_resource(ParticleGpuFrame {
+        base: Some(vec![255; (side * side * 4) as usize].into()),
+        atlas_side: side,
+        ..Default::default()
+    });
+    let has_work = |world: &mut World| world.run_system_once(has_particle_work).unwrap();
+    assert!(has_work(&mut world), "the atlas base is not uploaded yet");
+    world.run_system_once(prepare_particle_resources).unwrap();
+    assert!(!has_work(&mut world));
+
+    world.resource_mut::<ParticleGpuFrame>().blend = vec![ParticleInstance::default()].into();
+    assert!(has_work(&mut world));
+    world.run_system_once(prepare_particle_resources).unwrap();
+    world.resource_mut::<ParticleGpuFrame>().blend = Arc::from([]);
+    let mut frames = 0;
+    while has_work(&mut world) {
+        world.run_system_once(prepare_particle_resources).unwrap();
+        frames += 1;
+        assert!(frames < 10_000, "the released buffer must settle");
+    }
+    assert!(
+        frames > 1,
+        "the instance buffer is retained after the last instance"
+    );
+    assert!(world.resource::<ParticleGpu>().buffer.is_none());
+    // At rest a prepare changes nothing the draws or the next prepare read.
+    let rest = |gpu: &ParticleGpu| {
+        (
+            gpu.texture.as_ref().map(|texture| texture.id()),
+            gpu.uploaded_seq,
+            gpu.capacity,
+            gpu.buffer.is_some(),
+            gpu.bind_group.is_some(),
+        )
+    };
+    let before = rest(world.resource::<ParticleGpu>());
+    world.run_system_once(prepare_particle_resources).unwrap();
+    assert_eq!(rest(world.resource::<ParticleGpu>()), before);
+    assert!(!has_work(&mut world));
+
+    let (entity, [blend, ..]) = ordering_fixture();
+    let mut draws = ParticleViewDraws::default();
+    draws.push(
+        0,
+        ordered_item(entity, blend, 0.0),
+        [(FloatOrd(0.0), 0)].into_iter(),
+    );
+    world.resource_mut::<ParticlePhase>().0.insert(
+        RetainedViewEntity::new(MainEntity::from(Entity::PLACEHOLDER), None, 0),
+        draws,
+    );
+    assert!(
+        has_work(&mut world),
+        "a pending draw still needs the queue to expire it"
+    );
+}
