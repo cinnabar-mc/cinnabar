@@ -66,6 +66,11 @@ pub(crate) fn sample_input(
         .into_iter()
         .flatten()
         .any(pressed);
+    controls.pick_block_with_data = !frame.window_focus_lost
+        && frame
+            .keyboard_mouse
+            .as_ref()
+            .is_some_and(|keyboard| keyboard.modifiers.control);
     controls.hide_hud = options
         .0
         .value(launcher::menu::settings_options::SettingId::HideHud)

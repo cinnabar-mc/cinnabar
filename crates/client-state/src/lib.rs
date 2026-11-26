@@ -62,6 +62,8 @@ pub struct ScreenFocus {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
 pub struct GameplayScreenControls {
     pub pick_block_pressed: bool,
+    /// Ctrl is held, so block picks request the block's NBT data.
+    pub pick_block_with_data: bool,
     pub spyglass_mouse_damping: f32,
     pub spyglass_gamepad_damping: f32,
     /// Hide HUD (F1) is on, so gameplay overlays such as the block selection are not drawn.

@@ -76,6 +76,40 @@ fn shell_controls_publish_pick_binding_and_clear_the_next_frame() {
 }
 
 #[test]
+fn shell_controls_publish_ctrl_pick_data_modifier() {
+    let mut app = App::new();
+    app.init_resource::<GameplayScreenControls>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .insert_resource(MenuRuntime::new(false, 2, "Controls".into()));
+    for key in [KeyCode::ControlLeft, KeyCode::ControlRight] {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.world_mut()
+            .run_system_once(publish_gameplay_screen_controls)
+            .unwrap();
+        assert!(
+            app.world()
+                .resource::<GameplayScreenControls>()
+                .pick_block_with_data,
+            "{key:?} must request block data"
+        );
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
+        app.world_mut()
+            .run_system_once(publish_gameplay_screen_controls)
+            .unwrap();
+        assert!(
+            !app.world()
+                .resource::<GameplayScreenControls>()
+                .pick_block_with_data
+        );
+    }
+}
+
+#[test]
 fn shell_controls_publish_hide_hud() {
     for hidden in [false, true] {
         let mut app = App::new();

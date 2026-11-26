@@ -236,3 +236,21 @@ fn ordered_frame_boundary_held_mining_cannot_erase_a_pending_pick() {
         "the earlier pick must see the block before fresh held mining breaks it"
     );
 }
+
+#[test]
+fn ordered_frame_boundary_ctrl_pick_requests_block_data() {
+    let (mut app, mut captured) = app_fixture(2);
+    remove_actor(app.world_mut());
+    app.world_mut()
+        .resource_mut::<client_state::GameplayScreenControls>()
+        .pick_block_with_data = true;
+    tap(app.world_mut(), MouseButton::Middle);
+    before_physics(&mut app);
+    after_physics(&mut app);
+    assert!(
+        captured
+            .drain()
+            .contains(&protocol::block_pick_request_packet([4, 2, 6], true)),
+        "ctrl pick must request the block's NBT"
+    );
+}
