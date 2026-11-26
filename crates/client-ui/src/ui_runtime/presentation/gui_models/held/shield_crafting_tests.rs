@@ -465,7 +465,11 @@ fn unchanged_dressings_repeat_and_changes_dress_again() {
                 Some(authority),
                 Default::default(),
                 |stack| authority.canonical_item_stack(stack),
-                unchanged,
+                // An unchanged presentation takes the quiet path, which debug builds check.
+                crate::ui_runtime::presentation::player_preview::DressUnchanged {
+                    runtimes: unchanged,
+                    presentation: unchanged,
+                },
             );
             ui.gui_models.dressings
         };

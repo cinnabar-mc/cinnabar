@@ -277,10 +277,10 @@ fn idle_frames_repeat_and_a_hud_setting_change_rebuilds() {
     test_time::eventually("the hidden HUD repeats", || !frame(&mut world));
 }
 
-/// Publication leaves the UI runtime as it found it, whether it builds or repeats the frame, so
-/// the runtime's change tick revisions only what other systems wrote.
+/// Publication marks neither the UI runtime nor the presentation changed, whether it builds or
+/// repeats the frame, so their change ticks revision only what other systems wrote.
 #[test]
-fn publication_leaves_the_ui_runtime_unchanged() {
+fn publication_leaves_the_ui_runtime_and_presentation_unchanged() {
     use crate::ui_runtime::presentation::publish_ui_runtime;
     use bevy::prelude::DetectChanges;
     let mut world = fixture_world();
@@ -293,12 +293,20 @@ fn publication_leaves_the_ui_runtime_unchanged() {
     for _ in 0..4 {
         world.run_system_cached(prepare_ui_runtime).unwrap();
         world.increment_change_tick();
-        let before = world.resource_ref::<UiRuntimeResource>().last_changed();
+        let ticks = |world: &World| {
+            (
+                world.resource_ref::<UiRuntimeResource>().last_changed(),
+                world
+                    .resource_ref::<UiPresentationResource>()
+                    .last_changed(),
+            )
+        };
+        let before = ticks(&world);
         world.run_system_cached(publish_ui_runtime).unwrap();
         assert_eq!(
-            world.resource_ref::<UiRuntimeResource>().last_changed(),
+            ticks(&world),
             before,
-            "publication marked the UI runtime changed"
+            "publication marked the UI runtime or presentation changed"
         );
         world.increment_change_tick();
     }
