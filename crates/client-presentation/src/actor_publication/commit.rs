@@ -88,9 +88,13 @@ pub fn publish_actor_render_frame(
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorRigBuild));
     update_actor_rig_scene(&mut scene, prepared.partial_tick, prepared.batch);
-    *frame = scene
-        .set_mask_only_except(prepared.mask_only_runtime_ids, &prepared.independent_layers)
-        .clone();
+    let published =
+        scene.set_mask_only_except(prepared.mask_only_runtime_ids, &prepared.independent_layers);
+    // Assigning marks the frame changed for extraction and every render-side consumer, so an
+    // equal frame that draws nothing stays as it was.
+    if !frame.same_empty_frame(published) {
+        *frame = published.clone();
+    }
     prepared.witness.local_route = frame
         .rig
         .manifest
@@ -105,4 +109,59 @@ pub fn publish_actor_render_frame(
     prepared.witness.skin_bytes = frame.skin_bytes();
     prepared.witness.rejects = frame.rig.rejects;
     witness.observe_main(prepared.witness);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::{DetectChanges, World};
+
+    /// Publishes one empty batch at `partial_tick` and reports whether the frame was assigned.
+    fn publish_empty(world: &mut World, partial_tick: f32) -> bool {
+        world.insert_resource(PreparedActorPublication(Some(
+            PendingActorPublication::new(
+                ActorPresentationBatch {
+                    submissions: Vec::new(),
+                    skin_layers: Vec::new(),
+                    artwork: Default::default(),
+                },
+                partial_tick,
+                None,
+                false,
+                (Some(1), 1),
+                0,
+                0,
+            ),
+        )));
+        let before = world.resource_ref::<ActorRenderFrame>().last_changed();
+        world.increment_change_tick();
+        world.run_system_cached(publish_actor_render_frame).unwrap();
+        world.resource_ref::<ActorRenderFrame>().last_changed() != before
+    }
+
+    /// The first empty frame is published; later equal empty frames leave the published frame,
+    /// and so extraction and the renderer's change checks, untouched at any partial tick.
+    #[test]
+    fn equal_empty_frames_leave_the_published_frame_unchanged() {
+        let mut world = World::new();
+        world.init_resource::<ActorRenderScene>();
+        world.init_resource::<ActorRenderFrame>();
+        world.init_resource::<ActorRuntimeWitness>();
+        assert!(
+            publish_empty(&mut world, 0.25),
+            "the first frame is published"
+        );
+        for partial_tick in [0.5, 0.75, 0.0] {
+            assert!(
+                !publish_empty(&mut world, partial_tick),
+                "an equal empty frame is not republished"
+            );
+        }
+        assert!(
+            world
+                .resource::<ActorRenderFrame>()
+                .same_empty_frame(world.resource::<ActorRenderScene>().frame()),
+            "the kept frame matches the scene's latest empty frame"
+        );
+    }
 }
