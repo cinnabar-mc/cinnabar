@@ -437,6 +437,9 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "render/visibility_memo_tests.rs"]
+mod visibility_memo_tests;
+#[cfg(test)]
 #[path = "render/visibility_tests.rs"]
 mod visibility_tests;
 
