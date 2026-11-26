@@ -1,9 +1,9 @@
 use super::*;
 
 /// Identifies the session tables that map wire block ids to store ids: the network id mode, air,
-/// the custom block range and identities, and the sequential remap. Resolving a store id to a
-/// block state also reads the runtime assets, which consumers compare separately. The shared
-/// tables it holds keep their addresses from being reused.
+/// the custom block range and identities, and the sequential remap. That mapping and resolving a
+/// store id to a block state also read the runtime assets, which consumers compare separately.
+/// The shared tables it holds keep their addresses from being reused.
 #[derive(Clone, Debug)]
 pub struct BlockPaletteIdentity {
     mode: NetworkIdMode,

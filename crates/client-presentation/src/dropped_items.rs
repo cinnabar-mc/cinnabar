@@ -65,6 +65,17 @@ use cache::{ModelCache, ModelKey};
 mod publication;
 use publication::{IdlePublication, cached_device_budget};
 
+/// The 3d cameras whose jitter and subviews decide whether publication culls.
+type PublicationCameras<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static Camera,
+        Option<&'static bevy::render::camera::TemporalJitter>,
+    ),
+    With<Camera3d>,
+>;
+
 #[derive(SystemParam)]
 pub(super) struct DroppedItemPublisher<'w, 's> {
     scene: Option<ResMut<'w, DroppedItemScene>>,
@@ -74,15 +85,7 @@ pub(super) struct DroppedItemPublisher<'w, 's> {
     cache: Local<'s, ModelCache>,
     scratch: Local<'s, PublishScratch>,
     device: Option<Res<'w, bevy::render::renderer::RenderDevice>>,
-    cameras: Query<
-        'w,
-        's,
-        (
-            &'static Camera,
-            Option<&'static bevy::render::camera::TemporalJitter>,
-        ),
-        With<Camera3d>,
-    >,
+    cameras: PublicationCameras<'w, 's>,
 }
 
 /// Frame-local buffers kept between publications; every field is cleared before it is filled,
@@ -292,13 +295,13 @@ fn template_model(
 
 impl DroppedItemPublisher<'_, '_> {
     /// Retains draws for multiple cameras, jitter or subviews absent from the publication view.
-    fn culling_view(
-        &self,
+    fn frustum_for(
+        cameras: &PublicationCameras<'_, '_>,
         view: Option<ActorCullView>,
     ) -> Option<render_model::dropped_item::DroppedItemFrustum> {
         preparation::publication_frustum(
             view,
-            self.cameras
+            cameras
                 .single()
                 .is_ok_and(|(camera, jitter)| jitter.is_none() && camera.sub_camera_view.is_none()),
         )
@@ -612,7 +615,6 @@ impl DroppedItemPublisher<'_, '_> {
             prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
-        let frustum = self.culling_view(cull_view);
         let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
             return;
         };
@@ -695,11 +697,13 @@ impl DroppedItemPublisher<'_, '_> {
         }
         let empty = dropped.is_empty() && candidates.is_empty() && carried_blocks.is_empty();
         let empty = empty && ropes.is_empty() && placement_icons.is_empty();
-        let held = idle.holds((cache.revision, budget), empty, scene);
+        let held = idle.holds((cache.revision, budget, glint.0.as_ref()), empty, scene);
         #[cfg(not(any(test, debug_assertions)))]
         if held.is_some() {
             return;
         }
+        // Built only for a frame that publishes: an idle frame needs no culling view.
+        let frustum = Self::frustum_for(&self.cameras, cull_view);
         let start_revision = cache.revision;
         preparation::retain_lifetimes(cache, dropped);
         cache.prepare(|cache| {

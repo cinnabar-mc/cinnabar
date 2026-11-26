@@ -661,7 +661,7 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
         state
             .get_mut(&mut world)
             .unwrap()
-            .culling_view(view)
+            .test_culling_view(view)
             .is_none()
     );
     let first = world.spawn(Camera3d::default()).id();
@@ -669,7 +669,7 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
         state
             .get_mut(&mut world)
             .unwrap()
-            .culling_view(view)
+            .test_culling_view(view)
             .is_some()
     );
     let other = world.spawn(Camera3d::default()).id();
@@ -677,7 +677,7 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
         state
             .get_mut(&mut world)
             .unwrap()
-            .culling_view(view)
+            .test_culling_view(view)
             .is_none()
     );
     world.despawn(other);
@@ -685,7 +685,7 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
         state
             .get_mut(&mut world)
             .unwrap()
-            .culling_view(view)
+            .test_culling_view(view)
             .is_some()
     );
     world
@@ -695,7 +695,7 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
         state
             .get_mut(&mut world)
             .unwrap()
-            .culling_view(view)
+            .test_culling_view(view)
             .is_none()
     );
     world
@@ -710,7 +710,7 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
         state
             .get_mut(&mut world)
             .unwrap()
-            .culling_view(view)
+            .test_culling_view(view)
             .is_none()
     );
 }
@@ -740,4 +740,14 @@ fn a_hidden_admitted_route_does_not_fall_through_to_an_icon() {
         .unwrap()
         .append(&view, &mut output, |_| panic!("hidden lighting"));
     assert!(output.is_empty());
+}
+
+impl DroppedItemPublisher<'_, '_> {
+    /// The publication frustum this publisher's cameras admit for `view`.
+    fn test_culling_view(
+        &self,
+        view: Option<ActorCullView>,
+    ) -> Option<render_model::dropped_item::DroppedItemFrustum> {
+        Self::frustum_for(&self.cameras, view)
+    }
 }
