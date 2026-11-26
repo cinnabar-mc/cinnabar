@@ -504,11 +504,17 @@ fn reextracted_completed_payloads_recover_without_replaying_acknowledgements() {
         .insert_resource(render_scene::ChunkUploadBudget::new(0, 0));
     for _ in 0..2 {
         let world = app.world_mut();
-        let mut chunks = world.query::<&mut ChunkRenderInstance>();
-        for mut instance in chunks.iter_mut(world) {
+        let mut chunks = world.query::<(Entity, &mut ChunkRenderInstance)>();
+        let mut changed = Vec::new();
+        for (entity, mut instance) in chunks.iter_mut(world) {
             assert!(instance.token.is_some());
             assert_eq!(instance.publication_permit.as_ref().unwrap().stage(), None);
             instance.set_changed();
+            changed.push(entity);
+        }
+        let changes = world.resource::<render_scene::ChunkInstanceChanges>();
+        for entity in changed {
+            changes.mark(entity);
         }
         frame(&mut app);
         fail_transparent_growth(&mut app);

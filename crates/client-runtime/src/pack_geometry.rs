@@ -1,6 +1,8 @@
 //! Captures a stable resident set while the ordinary mesh handoff is paused.
 use bevy::prelude::*;
-use render_scene::{ChunkRenderInstance, ChunkTextureAssets, ChunkTextureReload};
+use render_scene::{
+    ChunkInstanceChanges, ChunkRenderInstance, ChunkTextureAssets, ChunkTextureReload,
+};
 use std::sync::{Arc, Mutex, mpsc};
 
 type GeometrySource = (
@@ -9,6 +11,9 @@ type GeometrySource = (
     Option<meshing::ChunkBiomeTintIdentity>,
     Option<u64>,
 );
+
+/// Every resident chunk instance, with its entity for change marking.
+pub type ResidentChunkInstances<'w, 's> = Query<'w, 's, (Entity, &'static mut ChunkRenderInstance)>;
 
 type MeshReceiver = Mutex<mpsc::Receiver<Arc<[ChunkRenderInstance]>>>;
 
@@ -26,7 +31,7 @@ impl GeometryPreparation {
         candidate: &ChunkTextureAssets,
         current: &ChunkTextureAssets,
         stream: Option<&chunk_pipeline::WorldStream>,
-        chunks: &Query<&mut ChunkRenderInstance>,
+        chunks: &ResidentChunkInstances,
         gpu: &ChunkTextureReload,
     ) -> Result<bool, String> {
         let epoch = gpu.geometry_epoch();
@@ -65,11 +70,18 @@ impl GeometryPreparation {
             gpu.request_geometry(
                 epoch,
                 candidate.clone(),
-                chunks.iter().cloned().collect::<Vec<_>>().into(),
+                chunks
+                    .iter()
+                    .map(|(_, instance)| instance.clone())
+                    .collect::<Vec<_>>()
+                    .into(),
             );
             return Ok(true);
         };
-        let instances: Vec<_> = chunks.iter().cloned().collect();
+        let instances: Vec<_> = chunks
+            .iter()
+            .map(|(_, instance)| instance.clone())
+            .collect();
         if current.assets().has_same_geometry(candidate.assets())
             && current.assets().biome_assets() == candidate.assets().biome_assets()
         {
@@ -127,10 +139,12 @@ impl GeometryPreparation {
         Ok(true)
     }
 
-    /// Replaces the complete CPU set in the same frame that selects its staged GPU resources.
+    /// Replaces the complete CPU set in the same frame that selects its staged GPU resources,
+    /// marking each replaced instance in `changes` when extraction consumes them.
     pub fn publish(
         &mut self,
-        chunks: &mut Query<&mut ChunkRenderInstance>,
+        chunks: &mut ResidentChunkInstances,
+        changes: Option<&ChunkInstanceChanges>,
         gpu: &ChunkTextureReload,
     ) -> bool {
         self.pending = None;
@@ -141,9 +155,12 @@ impl GeometryPreparation {
             .iter()
             .map(|instance| (instance.key(), instance))
             .collect();
-        for mut instance in chunks.iter_mut() {
+        for (entity, mut instance) in chunks.iter_mut() {
             if let Some(next) = by_key.get(&instance.key()) {
                 *instance = (*next).clone();
+                if let Some(changes) = changes {
+                    changes.mark(entity);
+                }
             }
         }
         true
@@ -211,7 +228,7 @@ mod tests {
             };
             let mut world = World::new();
             let mut state =
-                bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+                bevy::ecs::system::SystemState::<ResidentChunkInstances>::new(&mut world);
             let chunks = state.get_mut(&mut world).unwrap();
             let gpu = ChunkTextureReload::default();
             gpu.hold_geometry(gpu.geometry_epoch());
@@ -246,8 +263,7 @@ mod tests {
             )),
         };
         let mut world = World::new();
-        let mut state =
-            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let mut state = bevy::ecs::system::SystemState::<ResidentChunkInstances>::new(&mut world);
         let chunks = state.get_mut(&mut world).unwrap();
         let gpu = ChunkTextureReload::default();
         preparation
@@ -282,7 +298,7 @@ mod tests {
             };
             let mut world = World::new();
             let mut state =
-                bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+                bevy::ecs::system::SystemState::<ResidentChunkInstances>::new(&mut world);
             let chunks = state.get_mut(&mut world).unwrap();
             let gpu = ChunkTextureReload::default();
             gpu.request_geometry(gpu.geometry_epoch(), candidate.clone(), Arc::from([]));
@@ -329,8 +345,7 @@ mod tests {
         assert!(stream.set_mesh_render_settings(cheap, now));
         assert!(stream.set_mesh_render_settings(original, now));
         let mut world = World::new();
-        let mut state =
-            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let mut state = bevy::ecs::system::SystemState::<ResidentChunkInstances>::new(&mut world);
         let chunks = state.get_mut(&mut world).unwrap();
         let gpu = ChunkTextureReload::default();
         preparation
@@ -361,8 +376,7 @@ mod tests {
         stream.set_java_meshing(Some(Arc::from([1_u32])), now);
         stream.set_java_meshing(None, now);
         let mut world = World::new();
-        let mut state =
-            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let mut state = bevy::ecs::system::SystemState::<ResidentChunkInstances>::new(&mut world);
         let chunks = state.get_mut(&mut world).unwrap();
         let gpu = ChunkTextureReload::default();
         preparation
@@ -381,8 +395,7 @@ mod tests {
             pending: Some(((current.identity(), 0, None, None), Mutex::new(receiver))),
         };
         let mut world = World::new();
-        let mut state =
-            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let mut state = bevy::ecs::system::SystemState::<ResidentChunkInstances>::new(&mut world);
         let chunks = state.get_mut(&mut world).unwrap();
         let gpu = ChunkTextureReload::default();
         preparation
