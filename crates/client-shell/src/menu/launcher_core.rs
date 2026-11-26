@@ -295,9 +295,17 @@ impl LauncherCoreSlot {
 
 impl MenuRuntime {
     /// Whether a decision this frame depends on the account core's state: a join held for its
-    /// sign-in and core, or a requested profile refresh.
+    /// sign-in and core, a requested profile refresh, or a Realm membership reply that would
+    /// advance the dialog.
     pub(super) fn core_decision_pending(&self) -> bool {
-        self.intents.join_sign_in_deadline.is_some() || self.feeds.profile_refresh_requested
+        use launcher::menu::realm_membership::Stage;
+        self.intents.join_sign_in_deadline.is_some()
+            || self.feeds.profile_refresh_requested
+            || self
+                .realm_membership
+                .state
+                .as_ref()
+                .is_some_and(|state| matches!(state.stage, Stage::Verifying | Stage::Joining))
     }
 
     /// The validated sign-in's auth cache, for the launcher core and joins.
