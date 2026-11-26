@@ -46,6 +46,7 @@ pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
         java: Default::default(),
         main_hand_equipped: None,
         java_equipped: None,
+        presentation_revision: Default::default(),
     }
 }
 

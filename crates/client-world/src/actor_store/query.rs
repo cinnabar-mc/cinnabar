@@ -305,6 +305,21 @@ impl ActorStore {
             .then(|| self.animation.get(runtime_id))
             .flatten()
     }
+    /// Identifies the actor's snapshot and its rig.
+    pub(crate) fn presentation_revision(
+        &self,
+        runtime_id: u64,
+    ) -> Option<super::ActorPresentationRevision> {
+        Some(super::ActorPresentationRevision {
+            runtime_id,
+            actor: self.actors.revision(runtime_id)?,
+            rig: self.animation.presentation_revision(runtime_id),
+        })
+    }
+    /// Advances whenever the camera rotation or position that frame samples read changes.
+    pub(crate) fn view_revision(&self) -> u64 {
+        self.view_revision.0
+    }
     pub(crate) fn render_frame(&self, partial_tick: f32) -> actor_animation::ActorRenderFrame<'_> {
         actor_animation::ActorRenderFrame::new(
             &self.animation,

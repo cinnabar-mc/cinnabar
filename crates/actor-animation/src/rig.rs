@@ -74,6 +74,43 @@ pub struct ActorRigSnapshot<'a> {
     pub java: JavaMotion,
     /// The main-hand item Java's first-person hand still draws while the equip dips.
     pub java_equipped: Option<&'a JavaHeldItem>,
+    /// Equal revisions mean every other field and every frame sample of this rig are unchanged,
+    /// apart from the local frame fractions.
+    pub presentation_revision: PresentationRevision,
+}
+
+/// Identifies one state of a rig and the store catalog it reads. Any change a snapshot or frame
+/// sample can observe gives a different revision, except the local frame fractions
+/// ([`LocalSwingProgress::frame_alpha`], [`JavaMotion::local_swing_alpha`] and
+/// [`JavaMotion::body_frame_alpha`]), which consumers must treat like the frame's partial tick.
+/// A revision may also change when nothing observable did. Revisions carry the rig's lifetime
+/// and process-wide stamps, so revisions of different rigs or stores never compare equal.
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+pub struct PresentationRevision {
+    actor: Option<ActorLifetimeId>,
+    catalog: u64,
+    rig: u64,
+}
+
+/// Shows the owning rig; the process-wide stamps identify moments, not state, so equal states
+/// print alike.
+impl std::fmt::Debug for PresentationRevision {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PresentationRevision")
+            .field("actor", &self.actor)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PresentationRevision {
+    pub(crate) const fn new(actor: ActorLifetimeId, catalog: u64, rig: u64) -> Self {
+        Self {
+            actor: Some(actor),
+            catalog,
+            rig,
+        }
+    }
 }
 
 /// Local swing samples from the committed physics ticks, independent of the remote actor clock.

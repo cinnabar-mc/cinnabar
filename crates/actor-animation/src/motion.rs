@@ -150,6 +150,11 @@ impl MotionState {
         self.swing_ticks = ticks.max(1);
     }
 
+    /// The locally committed swing sample replacing this actor clock's advancement.
+    pub(super) fn local_swing(&self) -> Option<f32> {
+        self.local_swing
+    }
+
     /// Locally committed samples replace this actor clock's swing advancement.
     pub(super) fn set_local_swing(&mut self, progress: Option<f32>) {
         self.local_swing = progress;

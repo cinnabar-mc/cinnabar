@@ -225,6 +225,25 @@ fn drivers(
     )
 }
 
+/// Whether [`sync_skin`] would leave the rig untouched because it already wears `source`.
+fn syncs_unchanged(state: &ActorRigState, source: Option<&Arc<SkinGeometrySource>>) -> bool {
+    match (&state.skin, source) {
+        (None, None) => true,
+        (Some(model), Some(source)) => Arc::ptr_eq(model.source(), source),
+        _ => false,
+    }
+}
+
+/// The worn model's source allocation and whether it parsed, which every skin change alters.
+pub(super) fn skin_identity(state: &ActorRigState) -> Option<(*const SkinGeometrySource, bool)> {
+    state.skin.as_ref().map(|model| {
+        (
+            Arc::as_ptr(model.source()),
+            matches!(model, SkinModel::Parsed(_)),
+        )
+    })
+}
+
 /// Brings the rig's skin model in line with the skin the actor now wears. Returns whether a
 /// source was rejected.
 pub(super) fn sync_skin(
@@ -232,12 +251,7 @@ pub(super) fn sync_skin(
     source: Option<&Arc<SkinGeometrySource>>,
     cache: &SkinPreparationQueue,
 ) -> bool {
-    let unchanged = match (&state.skin, source) {
-        (None, None) => true,
-        (Some(model), Some(source)) => Arc::ptr_eq(model.source(), source),
-        _ => false,
-    };
-    if unchanged {
+    if syncs_unchanged(state, source) {
         return false;
     }
     let outcome = match source {
