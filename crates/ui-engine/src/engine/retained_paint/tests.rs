@@ -11,10 +11,11 @@ use ui::{DpiScale, FONT_DESIGN_PIXEL_TEXELS, SafeArea, TextLayoutCache, UiNode};
 
 use super::RetainedPaint;
 use crate::{
+    atlas::ServerAtlas,
     cached_screen::CachedScreen,
     engine::{
-        FormEngine, ScreenArt,
-        screen::{PaintFrame, ScreenRegistry},
+        Canvas, FormEngine, ScreenArt,
+        screen::{CustomDraw, CustomRenderer, PaintError, PaintFrame, ScreenRegistry},
     },
     sources::{ImageWork, RemoteImage, RemoteSource},
     test_support::fixture_font,
@@ -32,8 +33,26 @@ impl RemoteSource for NoImages {
     }
 }
 
+/// A caller renderer that draws nothing but reports the textures it may draw.
+#[derive(Default)]
+struct Reporter(Vec<&'static str>);
+
+impl CustomRenderer for Reporter {
+    /// Leaves every node to the engine's own renderers.
+    fn paint(&mut self, _: &CustomDraw<'_>, _: &mut Canvas<'_>) -> Result<bool, PaintError> {
+        Ok(false)
+    }
+
+    fn textures<'s>(&'s self, _: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
+        for path in &self.0 {
+            texture(path);
+        }
+    }
+}
+
 /// One screen whose rounded rectangle fades in over its first second.
 struct Fixture {
+    reporter: Reporter,
     engine: FormEngine,
     catalog: Arc<Catalog>,
     data: Arc<DataSource>,
@@ -46,6 +65,11 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_work(ImageWork::inline())
+    }
+
+    /// The fixture with its engine's image reads and decodes scheduled by `work`.
+    fn with_work(work: ImageWork) -> Self {
         let bytes = assets::encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
         let engine = FormEngine::new(
             Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()),
@@ -53,7 +77,7 @@ impl Fixture {
             0,
             &REGISTRY,
             Arc::new(NoImages),
-            ImageWork::inline(),
+            work,
         );
         let doc = json!({"namespace":"fixture",
             "fade":{"anim_type":"alpha","from":0,"to":1,"duration":1},
@@ -74,6 +98,7 @@ impl Fixture {
         ])
         .unwrap();
         Self {
+            reporter: Reporter::default(),
             engine,
             catalog: Arc::new(catalog),
             data: Arc::new(DataSource::new()),
@@ -92,6 +117,7 @@ impl Fixture {
         let mut nodes = Vec::new();
         let mut next = 1;
         let Self {
+            reporter,
             engine,
             catalog,
             data,
@@ -113,7 +139,7 @@ impl Fixture {
             now,
             nodes: &mut nodes,
             next: &mut next,
-            renderers: &mut [],
+            renderers: &mut [reporter],
         };
         let context = Context::desktop();
         let at = |root| (root, px, [0; 3]);
@@ -203,4 +229,138 @@ fn unchanged_settled_frames_reuse_the_paint_and_each_change_paints_once() {
     changed(&mut fixture, "a fired event");
     fixture.screen.invalidate_textures();
     changed(&mut fixture, "a new layout");
+}
+
+/// A replayed screen reuses the atlas keys it resolved and still requires them each frame;
+/// changed renderer paths, texture sources or layout resolve them again.
+#[test]
+fn replayed_frames_require_resolved_keys_and_resolve_again_after_changes() {
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([255; 4]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let atlas = || {
+        ServerAtlas::new(
+            &[
+                ("textures/ui/a.png".into(), png.clone()),
+                ("textures/ui/b.png".into(), png.clone()),
+            ],
+            None,
+            2,
+        )
+    };
+    let resident =
+        |fixture: &Fixture, key: &str| fixture.engine.textures.lock().placement(key).is_some();
+    let mut fixture = Fixture::new();
+    fixture.engine.textures.set_atlas(atlas(), 8);
+    fixture.reporter.0 = vec!["textures/ui/a"];
+    // A paint forgets the previous keys, so the first replay resolves them again.
+    for now in [0.0, 0.5, 1.5, 1.75] {
+        fixture.frame(now, true, true);
+    }
+    assert!(resident(&fixture, "textures/ui/a"));
+    let (paints, resolutions) = (
+        fixture.retained.paints,
+        fixture.retained.required.resolutions,
+    );
+    for now in [2.0, 3.0, 4.0] {
+        fixture.frame(now, true, true);
+    }
+    assert_eq!(fixture.retained.paints, paints, "settled frames replay");
+    assert_eq!(
+        fixture.retained.required.resolutions, resolutions,
+        "replayed frames reuse their resolved keys"
+    );
+    assert!(resident(&fixture, "textures/ui/a"));
+
+    let mut now = 5.0;
+    let mut changed = |fixture: &mut Fixture, change: &str, key: &str| {
+        let resolutions = fixture.retained.required.resolutions;
+        fixture.frame(now, true, true);
+        assert!(
+            fixture.retained.required.resolutions > resolutions,
+            "{change} resolves its keys"
+        );
+        assert!(resident(fixture, key), "{change} requires {key}");
+        // Placing a newly required key changes the atlas once more.
+        fixture.frame(now + 1.0, true, true);
+        let resolutions = fixture.retained.required.resolutions;
+        for later in [2.0, 3.0] {
+            fixture.frame(now + later, true, true);
+        }
+        assert_eq!(
+            fixture.retained.required.resolutions, resolutions,
+            "{change} then reuses its keys"
+        );
+        assert!(resident(fixture, key));
+        now += 4.0;
+    };
+    fixture.reporter.0 = vec!["textures/ui/b"];
+    changed(&mut fixture, "a renderer path", "textures/ui/b");
+    fixture.engine.textures.set_atlas(atlas(), 8);
+    changed(&mut fixture, "a new atlas", "textures/ui/b");
+    fixture.screen.invalidate_textures();
+    changed(&mut fixture, "a new layout", "textures/ui/b");
+}
+
+/// A texture still decoding when the screen settles finishes through the keys a replayed frame
+/// requires, so reused keys are still required every frame.
+#[test]
+fn replayed_frames_finish_loading_a_texture_through_reused_keys() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let stalled = Arc::new(AtomicBool::new(true));
+    let ticks = Arc::new(AtomicU64::new(0));
+    // While stalled every reading jumps an hour, so each inline decode misses its budget and
+    // waits for a later frame.
+    let clock = {
+        let (stalled, ticks) = (Arc::clone(&stalled), Arc::clone(&ticks));
+        move || {
+            let step = u64::from(stalled.load(Ordering::Relaxed)) * 3_600;
+            std::time::Duration::from_secs(ticks.fetch_add(step, Ordering::Relaxed) + step)
+        }
+    };
+    let mut fixture = Fixture::with_work(ImageWork {
+        clock: Some(Arc::new(clock)),
+        workers: false,
+    });
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([255; 4]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    fixture.engine.textures.set_atlas(
+        ServerAtlas::new(&[("textures/ui/a.png".into(), png)], None, 2),
+        8,
+    );
+    fixture.reporter.0 = vec!["textures/ui/a"];
+    let resident = |fixture: &Fixture| {
+        fixture
+            .engine
+            .textures
+            .lock()
+            .placement("textures/ui/a")
+            .is_some()
+    };
+    for now in [0.0, 0.5, 1.5, 2.0] {
+        fixture.frame(now, true, true);
+    }
+    let (paints, resolutions) = (
+        fixture.retained.paints,
+        fixture.retained.required.resolutions,
+    );
+    fixture.frame(3.0, true, true);
+    assert_eq!(
+        fixture.retained.paints, paints,
+        "the settled screen replays"
+    );
+    assert_eq!(
+        fixture.retained.required.resolutions, resolutions,
+        "the replay reuses its keys"
+    );
+    assert!(!resident(&fixture), "the stalled decode is still pending");
+    stalled.store(false, Ordering::Relaxed);
+    fixture.frame(4.0, true, true);
+    assert!(
+        resident(&fixture),
+        "a replayed frame requires its reused keys"
+    );
 }

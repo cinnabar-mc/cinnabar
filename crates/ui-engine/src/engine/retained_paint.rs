@@ -19,6 +19,8 @@ pub struct RetainedPaint {
     last: Option<Painted>,
     /// Paints run rather than reused, for cache tests and profiling.
     pub paints: usize,
+    /// The atlas keys the screen last required, kept across paints and replays.
+    pub(super) required: super::dependencies::RequiredKeys,
 }
 
 /// A completed paint and everything it read that a later frame compares.
@@ -96,9 +98,10 @@ pub(super) fn reusable(art: &ScreenArt<'_>) -> bool {
 }
 
 impl RetainedPaint {
-    /// Drops the last paint, so the next one runs in full.
+    /// Drops the last paint, so the next one runs in full, and the keys resolved for its layout.
     pub fn forget(&mut self) {
         self.last = None;
+        self.required.clear();
     }
 
     /// Keeps a completed paint whose animations have all settled.
