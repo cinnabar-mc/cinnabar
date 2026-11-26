@@ -81,6 +81,54 @@ pub(crate) struct UiLayerTexture {
 }
 
 impl UiLayerTexture {
+    /// Starts this frame's use of the same retained rasters, as a fresh [`frame_layer`] set
+    /// would: no presentation state carries over. Whether `last` and `segments` are the rasters
+    /// it already shares; when they are not, nothing changes.
+    fn restart(
+        &mut self,
+        last: &RetainedLayer,
+        segments: &[RetainedLayer],
+        direct_output: bool,
+    ) -> bool {
+        if !self.shares(last)
+            || self.segments.len() != segments.len()
+            || !self
+                .segments
+                .iter()
+                .zip(segments)
+                .all(|(frame, layer)| frame.shares(layer))
+        {
+            return false;
+        }
+        self.clear_frame_state();
+        self.direct_output = direct_output;
+        for segment in &mut self.segments {
+            segment.clear_frame_state();
+            segment.direct_output = false;
+        }
+        true
+    }
+
+    /// Whether this frame component shares `layer`'s retained storage.
+    fn shares(&self, layer: &RetainedLayer) -> bool {
+        self.texture.id() == layer.texture.id()
+            && Arc::ptr_eq(&self.held, &layer.held)
+            && Arc::ptr_eq(&self.bindings, &layer.bindings)
+    }
+
+    /// Resets what one frame records about its presentation.
+    fn clear_frame_state(&mut self) {
+        for flag in [
+            &self.present,
+            &self.content_drawn,
+            &self.composited,
+            &self.content_presented,
+            &self.presented,
+        ] {
+            flag.store(false, Ordering::Relaxed);
+        }
+    }
+
     /// Returns an independent raster only when the complete bounded segment set is resident.
     pub(super) fn segment(&self, index: usize, count: usize) -> Option<&Self> {
         if count != self.segments.len() + 1 || index >= count {
@@ -315,6 +363,7 @@ pub(crate) fn prepare_ui_layers(
     )>,
     gpu: Option<Res<UiGpu>>,
     mut planned: bevy::prelude::Local<PlannedLayers>,
+    mut frames: Query<&mut UiLayerTexture>,
 ) {
     let store = &mut *store;
     store.synchronize_device(&device);
@@ -366,11 +415,17 @@ pub(crate) fn prepare_ui_layers(
                     == 1
                     && crate::render_bounds::extent(output) == [size.width, size.height]
             });
-        let mut frame = frame_layer(
-            layers.last().expect("one scratch layer is always resident"),
-            direct_output,
-        );
-        frame.segments = layers[..layers.len() - 1]
+        let (last, segments) = layers
+            .split_last()
+            .expect("one scratch layer is always resident");
+        // A view still carrying this frame set's rasters starts the frame afresh in place.
+        if let Ok(mut frame) = frames.get_mut(entity)
+            && frame.restart(last, segments, direct_output)
+        {
+            continue;
+        }
+        let mut frame = frame_layer(last, direct_output);
+        frame.segments = segments
             .iter()
             .map(|layer| frame_layer(layer, false))
             .collect();
