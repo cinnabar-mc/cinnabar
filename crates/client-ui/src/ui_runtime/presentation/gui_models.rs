@@ -25,11 +25,13 @@ mod held;
 pub(super) mod hud_model;
 mod live_equipment;
 mod live_player;
+#[cfg(debug_assertions)]
+pub(super) use live_player::debug_digest;
 mod pack_equipment;
 mod player_layers;
 mod preparation;
 mod shield_icons;
-mod trim_icons;
+pub(super) mod trim_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
 mod world_trim;
@@ -153,6 +155,11 @@ pub(super) struct GuiModels {
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     pub(super) wearing_elytra: bool,
+    /// The last dressing of the player model, which an unchanged dressing repeats.
+    pub(in super::super) dress_record: Option<super::player_preview::dress_reuse::DressRecord>,
+    /// Dressings that ran rather than repeated.
+    #[cfg(test)]
+    pub(in super::super) dressings: usize,
     selected_held: [Option<held::SelectedModel>; 2],
     fire: fire::FireAtlas,
     /// Tinted copies of `models`, kept while frames draw them.

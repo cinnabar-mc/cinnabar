@@ -39,6 +39,8 @@ struct SourceCell {
 #[derive(Default)]
 pub(in crate::ui_runtime::presentation) struct TrimIcons {
     cache: Mutex<Cache>,
+    /// Compositions marked used while recording, in order, so a repeat can mark them again.
+    marks: Mutex<Option<Vec<Key>>>,
     /// The session's server item components, which declare custom armor's trim support.
     session_items: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
 }
@@ -60,7 +62,44 @@ pub(super) enum TrimItem {
     },
 }
 
+/// The trim compositions one recording marked used.
+#[derive(Default, PartialEq)]
+pub(in crate::ui_runtime::presentation) struct TrimMarks(Vec<Key>);
+
 impl TrimIcons {
+    /// Starts recording which compositions are marked used, reusing `into`'s storage.
+    pub(in crate::ui_runtime::presentation) fn record_marks(&self, into: TrimMarks) {
+        let mut keys = into.0;
+        keys.clear();
+        *self.marks.lock().unwrap_or_else(|e| e.into_inner()) = Some(keys);
+    }
+
+    /// Ends a recording [`Self::record_marks`] started.
+    pub(in crate::ui_runtime::presentation) fn take_marks(&self) -> TrimMarks {
+        TrimMarks(
+            self.marks
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Marks the recorded compositions used again, as the calls that marked them would; `false`
+    /// when one is gone, so those calls must run instead.
+    pub(in crate::ui_runtime::presentation) fn mark_again(&self, marks: &TrimMarks) -> bool {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if !marks.0.iter().all(|key| cache.images.contains_key(key)) {
+            return false;
+        }
+        for key in &marks.0 {
+            if let Some(image) = cache.images.get_mut(key) {
+                image.used = true;
+            }
+        }
+        true
+    }
+
     /// Whether composed trim art waits to be repacked into its pages.
     pub(in crate::ui_runtime::presentation) fn dirty(&self) -> bool {
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).dirty
@@ -350,6 +389,16 @@ impl UiPresentationRuntime {
                 },
             );
             cache.dirty = true;
+        }
+        if let Some(marks) = self
+            .gui_models
+            .trim_icons
+            .marks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            marks.push(key.clone());
         }
         let image = cache.images.get_mut(&key)?;
         image.used = true;

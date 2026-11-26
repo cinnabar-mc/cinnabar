@@ -416,3 +416,91 @@ fn repeated_shield_observations_keep_their_art_and_new_shields_get_theirs() {
         "a shield that appears after repeated observations gets its art"
     );
 }
+
+/// An unchanged dressing repeats; a runtime change dresses again, and gear set any other way
+/// leaves nothing to repeat. A held item whose binding evaluates an owner condition, as the
+/// shield's does, is dressed every time. Debug builds check every repeat against a fresh dressing.
+#[test]
+fn unchanged_dressings_repeat_and_changes_dress_again() {
+    let mut ui = presentation();
+    let registry = registry();
+    let mut player = player(&registry);
+    let banner = protocol::NetworkItemStack {
+        network_id: registry.entries[1].network_id,
+        count: 1,
+        stack_network_id: 50,
+        metadata: 7,
+        ..protocol::NetworkItemStack::empty()
+    };
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Content(
+            protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(
+                    protocol::PLAYER_INVENTORY_WINDOW_ID,
+                ),
+                slots: vec![banner, protocol::NetworkItemStack::empty(), stack(0)].into(),
+                storage_item: Default::default(),
+            },
+        ));
+    player.inventory.set_local_selected_slot(0);
+    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    let mut world = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(world.seed_item_registry(registry));
+    let dress =
+        |ui: &mut UiPresentationRuntime, player: &player_state::PlayerState, unchanged: bool| {
+            let authority = world.authority().inventory_ui();
+            ui.dress_player_preview_if_changed(
+                player,
+                &runtime,
+                Some(authority),
+                Default::default(),
+                |stack| authority.canonical_item_stack(stack),
+                unchanged,
+            );
+            ui.gui_models.dressings
+        };
+    let first = dress(&mut ui, &player, false);
+    let gear = ui.player_preview_gear.clone();
+    assert!(gear.hands[0].is_some(), "the selected banner is held");
+    assert_eq!(dress(&mut ui, &player, true), first, "unchanged");
+    assert_eq!(dress(&mut ui, &player, true), first, "unchanged");
+    assert_eq!(ui.player_preview_gear, gear);
+
+    player.inventory.set_local_selected_slot(1);
+    assert_eq!(
+        dress(&mut ui, &player, false),
+        first + 1,
+        "a runtime change"
+    );
+    assert_eq!(dress(&mut ui, &player, true), first + 1);
+
+    assert!(ui.player_preview_gear.hands[0].is_none(), "an empty hand");
+
+    player.inventory.set_local_selected_slot(0);
+    assert_eq!(dress(&mut ui, &player, false), first + 2);
+    ui.set_player_preview_gear([None; 4], None);
+    assert_eq!(
+        dress(&mut ui, &player, true),
+        first + 3,
+        "gear set another way"
+    );
+    assert!(ui.player_preview_gear.hands[0].is_some());
+
+    player.inventory.set_local_selected_slot(2);
+    assert_eq!(dress(&mut ui, &player, false), first + 4, "the shield");
+    assert_eq!(
+        dress(&mut ui, &player, true),
+        first + 5,
+        "a conditional binding"
+    );
+}

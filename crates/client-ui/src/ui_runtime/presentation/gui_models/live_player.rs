@@ -685,7 +685,7 @@ impl UiPresentationRuntime {
 
 /// Hashes `value`'s debug text without allocating it.
 #[cfg(debug_assertions)]
-pub(super) fn debug_digest(value: &dyn std::fmt::Debug) -> u64 {
+pub(in crate::ui_runtime::presentation) fn debug_digest(value: &dyn std::fmt::Debug) -> u64 {
     use std::hash::Hasher;
     struct Digest(std::collections::hash_map::DefaultHasher);
     impl std::fmt::Write for Digest {
