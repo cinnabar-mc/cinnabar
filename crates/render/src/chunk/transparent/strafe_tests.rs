@@ -141,12 +141,14 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
     }))
     .unwrap();
     let device = RenderDevice::from(device);
+    let adapter_info = bevy::render::renderer::RenderAdapterInfo::new(adapter.get_info());
     let adapter = RenderAdapter::new(adapter);
     let mut app = App::new();
     app.insert_resource(PipelineCache::new(device.clone(), false))
         .insert_resource(ChunkGpuArena::new(&device))
         .insert_resource(device)
         .insert_resource(adapter)
+        .insert_resource(adapter_info)
         .insert_resource(RenderQueue::new(queue))
         .insert_resource(ChunkUploadBudget::new(usize::MAX, u64::MAX))
         .insert_resource(RuntimeStageProfiler::new(true))
