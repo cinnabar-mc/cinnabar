@@ -20,7 +20,7 @@ pub use display::FirstPersonHand;
 pub(crate) use display::LAYER_OFF_HAND;
 /// Rig layer identity used by the main-hand equipment submission.
 pub(crate) const LAYER_MAIN_HAND: u8 = 1;
-pub use input::{local_input, remote_input};
+pub use input::{LocalInputCache, local_input, local_input_cached, remote_input};
 pub use runtime::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation, HeldKind,
     JavaGrip, WornItem, java_draws_attachable,
