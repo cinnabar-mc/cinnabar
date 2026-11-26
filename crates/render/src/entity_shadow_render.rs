@@ -82,6 +82,7 @@ impl Plugin for EntityShadowRenderPlugin {
         let device = render_app.world().resource::<RenderDevice>().clone();
         render_app
             .insert_resource(EntityShadowGpu::new(&device))
+            .configure_sets(Render, EntityShadowSystems.run_if(has_shadow_work))
             .add_systems(
                 Render,
                 (
@@ -91,10 +92,22 @@ impl Plugin for EntityShadowRenderPlugin {
                         .after(bevy::render::view::prepare_view_targets)
                         .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                     prepare_shadow_bind_groups.in_set(RenderSystems::PrepareBindGroups),
-                ),
+                )
+                    .in_set(EntityShadowSystems),
             );
         install_graph(render_app.world_mut());
     }
+}
+
+/// The shadow prepare systems: caster uploads, per-view rectangles and bind groups.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct EntityShadowSystems;
+
+/// Whether the shadow prepare systems have anything to do: casters to upload and draw, or a
+/// caster list not yet uploaded, such as the empty one that clears the last casters' count and
+/// view rectangles. Without either, the shadow node finds no count and draws nothing.
+fn has_shadow_work(scene: Res<EntityShadowScene>, gpu: Res<EntityShadowGpu>) -> bool {
+    !scene.0.shadows.is_empty() || gpu.count != 0 || gpu.uploaded_revision != Some(scene.0.revision)
 }
 
 /// Orders shadows after all opaque terrain and before transparent geometry.

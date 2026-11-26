@@ -70,6 +70,7 @@ pub(crate) fn install_weather_render(app: &mut App) {
         .init_resource::<WeatherPipeline>()
         .add_render_command::<Transparent3d, DrawWeatherCommands>()
         .add_systems(RenderStartup, init_weather_gpu)
+        .configure_sets(Render, WeatherSystems.run_if(has_precipitation))
         .add_systems(
             Render,
             (
@@ -78,8 +79,19 @@ pub(crate) fn install_weather_render(app: &mut App) {
                 queue_weather
                     .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
-            ),
+            )
+                .in_set(WeatherSystems),
         );
+}
+
+/// The precipitation systems: they upload layer records and queue draws only for layers.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct WeatherSystems;
+
+/// Without layers the precipitation systems queue nothing, and the sheet upload and bind group
+/// they cache are rebuilt from the scene on the next frame with layers.
+fn has_precipitation(scene: Res<PrecipitationScene>) -> bool {
+    !scene.layers.is_empty()
 }
 
 #[derive(Resource)]
@@ -569,6 +581,32 @@ mod tests {
         let stats = world.resource::<BufferUploadStaging>().stats();
         assert_eq!(stats.staged_writes, 3);
         assert_eq!(stats.fallback_writes, 0);
+    }
+
+    /// Without layers the precipitation systems stage nothing, so the frame skips them.
+    #[test]
+    fn a_scene_without_layers_skips_the_precipitation_systems() {
+        use super::*;
+        use crate::upload_staging::BufferUploadStaging;
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        let staging = BufferUploadStaging::new(world.resource());
+        world.insert_resource(staging);
+        world.insert_resource(PrecipitationScene::default());
+        world.run_system_once(init_weather_gpu).unwrap();
+        world.run_system_once(prepare_weather_records).unwrap();
+        assert_eq!(
+            world
+                .resource::<BufferUploadStaging>()
+                .stats()
+                .staged_writes,
+            0
+        );
+        assert!(!world.run_system_once(has_precipitation).unwrap());
+        world.resource_mut::<PrecipitationScene>().layers =
+            vec![PrecipitationLayerRecord::default()];
+        assert!(world.run_system_once(has_precipitation).unwrap());
     }
 
     #[test]

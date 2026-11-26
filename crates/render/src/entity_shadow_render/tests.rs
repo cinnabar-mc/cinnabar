@@ -90,6 +90,31 @@ fn the_instance_buffer_grows_to_fit_and_an_empty_frame_draws_nothing() {
     assert_eq!(world.resource::<EntityShadowGpu>().count, 0);
 }
 
+/// The prepare systems stop once an empty caster list has been uploaded, and resume with casters.
+#[test]
+fn shadow_systems_idle_once_the_last_casters_are_cleared() {
+    let mut world = noop_world();
+    let has_work = |world: &mut World| world.run_system_once(has_shadow_work).unwrap();
+    assert!(
+        has_work(&mut world),
+        "the initial empty list is not uploaded yet"
+    );
+    world.run_system_once(prepare_shadow_buffers).unwrap();
+    assert!(!has_work(&mut world));
+    publish(&mut world, &[caster(0.0)]);
+    assert!(has_work(&mut world));
+    world.run_system_once(prepare_shadow_buffers).unwrap();
+    assert!(
+        has_work(&mut world),
+        "a drawn caster keeps the systems running"
+    );
+    publish(&mut world, &[]);
+    assert!(has_work(&mut world));
+    world.run_system_once(prepare_shadow_buffers).unwrap();
+    assert_eq!(world.resource::<EntityShadowGpu>().count, 0);
+    assert!(!has_work(&mut world));
+}
+
 /// Every supported count uses per-sample depth and an overlap stencil, with no colour input.
 #[test]
 fn pipeline_multiplies_colour_once_per_sample_and_keeps_alpha() {
