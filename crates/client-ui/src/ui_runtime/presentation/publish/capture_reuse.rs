@@ -1,7 +1,8 @@
 //! Repeats a HUD capture whose inputs did not change.
 //!
 //! A capture reads the player and UI runtime, whose change ticks the caller vouches for, the
-//! world's local actor and item registry, item artwork sources, animated item frames, and, only
+//! world's local actor and item registry, item artwork sources, animated item frames, whether the
+//! closed inventory's preparation reads its cells, and, only
 //! with a window open or while mounted, block entities and the mount. While none changed, a new
 //! capture would store nothing new, so the last one's result stands.
 
@@ -27,10 +28,14 @@ struct Key {
     dials: inventory::DialFrames,
     frames: ItemIconFrames,
     first_person: bool,
+    /// Whether the closed inventory's preparation still reads its cells, whose item names the
+    /// capture then stores. Publication finishes that preparation without marking anything.
+    inventory_inputs: bool,
 }
 
 impl Key {
     fn of(
+        player_runtime: &player_state::PlayerState,
         runtime: &UiRuntime,
         presentation: &UiPresentationRuntime,
         world: Option<client_world::ui_read::InventoryUi<'_>>,
@@ -49,6 +54,7 @@ impl Key {
             dials: presentation.dial_frames(),
             frames,
             first_person,
+            inventory_inputs: presentation.inventory_inputs_needed(player_runtime, runtime),
         }
     }
 
@@ -65,6 +71,7 @@ impl Key {
             && self.dials == other.dials
             && self.frames == other.frames
             && self.first_person == other.first_person
+            && self.inventory_inputs == other.inventory_inputs
     }
 }
 
@@ -83,7 +90,14 @@ pub fn capture_hud_frame_if_changed(
     icon_frames: ItemIconFrames,
     runtimes_unchanged: bool,
 ) -> HudCapture {
-    let key = Key::of(runtime, presentation, world, first_person, icon_frames);
+    let key = Key::of(
+        player_runtime,
+        runtime,
+        presentation,
+        world,
+        first_person,
+        icon_frames,
+    );
     let quiet = !runtime.inventory_open()
         && runtime
             .inventory_ledger(player_runtime)
@@ -147,7 +161,14 @@ pub fn capture_hud_frame_if_changed(
         presentation.hud_captures += 1;
     }
     // The key is taken after the capture, which may refresh the artwork sources it reads.
-    let key = Key::of(runtime, presentation, world, first_person, icon_frames);
+    let key = Key::of(
+        player_runtime,
+        runtime,
+        presentation,
+        world,
+        first_person,
+        icon_frames,
+    );
     if let Some(cache) = presentation.inventory_cache.as_mut() {
         cache.hud_capture = Some(CaptureRecord {
             key,
