@@ -15,7 +15,7 @@ use bevy::{
     render::{
         Render, RenderSystems,
         render_resource::PollType,
-        renderer::{RenderDevice, RenderQueue, render_system},
+        renderer::{PendingCommandBuffers, RenderDevice, RenderQueue, render_system},
     },
 };
 use std::collections::VecDeque;
@@ -28,20 +28,20 @@ mod tests;
 /// above the two frames a swap chain queues, so presented windows never wait here.
 pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 3;
 
-/// Submission markers of the frames that may still be on the GPU, oldest first.
+/// Submission indices of the frames that may still be on the GPU, oldest first.
 #[derive(Resource, Default)]
 pub(crate) struct FramesInFlight(VecDeque<wgpu::SubmissionIndex>);
 
 impl FramesInFlight {
-    /// Marks the end of this frame's submissions and polls the device once: without blocking
-    /// while at most [`MAX_FRAMES_IN_FLIGHT`] frames are outstanding, otherwise until the oldest
-    /// one completes. Callbacks of every finished submission fire before it returns.
+    /// Records `submission`, the frame's last submission, and polls the device once: without
+    /// blocking while at most [`MAX_FRAMES_IN_FLIGHT`] frames are outstanding, otherwise until
+    /// the oldest one completes. Callbacks of every finished submission fire before it returns.
     pub(crate) fn finish_frame(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        submission: wgpu::SubmissionIndex,
     ) -> Result<wgpu::PollStatus, wgpu::PollError> {
-        self.0.push_back(queue.submit([]));
+        self.0.push_back(submission);
         let poll = if self.0.len() > MAX_FRAMES_IN_FLIGHT {
             PollType::Wait {
                 submission_index: self.0.pop_front(),
@@ -55,6 +55,9 @@ impl FramesInFlight {
 }
 
 /// Owners whose systems register completion callbacks or request readbacks after the graph.
+///
+/// Work these systems submit must go through [`PendingCommandBuffers::submit`], so the frame's
+/// bound covers it.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FrameSubmissions;
 
@@ -103,15 +106,31 @@ pub(crate) fn submission_marker(queue: &RenderQueue) -> u64 {
         .expect("submission index")
 }
 
+/// The index that bounds this frame: its last submission of pending command buffers, which
+/// carries every write staged before it. A frame without one submits an empty batch instead,
+/// which sends the writes staged since the previous submission. An empty submission is a full
+/// driver submission on RADV, so frames that submitted skip it; writes staged after their
+/// submission go out with the next frame's.
+fn frame_submission(
+    queue: &RenderQueue,
+    pending: Option<&mut PendingCommandBuffers>,
+) -> wgpu::SubmissionIndex {
+    pending
+        .and_then(PendingCommandBuffers::take_submission)
+        .unwrap_or_else(|| queue.submit([]))
+}
+
 fn poll_device(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
+    pending: Option<ResMut<PendingCommandBuffers>>,
     mut frames: ResMut<FramesInFlight>,
     mut polls: ResMut<DevicePolls>,
 ) {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("render.device_poll").entered();
-    if let Err(error) = frames.finish_frame(device.wgpu_device(), &queue) {
+    let submission = frame_submission(&queue, pending.map(ResMut::into_inner));
+    if let Err(error) = frames.finish_frame(device.wgpu_device(), submission) {
         warn!(?error, "could not poll the render device");
     }
     polls.0 += 1;
