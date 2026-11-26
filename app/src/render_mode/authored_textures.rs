@@ -202,14 +202,21 @@ fn with_server_maps(
     combined
 }
 
-/// Replaces optional maps only when their shared source changes.
-fn apply(textures: &mut ChunkTextureAssets, maps: AuthoredMaps) {
-    let unchanged = match (textures.enhanced(), maps.as_ref()) {
+/// Whether `maps` are the optional maps `textures` already hold.
+fn maps_unchanged(
+    textures: &ChunkTextureAssets,
+    maps: Option<&Arc<EnhancedTextureAssets>>,
+) -> bool {
+    match (textures.enhanced(), maps) {
         (Some(current), Some(next)) => Arc::ptr_eq(current, next),
         (None, None) => true,
         _ => false,
-    };
-    if !unchanged {
+    }
+}
+
+/// Replaces optional maps only when their shared source changes.
+fn apply(textures: &mut ChunkTextureAssets, maps: AuthoredMaps) {
+    if !maps_unchanged(textures, maps.as_ref()) {
         *textures = textures.with_updated_enhanced(maps);
     }
 }
@@ -241,7 +248,11 @@ pub(super) fn update_authored_textures(
         return;
     }
     let maps = with_server_maps(&mut loading, &textures, mode, limits.as_ref());
-    apply(&mut textures, maps);
+    // Borrowing the textures mutably marks them changed, and changed textures are extracted to
+    // the render world again, so only a real replacement takes them mutably.
+    if !maps_unchanged(&textures, maps.as_ref()) {
+        apply(&mut textures, maps);
+    }
 }
 
 #[cfg(test)]
@@ -478,6 +489,37 @@ mod tests {
                 .resource::<ChunkTextureAssets>()
                 .enhanced()
                 .is_none()
+        );
+    }
+
+    #[derive(Resource, Default)]
+    struct ChangedAfter(Vec<bool>);
+
+    #[test]
+    fn unchanged_maps_leave_the_chunk_textures_unchanged() {
+        let base = Arc::new(RuntimeAssets::diagnostic());
+        let mut app = App::new();
+        app.insert_resource(RuntimeSettings::default())
+            .insert_resource(AuthoredTextureLoading::new(base.clone(), None))
+            .insert_resource(ChunkTextureAssets::new(base))
+            .init_resource::<ChangedAfter>()
+            .add_systems(
+                Update,
+                (
+                    update_authored_textures,
+                    |textures: Res<ChunkTextureAssets>, mut seen: ResMut<ChangedAfter>| {
+                        seen.0.push(textures.is_changed());
+                    },
+                )
+                    .chain(),
+            );
+        app.update();
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<ChangedAfter>().0,
+            vec![true, false, false],
+            "only the insertion counts as a change"
         );
     }
 
