@@ -380,6 +380,18 @@ pub(crate) fn prepare_spawner_actors(
         Some(listing) if listing.settled.as_ref() == Some(&inputs) => listing,
         _ => list_spawners(pool, stream.collision_store(), session.1, inputs),
     };
+    // With no spawner listed and no display alive, the rest of the pass only advances the
+    // display store and ages the pose caches; every other step acts on empty lists. Debug and
+    // test builds run the whole pass and check that it published nothing.
+    let idle = listing.requests.is_empty() && pool.actors.is_empty() && pool.spins.is_empty();
+    #[cfg(not(any(test, debug_assertions)))]
+    if idle {
+        pool.listing = Some(listing);
+        pool.actors.advance(step.ticks);
+        pool.poses.begin_frame();
+        pool.layers.begin_frame();
+        return;
+    }
     let mut scratch = std::mem::take(&mut pool.scratch);
     let view = camera
         .single()
@@ -473,13 +485,17 @@ pub(crate) fn prepare_spawner_actors(
         .retain(|position| scratch.positions.binary_search(&position).is_ok());
     pool.actors.advance(step.ticks);
     let artwork = state.actor_artwork(&artwork.0);
-    pending.extend_entities(display_batch(
-        pool,
-        stream,
-        artwork,
-        step.partial_tick,
-        &scratch.displays,
-    ));
+    let batch = display_batch(pool, stream, artwork, step.partial_tick, &scratch.displays);
+    #[cfg(any(test, debug_assertions))]
+    assert!(
+        !idle
+            || (batch.submissions.is_empty()
+                && batch.skin_layers.is_empty()
+                && pool.actors.is_empty()
+                && pool.spins.is_empty()),
+        "an idle spawner pass must publish and keep nothing"
+    );
+    pending.extend_entities(batch);
     pool.scratch = scratch;
 }
 

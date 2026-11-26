@@ -187,6 +187,11 @@ impl DisplayActorStore {
         }
     }
 
+    /// Whether no display actor is alive.
+    pub fn is_empty(&self) -> bool {
+        self.positions.is_empty()
+    }
+
     /// Feeds the resolved camera's degrees and world position before evaluating display poses.
     pub fn set_camera(&mut self, rotation: [f32; 2], position: [f32; 3]) {
         self.store.set_camera_rotation(rotation);
