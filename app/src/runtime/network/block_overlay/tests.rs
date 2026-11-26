@@ -47,6 +47,7 @@ mod session;
 mod texture_budget;
 mod texture_variations;
 mod top_rotation;
+mod turned_cubes;
 mod vanilla_terrain;
 
 mod vanilla_fallback;
