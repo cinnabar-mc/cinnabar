@@ -405,3 +405,11 @@ fn content_revision(fingerprints: &[u64], spans: &[ActorRigGeometrySpan]) -> u64
 #[cfg(test)]
 #[path = "catalog/tests.rs"]
 mod tests;
+
+impl super::ActorRigFrameBuilder {
+    /// The geometry catalog revision every frame built from now on carries.
+    #[must_use]
+    pub const fn geometry_revision(&self) -> u64 {
+        self.catalog.revision
+    }
+}

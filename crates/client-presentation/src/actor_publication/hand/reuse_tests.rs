@@ -122,6 +122,13 @@ impl Frames {
         );
     }
 
+    fn kept(&self) -> u64 {
+        self.world
+            .resource::<super::super::ActorFrameState>()
+            .hand_published
+            .kept
+    }
+
     /// Whether the last frame published a drawable hand.
     fn drawn(&self) -> bool {
         self.world
@@ -164,6 +171,7 @@ fn idle_empty_hand_reuses_its_source_across_frames() {
         3,
         "every idle frame after the first reuses the source"
     );
+    assert_eq!(frames.kept(), 3, "the scene keeps the identical idle frame");
     let instance = |instances: Vec<render_model::ActorGpuInstance>| {
         instances
             .into_iter()
@@ -190,12 +198,14 @@ fn swinging_arm_is_rebuilt_every_frame() {
     };
     frames.frame(60, swing(0.0, 0.25));
     frames.frame(60, swing(0.25, 0.5));
+    let kept = frames.kept();
     frames.frame(60, swing(0.5, 0.75));
     assert_eq!(
         frames.reuses(),
         1,
         "a moving swing reads the frame fraction"
     );
+    assert_eq!(frames.kept(), kept, "a moving swing republishes");
 }
 
 /// A held item's source samples the native parent pose at the frame fraction and is rebuilt.
@@ -248,6 +258,57 @@ fn camera_gated_controller_rebuilds_when_the_pitch_crosses_its_threshold() {
         !frames.drawn(),
         "the first frame past the threshold hides the arm"
     );
+}
+
+/// A scene cleared by another owner is never mistaken for the kept frame: the next identical
+/// frame republishes and the hand draws again.
+#[test]
+fn identical_frame_after_an_outside_clear_restores_the_hand() {
+    let mut frames = Frames::new(None);
+    frames.frame(7, None);
+    frames.frame(7, None);
+    assert!(frames.drawn());
+    let kept = frames.kept();
+    frames
+        .world
+        .resource_mut::<render_scene::HandRigScene>()
+        .clear();
+    frames.frame(7, None);
+    assert!(
+        frames.drawn(),
+        "the identical frame must be published again"
+    );
+    assert_eq!(frames.kept(), kept, "a cleared scene holds nothing to keep");
+    frames.frame(7, None);
+    assert_eq!(frames.kept(), kept + 1, "the restored frame is kept again");
+}
+
+/// A frame another owner publishes under the recorded revision gets its own token from the
+/// scene, so the hand republishes instead of keeping a frame it did not build.
+#[test]
+fn outside_publication_under_the_same_revision_is_not_kept() {
+    let mut frames = Frames::new(None);
+    frames.frame(7, None);
+    frames.frame(7, None);
+    let kept = frames.kept();
+    let held = frames
+        .world
+        .resource::<render_scene::HandRigScene>()
+        .frame
+        .clone()
+        .expect("the hand draws");
+    let mut scene = frames.world.resource_mut::<render_scene::HandRigScene>();
+    assert!(scene.publish(
+        held.rig,
+        held.skin,
+        held.light,
+        held.fov_radians,
+        held.revision
+    ));
+    frames.frame(7, None);
+    assert_eq!(frames.kept(), kept, "an outside frame is republished over");
+    frames.frame(7, None);
+    assert_eq!(frames.kept(), kept + 1);
 }
 
 /// Sets the local actor's mark variant as a server metadata update between ticks.
@@ -323,4 +384,29 @@ fn metadata_between_ticks_resamples_at_a_repeated_fraction() {
     );
     // The debug rebuild inside readiness checks any source kept from here on.
     frames.frame(3, None);
+}
+
+/// Editing the held frame's artwork in place gives it a new publication token, so the hand
+/// republishes instead of keeping the edited frame.
+#[test]
+fn artwork_edited_in_place_is_republished() {
+    let mut frames = Frames::new(None);
+    frames.frame(7, None);
+    frames.frame(7, None);
+    let kept = frames.kept();
+    let mut scene = frames.world.resource_mut::<render_scene::HandRigScene>();
+    let before = scene.publication();
+    scene.set_map_background(None);
+    assert_ne!(scene.publication(), before, "an edit advances the token");
+    frames.frame(7, None);
+    assert_eq!(frames.kept(), kept, "the edited frame is republished");
+    assert!(
+        frames
+            .world
+            .resource::<render_scene::HandRigScene>()
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.item_atlases[2].is_some()),
+        "republishing restores the map background"
+    );
 }
