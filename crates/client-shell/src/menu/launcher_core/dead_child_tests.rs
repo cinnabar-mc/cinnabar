@@ -299,3 +299,64 @@ fn realm_membership_core_exit_retires_the_pending_dialog() {
         );
     }
 }
+
+#[test]
+fn an_exit_is_noticed_at_the_next_poll() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    // The last poll found the core running; it exited since.
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_some(),
+        "no exit check before the interval ends"
+    );
+    drive_at(
+        &mut slot,
+        &mut menu,
+        &mut world,
+        false,
+        start + EXIT_POLL_INTERVAL,
+    );
+    assert!(slot.core.is_none(), "the exit is noticed at the next poll");
+    assert!(
+        world.get_resource::<LauncherAccount>().is_none(),
+        "and the clients are detached"
+    );
+}
+
+#[test]
+fn a_join_between_exit_checks_is_not_routed_to_an_exited_core() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    // The last check found the core running; it exited before the next one is due.
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_some(),
+        "the paced check has not noticed the exit"
+    );
+    assert!(
+        slot.begin_join("example.net:19132", false, false, true)
+            .is_none(),
+        "the join falls back to its own core at once"
+    );
+}
+
+#[test]
+fn a_pending_core_decision_checks_for_an_exit_before_it_is_taken() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    assert!(!menu.core_decision_pending());
+    menu.feeds.profile_refresh_requested = true;
+    assert!(menu.core_decision_pending());
+    // What drive_account_services does before driving the slot for such a frame.
+    slot.check_exit_now();
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_none(),
+        "the exited core is retired in the same frame"
+    );
+    assert_eq!(slot.account_core().serving, None);
+}

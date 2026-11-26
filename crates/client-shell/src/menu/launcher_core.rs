@@ -16,6 +16,13 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
+/// How often a running core is asked whether it exited. Each check is a `wait4` syscall, so it
+/// is not made every frame. An exit is noticed within this interval, which nothing needs sooner:
+/// restarts wait at least the backoff's 500 ms base delay, the backoff only distinguishes runs
+/// shorter than its 60 s stable run, and a join routed in between checks the core itself (see
+/// [`LauncherCoreSlot::begin_join`]). A newly spawned core is checked on the next drive.
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(16);
+
 /// Allows auth updates beside a separate direct game core, but protects games this core owns.
 pub(super) fn account_core_idle(
     launcher: bool,
@@ -54,6 +61,8 @@ pub struct LauncherCoreSlot {
     started: Option<Instant>,
     /// The earliest restart after such an exit.
     restart_at: Option<Instant>,
+    /// When the current core may next be checked for an exit; `None` checks at once.
+    next_exit_poll: Option<Instant>,
 }
 
 impl LauncherCoreSlot {
@@ -79,9 +88,14 @@ impl LauncherCoreSlot {
             }
             self.retiring = None;
         }
+        let exit_poll_due = self.next_exit_poll.is_none_or(|at| now >= at);
+        if exit_poll_due && self.core.is_some() {
+            self.next_exit_poll = Some(now + EXIT_POLL_INTERVAL);
+        }
         if let Some((status, authenticated)) = self
             .core
             .as_mut()
+            .filter(|_| exit_poll_due)
             .and_then(|core| Some((core._guard.exit_status()?, core.authenticated)))
         {
             let ran_for = self.started.map_or(Duration::ZERO, |started| {
@@ -184,6 +198,7 @@ impl LauncherCoreSlot {
                 ) {
                     Ok(core) => {
                         self.core = Some(core);
+                        self.next_exit_poll = None;
                         self.started = Some(now);
                         self.restart_at = None;
                         self.failed = None;
@@ -233,6 +248,12 @@ impl LauncherCoreSlot {
         }
     }
 
+    /// Makes the next [`Self::drive`] check the core for an exit, whatever the pacing, so a
+    /// decision taken on the core this frame sees an exit at once.
+    pub(super) fn check_exit_now(&mut self) {
+        self.next_exit_poll = None;
+    }
+
     /// The account core as this frame left it.
     pub(super) fn account_core(&self) -> AccountCore {
         AccountCore {
@@ -262,11 +283,22 @@ impl LauncherCoreSlot {
         if !local_world && core.authenticated != authenticated {
             return None;
         }
+        // The per-frame exit check is paced, so a join checks the core itself: one that exited
+        // since the last check is not routed to, exactly as if that check had found it.
+        if core._guard.exit_status().is_some() {
+            return None;
+        }
         core.begin_join(address, local_world)
     }
 }
 
 impl MenuRuntime {
+    /// Whether a decision this frame depends on the account core's state: a join held for its
+    /// sign-in and core, or a requested profile refresh.
+    pub(super) fn core_decision_pending(&self) -> bool {
+        self.intents.join_sign_in_deadline.is_some() || self.feeds.profile_refresh_requested
+    }
+
     /// The validated sign-in's auth cache, for the launcher core and joins.
     pub fn launcher_auth_cache(&self) -> Option<PathBuf> {
         if self.external.is_some() {
