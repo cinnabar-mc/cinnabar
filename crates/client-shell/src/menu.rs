@@ -247,6 +247,8 @@ pub struct MenuRuntime {
     realm_leave: realm_leave::RealmLeaveUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
+    /// When the paced service pass next runs during play behind a hidden menu.
+    next_services_pass: Option<std::time::Instant>,
 }
 
 /// Session requests raised by menu actions, for the session controller to take.

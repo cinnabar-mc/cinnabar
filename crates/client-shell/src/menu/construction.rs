@@ -229,6 +229,7 @@ impl MenuRuntime {
             realm_membership: Default::default(),
             realm_leave: Default::default(),
             join_requests: Default::default(),
+            next_services_pass: None,
         }
     }
 }
