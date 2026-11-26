@@ -512,6 +512,7 @@ fn signs_hidden_from_their_first_frame_reveal_with_resident_text() {
                     0xFF00_0000_u32 as i32,
                     false,
                     false,
+                    sign_text::STANDING_WRAP_PIXELS,
                 )),
                 back: None,
             };
