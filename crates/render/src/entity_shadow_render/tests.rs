@@ -165,3 +165,31 @@ fn neutral_sky_shades_with_the_plain_grey_and_the_end_has_no_glow() {
     let end = noon.with_sky_kind(SkyKind::End);
     assert_eq!(shadow_params(&end).colour, [0.7, 0.7, 0.7, 1.0]);
 }
+
+/// Preparation clears the uploaded casters once after the last one leaves, then idles.
+#[test]
+fn empty_scenes_skip_preparation_after_clearing_the_last_casters() {
+    let mut world = noop_world();
+    assert!(
+        !world.run_system_once(shadows_due).unwrap(),
+        "an empty scene starts idle"
+    );
+    assert!(!world.run_system_once(shadows_uploaded).unwrap());
+    let mut schedule = bevy::ecs::schedule::Schedule::default();
+    schedule.add_systems(prepare_shadow_buffers.run_if(shadows_due));
+
+    publish(&mut world, &[caster(0.0)]);
+    schedule.run(&mut world);
+    assert_eq!(world.resource::<EntityShadowGpu>().count, 1);
+    assert!(world.run_system_once(shadows_uploaded).unwrap());
+
+    publish(&mut world, &[]);
+    assert!(
+        world.run_system_once(shadows_due).unwrap(),
+        "the clearing pass still runs"
+    );
+    schedule.run(&mut world);
+    assert_eq!(world.resource::<EntityShadowGpu>().count, 0);
+    assert!(!world.run_system_once(shadows_due).unwrap());
+    assert!(!world.run_system_once(shadows_uploaded).unwrap());
+}

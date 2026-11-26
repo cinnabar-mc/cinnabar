@@ -72,6 +72,10 @@ mod cosmetics_tests;
 mod composition_tests;
 
 #[cfg(test)]
+#[path = "nametag_render/gate_tests.rs"]
+mod gate_tests;
+
+#[cfg(test)]
 #[path = "nametag_render/overlay_tests.rs"]
 mod overlay_tests;
 
@@ -129,17 +133,34 @@ pub(crate) fn install_nametag_render(app: &mut App) {
         .add_systems(
             Render,
             (
-                overlay::install_graph.in_set(RenderSystems::Prepare),
-                prepare_nametags.in_set(RenderSystems::PrepareResources),
-                overlay::prepare
-                    .in_set(RenderSystems::PrepareResources)
-                    .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
-                prepare_nametag_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_nametags
-                    .in_set(crate::world_passes::WorldPassSystems)
-                    .in_set(RenderSystems::Queue),
+                overlay::install_graph
+                    .run_if(overlay::graph_missing)
+                    .in_set(RenderSystems::Prepare),
+                (
+                    prepare_nametags.in_set(RenderSystems::PrepareResources),
+                    overlay::prepare
+                        .in_set(RenderSystems::PrepareResources)
+                        .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
+                    prepare_nametag_bind_group.in_set(RenderSystems::PrepareBindGroups),
+                    queue_nametags
+                        .in_set(crate::world_passes::WorldPassSystems)
+                        .in_set(RenderSystems::Queue),
+                )
+                    .run_if(nametags_due),
             ),
         );
+}
+
+/// Runs label preparation while records exist, and once more after the last one leaves so
+/// the uploaded total returns to zero. Atlas changes made meanwhile are uploaded with the
+/// next records, because the atlas update compares against the last uploaded atlas.
+fn nametags_due(scene: Res<NametagSceneResource>, gpu: Option<Res<NametagGpu>>) -> bool {
+    !scene.records.is_empty() || gpu.is_none_or(|gpu| gpu.total != 0)
+}
+
+/// Encodes label passes only when records were uploaded; none are queued otherwise.
+fn nametags_uploaded(gpu: Option<Res<NametagGpu>>) -> bool {
+    gpu.is_some_and(|gpu| gpu.total != 0)
 }
 
 #[derive(Resource)]

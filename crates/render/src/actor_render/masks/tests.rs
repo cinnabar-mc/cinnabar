@@ -695,3 +695,71 @@ fn an_independent_layer_stays_visible_beside_its_coverage_only_owner() {
     assert_eq!(gpu.mask_spans.iter().map(|span| span.count).sum::<u32>(), 2);
     assert_eq!(gpu.main_manifest.len(), 1);
 }
+
+/// Preparation retires the last mask's attachment and charge, then idles until a mask returns.
+#[test]
+fn removing_the_last_mask_retires_its_attachment_before_preparation_idles() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = fixture();
+    let frame = publication(1, &[20], 1);
+    let identity = frame.rig.manifest[0].identity;
+    let entity = MaskEntity {
+        connection: identity.session_id,
+        dimension: identity.dimension,
+        runtime_id: identity.runtime_id,
+        spawn_revision: identity.spawn_revision.get(),
+    };
+    let mask = mod_render::masks::Mask {
+        position: None,
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: mod_api::drawing::DrawingSession {
+            connection: entity.connection,
+            dimension: entity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        depth: MaskDepth::Test,
+        entities: vec![entity],
+        style: None,
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    assert!(!world.run_system_once(masks_retained).unwrap());
+    let view = world
+        .query_filtered::<Entity, bevy::prelude::With<ExtractedView>>()
+        .single(world)
+        .unwrap();
+    let depth = test_depth(world.resource::<RenderDevice>(), 64, 1);
+    world.entity_mut(view).insert(depth);
+    world.init_resource::<render_scene::ModRenderScene>();
+    assert!(
+        !world.run_system_once(masks_due).unwrap(),
+        "no masks start idle"
+    );
+    world.resource_mut::<render_scene::ModRenderScene>().masks = vec![mask.clone()].into();
+    draw_frame(&mut app, &frame);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    assert!(
+        world
+            .resource::<MaskGpu>()
+            .targets
+            .contains_key(&(view, mask.handle))
+    );
+    assert!(world.run_system_once(masks_retained).unwrap());
+
+    world.resource_mut::<render_scene::ModRenderScene>().masks = Vec::new().into();
+    assert!(
+        world.run_system_once(masks_due).unwrap(),
+        "the retiring pass still runs"
+    );
+    draw_frame(&mut app, &frame);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let masks = world.resource::<MaskGpu>();
+    assert!(masks.targets.is_empty());
+    assert_eq!(masks.attachment_bytes, 0);
+    assert!(!world.run_system_once(masks_due).unwrap());
+    assert!(!world.run_system_once(masks_retained).unwrap());
+}

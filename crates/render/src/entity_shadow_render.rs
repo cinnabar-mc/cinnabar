@@ -91,7 +91,8 @@ impl Plugin for EntityShadowRenderPlugin {
                         .after(bevy::render::view::prepare_view_targets)
                         .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                     prepare_shadow_bind_groups.in_set(RenderSystems::PrepareBindGroups),
-                ),
+                )
+                    .run_if(shadows_due),
             );
         install_graph(render_app.world_mut());
     }
@@ -106,6 +107,7 @@ pub(crate) fn install_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(node::entity_shadows, None, "EntityShadowLabel")
+                    .run_if(shadows_uploaded)
                     .in_set(EntityShadowLabel)
                     .after(crate::scene_target::ScenePass::Opaque)
                     .after(crate::chunk::GpuCullLateLabel)
@@ -122,6 +124,17 @@ pub(crate) fn install_graph(world: &mut World) {
 
 #[derive(Resource)]
 struct ShadowPassInstalled;
+
+/// Runs shadow preparation while casters exist, and once more after the last one leaves so
+/// the uploaded count and every view's rectangle return to empty.
+fn shadows_due(scene: Res<EntityShadowScene>, gpu: Option<Res<EntityShadowGpu>>) -> bool {
+    !scene.0.shadows.is_empty() || gpu.is_none_or(|gpu| gpu.count != 0)
+}
+
+/// Encodes the shadow pass only when casters were uploaded; the pass draws nothing otherwise.
+fn shadows_uploaded(gpu: Option<Res<EntityShadowGpu>>) -> bool {
+    gpu.is_some_and(|gpu| gpu.count != 0)
+}
 
 mod gpu;
 mod node;
