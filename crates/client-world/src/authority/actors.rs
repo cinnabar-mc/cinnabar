@@ -490,6 +490,11 @@ impl WorldAuthority {
     pub fn actor_view_revision(&self) -> u64 {
         self.actors.view_revision()
     }
+    /// Whether the actor's sampled render visibility may differ between frames that share its
+    /// presentation revision, for instance with the frame fraction or camera.
+    pub fn actor_visibility_reads_frame(&self, runtime_id: u64) -> bool {
+        self.actors.visibility_reads_frame(runtime_id)
+    }
     /// Borrows one actor rig for presentation.
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)

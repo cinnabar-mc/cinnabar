@@ -30,6 +30,8 @@ pub(super) struct Plan {
     gate_ops: Option<usize>,
     /// Each distinct gate expression once, however many layers share it.
     gate_expressions: Vec<usize>,
+    /// Whether no gate reads a frame, camera or swing input, directly or through a variable.
+    frame_independent: bool,
     memo: Option<Memo>,
 }
 
@@ -302,6 +304,50 @@ fn gate_reads(
     inputs.pure().then_some(inputs)
 }
 
+/// Whether the rig's sampled visibility may differ between positive-fraction samples of the same
+/// tick state, for instance with the frame fraction or camera. A rig that never samples its
+/// frame draws its completed tick visibility. Otherwise unknown counts as differing: only a
+/// retained plan whose gates run on the tick baseline without reading frame, camera or swing
+/// inputs, and which certainly finishes within `budget` ops, proves otherwise. A plan that could
+/// exhaust the budget falls back to the tick's visibility depending on which branches ran and
+/// what the expression cache holds.
+pub(super) fn reads_frame(state: &ActorRigState, actor: &dyn AnimatedActor, budget: usize) -> bool {
+    let Some(frame) = state.render_frame.as_ref() else {
+        return false;
+    };
+    // A still swing equal to the tick's attack time samples nothing at any fraction.
+    let swing_still = !state.samples_swing_poses
+        || state
+            .local_swing
+            .map(|progress| progress.bedrock)
+            .or_else(|| state.remote_swing())
+            .is_none_or(|[previous, current]| {
+                previous == current && current == frame.motion.input.attack_time
+            });
+    // The sampler's own early return: such a rig always draws its completed tick layers.
+    if !state.samples_render_frames
+        && swing_still
+        && !frame.needs_swell_sampling(actor)
+        && !frame.needs_rotation_sampling()
+        && !frame.needs_walk_sampling()
+        && !frame.samples_local_walk(state)
+    {
+        return false;
+    }
+    if !frame.motion.server_effects.is_empty() {
+        return true;
+    }
+    let scratch = frame.cache.lock().unwrap();
+    scratch.visibility.as_ref().is_none_or(|plan| {
+        let affordable = match plan.mode {
+            Mode::Queries => plan.gate_ops.is_some_and(|ops| ops <= budget),
+            Mode::Gates { reserve } => reserve <= budget,
+            Mode::Variables | Mode::Full => false,
+        };
+        !plan.frame_independent || !affordable || !plan.matches(state, frame)
+    })
+}
+
 /// Evaluates independent gates using the same prepared variables as the full sampler.
 pub(super) fn sample(
     evaluator: &Evaluator<'_>,
@@ -340,6 +386,11 @@ pub(super) fn sample(
                 gate_reads(assets, evaluator.layout, &gates)
             },
             gate_ops: worst_case_ops(assets, gates.iter().copied()),
+            frame_independent: !engine_reads
+                && gates.iter().all(|&gate| {
+                    evaluator.layout.expression_inputs(gate as usize)
+                        == evaluation::PresentationReads::default()
+                }),
             gate_expressions: {
                 let mut unique: Vec<usize> = gates.iter().map(|&gate| gate as usize).collect();
                 unique.sort_unstable();

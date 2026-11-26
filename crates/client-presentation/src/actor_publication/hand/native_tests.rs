@@ -101,10 +101,11 @@ fn fixture_with_binding(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
-    fixture_with_visibility(main, clock, animated, bound, turning, hide_body, None)
+    fixture_with_visibility(main, clock, animated, bound, turning, hide_body, None, None)
 }
 
-/// Adds a frame-dependent visibility expression to the original authored player fixture.
+/// Adds a frame-dependent held-item visibility expression, or a condition on the player's render
+/// controller, to the original authored player fixture.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fixture_with_visibility(
     main: Option<&str>,
@@ -114,6 +115,7 @@ pub(super) fn fixture_with_visibility(
     turning: bool,
     hide_body: bool,
     visibility: Option<&str>,
+    controller_condition: Option<&str>,
 ) -> (
     (
         WorldStream,
@@ -232,6 +234,16 @@ pub(super) fn fixture_with_visibility(
             .unwrap();
         let mut value: serde_json::Value = serde_json::from_slice(document).unwrap();
         value["minecraft:client_entity"]["description"]["hide_held_items"] = expression.into();
+        *document = serde_json::to_vec(&value).unwrap();
+    }
+    if let Some(condition) = controller_condition {
+        let (_, document) = files
+            .iter_mut()
+            .find(|(name, _)| name.as_ref() == "entity/player.json")
+            .unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(document).unwrap();
+        value["minecraft:client_entity"]["description"]["render_controllers"] =
+            serde_json::json!([{ "controller.render.test": condition }]);
         *document = serde_json::to_vec(&value).unwrap();
     }
     let compiled = pack_entity_compiler::compile_actor_pack(files)

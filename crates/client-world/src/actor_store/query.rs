@@ -320,6 +320,12 @@ impl ActorStore {
     pub(crate) fn view_revision(&self) -> u64 {
         self.view_revision.0
     }
+    /// Whether the rig's sampled visibility may differ between frames with equal revisions.
+    pub(crate) fn visibility_reads_frame(&self, runtime_id: u64) -> bool {
+        self.actors
+            .get(&runtime_id)
+            .is_none_or(|actor| self.animation.visibility_reads_frame(actor))
+    }
     pub(crate) fn render_frame(&self, partial_tick: f32) -> actor_animation::ActorRenderFrame<'_> {
         actor_animation::ActorRenderFrame::new(
             &self.animation,
