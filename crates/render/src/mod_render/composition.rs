@@ -155,7 +155,8 @@ pub(super) fn install(app: &mut SubApp) {
         Render,
         prepare
             .in_set(RenderSystems::PrepareBindGroups)
-            .after(crate::actor_render::masks::prepare),
+            .after(crate::actor_render::masks::prepare)
+            .run_if(has_composition_work),
     );
     install_graph(app.world_mut());
 }
@@ -168,7 +169,8 @@ pub(super) fn install_graph(world: &mut World) {
     if world
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
-                draw.in_set(ModCompositionLabel)
+                draw.run_if(has_masks)
+                    .in_set(ModCompositionLabel)
                     .after(Core3dSystems::PostProcess)
                     .after(MaskLabel)
                     .after(super::ModPassLabel)
@@ -387,6 +389,21 @@ impl Pyramid {
 }
 
 /// Keeps one pyramid per compatible mask texture and drops revoked sources before allocation.
+/// Whether composition preparation has anything to do: masks in the scene, or blur pyramids and
+/// style state of earlier masks to retire. Otherwise it allocates, writes and releases nothing.
+fn has_composition_work(
+    scene: Option<Res<ModRenderScene>>,
+    gpu: Option<Res<CompositionGpu>>,
+) -> bool {
+    scene.is_some_and(|scene| !scene.masks.is_empty())
+        || gpu.is_some_and(|gpu| !gpu.pyramids.is_empty() || !gpu.styles.is_empty())
+}
+
+/// Whether the composition node has a mask to draw; it records nothing without one.
+fn has_masks(scene: Option<Res<ModRenderScene>>) -> bool {
+    scene.is_some_and(|scene| !scene.masks.is_empty())
+}
+
 fn prepare(
     scene: Res<ModRenderScene>,
     masks: Option<Res<MaskGpu>>,

@@ -155,6 +155,13 @@ fn compile(
     }
 }
 
+impl Materials {
+    /// Holds no material, compile or retired pipeline.
+    pub(super) fn at_rest(&self) -> bool {
+        self.entries.is_empty() && self.retired.is_empty()
+    }
+}
+
 /// Retains material quota and native pipelines until the last submitted frame completes.
 pub(super) fn retire(mut materials: ResMut<Materials>, queue: Res<RenderQueue>) {
     if materials.retired.is_empty() {

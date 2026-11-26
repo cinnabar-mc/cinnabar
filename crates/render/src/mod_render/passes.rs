@@ -91,6 +91,18 @@ impl crate::pipeline_warmup::PendingPipelines for PassGpu {
 
 impl PassGpu {
     /// Drops pipelines whose pass revision is no longer in the scene.
+    /// Holds no pipeline, frame uniform, resolved depth or bind group of an earlier pass.
+    fn at_rest(&self) -> bool {
+        self.pipelines.is_empty()
+            && self.uniforms.is_empty()
+            && self.resolved_depth.is_empty()
+            && self
+                .bind_groups
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+    }
+
     pub(crate) fn retain_pipelines(&mut self, scene: &ModRenderScene) {
         let current = |revision: u64| scene.passes.iter().any(|p| p.revision == revision);
         self.pipelines.retain(|(revision, _), _| current(*revision));
@@ -275,7 +287,8 @@ pub(super) fn install(render_app: &mut SubApp) {
         prepare
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
-            .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
+            .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures)
+            .run_if(has_pass_work),
     );
     install_graph(render_app.world_mut());
 }
@@ -340,6 +353,20 @@ pub(crate) fn frame_uniform(
         time: [seconds, delta, slot as f32, 0.0],
         params,
     }
+}
+
+/// Whether pass preparation has anything to do: passes in the scene, or state of removed passes
+/// to retire. Otherwise it compiles nothing, writes no uniform and releases nothing.
+fn has_pass_work(scene: Option<Res<ModRenderScene>>, gpu: Option<Res<PassGpu>>) -> bool {
+    let (Some(scene), Some(gpu)) = (scene, gpu) else {
+        return false;
+    };
+    !scene.passes.is_empty() || !gpu.at_rest()
+}
+
+/// Whether the pass node has a pass to draw; without one it returns before recording anything.
+fn has_passes(scene: Option<Res<ModRenderScene>>) -> bool {
+    scene.is_some_and(|scene| !scene.passes.is_empty())
 }
 
 fn prepare(
@@ -503,6 +530,7 @@ pub(crate) fn install_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(mod_passes, None, "ModPassLabel")
+                    .run_if(has_passes)
                     .in_set(ModPassLabel)
                     .after(Core3dSystems::PostProcess)
                     .before(crate::ui_render::UiOverlayLabel)
@@ -674,4 +702,54 @@ pub(crate) fn mod_passes(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod rest_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// Pass preparation keeps running until a removed pass's pipeline is released, then stops,
+    /// and the node runs only while the scene has passes.
+    #[test]
+    fn pass_preparation_idles_once_removed_pipelines_are_released() {
+        let (mut app, _) = crate::queue_review_support::app();
+        app.init_resource::<Time>();
+        app.world_mut().run_system_once(init_gpu).unwrap();
+        app.insert_resource(ModRenderScene::default());
+        let has_work =
+            |app: &mut bevy::app::App| app.world_mut().run_system_once(has_pass_work).unwrap();
+        assert!(!has_work(&mut app));
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let shader = mod_render::shader::compose(
+            "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }",
+            false,
+        )
+        .unwrap();
+        let pass = mod_render::Pass {
+            name: "grade".into(),
+            order: 0,
+            depth: false,
+            masks: Vec::new(),
+            source: "".into(),
+            shader: shader.into(),
+            revision: 1,
+            enabled: true,
+            params: [0.0; 16],
+        };
+        app.world_mut()
+            .resource_scope(|world, mut gpu: bevy::prelude::Mut<PassGpu>| {
+                let device = world.resource::<RenderDevice>().clone();
+                let cache = world.resource::<PipelineCache>();
+                gpu.ensure_pipeline(&device, cache, &pass, render_scene::SCENE_COLOR_FORMAT);
+            });
+        assert!(
+            has_work(&mut app),
+            "the removed pass's pipeline is still held"
+        );
+        assert!(!app.world_mut().run_system_once(has_passes).unwrap());
+        app.world_mut().run_system_once(prepare).unwrap();
+        assert!(app.world().resource::<PassGpu>().pipelines.is_empty());
+        assert!(!has_work(&mut app));
+    }
 }
