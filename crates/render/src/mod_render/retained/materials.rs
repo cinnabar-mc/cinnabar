@@ -2,10 +2,7 @@
 use super::pipeline::Key;
 use bevy::{
     prelude::*,
-    render::{
-        render_resource::*,
-        renderer::{RenderDevice, RenderQueue},
-    },
+    render::{render_resource::*, renderer::RenderDevice},
     tasks::{AsyncComputeTaskPool, Task},
 };
 use mod_api::drawing::DrawingHandle;
@@ -163,12 +160,15 @@ impl Materials {
 }
 
 /// Retains material quota and native pipelines until the last submitted frame completes.
-pub(super) fn retire(mut materials: ResMut<Materials>, queue: Res<RenderQueue>) {
+pub(super) fn retire(
+    mut materials: ResMut<Materials>,
+    completion: crate::device_poll::FrameCompletion,
+) {
     if materials.retired.is_empty() {
         return;
     }
     let retired = std::mem::take(&mut materials.retired);
-    crate::device_poll::on_frame_complete(&queue, move || drop(retired));
+    completion.on_frame_complete(move || drop(retired));
 }
 
 impl crate::pipeline_warmup::PendingPipelines for Materials {

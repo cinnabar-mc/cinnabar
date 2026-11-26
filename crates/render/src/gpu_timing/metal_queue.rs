@@ -45,6 +45,9 @@ pub(super) fn install(world: &mut World) {
     if limit.is_none() && env_compat::var("CINNABAR_GPU_QUEUE_PROBE").as_deref() != Ok("1") {
         return;
     }
+    // The probe submits and times its own marker after the graph, so the graph must already be
+    // submitted then.
+    crate::device_poll::require_synchronous_submission(world);
     world.insert_resource(QueueProbe {
         limit,
         frames: VecDeque::new(),

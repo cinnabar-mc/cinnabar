@@ -842,7 +842,7 @@ pub(crate) fn prepare_actor_bind_group(
 }
 
 fn submit_actor_presented_frame(
-    render_queue: Res<RenderQueue>,
+    completion: crate::device_poll::FrameCompletion,
     tracker: Res<ActorDrawTracker>,
     gate: Res<ActorPresentationGate>,
     witness: Res<ActorRuntimeWitness>,
@@ -875,7 +875,7 @@ fn submit_actor_presented_frame(
     let present_returned_at = web_time::Instant::now();
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
-    crate::device_poll::on_frame_complete(&render_queue, move || {
+    completion.on_frame_complete(move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =

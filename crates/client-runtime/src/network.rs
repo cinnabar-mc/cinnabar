@@ -8,8 +8,7 @@ use bevy::prelude::{
 };
 use bevy::render::view::ExtractedWindow;
 use bevy::render::{
-    Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
-    renderer::{RenderQueue, render_system},
+    Extract, ExtractSchedule, Render, RenderApp, RenderSystems, renderer::render_system,
 };
 use std::{collections::VecDeque, path::PathBuf};
 
@@ -251,7 +250,7 @@ fn trace_frame_presented(
     frames: Option<Res<FrameCount>>,
     windows: Query<&ExtractedWindow>,
     held: Res<HeldSwapChains>,
-    queue: Res<RenderQueue>,
+    completion: render::FrameCompletion,
     mut pending: ResMut<PresentedJoin>,
     content: Option<Res<render::UiFrameContent>>,
 ) {
@@ -268,7 +267,7 @@ fn trace_frame_presented(
         let leave = std::mem::take(&mut pending.leave);
         let hidden = pending.hidden;
         leave.mark("menu_submitted");
-        queue.on_submitted_work_done(move || {
+        completion.on_frame_complete(move || {
             leave.mark("gpu_retirement_fence");
             leave.menu_completed(hidden);
         });
@@ -281,7 +280,7 @@ fn trace_frame_presented(
         } else {
             "first_world_presented"
         };
-        queue.on_submitted_work_done(move || profile.finish(stage));
+        completion.on_frame_complete(move || profile.finish(stage));
     }
 }
 
