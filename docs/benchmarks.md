@@ -139,8 +139,9 @@ Hardware noise swamps single runs, so check a frame-time change with
 `cinnabar-mcp --repo <checkout> --benchmark-paired <base-plan.json> <candidate-plan.json> <rounds> <new-output-directory>`.
 The two plans differ only in `binary`, for example a release build of `origin/dev` and one of
 the branch. Each round runs both builds, alternating which goes first, into
-`round-NN-base` and `round-NN-candidate`; every pair must pass the comparison checks above.
-`paired.json` gives each frame statistic's and stage mean's candidate/base ratio as a median and
+`round-NN-base` and `round-NN-candidate`; every pair must pass the comparison checks above, and every round must measure the same
+binaries and workload as the first.
+`paired.json` gives each frame statistic's and CPU stage mean's candidate/base ratio as a median and
 interquartile range over the rounds. The command fails when the candidate's average FPS is lower
 in at least three quarters of the pairs for any route. Use seven or more rounds on an idle,
 plugged-in machine, ideally with both processes pinned to one CPU complex, and quote the median

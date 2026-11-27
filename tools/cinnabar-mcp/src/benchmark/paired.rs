@@ -72,10 +72,21 @@ pub(super) fn run(
         }
     }
     let mut pairs = Vec::with_capacity(rounds);
+    let mut first: Option<[Value; 3]> = None;
     for round in 0..rounds {
         let (b, bm) = report::load(&run_dir(round, Side::Base).join("report.json"))?;
         let (c, cm) = report::load(&run_dir(round, Side::Candidate).join("report.json"))?;
         report::compatible(&c, &cm, &b, &bm)?;
+        let inputs = [
+            bm["comparison_key"].clone(),
+            bm["hashes"]["binary"].clone(),
+            cm["hashes"]["binary"].clone(),
+        ];
+        if *first.get_or_insert_with(|| inputs.clone()) != inputs {
+            return Err(format!(
+                "round {round} measured a different build or workload than round 0"
+            ));
+        }
         pairs.push(ratios(&b, &c)?);
     }
     let summary = summarize(&pairs);
@@ -83,6 +94,7 @@ pub(super) fn run(
     let result = serde_json::json!({
         "comparison": "alternating_pairs", "candidate_over_base": summary,
         "slower_average_fps": slower, "qualification": "incomplete",
+        "gpu_comparison": "unsupported_without_origin_ids",
     });
     files::write(&output.join("paired.json"), &result)?;
     println!("{result}");
@@ -111,7 +123,13 @@ fn mostly_slower(pairs: &[BTreeMap<String, f64>]) -> Vec<String> {
         .collect()
 }
 
-/// Candidate/base ratios of every frame statistic and mean stage metric both reports carry.
+/// CPU stage means are the only run metrics paired; GPU samples lack source-frame identity, so
+/// their tails can move between routes without any change in execution time.
+fn cpu_stage_mean(name: &str) -> bool {
+    name.starts_with("cpu_spans.") && name.ends_with(".mean_ms")
+}
+
+/// Candidate/base ratios of every frame statistic and CPU stage mean both reports carry.
 fn ratios(base: &Value, candidate: &Value) -> Result<BTreeMap<String, f64>, String> {
     let values = |report: &Value| -> Result<BTreeMap<String, f64>, String> {
         let mut values = BTreeMap::new();
@@ -125,7 +143,7 @@ fn ratios(base: &Value, candidate: &Value) -> Result<BTreeMap<String, f64>, Stri
         }
         if let Some(metrics) = report["metrics"].as_object() {
             for (name, summary) in metrics {
-                if let Some(mean) = summary["mean"].as_f64() {
+                if let Some(mean) = summary["mean"].as_f64().filter(|_| cpu_stage_mean(name)) {
                     values.insert(name.clone(), mean);
                 }
             }
@@ -182,7 +200,10 @@ mod tests {
         json!({
             "frames": [{"phase": "spawn", "avg_fps": fps, "low_1pct_fps": fps / 2., "p50_ms": 1000. / fps,
                 "p99_ms": 2000. / fps, "max_ms": 0.0}],
-            "metrics": {"cpu.spawn.main_frame.mean_ms": {"mean": main_ms}},
+            "metrics": {
+                "cpu_spans.spawn.main_frame.mean_ms": {"mean": main_ms},
+                "gpu_received.spawn.gpu_frame.p99_ms": {"mean": main_ms},
+            },
         })
     }
 
@@ -197,7 +218,8 @@ mod tests {
     fn ratios_pair_shared_positive_metrics() {
         let ratios = ratios(&report(4000., 0.25), &report(5000., 0.2)).unwrap();
         assert_eq!(ratios["frames.spawn.avg_fps"], 1.25);
-        assert_eq!(ratios["cpu.spawn.main_frame.mean_ms"], 0.8);
+        assert_eq!(ratios["cpu_spans.spawn.main_frame.mean_ms"], 0.8);
+        assert!(!ratios.contains_key("gpu_received.spawn.gpu_frame.p99_ms"));
         assert!(
             !ratios.contains_key("frames.spawn.max_ms"),
             "zero is not a usable reference"

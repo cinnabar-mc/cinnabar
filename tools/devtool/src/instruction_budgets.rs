@@ -9,6 +9,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    time::{Duration, Instant},
 };
 
 /// Committed budgets, relative to the workspace root.
@@ -21,6 +22,9 @@ const TOLERANCE_PERCENT: f64 = 1.0;
 const GLIBC_TUNABLES: &str = "glibc.cpu.x86_rep_movsb_threshold=268435456:\
 glibc.cpu.x86_rep_stosb_threshold=268435456:\
 glibc.cpu.x86_non_temporal_threshold=268435456";
+/// Longest a budget test may run under Callgrind, which is roughly fifty times slower than
+/// native; nextest stops a native test after fifteen minutes.
+const CALLGRIND_DEADLINE: Duration = Duration::from_secs(15 * 60);
 const UPDATE_COMMAND: &str = "cargo run -p devtool --locked -- instruction-budgets --update";
 
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -274,7 +278,13 @@ fn parse_listing(listing: &str) -> Result<Vec<BudgetTest>, DevtoolError> {
 
 /// Runs one test under Callgrind and returns the instructions its counted region retired.
 fn measure(test: &BudgetTest, profile: &Path) -> Result<u64, DevtoolError> {
-    let result = Command::new("valgrind")
+    let log_path = profile.with_extension("log");
+    let log = fs::File::create(&log_path)
+        .map_err(|source| spawn_error("create Callgrind log", source))?;
+    let stderr = log
+        .try_clone()
+        .map_err(|source| spawn_error("share Callgrind log", source))?;
+    let mut child = Command::new("valgrind")
         .arg("--tool=callgrind")
         .arg("--collect-atstart=no")
         .arg(format!(
@@ -287,17 +297,35 @@ fn measure(test: &BudgetTest, profile: &Path) -> Result<u64, DevtoolError> {
         .current_dir(&test.cwd)
         .env("CARGO_MANIFEST_DIR", &test.cwd)
         .env("GLIBC_TUNABLES", GLIBC_TUNABLES)
-        .output()
+        .stdout(log)
+        .stderr(stderr)
+        .spawn()
         .map_err(|source| spawn_error("valgrind (install Valgrind to measure budgets)", source))?;
-    if !result.status.success() {
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|source| spawn_error("wait for valgrind", source))?
+        {
+            break status;
+        }
+        if started.elapsed() > CALLGRIND_DEADLINE {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error(format!(
+                "{} ran past {} s under Callgrind; see {}",
+                test.id,
+                CALLGRIND_DEADLINE.as_secs(),
+                log_path.display()
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    if !status.success() {
         return Err(DevtoolError::Command {
             command: format!("valgrind {}", test.id),
-            status: result.status.to_string(),
-            stderr: format!(
-                "{}{}",
-                String::from_utf8_lossy(&result.stdout),
-                String::from_utf8_lossy(&result.stderr)
-            ),
+            status: status.to_string(),
+            stderr: fs::read_to_string(&log_path).unwrap_or_default(),
         });
     }
     let text = fs::read_to_string(profile)
