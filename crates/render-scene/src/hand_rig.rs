@@ -23,7 +23,8 @@ pub struct HandRigFrame {
 #[derive(Clone, Default, Debug, Resource, ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct HandRigScene {
-    pub frame: Option<HandRigFrame>,
+    /// Private, so every change goes through a method that advances the publication token.
+    frame: Option<HandRigFrame>,
     /// The last publication token handed out.
     publications: u64,
 }
@@ -131,6 +132,12 @@ impl HandRigScene {
             self.publications = self.publications.wrapping_add(1);
             frame.publication = self.publications;
         }
+    }
+
+    /// The frame the scene holds, if any.
+    #[must_use]
+    pub fn frame(&self) -> Option<&HandRigFrame> {
+        self.frame.as_ref()
     }
 
     /// The publication token of the frame the scene holds, if any.

@@ -8,9 +8,9 @@ use {
 use super::*;
 use crate::actor::gpu::ArtworkRawViews;
 mod pose;
+use bevy::prelude::Entity;
 use pose::PoseStreams;
 pub(super) use pose::upload_pose;
-use bevy::prelude::Entity;
 
 const PIPELINE_SAMPLE_VARIANTS: usize = 4;
 const PIPELINE_VARIANTS: usize = PIPELINE_SAMPLE_VARIANTS * 2 * 2;
@@ -193,7 +193,7 @@ pub(super) fn prepare(
         deactivate(&mut gpu);
         return;
     }
-    let Some(frame) = &scene.frame else {
+    let Some(frame) = scene.frame() else {
         deactivate(&mut gpu);
         return;
     };

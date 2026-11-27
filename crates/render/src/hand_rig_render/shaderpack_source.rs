@@ -16,7 +16,7 @@ pub(crate) struct ShaderpackHand<'a> {
 /// The first-person rig when this frame's pose and geometry are uploaded.
 pub(crate) fn shaderpack_hand(world: &World) -> Option<ShaderpackHand<'_>> {
     let gpu = world.get_resource::<HandRigGpu>()?;
-    let frame = world.get_resource::<HandRigScene>()?.frame.as_ref()?;
+    let frame = world.get_resource::<HandRigScene>()?.frame()?;
     if gpu.publication != Some(frame.publication) || gpu.instance_count == 0 {
         return None;
     }
