@@ -24,6 +24,7 @@ impl Plugin for ClientInteractionPlugin {
             .init_resource::<survival_mining::SurvivalMiningRuntime>()
             .init_resource::<melee::MeleeRuntime>()
             .init_resource::<melee::SwingTracker>()
+            .init_resource::<hotbar::WheelAccumulator>()
             .add_systems(
                 Update,
                 hotbar::queue_hotbar_selection

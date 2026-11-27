@@ -363,7 +363,7 @@ macro_rules! settings {
 
 settings! {
     MacroModifier => "macro_modifier", dropdown("Macro Modifier", super::macro_modifier::MacroModifier::CHOICES, super::macro_modifier::MacroModifier::Alt as i32),
-        [(SettingPanel::Keyboard, 4)], [], None, None;
+        [(SettingPanel::Keyboard, 5)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
         [(SettingPanel::Chat, 5)], [SettingsGroup::Chat], None, None;
     CinnabarChatInput => "cinnabar_chat_input", dropdown("Chat Input", super::chat::CHAT_INPUTS, 0),
@@ -526,6 +526,8 @@ settings! {
         [(SettingPanel::Chat, 3)], [SettingsGroup::Chat], None, None;
     AlwaysSprint => "always_sprint", toggle("Always Sprint", false),
         [(SettingPanel::Keyboard, 3)], [], None, None;
+    MouseWheelHotbarScrolling => "mouse_wheel_hotbar_scrolling", toggle("mouse_wheel_hotbar_scrolling", ui::DEFAULT_MOUSE_WHEEL_HOTBAR_SCROLLING),
+        [(SettingPanel::Keyboard, 4)], [], None, None;
     ShowExactServerPing => "show_exact_server_ping", toggle("options.showExactServerPing", false),
         [(SettingPanel::VideoCustomization, 10)], [SettingsGroup::Video], None, None;
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),

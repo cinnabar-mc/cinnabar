@@ -11,6 +11,10 @@ pub const DEFAULT_OUTLINE_SELECTION: bool = true;
 pub const DEFAULT_SHOW_CUSTOM_ITEM_MODELS: bool = true;
 /// Other players' catalog cosmetics are visible until the player opts out.
 pub const DEFAULT_SHOW_OTHER_PLAYER_COSMETICS: bool = true;
+/// Mouse-wheel hotbar cycling is on until the player opts out.
+pub const DEFAULT_MOUSE_WHEEL_HOTBAR_SCROLLING: bool = true;
+/// English label of the wheel option, shared by both settings hosts.
+pub const MOUSE_WHEEL_HOTBAR_SCROLLING_LABEL: &str = "Mouse wheel hotbar scrolling";
 /// Default and slider bounds for the field-of-view option, in degrees.
 pub const DEFAULT_FOV_DEGREES: i32 = 60;
 pub const MIN_FOV_DEGREES: i32 = 30;
@@ -284,7 +288,7 @@ impl Default for VideoSettings {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GameplaySettings {
     pub default_perspective: PerspectiveMode,
     /// Sprint key toggles a persistent sprint instead of requiring hold.
@@ -293,8 +297,23 @@ pub struct GameplaySettings {
     pub always_sprint: bool,
     /// Sneak key toggles a persistent sneak instead of requiring hold.
     pub toggle_sneak: bool,
+    /// Mouse wheel cycles hotbar slots while gameplay owns input.
+    pub mouse_wheel_hotbar_scrolling: bool,
     /// How touch controls move and interact.
     pub touch_control_mode: semantic_input::TouchControlMode,
+}
+
+impl Default for GameplaySettings {
+    fn default() -> Self {
+        Self {
+            default_perspective: PerspectiveMode::default(),
+            toggle_sprint: false,
+            always_sprint: false,
+            toggle_sneak: false,
+            mouse_wheel_hotbar_scrolling: DEFAULT_MOUSE_WHEEL_HOTBAR_SCROLLING,
+            touch_control_mode: semantic_input::TouchControlMode::default(),
+        }
+    }
 }
 
 /// World rendering path. `Enhanced` and `ShaderPack` are opt-in custom looks that never

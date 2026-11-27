@@ -10,6 +10,7 @@ fn browser_canvas_capture_gates_raw_hotbar_scroll() {
         .init_resource::<semantic_controls::PendingDeviceFrame>()
         .init_resource::<client_state::GameplayScreenControls>()
         .init_resource::<client_state::ScreenFocus>()
+        .init_resource::<client_state::RuntimeSettings>()
         .init_resource::<client_state::SemanticInputSnapshot>()
         .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
         .insert_resource(UiPresentationResource(
@@ -31,7 +32,7 @@ fn browser_canvas_capture_gates_raw_hotbar_scroll() {
             ..Default::default()
         })
         .insert_resource(AccumulatedMouseScroll {
-            delta: Vec2::new(0.0, -1.0),
+            delta: Vec2::new(0.0, -16.0),
             ..Default::default()
         })
         .add_systems(
@@ -60,6 +61,7 @@ fn browser_canvas_capture_gates_raw_hotbar_scroll() {
             ui.open_chat(&mut player);
         }
         app.insert_resource(player)
+            .insert_resource(client_interaction::hotbar::WheelAccumulator::default())
             .insert_resource(UiRuntimeResource(ui))
             .insert_non_send(InputSource(Box::new(move || semantic_input::DeviceFrame {
                 window_focus_lost: !captured,

@@ -1,9 +1,15 @@
 //! Translates one backend arrival stream without combining independently ordered readers.
 
+use std::time::Duration;
+
 use super::*;
 use bevy::{
-    ecs::message::MessageCursor, input::ButtonState, prelude::Messages, window::WindowEvent,
+    ecs::message::MessageCursor,
+    input::ButtonState,
+    prelude::Messages,
+    window::WindowEvent,
 };
+use client_interaction::hotbar::{WheelAccumulator, wheel_pixels};
 use semantic_input::{DesktopEvent, DesktopEvents, PhysicalControl};
 
 #[cfg(test)]
@@ -14,11 +20,21 @@ pub(super) fn collect(
     inputs: &SemanticPhysicalInputs,
     messages: Option<&Messages<WindowEvent>>,
     cursor: &mut MessageCursor<WindowEvent>,
+    wheel_enabled: bool,
+    mut wheel: Option<&mut WheelAccumulator>,
+    now: Duration,
 ) -> Option<(DesktopEvents, bool)> {
+    if !wheel_enabled {
+        // A disabled wheel or a screen owning input leaves no pending motion behind.
+        if let Some(wheel) = wheel.as_deref_mut() {
+            wheel.clear();
+        }
+    }
     let messages = messages?;
     let window = inputs.window.0;
     let mut batch = Vec::new();
     let mut output = DesktopEvents::default();
+    let mut steps = 0_i32;
     let mut lost = false;
     let reserved = |name: &str| {
         inputs
@@ -102,10 +118,22 @@ pub(super) fn collect(
                 )
             }),
             WindowEvent::MouseWheel(event) => {
-                if event.y.is_finite() && event.y != 0.0 {
-                    output.push(DesktopEvent::Scroll {
-                        next: event.y < 0.0,
-                    });
+                // Keep the wheel source gated here, before it becomes a generic HotbarNext or
+                // HotbarPrevious action. Digits and bound buttons never take this branch.
+                let step = if let Some(wheel) = wheel.as_deref_mut() {
+                    if wheel_enabled {
+                        wheel.advance(wheel_pixels(event.y, event.unit), now)
+                    } else {
+                        0
+                    }
+                } else if wheel_enabled && event.y.is_finite() && event.y != 0.0 {
+                    if event.y < 0.0 { 1 } else { -1 }
+                } else {
+                    0
+                };
+                if step != 0 && steps == 0 {
+                    steps = step;
+                    output.push(DesktopEvent::Scroll { next: step > 0 });
                 }
                 None
             }

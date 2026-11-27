@@ -35,6 +35,7 @@ gameplay = { path = "../gameplay", features = ["test-support"] }
 player-state = { path = "../player-state" }
 protocol = { path = "../protocol", features = ["test-support"] }
 sha2.workspace = true
+test-time = { path = "../test-time" }
 ui = { path = "../ui" }
 
 [lints]

@@ -24,6 +24,8 @@ mod frame_boundary;
 fn app_fixture(capacity: usize) -> (App, client_session::CapturedPackets) {
     let (mut world, _) = selection_fixture();
     world.init_resource::<bevy::input::mouse::AccumulatedMouseScroll>();
+    world.init_resource::<client_state::RuntimeSettings>();
+    world.init_resource::<client_interaction::hotbar::WheelAccumulator>();
     set_hotbar_stack(&mut world, 2, None);
     let (network, captured) =
         NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(capacity);
@@ -34,6 +36,8 @@ fn app_fixture(capacity: usize) -> (App, client_session::CapturedPackets) {
 /// Samples a backend batch and runs the ordinary pre-physics interaction opportunity.
 fn before_physics(app: &mut App) {
     let world = app.world_mut();
+    // This fixture has no frame clock; each sampled frame is an independent wheel gesture.
+    world.insert_resource(client_interaction::hotbar::WheelAccumulator::default());
     world.run_system_cached(mouse_button_input_system).unwrap();
     world
         .run_system_cached(crate::semantic_controls::collect_raw_input)

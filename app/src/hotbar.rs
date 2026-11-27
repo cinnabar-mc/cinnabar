@@ -222,12 +222,14 @@ mod tests {
             .insert_resource(menu_runtime)
             .insert_resource(SemanticInputSnapshot::default())
             .insert_resource(AccumulatedMouseScroll {
-                delta: Vec2::new(0.0, -1.0),
+                delta: Vec2::new(0.0, -16.0),
                 ..Default::default()
             })
             .insert_resource(NetworkHandle::<PackApplication>::disconnected())
             .insert_resource(FatalError::default());
         app.init_resource::<client_state::ScreenFocus>();
+        app.init_resource::<client_state::RuntimeSettings>();
+        app.init_resource::<client_interaction::hotbar::WheelAccumulator>();
         app.world_mut()
             .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();
@@ -312,12 +314,14 @@ mod tests {
             .insert_resource(UiPresentationResource(presentation))
             .insert_resource(SemanticInputSnapshot::default())
             .insert_resource(AccumulatedMouseScroll {
-                delta: Vec2::new(0.0, -1.0),
+                delta: Vec2::new(0.0, -16.0),
                 ..Default::default()
             })
             .insert_resource(NetworkHandle::<PackApplication>::disconnected())
             .insert_resource(FatalError::default());
         app.init_resource::<client_state::ScreenFocus>();
+        app.init_resource::<client_state::RuntimeSettings>();
+        app.init_resource::<client_interaction::hotbar::WheelAccumulator>();
         app.world_mut()
             .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();

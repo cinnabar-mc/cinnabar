@@ -506,6 +506,32 @@ fn always_sprint_defaults_off_and_persists_into_runtime_settings() {
 }
 
 #[test]
+fn mouse_wheel_hotbar_scrolling_defaults_on_and_survives_opt_out() {
+    let id = SettingId::MouseWheelHotbarScrolling;
+    assert_eq!(id.name(), "mouse_wheel_hotbar_scrolling");
+    assert_eq!(SETTINGS_SCHEMA, 2);
+    assert!(id.definition().reset_group.is_empty());
+    let mut settings = SettingsOptions::default();
+    assert!(
+        settings
+            .user_settings()
+            .gameplay
+            .mouse_wheel_hotbar_scrolling
+    );
+    assert!(settings.set(index("mouse_wheel_hotbar_scrolling"), 0));
+    let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(
+        !restored
+            .user_settings()
+            .gameplay
+            .mouse_wheel_hotbar_scrolling
+    );
+    let mut reset = restored;
+    reset.reset_group(SettingsGroup::Video);
+    assert!(!reset.user_settings().gameplay.mouse_wheel_hotbar_scrolling);
+}
+
+#[test]
 fn vsync_defaults_and_saved_toggle_values_survive_loading() {
     use render_api::VsyncMode;
     assert_eq!(
