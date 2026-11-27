@@ -312,58 +312,98 @@ fn fused_composite_matches_resolving_then_compositing() {
     );
 }
 
-/// The table allocates nothing until a two-sample view needs it, and a failed allocation or
-/// pipeline at any stage leaves it absent, which keeps the plain resolve, then retries with
-/// backoff instead of failing the renderer.
+/// A world that builds the table on `fixture`'s device, with one view at `msaa`.
+fn build_world(fixture: &crate::gpu_snapshot::Gpu, msaa: Msaa) -> (World, Entity) {
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(fixture.device.clone()));
+    world.insert_resource(RenderQueue::new(fixture.queue.clone()));
+    world.insert_resource(ResolveLutBuilder {
+        supported: true,
+        failed: Default::default(),
+    });
+    let view = world.spawn(msaa).id();
+    (world, view)
+}
+
+/// The table allocates nothing until a two-sample view needs it, and a build whose error scopes
+/// report a failure leaves it absent, with nothing submitted, which keeps the plain resolve;
+/// the build then retries with backoff instead of failing the renderer.
 #[test]
-fn the_table_waits_for_a_two_sample_view_and_survives_a_failure_at_every_stage() {
+fn the_table_waits_for_a_two_sample_view_and_survives_a_failed_build() {
     use bevy::ecs::system::RunSystemOnce;
     use std::{cell::Cell, rc::Rc};
     let Some(fixture) = two_sample_fixture("lazily built two-sample resolve table") else {
         return;
     };
-    let stages = [SAMPLES_LABEL, TABLE_LABEL, MODULE_LABEL, PIPELINE_LABEL];
-    for (stage, failing) in stages.into_iter().enumerate() {
-        let mut world = World::new();
-        world.insert_resource(RenderDevice::from(fixture.device.clone()));
-        world.insert_resource(RenderQueue::new(fixture.queue.clone()));
-        world.insert_resource(ResolveLutBuilder {
-            supported: true,
-            failed: Default::default(),
-        });
-        let view = world.spawn(Msaa::Off).id();
-        let attempts = Rc::new(Cell::new(0));
-        let later = Rc::new(Cell::new(0));
-        let (counted, skipped) = (attempts.clone(), later.clone());
-        let _failure = crate::gpu_allocation::inject(move |label, _| {
-            if label == failing {
-                counted.set(counted.get() + 1);
-            } else if stages[stage + 1..].contains(&label) {
-                skipped.set(skipped.get() + 1);
-            }
-            label == failing
-        });
+    let (mut world, view) = build_world(&fixture, Msaa::Off);
+    let attempts = Rc::new(Cell::new(0));
+    let counted = attempts.clone();
+    let _failure = crate::gpu_allocation::inject(move |label, _| {
+        let build = label == BUILD_LABEL;
+        counted.set(counted.get() + usize::from(build));
+        build
+    });
+    SUBMITTED.set(0);
+    world.run_system_once(build).unwrap();
+    assert_eq!(attempts.get(), 0, "no table while anti-aliasing is off");
+    world.entity_mut(view).insert(Msaa::Sample2);
+    world.run_system_once(build).unwrap();
+    assert_eq!(attempts.get(), 1, "a two-sample view builds the table");
+    assert!(
+        !world.contains_resource::<ResolveLut>(),
+        "a failed build leaves the plain resolve"
+    );
+    assert_eq!(SUBMITTED.get(), 0, "a failed build submits nothing");
+    for _ in 0..16 {
         world.run_system_once(build).unwrap();
-        assert_eq!(attempts.get(), 0, "no table while anti-aliasing is off");
-        world.entity_mut(view).insert(Msaa::Sample2);
+    }
+    assert!(attempts.get() > 1, "the failed build retries");
+    assert!(!world.contains_resource::<ResolveLut>());
+    assert_eq!(SUBMITTED.get(), 0);
+}
+
+/// A real GPU error after any step of the build, from the textures through `finish`, is caught
+/// by the build's error scopes instead of the uncaptured error handler: the table stays absent
+/// with nothing submitted, and the retried build succeeds once the error is gone.
+#[test]
+fn an_error_at_any_build_step_keeps_the_plain_resolve_until_a_clean_retry() {
+    use bevy::ecs::system::RunSystemOnce;
+    let Some(fixture) = two_sample_fixture("two-sample resolve table build steps") else {
+        return;
+    };
+    for step in [
+        Step::Textures,
+        Step::Views,
+        Step::Module,
+        Step::Pipeline,
+        Step::Encoder,
+        Step::Passes,
+        Step::Finish,
+    ] {
+        let (mut world, _) = build_world(&fixture, Msaa::Sample2);
+        SUBMITTED.set(0);
+        FAULT_AFTER.set(Some(step));
         world.run_system_once(build).unwrap();
-        assert_eq!(attempts.get(), 1, "a two-sample view builds the table");
+        FAULT_AFTER.set(None);
         assert!(
             !world.contains_resource::<ResolveLut>(),
-            "a failed {failing} leaves the plain resolve"
+            "an error after {step:?} leaves the plain resolve"
         );
         assert_eq!(
-            later.get(),
+            SUBMITTED.get(),
             0,
-            "nothing after a failed {failing} is created from it"
+            "an error after {step:?} submits nothing"
         );
         for _ in 0..16 {
+            if world.contains_resource::<ResolveLut>() {
+                break;
+            }
             world.run_system_once(build).unwrap();
         }
         assert!(
-            attempts.get() > 1,
-            "the build retries after a failed {failing}"
+            world.contains_resource::<ResolveLut>(),
+            "the build after an error at {step:?} recovers"
         );
-        assert!(!world.contains_resource::<ResolveLut>());
+        assert_eq!(SUBMITTED.get(), 1);
     }
 }

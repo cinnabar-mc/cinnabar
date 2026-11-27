@@ -85,93 +85,137 @@ pub(super) fn build(
     }
 }
 
-/// Label of the table's checked sample allocation.
-const SAMPLES_LABEL: &str = "two-sample resolve table samples";
-/// Label of the table's checked resolved allocation.
-const TABLE_LABEL: &str = "two-sample resolve table";
-/// Label of the table's checked shader module.
-const MODULE_LABEL: &str = "two-sample resolve table shader";
-/// Label of the table's checked sample-writing pipeline.
-const PIPELINE_LABEL: &str = "two-sample resolve table pipeline";
+/// Label of the table's build, for its error scopes and allocation warnings.
+const BUILD_LABEL: &str = "two-sample resolve table";
 
-/// Allocates the table's textures, then encodes and submits its construction, returning its
-/// sRGB view; `None`, with nothing encoded, when an allocation, the shader module or the
-/// pipeline runs out of memory. Each is checked on its own, so a failed one is never passed on.
+/// Steps of the table's build, in order; tests raise a real GPU error after any of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Step {
+    Textures,
+    Views,
+    Module,
+    Pipeline,
+    Encoder,
+    Passes,
+    Finish,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The step after which this thread's next build raises a validation error.
+    pub(super) static FAULT_AFTER: std::cell::Cell<Option<Step>> = const { std::cell::Cell::new(None) };
+    /// Builds this thread submitted.
+    pub(super) static SUBMITTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Does nothing outside tests, which may raise a GPU error after any step.
+#[cfg(not(test))]
+fn fault_after(_: &wgpu::Device, _: Step) {}
+
+/// Raises a real validation error after `step` when a test asked for one.
+#[cfg(test)]
+fn fault_after(gpu: &wgpu::Device, step: Step) {
+    if FAULT_AFTER.get() == Some(step) {
+        // A mapped buffer's size must be a multiple of four.
+        let _ = gpu.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("resolve table test fault"),
+            size: 3,
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: true,
+        });
+    }
+}
+
+/// Builds the table and submits its construction, returning its sRGB view; `None`, with
+/// nothing submitted, when any step of the build failed.
+///
+/// Every step, from the first texture through `finish`, runs inside one pair of
+/// out-of-memory and validation error scopes ([`crate::gpu_allocation::fallible`]): a step
+/// that runs out of memory returns an invalid handle, and a later step given that handle
+/// fails validation, so both kinds are captured and none reaches the uncaptured error handler.
+/// The finished commands are submitted only once both scopes come back clean.
 pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::TextureView> {
-    let gpu = device.wgpu_device();
+    let bytes = u64::from(CODES) * u64::from(CODES) * 4 * 3;
+    let (view, commands) = crate::gpu_allocation::fallible(device, BUILD_LABEL, bytes, || {
+        encode(device.wgpu_device())
+    })?;
+    #[cfg(test)]
+    SUBMITTED.set(SUBMITTED.get() + 1);
+    queue.submit([commands]);
+    Some(view)
+}
+
+/// Creates the table's resources and encodes its construction, without submitting it.
+fn encode(gpu: &wgpu::Device) -> (wgpu::TextureView, wgpu::CommandBuffer) {
     let size = wgpu::Extent3d {
         width: CODES,
         height: CODES,
         depth_or_array_layers: 1,
     };
-    let texels = u64::from(CODES) * u64::from(CODES) * 4;
-    let samples = crate::gpu_allocation::checked(device, SAMPLES_LABEL, texels * 2, || {
-        gpu.create_texture(&wgpu::TextureDescriptor {
-            label: Some(SAMPLES_LABEL),
-            size,
-            mip_level_count: 1,
-            sample_count: 2,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-        })
-    })?;
-    let table = crate::gpu_allocation::checked(device, TABLE_LABEL, texels, || {
-        gpu.create_texture(&wgpu::TextureDescriptor {
-            label: Some(TABLE_LABEL),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        })
-    })?;
-    let module = crate::gpu_allocation::checked(device, MODULE_LABEL, 0, || {
-        gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(MODULE_LABEL),
-            source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
-        })
-    })?;
-    let pipeline = crate::gpu_allocation::checked(device, PIPELINE_LABEL, 0, || {
-        gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(PIPELINE_LABEL),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vertex"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 2,
-                ..Default::default()
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some("samples"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        })
-    })?;
+    let samples = gpu.create_texture(&wgpu::TextureDescriptor {
+        label: Some("two-sample resolve table samples"),
+        size,
+        mip_level_count: 1,
+        sample_count: 2,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+    });
+    let table = gpu.create_texture(&wgpu::TextureDescriptor {
+        label: Some(BUILD_LABEL),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    fault_after(gpu, Step::Textures);
     let encoded = samples.create_view(&Default::default());
     let linear = samples.create_view(&wgpu::TextureViewDescriptor {
         format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
         ..Default::default()
     });
     let view = table.create_view(&Default::default());
+    fault_after(gpu, Step::Views);
+    let module = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(BUILD_LABEL),
+        source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
+    });
+    fault_after(gpu, Step::Module);
+    let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("two-sample resolve table samples"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vertex"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 2,
+            ..Default::default()
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("samples"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+    fault_after(gpu, Step::Pipeline);
     let mut encoder = gpu.create_command_encoder(&Default::default());
+    fault_after(gpu, Step::Encoder);
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("two-sample resolve table samples"),
@@ -191,7 +235,7 @@ pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::
     }
     // The scene's own resolve: a load of the samples through their sRGB view.
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("two-sample resolve table"),
+        label: Some(BUILD_LABEL),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: &linear,
             depth_slice: None,
@@ -203,8 +247,10 @@ pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::
         })],
         ..Default::default()
     });
-    queue.submit([encoder.finish()]);
-    Some(view)
+    fault_after(gpu, Step::Passes);
+    let commands = encoder.finish();
+    fault_after(gpu, Step::Finish);
+    (view, commands)
 }
 
 #[cfg(test)]
