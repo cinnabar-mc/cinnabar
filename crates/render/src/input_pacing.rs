@@ -214,10 +214,9 @@ impl History {
         if self.len < MIN_SAMPLES {
             return None;
         }
-        let mut sorted = self.samples;
-        let sorted = &mut sorted[..self.len];
-        sorted.sort_unstable();
-        Some(sorted[rank * self.len / HISTORY])
+        let mut samples = self.samples;
+        let (_, sample, _) = samples[..self.len].select_nth_unstable(rank * self.len / HISTORY);
+        Some(*sample)
     }
 }
 
@@ -226,6 +225,8 @@ impl History {
 struct PacingModel {
     main: History,
     render: History,
+    /// Render time without drawable waits, read only by the GPU queue model.
+    #[cfg(any(target_os = "macos", test))]
     render_work: History,
 }
 
@@ -250,7 +251,9 @@ struct PacerState {
     update_started: Option<Instant>,
     /// When the render thread began its current frame.
     render_started: Option<Instant>,
+    #[cfg(any(target_os = "macos", test))]
     surface_started: Option<Instant>,
+    #[cfg(any(target_os = "macos", test))]
     surface_elapsed: Duration,
     /// Frames handed to the render thread and frames it has finished; it renders them in order.
     handed: u64,
@@ -317,15 +320,20 @@ impl InputPacer {
         let mut state = self.state();
         state.rendering += 1;
         state.render_started = Some(self.clock.now());
-        state.surface_elapsed = Duration::ZERO;
+        #[cfg(any(target_os = "macos", test))]
+        {
+            state.surface_elapsed = Duration::ZERO;
+        }
     }
 
     /// Separates drawable backpressure from CPU work needed to feed the GPU.
+    #[cfg(any(target_os = "macos", test))]
     fn surface_started(&self) {
         self.state().surface_started = Some(self.clock.now());
     }
 
     /// Accounts for surface preparation without retaining it as GPU feeding work.
+    #[cfg(any(target_os = "macos", test))]
     fn surface_finished(&self) {
         let now = self.clock.now();
         let mut state = self.state();
@@ -353,9 +361,12 @@ impl InputPacer {
         let mut state = self.state();
         if let Some(started) = state.render_started.take() {
             let elapsed = now.saturating_duration_since(started);
-            let work = elapsed.saturating_sub(state.surface_elapsed);
             state.model.render.record(elapsed);
-            state.model.render_work.record(work);
+            #[cfg(any(target_os = "macos", test))]
+            {
+                let work = elapsed.saturating_sub(state.surface_elapsed);
+                state.model.render_work.record(work);
+            }
             state.finished += 1;
         }
     }
@@ -541,12 +552,17 @@ impl Plugin for InputPacingPlugin {
                 (
                     mark_render_start.before(RenderSystems::ExtractCommands),
                     mark_render_end.in_set(RenderSystems::PostCleanup),
-                    (
-                        mark_surface_start.before(bevy::render::view::window::prepare_windows),
-                        mark_surface_end.after(bevy::render::view::window::prepare_windows),
-                    )
-                        .in_set(RenderSystems::PrepareViews),
                 ),
+            );
+            // Only the GPU queue model separates drawable waits from render work.
+            #[cfg(any(target_os = "macos", test))]
+            render_app.add_systems(
+                Render,
+                (
+                    mark_surface_start.before(bevy::render::view::window::prepare_windows),
+                    mark_surface_end.after(bevy::render::view::window::prepare_windows),
+                )
+                    .in_set(RenderSystems::PrepareViews),
             );
         }
     }
@@ -570,10 +586,12 @@ fn mark_render_end(pacer: Res<InputPacer>) {
     pacer.render_finished();
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn mark_surface_start(pacer: Res<InputPacer>) {
     pacer.surface_started();
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn mark_surface_end(pacer: Res<InputPacer>) {
     pacer.surface_finished();
 }

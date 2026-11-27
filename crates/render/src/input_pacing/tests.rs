@@ -568,3 +568,25 @@ mod policy;
 
 #[path = "tests/spin.rs"]
 mod spin;
+
+/// Each quantile is the sample at its rank in sorted order, for partial and wrapped windows.
+#[test]
+fn quantiles_pick_the_ranked_sample_of_the_held_window() {
+    let mut history = History::default();
+    let mut held = Vec::new();
+    for step in 0..HISTORY * 2 + 5 {
+        // A scrambled sequence with repeats and no step change past the median reset.
+        let sample = Duration::from_micros(1_000 + ((step * 37) % 23) as u64 * 10);
+        history.push(sample);
+        held.push(sample);
+        if held.len() > HISTORY {
+            held.remove(0);
+        }
+        let mut sorted = held.clone();
+        sorted.sort_unstable();
+        for rank in [0, MEDIAN, HISTORY - 1] {
+            let expected = (held.len() >= MIN_SAMPLES).then(|| sorted[rank * held.len() / HISTORY]);
+            assert_eq!(history.quantile(rank), expected, "step {step}, rank {rank}");
+        }
+    }
+}
