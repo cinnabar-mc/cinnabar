@@ -242,7 +242,7 @@ fn frame_submission(
 /// fires need no render world, so the next extraction overlaps them. They still run before the
 /// next render frame, so readers keep seeing what arrived by the previous frame's poll.
 #[allow(clippy::too_many_arguments)]
-fn poll_device(
+pub(crate) fn poll_device(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     pending: Option<ResMut<PendingCommandBuffers>>,

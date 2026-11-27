@@ -641,8 +641,8 @@ fn a_loading_download_no_paint_asks_for_again_is_not_polled() {
     let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
     atlas.begin_frame();
     atlas.require(["https://example.invalid/closed-form.png"]);
-    atlas.begin_frame();
     let reads = download.0.load(std::sync::atomic::Ordering::Relaxed);
+    atlas.begin_frame();
     assert!(!atlas.completions_waiting());
     assert_eq!(
         download.0.load(std::sync::atomic::Ordering::Relaxed),

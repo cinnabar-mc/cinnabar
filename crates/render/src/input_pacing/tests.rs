@@ -538,6 +538,7 @@ fn drawable_wait_does_not_inflate_gpu_feeding_work() {
         clock.advance(ms(7.0));
         pacer.surface_finished();
         clock.advance(ms(1.0));
+        pacer.render_work_finished();
         pacer.render_finished();
     }
     let state = pacer.state();
@@ -592,7 +593,8 @@ fn quantiles_pick_the_ranked_sample_of_the_held_window() {
 }
 
 // Submission and GPU backpressure run in the render frame tail, after the render schedule's
-// last set; a render counted as finished before them would let input be sampled too early.
+// last set; a render counted as finished before them would let input be sampled too early. The
+// GPU queue model's feeding work stops at submission, before the device poll waits on the GPU.
 #[test]
 fn render_completion_counts_the_frame_tail_on_the_render_thread() {
     use bevy::ecs::system::RunSystemOnce;
@@ -605,16 +607,24 @@ fn render_completion_counts_the_frame_tail_on_the_render_thread() {
     world.insert_resource(FrameTailOnRenderThread);
     pacer.render_started();
     clock.advance(ms(2.0));
+    world.run_system_once(mark_render_submitted).unwrap();
+    let poll_wait = clock.clone();
+    tail.defer(move || poll_wait.advance(ms(5.0)));
     world.run_system_once(mark_render_end).unwrap();
     assert_eq!(pacer.state().finished, 0, "the tail has not run yet");
-    clock.advance(ms(5.0));
+    clock.advance(ms(1.0));
     tail.run();
     let state = pacer.state();
     assert_eq!(state.finished, 1);
     assert_eq!(
         state.model.render.samples[0],
-        ms(7.0),
+        ms(8.0),
         "the render time includes the tail's submission and waits"
+    );
+    assert_eq!(
+        state.model.render_work.samples[0],
+        ms(3.0),
+        "feeding work ends at submission, before the poll's GPU wait"
     );
 }
 

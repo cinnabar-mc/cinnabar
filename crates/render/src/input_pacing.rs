@@ -360,17 +360,28 @@ impl InputPacer {
         self.state().gpu.complete(submission, end, elapsed);
     }
 
+    /// Records the CPU work feeding the GPU, through the frame's submission and without drawable
+    /// waits, for the GPU queue model.
+    #[cfg(any(target_os = "macos", test))]
+    fn render_work_finished(&self) {
+        let now = self.clock.now();
+        let mut state = self.state();
+        if let Some(started) = state.render_started {
+            let work = now
+                .saturating_duration_since(started)
+                .saturating_sub(state.surface_elapsed);
+            state.model.render_work.record(work);
+        }
+    }
+
     fn render_finished(&self) {
         let now = self.clock.now();
         let mut state = self.state();
         if let Some(started) = state.render_started.take() {
-            let elapsed = now.saturating_duration_since(started);
-            state.model.render.record(elapsed);
-            #[cfg(any(target_os = "macos", test))]
-            {
-                let work = elapsed.saturating_sub(state.surface_elapsed);
-                state.model.render_work.record(work);
-            }
+            state
+                .model
+                .render
+                .record(now.saturating_duration_since(started));
             state.finished += 1;
         }
     }
@@ -563,10 +574,16 @@ impl Plugin for InputPacingPlugin {
             render_app.add_systems(
                 Render,
                 (
-                    mark_surface_start.before(bevy::render::view::window::prepare_windows),
-                    mark_surface_end.after(bevy::render::view::window::prepare_windows),
-                )
-                    .in_set(RenderSystems::PrepareViews),
+                    (
+                        mark_surface_start.before(bevy::render::view::window::prepare_windows),
+                        mark_surface_end.after(bevy::render::view::window::prepare_windows),
+                    )
+                        .in_set(RenderSystems::PrepareViews),
+                    mark_render_submitted
+                        .in_set(RenderSystems::Render)
+                        .after(crate::device_poll::FrameSubmissions)
+                        .before(crate::device_poll::poll_device),
+                ),
             );
         }
     }
@@ -586,20 +603,39 @@ fn mark_render_start(pacer: Res<InputPacer>) {
     pacer.render_started();
 }
 
-/// Marks the frame rendered once its submission and backpressure are done: in the render frame
-/// tail when the render thread runs one, so pacing counts the tail's work and waits.
+/// Runs `mark` where the frame's deferred submission and device poll run: in the render frame
+/// tail when the render thread runs one, otherwise at once.
+fn in_frame_order(
+    tail: Option<Res<RenderFrameTail>>,
+    on_render_thread: Option<Res<FrameTailOnRenderThread>>,
+    mark: impl FnOnce() + Send + 'static,
+) {
+    match tail.filter(|_| on_render_thread.is_some()) {
+        Some(tail) => tail.defer(mark),
+        None => mark(),
+    }
+}
+
+/// Marks the frame's CPU work done once it is submitted, before the device poll waits on the GPU.
+#[cfg(any(target_os = "macos", test))]
+fn mark_render_submitted(
+    pacer: Res<InputPacer>,
+    tail: Option<Res<RenderFrameTail>>,
+    on_render_thread: Option<Res<FrameTailOnRenderThread>>,
+) {
+    let pacer = pacer.clone();
+    in_frame_order(tail, on_render_thread, move || pacer.render_work_finished());
+}
+
+/// Marks the frame rendered once its submission and backpressure are done, so pacing counts the
+/// render frame tail's work and waits.
 fn mark_render_end(
     pacer: Res<InputPacer>,
     tail: Option<Res<RenderFrameTail>>,
     on_render_thread: Option<Res<FrameTailOnRenderThread>>,
 ) {
-    match tail.filter(|_| on_render_thread.is_some()) {
-        Some(tail) => {
-            let pacer = pacer.clone();
-            tail.defer(move || pacer.render_finished());
-        }
-        None => pacer.render_finished(),
-    }
+    let pacer = pacer.clone();
+    in_frame_order(tail, on_render_thread, move || pacer.render_finished());
 }
 
 #[cfg(any(target_os = "macos", test))]
