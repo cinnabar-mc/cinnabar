@@ -21,6 +21,7 @@ pub(super) fn collect(
     messages: Option<&Messages<WindowEvent>>,
     cursor: &mut MessageCursor<WindowEvent>,
     wheel_enabled: bool,
+    ordered_owns_wheel: bool,
     mut wheel: Option<&mut WheelAccumulator>,
     now: Duration,
 ) -> Option<(DesktopEvents, bool)> {
@@ -120,13 +121,18 @@ pub(super) fn collect(
             WindowEvent::MouseWheel(event) => {
                 // Keep the wheel source gated here, before it becomes a generic HotbarNext or
                 // HotbarPrevious action. Digits and bound buttons never take this branch.
+                // Non-KeyboardMouse modes leave the accumulator for the raw hotbar path.
                 let step = if let Some(wheel) = wheel.as_deref_mut() {
-                    if wheel_enabled {
+                    if wheel_enabled && ordered_owns_wheel {
                         wheel.advance(wheel_pixels(event.y, event.unit), now)
                     } else {
                         0
                     }
-                } else if wheel_enabled && event.y.is_finite() && event.y != 0.0 {
+                } else if wheel_enabled
+                    && ordered_owns_wheel
+                    && event.y.is_finite()
+                    && event.y != 0.0
+                {
                     if event.y < 0.0 { 1 } else { -1 }
                 } else {
                     0

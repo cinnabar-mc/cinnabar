@@ -4,20 +4,21 @@
 use std::time::Duration;
 
 use bevy::{
+    ecs::system::RunSystemOnce,
     input::mouse::{MouseScrollUnit, MouseWheel},
     time::{Real, Time},
 };
-use client_interaction::{hotbar::WheelAccumulator, item_use::ItemUseRuntime};
-use client_state::{PlayerRuntime, RuntimeSettings, ScreenFocus};
+use client_interaction::{
+    hotbar::{PIXELS_PER_NOTCH, WheelAccumulator},
+    item_use::ItemUseRuntime,
+};
+use client_state::{PlayerRuntime, RuntimeSettings, ScreenFocus, SemanticInputSnapshot};
 use semantic_input::{Action, SemanticInputRouter};
 
 use super::*;
 
 #[derive(bevy::prelude::Resource)]
 struct TestRouter(SemanticInputRouter);
-
-/// One hotbar notch is 16 raw wheel pixels, the same scale the raw path uses.
-const RAW_PIXELS_PER_NOTCH: f32 = 16.0;
 
 /// Builds the smallest app that runs a real wheel event through collection, routing and the
 /// production ordered-selection system, without a renderer or a server.
@@ -161,7 +162,7 @@ fn one_line_notch_selects_exactly_one_slot_and_cooldown_limits_a_rapid_repeat() 
 fn ordered_pixel_delta_still_uses_sixteen_pixels_per_notch() {
     let mut app = wheel_app(true);
     assert_eq!(
-        ordered_wheel_frame(&mut app, MouseScrollUnit::Pixel, -RAW_PIXELS_PER_NOTCH),
+        ordered_wheel_frame(&mut app, MouseScrollUnit::Pixel, -PIXELS_PER_NOTCH),
         vec![Action::HotbarNext]
     );
     assert_eq!(
@@ -175,6 +176,57 @@ fn ordered_pixel_delta_still_uses_sixteen_pixels_per_notch() {
         ordered_wheel_frame(&mut drifting, MouseScrollUnit::Pixel, -7.0),
         Vec::new(),
         "half a pixel-notch is below the shared threshold"
+    );
+}
+
+/// Touch frames never publish ordered wheel actions: the raw hotbar path must be the only
+/// accumulator consumer, so one physical delta cannot be counted twice.
+#[test]
+fn touch_mode_wheel_is_consumed_only_by_the_raw_path() {
+    let mut app = wheel_app(true);
+    app.insert_resource(client_state::EffectiveGameplayInputMode(
+        semantic_input::InputMode::Touch,
+    ))
+    .insert_resource(SemanticInputSnapshot::default())
+    .insert_resource(bevy::input::mouse::AccumulatedMouseScroll {
+        delta: bevy::prelude::Vec2::new(0.0, -6.0),
+        unit: MouseScrollUnit::Pixel,
+        ..Default::default()
+    });
+    let window = {
+        let mut windows = app
+            .world_mut()
+            .query_filtered::<Entity, With<PrimaryWindow>>();
+        windows.single(app.world()).unwrap()
+    };
+    app.world_mut()
+        .write_message(WindowEvent::MouseWheel(MouseWheel {
+            phase: bevy::input::touch::TouchPhase::Moved,
+            unit: MouseScrollUnit::Pixel,
+            x: 0.0,
+            y: -6.0,
+            window,
+        }));
+    app.update();
+    app.world_mut()
+        .run_system_once(client_interaction::hotbar::queue_hotbar_selection)
+        .expect("raw hotbar selection runs");
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .selected_hotbar_slot(),
+        Some(0),
+        "ordered collection must not consume a wheel delta it cannot publish"
+    );
+    app.world_mut()
+        .run_system_once(client_interaction::hotbar::queue_hotbar_selection)
+        .expect("raw hotbar selection runs again");
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .selected_hotbar_slot(),
+        Some(1),
+        "the second raw sub-threshold delta completes one notch"
     );
 }
 

@@ -11,7 +11,7 @@ use protocol::HOTBAR_SLOT_COUNT;
 use semantic_input::{Action, HOTBAR_DIGIT_ACTIONS};
 
 /// Raw wheel pixels per hotbar notch.
-const PIXELS_PER_NOTCH: f32 = 16.0;
+pub const PIXELS_PER_NOTCH: f32 = 16.0;
 /// Half a notch starts a cycle; smaller trackpad drift never selects a slot.
 const NOTCH_THRESHOLD: f32 = 0.5;
 /// One cycle per interval keeps wheel inertia from spinning the hotbar.
@@ -43,8 +43,12 @@ impl WheelAccumulator {
     /// Accumulates one frame's raw pixel delta and returns at most one signed slot step.
     /// A positive pixel delta selects the previous slot, matching the old wheel direction.
     pub fn advance(&mut self, delta_y: f32, now: Duration) -> i32 {
-        if !delta_y.is_finite() || delta_y == 0.0 {
+        if !delta_y.is_finite() {
             self.notches = 0.0;
+            return 0;
+        }
+        if delta_y == 0.0 {
+            // Idle frames carry no new motion; leave earlier sub-notch input pending.
             return 0;
         }
         let delta = delta_y / PIXELS_PER_NOTCH;
@@ -436,6 +440,15 @@ mod wheel_tests {
         let mut wheel = WheelAccumulator::default();
         assert_eq!(wheel.advance(-7.0, clock.elapsed()), 0);
         assert_eq!(wheel.advance(-7.0, clock.elapsed()), 1);
+    }
+
+    #[test]
+    fn idle_frame_between_sub_notch_deltas_keeps_accumulated_motion() {
+        let clock = ManualClock::new();
+        let mut wheel = WheelAccumulator::default();
+        assert_eq!(wheel.advance(-6.0, clock.elapsed()), 0);
+        assert_eq!(wheel.advance(0.0, clock.elapsed()), 0);
+        assert_eq!(wheel.advance(-6.0, clock.elapsed()), 1);
     }
 
     #[test]

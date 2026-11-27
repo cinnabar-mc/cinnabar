@@ -58,9 +58,9 @@ mod tests {
         .control
         .expect("Keyboard & Mouse options");
         let position = |name: &str| section.children.iter().position(|child| child.name == name);
-        assert_eq!(
-            position(SettingId::MouseWheelHotbarScrolling.definition().name),
-            position("always_sprint").map(|at| at + 1)
-        );
+        let wheel = position(SettingId::MouseWheelHotbarScrolling.definition().name)
+            .expect("wheel toggle in Keyboard & Mouse options");
+        let sprint = position("always_sprint").expect("Always Sprint in Keyboard & Mouse options");
+        assert_eq!(wheel, sprint + 1);
     }
 }

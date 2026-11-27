@@ -93,11 +93,16 @@ pub(crate) fn collect_raw_input(
         && screen_focus.is_none_or(|focus| !focus.absorbs_input);
     let now = time.map_or(std::time::Duration::ZERO, |clock| clock.elapsed());
     let mode = inputs.effective_mode.as_ref().map(|m| m.0);
+    // Only KeyboardMouse frames publish ordered desktop events. Other modes must leave the
+    // shared accumulator to the raw hotbar system, or one wheel delta is consumed twice.
+    let ordered_owns_wheel =
+        mode.is_none_or(|mode| mode == semantic_input::InputMode::KeyboardMouse);
     let ordered = ordered::collect(
         &inputs,
         events.as_deref(),
         &mut cursor,
         wheel_enabled,
+        ordered_owns_wheel,
         wheel.as_deref_mut(),
         now,
     );
