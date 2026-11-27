@@ -50,47 +50,80 @@ fn supported(adapter: &RenderAdapter, device: &RenderDevice) -> bool {
         })
 }
 
-/// Builds the table on devices that support two-sample resolves.
+/// Whether the table can be built on this device, and its failed builds still backing off.
+#[derive(Resource, Default)]
+pub(super) struct ResolveLutBuilder {
+    supported: bool,
+    failed: crate::gpu_allocation::FailedRequests<()>,
+}
+
+/// Records whether the device supports the table; nothing is allocated until a view needs it.
+pub(super) fn init(mut commands: Commands, adapter: Res<RenderAdapter>, device: Res<RenderDevice>) {
+    commands.insert_resource(ResolveLutBuilder {
+        supported: supported(&adapter, &device),
+        failed: Default::default(),
+    });
+}
+
+/// Builds the table once a two-sample view needs it. A failed allocation leaves the table
+/// absent, which keeps the plain resolve, and retries with backoff while a view still needs it.
 pub(super) fn build(
     mut commands: Commands,
-    adapter: Res<RenderAdapter>,
+    mut builder: ResMut<ResolveLutBuilder>,
+    views: Query<&Msaa>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
-    if supported(&adapter, &device) {
-        commands.insert_resource(ResolveLut {
-            view: table(device.wgpu_device(), &queue).into(),
-        });
+    if !builder.supported || !views.iter().any(|msaa| *msaa == Msaa::Sample2) {
+        return;
+    }
+    if let Some(view) = builder
+        .failed
+        .attempt(Entity::PLACEHOLDER, (), || table(&device, &queue))
+    {
+        commands.insert_resource(ResolveLut { view: view.into() });
     }
 }
 
-/// Encodes and submits the table's construction, returning its sRGB view.
-pub(crate) fn table(gpu: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
+/// Label of the table's checked sample allocation.
+const SAMPLES_LABEL: &str = "two-sample resolve table samples";
+/// Label of the table's checked resolved allocation.
+const TABLE_LABEL: &str = "two-sample resolve table";
+
+/// Allocates the table's textures, then encodes and submits its construction, returning its
+/// sRGB view; `None`, with nothing encoded, when either allocation runs out of memory.
+pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::TextureView> {
+    let gpu = device.wgpu_device();
     let size = wgpu::Extent3d {
         width: CODES,
         height: CODES,
         depth_or_array_layers: 1,
     };
-    let samples = gpu.create_texture(&wgpu::TextureDescriptor {
-        label: Some("two-sample resolve table samples"),
-        size,
-        mip_level_count: 1,
-        sample_count: 2,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let table = gpu.create_texture(&wgpu::TextureDescriptor {
-        label: Some("two-sample resolve table"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
+    let texels = u64::from(CODES) * u64::from(CODES) * 4;
+    let samples = crate::gpu_allocation::checked(device, SAMPLES_LABEL, texels * 2, || {
+        gpu.create_texture(&wgpu::TextureDescriptor {
+            label: Some(SAMPLES_LABEL),
+            size,
+            mip_level_count: 1,
+            sample_count: 2,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        })
+    })?;
+    let table = crate::gpu_allocation::checked(device, TABLE_LABEL, texels, || {
+        gpu.create_texture(&wgpu::TextureDescriptor {
+            label: Some(TABLE_LABEL),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    })?;
     let module = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("two-sample resolve table"),
         source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
@@ -162,7 +195,7 @@ pub(crate) fn table(gpu: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureVie
         ..Default::default()
     });
     queue.submit([encoder.finish()]);
-    view
+    Some(view)
 }
 
 #[cfg(test)]

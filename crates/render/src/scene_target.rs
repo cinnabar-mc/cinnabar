@@ -212,7 +212,9 @@ impl SceneTarget {
 
     /// The two-sample scene's encoded view while its final resolve is still pending.
     pub(crate) fn pending_samples(&self) -> Option<&TextureView> {
-        self.pending.load(Ordering::Relaxed).then_some(&self.encoded)
+        self.pending
+            .load(Ordering::Relaxed)
+            .then_some(&self.encoded)
     }
 
     /// Resolves a pending final resolve now, before a consumer reads or writes the view's main
@@ -267,7 +269,7 @@ pub(crate) fn install(app: &mut App) {
         .init_resource::<WithheldSamples>()
         .init_resource::<MultisampleFallback>()
         .add_systems(Render, render_systems())
-        .add_systems(bevy::render::RenderStartup, resolve_lut::build);
+        .add_systems(bevy::render::RenderStartup, resolve_lut::init);
 }
 
 #[derive(Resource)]
@@ -308,6 +310,10 @@ fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::S
         prepare_scene_targets
             .in_set(RenderSystems::PrepareResources)
             .after(prepare_view_targets),
+        resolve_lut::build
+            .in_set(RenderSystems::PrepareResources)
+            .run_if(resource_exists::<resolve_lut::ResolveLutBuilder>)
+            .run_if(not(resource_exists::<resolve_lut::ResolveLut>)),
     )
         .into_configs()
 }
@@ -373,7 +379,10 @@ pub(crate) struct SceneTargetUnavailable;
 /// Resolves `view`'s pending final scene resolve before a pass reads or writes its main
 /// texture. Every consumer of the resolved scene after [`ScenePass::Finish`] calls this.
 pub(crate) fn ensure_resolved(world: &World, view: Entity, context: &mut RenderContext) {
-    if let (Some(scene), Some(target)) = (world.get::<SceneTarget>(view), world.get::<ViewTarget>(view)) {
+    if let (Some(scene), Some(target)) = (
+        world.get::<SceneTarget>(view),
+        world.get::<ViewTarget>(view),
+    ) {
         scene.ensure_resolved(context, world, target);
     }
 }

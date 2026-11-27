@@ -213,23 +213,21 @@ fn composite(
 /// Compositing over the scene's samples through the device's tabulated resolve writes the same
 /// bytes as resolving the scene with a render pass and compositing over the resolved texture,
 /// under empty, translucent and opaque UI alike.
-#[test]
-fn fused_composite_matches_resolving_then_compositing() {
-    let Some((fixture, adapter)) = crate::gpu_snapshot::Gpu::for_fixture_with_adapter(
-        "tabulated two-sample resolve",
+/// A GPU fixture that can build the resolve table, or `None` after naming what is missing.
+fn two_sample_fixture(name: &str) -> Option<crate::gpu_snapshot::Gpu> {
+    let (fixture, adapter) = crate::gpu_snapshot::Gpu::for_fixture_with_adapter(
+        name,
         wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
         wgpu::Limits::default(),
-    ) else {
-        return;
-    };
-    let (gpu, queue) = (&fixture.device, &fixture.queue);
+    )?;
     // The same capabilities `supported` requires before building the table.
     let resolves_two_samples = |format| {
         let flags = adapter.get_texture_format_features(format).flags;
         flags.sample_count_supported(2)
             && flags.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
     };
-    if !gpu
+    if !fixture
+        .device
         .features()
         .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
         || ![
@@ -240,9 +238,19 @@ fn fused_composite_matches_resolving_then_compositing() {
         .all(resolves_two_samples)
     {
         eprintln!("missing fixture: two-sample render targets for the resolve table");
-        return;
+        return None;
     }
-    let table = table(gpu, queue);
+    Some(fixture)
+}
+
+#[test]
+fn fused_composite_matches_resolving_then_compositing() {
+    let Some(fixture) = two_sample_fixture("tabulated two-sample resolve") else {
+        return;
+    };
+    let (gpu, queue) = (&fixture.device, &fixture.queue);
+    let table =
+        table(&RenderDevice::from(gpu.clone()), queue).expect("the resolve table allocates");
     let scene = scene(gpu, queue);
     let ui_pixels: Vec<u8> = (0..SIDE * SIDE)
         .flat_map(|pixel| match pixel % 3 {
@@ -302,4 +310,46 @@ fn fused_composite_matches_resolving_then_compositing() {
             .len()
             > 1000
     );
+}
+
+/// The table allocates nothing until a two-sample view needs it, and a failed allocation leaves
+/// it absent, which keeps the plain resolve, then retries with backoff instead of failing the
+/// renderer.
+#[test]
+fn the_table_waits_for_a_two_sample_view_and_survives_a_failed_allocation() {
+    use bevy::ecs::system::RunSystemOnce;
+    use std::{cell::Cell, rc::Rc};
+    let Some(fixture) = two_sample_fixture("lazily built two-sample resolve table") else {
+        return;
+    };
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(fixture.device.clone()));
+    world.insert_resource(RenderQueue::new(fixture.queue.clone()));
+    world.insert_resource(ResolveLutBuilder {
+        supported: true,
+        failed: Default::default(),
+    });
+    let view = world.spawn(Msaa::Off).id();
+    let attempts = Rc::new(Cell::new(0));
+    let counted = attempts.clone();
+    let _failure = crate::gpu_allocation::inject(move |label, _| {
+        if label == SAMPLES_LABEL || label == TABLE_LABEL {
+            counted.set(counted.get() + 1);
+        }
+        label == SAMPLES_LABEL
+    });
+    world.run_system_once(build).unwrap();
+    assert_eq!(attempts.get(), 0, "no table while anti-aliasing is off");
+    world.entity_mut(view).insert(Msaa::Sample2);
+    world.run_system_once(build).unwrap();
+    assert_eq!(attempts.get(), 1, "a two-sample view builds the table");
+    assert!(
+        !world.contains_resource::<ResolveLut>(),
+        "a failed allocation leaves the plain resolve"
+    );
+    for _ in 0..16 {
+        world.run_system_once(build).unwrap();
+    }
+    assert!(attempts.get() > 1, "the failed build retries");
+    assert!(!world.contains_resource::<ResolveLut>());
 }

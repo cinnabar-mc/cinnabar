@@ -209,8 +209,11 @@ pub(super) fn resolves_lazily(world: &World, view: Entity) -> bool {
         && !world
             .get::<bevy::anti_alias::fxaa::Fxaa>(view)
             .is_some_and(|fxaa| fxaa.enabled)
-        && world.get::<render_scene::shaderpack::ShaderPackRendering>(view).is_none()
+        && world
+            .get::<render_scene::shaderpack::ShaderPackRendering>(view)
+            .is_none()
         && world.get::<render_scene::EnhancedRendering>(view).is_none()
-        && world.get::<crate::render_scale::RenderScaleOutput>(view).is_none()
+        && world
+            .get::<crate::render_scale::RenderScaleOutput>(view)
+            .is_none()
 }
-
