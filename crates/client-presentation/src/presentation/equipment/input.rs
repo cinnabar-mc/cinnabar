@@ -248,11 +248,13 @@ pub fn local_input_cached(
             .all(|(cached, current)| cached.as_ref() == current)
     {
         #[cfg(any(test, debug_assertions))]
-        assert_eq!(
-            format!("{input:?}"),
-            format!("{:?}", local_input(player_runtime, stream, ui, runtime_id)),
-            "a reused local equipment input must match a fresh one"
-        );
+        {
+            let fresh = local_input(player_runtime, stream, ui, runtime_id);
+            assert!(
+                crate::reuse_check::same_debug(input, &fresh),
+                "a reused local equipment input must match a fresh one: {input:?} != {fresh:?}"
+            );
+        }
         #[cfg(test)]
         {
             cache.hits += 1;

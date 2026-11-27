@@ -103,11 +103,13 @@ impl AnimationViewMemo {
             && *cached_perspective == perspective
         {
             #[cfg(any(test, debug_assertions))]
-            assert_eq!(
-                format!("{view:?}"),
-                format!("{:?}", animation_view(transform, projection)),
-                "a reused animation view must match a fresh one"
-            );
+            {
+                let fresh = animation_view(transform, projection);
+                assert!(
+                    crate::reuse_check::same_debug(view, &fresh),
+                    "a reused animation view must match a fresh one: {view:?} != {fresh:?}"
+                );
+            }
             return *view;
         }
         let view = animation_view(transform, projection);
