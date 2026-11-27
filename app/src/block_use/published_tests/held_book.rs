@@ -48,6 +48,14 @@ fn aim_at(world: &mut World, name: &str) {
 
 /// Selects a fresh writable book and presses the mouse's Use button.
 fn press_use_with_book(world: &mut World) {
+    select_book(world);
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Right);
+}
+
+/// Selects a fresh writable book, with every button released.
+fn select_book(world: &mut World) {
     let registry = protocol::vanilla_item_registry();
     let network_id = registry
         .iter()
@@ -70,9 +78,6 @@ fn press_use_with_book(world: &mut World) {
     }));
     world.init_resource::<ButtonInput<KeyCode>>();
     world.init_resource::<ButtonInput<MouseButton>>();
-    world
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Right);
 }
 
 /// Whether the book screen is open.
@@ -123,8 +128,16 @@ fn a_held_book_leaves_the_use_press_to_blocks_whose_use_fails() {
 fn a_held_book_opens_when_no_block_takes_the_press() {
     let (mut world, _captured) = fixture();
     aim_at_lectern(&mut world);
+    look_up(&mut world);
+    press_use_with_book(&mut world);
+    world.run_system_cached(drive_world_inventory_keys).unwrap();
+    assert!(book_open(&world));
+}
+
+/// Points the fixture's view straight up, so no block in front takes a use press.
+fn look_up(world: &mut World) {
     let looking_up = frame_origin(
-        &world,
+        world,
         Vec3::new(4.5, 2.5, 8.5),
         Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
     );
@@ -132,7 +145,38 @@ fn a_held_book_opens_when_no_block_takes_the_press() {
     world
         .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
-    press_use_with_book(&mut world);
-    world.run_system_cached(drive_world_inventory_keys).unwrap();
-    assert!(book_open(&world));
+}
+
+/// A world tap presses Use a few frames after its finger lifts, once the pick has caught up
+/// with its ray, so the press can land on a frame that carries no raw input at all. The
+/// production registration still lets the book reader see it.
+#[test]
+fn a_deferred_touch_use_opens_the_held_book_on_a_frame_without_raw_input() {
+    use bevy::{
+        ecs::{message::Messages, schedule::Schedule},
+        input::{
+            keyboard::{KeyboardFocusLost, KeyboardInput},
+            touch::Touches,
+        },
+    };
+    let (mut world, _captured) = fixture();
+    look_up(&mut world);
+    select_book(&mut world);
+    // Every raw input source is present and quiet: no button edges, buffered keyboard or
+    // focus messages, touches or gamepads.
+    world.init_resource::<Touches>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<KeyboardFocusLost>>();
+    let mut touch = crate::semantic_controls::SemanticTouchTargets::default();
+    touch.press(semantic_input::touch::USE);
+    world.insert_resource(touch);
+    let mut schedule = Schedule::default();
+    schedule
+        .configure_sets(
+            client_shell::input_activity::RawInputReaders
+                .run_if(client_shell::input_activity::raw_input_activity),
+        )
+        .add_systems(crate::app::authority::world_inventory_keys());
+    schedule.run(&mut world);
+    assert!(book_open(&world), "the deferred tap's Use opens the book");
 }

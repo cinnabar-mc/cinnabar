@@ -13,7 +13,8 @@ use bevy::{
 
 /// Systems that only act on raw input: a just-pressed or just-released key or mouse button, a
 /// buffered keyboard or keyboard-focus message, a touch or a gamepad. On a frame with none of
-/// these they would do nothing, so the set runs only under [`raw_input_activity`].
+/// these they would do nothing, so the set runs only under [`raw_input_activity`]. Readers of
+/// routed or deferred input, such as a world tap's Use press after its finger lifts, stay out.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RawInputReaders;
 

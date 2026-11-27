@@ -10,6 +10,14 @@ use crate::ui_runtime::idle_screens::{IdleScreenReaders, screen_readers_due};
 #[derive(bevy::prelude::SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct OrdinaryInputSet;
 
+/// The in-world inventory key and held-book reader's production registration. It stays out of
+/// `RawInputReaders`: a world tap presses Use a few frames after its finger lifts, on a frame
+/// that may carry no raw input, and the reader must still see that press.
+pub(crate) fn world_inventory_keys()
+-> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    drive_world_inventory_keys.in_set(OrdinaryInputSet)
+}
+
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
@@ -86,9 +94,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),
             synchronize_semantic_input_authority.after(client_state::ShellFrameSet::Focus),
-            drive_world_inventory_keys
-                .in_set(OrdinaryInputSet)
-                .in_set(client_shell::input_activity::RawInputReaders),
+            world_inventory_keys(),
         )
             .chain()
             .in_set(ClientFrameSet::UiAuthority),
