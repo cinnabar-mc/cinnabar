@@ -32,6 +32,8 @@ mod rod_snapshot;
 mod shader_safety;
 #[path = "support/shader_source.rs"]
 mod shader_source;
+#[path = "../../src/chunk/gpu/tint_bake_plan.rs"]
+mod tint_bake_plan;
 #[path = "../../src/ui_render/shader.rs"]
 mod ui_shader;
 
@@ -93,6 +95,7 @@ mod portal_overlay;
 mod present_mode_policy;
 mod shaders;
 mod skull_lighting;
+mod sky_celestial;
 mod solid_terrain_raster;
 mod star_rotation;
 mod surface_patches;

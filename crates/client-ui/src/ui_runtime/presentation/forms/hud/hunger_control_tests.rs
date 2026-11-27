@@ -101,6 +101,7 @@ fn draw_with_factory(
         player,
         runtime,
         &HudFrame::default(),
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
         None,
         &Default::default(),
     );

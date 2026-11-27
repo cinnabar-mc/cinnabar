@@ -62,6 +62,7 @@ pub(super) fn install(app: &mut App) {
         .add_render_command::<Transparent3d, DrawPrimitiveCommands>()
         .add_render_command::<Transparent3d, DrawBlockHighlightCommands>()
         .add_systems(RenderStartup, init_gpu)
+        .configure_sets(Render, PrimitiveSystems.run_if(has_primitive_work))
         .add_systems(
             Render,
             (
@@ -70,8 +71,35 @@ pub(super) fn install(app: &mut App) {
                 queue
                     .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
-            ),
+            )
+                .in_set(PrimitiveSystems),
         );
+}
+
+/// The primitive systems: guest, debug, block-highlight and bundle geometry uploads and draws.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct PrimitiveSystems;
+
+/// Whether the primitive systems have anything to do: geometry or bundles in the scene, storage
+/// of removed bundles to retire, counts from the last geometry to clear, or storage not yet
+/// allocated. Otherwise preparing writes nothing, binding has nothing new to bind, and queueing
+/// adds no item.
+pub(crate) fn has_primitive_work(
+    scene: Option<Res<ModRenderScene>>,
+    gpu: Option<Res<PrimitiveGpu>>,
+    bundles: Option<Res<bundles::BundleGpu>>,
+) -> bool {
+    let (Some(scene), Some(gpu)) = (scene, gpu) else {
+        return false;
+    };
+    !scene.vertices.is_empty()
+        || !scene.debug_vertices.is_empty()
+        || !scene.block_vertices.is_empty()
+        || !scene.bundle_vertices.is_empty()
+        || bundles.is_some_and(|bundles| !bundles.0.is_empty())
+        || gpu.vertex_count != 0
+        || gpu.block_count != 0
+        || gpu.vertices.is_none()
 }
 
 #[derive(Resource)]
@@ -265,6 +293,46 @@ fn suffix_upload_changed(
 #[cfg(test)]
 mod upload_tests {
     use super::*;
+
+    /// The primitive systems run until the last geometry's counts are cleared, then stop; at rest
+    /// a prepare leaves the uploaded state as it is.
+    #[test]
+    fn primitive_systems_idle_once_the_last_geometry_is_cleared() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = crate::queue_review_support::app();
+        app.init_resource::<Time>();
+        app.world_mut().run_system_once(init_gpu).unwrap();
+        app.insert_resource(ModRenderScene::default());
+        let has_work = |app: &mut App| app.world_mut().run_system_once(has_primitive_work).unwrap();
+        assert!(!has_work(&mut app));
+        app.world_mut()
+            .resource_mut::<ModRenderScene>()
+            .set_debug_vertices(vec![ModVertex::default(); 6].into());
+        assert!(has_work(&mut app));
+        app.world_mut().run_system_once(prepare).unwrap();
+        assert_eq!(app.world().resource::<PrimitiveGpu>().vertex_count, 6);
+        app.world_mut()
+            .resource_mut::<ModRenderScene>()
+            .set_debug_vertices(Arc::from([]));
+        assert!(
+            has_work(&mut app),
+            "the uploaded counts still need clearing"
+        );
+        app.world_mut().run_system_once(prepare).unwrap();
+        assert!(!has_work(&mut app));
+        let rest = |gpu: &PrimitiveGpu| {
+            (
+                gpu.capacity,
+                gpu.vertex_count,
+                gpu.block_count,
+                gpu.bind_group.is_some(),
+            )
+        };
+        let before = rest(app.world().resource::<PrimitiveGpu>());
+        app.world_mut().run_system_once(prepare).unwrap();
+        assert_eq!(rest(app.world().resource::<PrimitiveGpu>()), before);
+        assert!(!has_work(&mut app));
+    }
 
     #[test]
     fn debug_geometry_fits_beside_maximum_mod_output_and_block_highlights() {

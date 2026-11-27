@@ -385,6 +385,14 @@ impl VariableLayout {
         }
     }
 
+    /// The persistent variable slot `symbol` names, if it is a variable of this layout.
+    pub(crate) fn variable_slot(&self, symbol: u32) -> Option<usize> {
+        match self.place(symbol) {
+            Some(Place::Variable(slot)) => Some(slot),
+            _ => None,
+        }
+    }
+
     fn place(&self, symbol: u32) -> Option<Place> {
         let symbol = symbol as usize;
         if let Some(slot) = symbol.checked_sub(self.variable_base)

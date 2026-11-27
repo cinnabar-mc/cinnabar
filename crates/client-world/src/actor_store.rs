@@ -600,6 +600,36 @@ pub enum LocalItemUse {
     },
 }
 
+/// Identifies one state of an actor's snapshot and its rig, including whether its appearance is
+/// ready to draw the rig. Any change those can observe gives a different value, except the rig's
+/// local frame fractions (see [`actor_animation::PresentationRevision`]); a value may also change
+/// when nothing observable did. Frame samples also read the camera, which
+/// [`ActorStore::view_revision`] identifies.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct ActorPresentationRevision {
+    /// The actor's runtime id with its process-wide stamp, so revisions of different actors or
+    /// stores never compare equal.
+    runtime_id: u64,
+    actor: u64,
+    rig: Option<actor_animation::PresentationRevision>,
+    /// Whether the appearance admits the rig: a preparing first appearance withdraws it without
+    /// touching the rig or snapshot.
+    appearance_ready: bool,
+}
+
+/// Shows the owning actor and rig; the process-wide stamps identify moments, not state, so equal
+/// states print alike.
+impl std::fmt::Debug for ActorPresentationRevision {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorPresentationRevision")
+            .field("runtime_id", &self.runtime_id)
+            .field("rig", &self.rig)
+            .field("appearance_ready", &self.appearance_ready)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Sparse session state, including immutable prepared appearances; GPU resources stay in presentation.
 #[derive(Debug)]
 pub(crate) struct ActorStore {
@@ -617,7 +647,7 @@ pub(crate) struct ActorStore {
     world_default_game_mode: Option<protocol::PlayerGameMode>,
     entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
     custom_actor_facts: HashMap<std::sync::Arc<str>, EntityFact>,
-    actors: HashMap<u64, ActorSnapshot>,
+    actors: tracked_actors::TrackedActors,
     hitbox_budget: hitbox::Budget,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: FastHashMap<i64, u64>,
@@ -683,6 +713,8 @@ pub(crate) struct ActorStore {
     local_bedrock_swing_ticks: i32,
     local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
+    /// Advances whenever the camera rotation or position frame samples read changes.
+    view_revision: tracked_actors::ViewStamp,
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
     camera_position: [f32; 3],
@@ -750,6 +782,7 @@ mod spatial;
 pub use spatial::MIN_COLLISION_DIMENSION;
 mod synchronized_audio;
 mod terrain_interlock;
+mod tracked_actors;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
 pub use entities::{

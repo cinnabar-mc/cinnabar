@@ -175,11 +175,13 @@ pub(crate) fn advance_dials(
 
 /// Hands `frames` to the UI icons and held items.
 fn publish(
-    presentation: &mut UiPresentationResource,
+    presentation: &mut ResMut<UiPresentationResource>,
     equipment: Option<ResMut<client_presentation::presentation::equipment::EquipmentRuntime>>,
     frames: DialFrames,
 ) {
-    presentation.set_dial_frames(frames);
+    client_shell::ui_resources::update(presentation, |presentation| {
+        presentation.set_dial_frames(frames)
+    });
     if let Some(mut equipment) = equipment {
         equipment.set_dial_frames(frames);
     }

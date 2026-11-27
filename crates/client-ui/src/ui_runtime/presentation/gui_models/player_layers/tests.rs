@@ -452,3 +452,38 @@ fn custom_player_skin_keeps_independent_controller_geometry() {
         "the skin-backed avatar must retain the separate controller layer"
     );
 }
+
+/// A capture that misses replaces the layers set aside at the frame's start, so a capture later
+/// in the same frame that repeats it keeps the new layers rather than the set-aside ones.
+#[test]
+fn a_repeat_after_a_miss_in_the_same_frame_keeps_the_new_layers() {
+    let pack = pack();
+    let mut stream = super::super::live_player::tests::player_stream(
+        Arc::clone(&pack.assets),
+        Arc::clone(&pack.assets),
+    );
+    stream.advance_actor_interpolation_ticks(1);
+    let mut ui = presentation(false);
+    ui.set_preview_player_layers(Some(pack));
+    let phases = |ui: &UiPresentationRuntime| {
+        ui.gui_models
+            .player_layers
+            .layers
+            .iter()
+            .map(|(_, layer, _)| layer.uv_anim)
+            .collect::<Vec<_>>()
+    };
+    ui.begin_live_capture();
+    ui.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    let ahead = phases(&ui);
+    assert!(!ahead.is_empty(), "the pack draws controller layers");
+    stream.set_actor_camera_rotation([0., 45.]);
+    stream.advance_actor_interpolation_ticks(1);
+    let local = stream.authority().local_player_ui();
+    ui.begin_live_capture();
+    ui.capture_hud_player(Some(local), false);
+    let turned = phases(&ui);
+    assert_ne!(turned, ahead, "a turned camera moves the texture phase");
+    ui.capture_hud_player(Some(local), false);
+    assert_eq!(phases(&ui), turned);
+}

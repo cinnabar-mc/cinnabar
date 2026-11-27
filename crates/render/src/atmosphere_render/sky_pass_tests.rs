@@ -43,8 +43,24 @@ const WORLD_SOURCE: &str = r#"
     let xy = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
     return vec4(xy, WORLD_DEPTH, 1.0);
 }
-@fragment fn fragment() -> @location(0) vec4<f32> { return vec4(0.0, 1.0, 0.0, 1.0); }
+@vertex fn vertex_half(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let xy = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
+    return vec4(min(xy.x, 0.0), xy.y, WORLD_DEPTH, 1.0);
+}
+@vertex fn vertex_none(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    return vec4(0.0, 0.0, WORLD_DEPTH, 1.0);
+}
+// Translucent alpha shows where a later frame keeps this surface's samples.
+@fragment fn fragment() -> @location(0) vec4<f32> { return vec4(0.0, 1.0, 0.0, 0.5); }
 "#;
+
+/// Which synthetic world `queue_world` draws: the full screen or its left half, optionally with
+/// a coverage-free colour-only probe that makes the opaque pass keep its clear.
+#[derive(Resource, Clone, Copy, Default)]
+struct WorldShape {
+    half: bool,
+    colour_only_probe: bool,
+}
 
 struct Fixture {
     gpu: crate::gpu_snapshot::Gpu,
@@ -165,6 +181,9 @@ fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>, pack: bool) -> (App
     (app, image)
 }
 
+/// Sample count, HDR, vertex entry point and colour write mask of a synthetic world pipeline.
+type WorldPipelineKey = (Msaa, bool, &'static str, u32);
+
 /// Queues world geometry first to reproduce the unordered sky-bin overwrite.
 fn queue_world(
     cache: Res<PipelineCache>,
@@ -177,64 +196,84 @@ fn queue_world(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
-    mut pipelines: Local<HashMap<(Msaa, bool), CachedRenderPipelineId>>,
+    shape: Option<Res<WorldShape>>,
+    mut pipelines: Local<HashMap<WorldPipelineKey, CachedRenderPipelineId>>,
 ) {
     let draw = functions.read().id::<(SetItemPipeline, DrawWorld)>();
+    let shape = shape.map_or_else(WorldShape::default, |shape| *shape);
+    let mut items = vec![(
+        if shape.half { "vertex_half" } else { "vertex" },
+        ColorWrites::ALL,
+    )];
+    if shape.colour_only_probe {
+        items.push(("vertex_none", ColorWrites::COLOR));
+    }
     for (entity, main, view, camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let pipeline = *pipelines.entry((*msaa, camera.hdr)).or_insert_with(|| {
-            cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some("synthetic world surface".into()),
-                vertex: VertexState {
-                    shader: WORLD_SHADER,
-                    entry_point: Some("vertex".into()),
-                    ..default()
-                },
-                fragment: Some(FragmentState {
-                    shader: WORLD_SHADER,
-                    entry_point: Some("fragment".into()),
-                    targets: vec![Some(ColorTargetState {
-                        format: if camera.hdr {
-                            render_scene::SCENE_HDR_FORMAT
-                        } else {
-                            render_scene::SCENE_COLOR_FORMAT
+        for (index, (entry, write_mask)) in items.iter().copied().enumerate() {
+            let pipeline = *pipelines
+                .entry((*msaa, camera.hdr, entry, write_mask.bits()))
+                .or_insert_with(|| {
+                    cache.queue_render_pipeline(RenderPipelineDescriptor {
+                        label: Some("synthetic world surface".into()),
+                        vertex: VertexState {
+                            shader: WORLD_SHADER,
+                            entry_point: Some(entry.into()),
+                            ..default()
                         },
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                depth_stencil: Some(DepthStencilState {
-                    format: CORE_3D_DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(CompareFunction::GreaterEqual),
-                    stencil: default(),
-                    bias: default(),
-                }),
-                multisample: MultisampleState {
-                    count: msaa.samples(),
-                    ..default()
+                        fragment: Some(FragmentState {
+                            shader: WORLD_SHADER,
+                            entry_point: Some("fragment".into()),
+                            targets: vec![Some(ColorTargetState {
+                                format: if camera.hdr {
+                                    render_scene::SCENE_HDR_FORMAT
+                                } else {
+                                    render_scene::SCENE_COLOR_FORMAT
+                                },
+                                blend: None,
+                                write_mask,
+                            })],
+                            ..default()
+                        }),
+                        depth_stencil: Some(DepthStencilState {
+                            format: CORE_3D_DEPTH_FORMAT,
+                            depth_write_enabled: Some(true),
+                            depth_compare: Some(CompareFunction::GreaterEqual),
+                            stencil: default(),
+                            bias: default(),
+                        }),
+                        multisample: MultisampleState {
+                            count: msaa.samples(),
+                            ..default()
+                        },
+                        ..default()
+                    })
+                });
+            phase.add(
+                Opaque3dBatchSetKey {
+                    draw_function: draw,
+                    pipeline,
+                    material_bind_group_index: None,
+                    lightmap_slab: None,
+                    slabs: default(),
                 },
-                ..default()
-            })
-        });
-        phase.add(
-            Opaque3dBatchSetKey {
-                draw_function: draw,
-                pipeline,
-                material_bind_group_index: None,
-                lightmap_slab: None,
-                slabs: default(),
-            },
-            Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::default().untyped(),
-            },
-            (entity, *main),
-            InputUniformIndex::default(),
-            BinnedRenderPhaseType::NonMesh,
-        );
+                Opaque3dBinKey {
+                    asset_id: AssetId::<Mesh>::default().untyped(),
+                },
+                (
+                    entity,
+                    if index == 0 {
+                        *main
+                    } else {
+                        MainEntity::from(Entity::PLACEHOLDER)
+                    },
+                ),
+                InputUniformIndex::default(),
+                BinnedRenderPhaseType::NonMesh,
+            );
+        }
     }
 }
 
@@ -252,6 +291,65 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWorld {
     ) -> RenderCommandResult {
         pass.draw(0..3, 0..1);
         RenderCommandResult::Success
+    }
+}
+
+/// Reads every RGBA pixel of the completed image.
+fn pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
+    let world = app.sub_app(RenderApp).world();
+    let device = world.resource::<RenderDevice>();
+    let queue = world.resource::<RenderQueue>();
+    let image = world
+        .resource::<RenderAssets<GpuImage>>()
+        .get(image)
+        .expect("prepared headless image");
+    crate::render_test_support::read_rgba8_layer(device, queue, &image.texture, 0)
+}
+
+/// An opaque pass that skips its clear must leave every sample as the cleared pass would. The
+/// first frames cover the whole screen, so a sample the sky failed to define would keep that
+/// surface's colour or alpha once only the left half stays covered.
+#[test]
+fn skipped_scene_clear_matches_a_cleared_pass() {
+    let Some(gpu) = fixture() else {
+        return;
+    };
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        let images = [false, true].map(|colour_only_probe| {
+            let (mut app, image) = app(&gpu, msaa, Some(4.0), false);
+            app.insert_resource(AtmosphereFrame::default());
+            for half in [false, true] {
+                app.sub_app_mut(RenderApp).insert_resource(WorldShape {
+                    half,
+                    colour_only_probe,
+                });
+                for _ in 0..4 {
+                    app.update();
+                }
+            }
+            let render = app.sub_app_mut(RenderApp).world_mut();
+            let skipped = render
+                .query::<&crate::scene_target::SceneTarget>()
+                .iter(render)
+                .any(crate::scene_target::SceneTarget::skipped_clear);
+            assert_eq!(skipped, !colour_only_probe, "{msaa:?} clear skip ran");
+            pixels(&app, &image)
+        });
+        let width = SIZE[0] as usize;
+        let left = &images[0][(SIZE[1] as usize / 2 * width + 2) * 4..][..4];
+        let right = &images[0][(SIZE[1] as usize / 2 * width + width - 2) * 4..][..4];
+        assert!(
+            left[1] > 200 && left[0] < 20,
+            "{msaa:?} world half: {left:?}"
+        );
+        assert!(
+            right[1] < 200 || right[0] > 20,
+            "{msaa:?} sky half: {right:?}"
+        );
+        assert!(
+            images[0] == images[1],
+            "{msaa:?} skipped clear differs from the cleared pass"
+        );
     }
 }
 

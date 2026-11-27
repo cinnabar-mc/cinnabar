@@ -1,9 +1,9 @@
 //! Borrows current gameplay observations before camera presentation.
-use bevy::prelude::{Projection, Query, Res, ResMut, Time, Transform, With};
+use bevy::prelude::{DetectChanges, Local, Projection, Query, Res, ResMut, Time, Transform, With};
 use client_presentation::camera::presentation::{FirstPersonHandMotion, ScreenEffectFacts};
 use client_presentation::camera::{
     CameraFovInputs, CameraHurtState, CameraSettingsAuthority, FlyCamera, HeadMedium,
-    PortalProgress, ScreenOverlays, ServerCameraView, VisionEffects, WalkBobState,
+    HeadMediumCache, PortalProgress, ScreenOverlays, ServerCameraView, VisionEffects, WalkBobState,
 };
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_shell::ui_resources::UiRuntimeResource;
@@ -132,7 +132,13 @@ pub(crate) fn update_screen_overlays(
     medium: ResMut<HeadMedium>,
     vision: ResMut<VisionEffects>,
     overlays: ResMut<ScreenOverlays>,
+    mut head_cache: Local<HeadMediumCache>,
 ) {
+    // Registry contents can change in place (session custom blocks), so any write since this
+    // system last ran drops the cached probe.
+    let registry_changed = collisions
+        .as_ref()
+        .is_some_and(|collisions| collisions.is_changed());
     client_presentation::camera::presentation::update_screen_overlays(
         &player_runtime,
         time,
@@ -150,6 +156,7 @@ pub(crate) fn update_screen_overlays(
         collisions
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
+        (&mut head_cache, registry_changed),
         portal,
         medium,
         vision,

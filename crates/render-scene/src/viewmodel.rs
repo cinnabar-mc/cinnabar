@@ -69,12 +69,23 @@ pub struct HandFrame {
     pub fallback: Option<(u64, u32, u32)>,
 }
 
+/// The token and bound CPU fallback that identify a published hand frame.
+pub type PublishedHand = (ViewmodelToken, Option<(u64, u32, u32)>);
+
 #[derive(Clone, Default, Debug, Resource, ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct ViewmodelScene {
     pub frame: Option<HandFrame>,
 }
 impl ViewmodelScene {
+    /// What the scene publishes to the renderer. A new token always installs a new frame, so the
+    /// token and the bound fallback identify the published frame.
+    #[must_use]
+    pub fn published(&self) -> Option<PublishedHand> {
+        self.frame
+            .as_ref()
+            .map(|frame| (frame.token, frame.fallback))
+    }
     pub fn clear(&mut self, gate: &ViewmodelCompletionGate) {
         gate.select(None);
         self.frame = None;

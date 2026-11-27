@@ -318,7 +318,7 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
             runtime,
             presentation,
             Some(authority),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             0,
             Default::default(),
         );

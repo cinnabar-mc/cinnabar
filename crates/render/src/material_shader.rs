@@ -7,6 +7,8 @@ pub(crate) const NATIVE_LEAF_TEXTURE_BINDINGS: [u32; assets::MAX_TEXTURE_PAGES] 
     [16, 17, 22, 23, 24];
 pub(crate) const NATIVE_LEAF_SAMPLER_BINDING: u32 = 25;
 pub(crate) const BIOME_QUERY_TABLES_BINDING: u32 = 26;
+/// Opaque terrain's per-quad blended tint cache; see `chunk/gpu/tint_cache.rs`.
+pub(crate) const TERRAIN_TINT_CACHE_BINDING: u32 = 27;
 pub(crate) const CHUNK_SAMPLER_COUNT: u32 = 2;
 pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
     (assets::MAX_TEXTURE_PAGES + NATIVE_LEAF_TEXTURE_BINDINGS.len()) as u32;
@@ -270,6 +272,10 @@ pub(crate) fn source(source: &str) -> String {
         .replace(
             "NATIVE_LEAF_SAMPLER_BINDING",
             &NATIVE_LEAF_SAMPLER_BINDING.to_string(),
+        )
+        .replace(
+            "TERRAIN_TINT_CACHE_BINDING",
+            &TERRAIN_TINT_CACHE_BINDING.to_string(),
         )
 }
 

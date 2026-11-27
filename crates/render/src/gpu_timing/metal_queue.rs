@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     render::{
         Render,
-        renderer::{RenderDevice, RenderQueue},
+        renderer::{PendingCommandBuffers, RenderDevice, RenderQueue},
     },
 };
 use objc2_metal::{MTLCommandBuffer, MTLCommandBufferStatus};
@@ -45,6 +45,9 @@ pub(super) fn install(world: &mut World) {
     if limit.is_none() && env_compat::var("CINNABAR_GPU_QUEUE_PROBE").as_deref() != Ok("1") {
         return;
     }
+    // The probe submits and times its own marker after the graph, so the graph must already be
+    // submitted then.
+    crate::device_poll::require_synchronous_submission(world);
     world.insert_resource(QueueProbe {
         limit,
         frames: VecDeque::new(),
@@ -57,7 +60,12 @@ pub(super) fn install(world: &mut World) {
 
 /// Observes native completion separately from wgpu's device-poll callback and bounds queued work.
 #[expect(clippy::print_stderr, reason = "opt-in GPU queue probe output")]
-fn probe(mut state: ResMut<QueueProbe>, device: Res<RenderDevice>, queue: Res<RenderQueue>) {
+fn probe(
+    mut state: ResMut<QueueProbe>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    mut commands: ResMut<PendingCommandBuffers>,
+) {
     let pending = state
         .frames
         .iter()
@@ -101,7 +109,9 @@ fn probe(mut state: ResMut<QueueProbe>, device: Res<RenderDevice>, queue: Res<Re
     };
     let host_submitted = CACurrentMediaTime();
     let submitted = Instant::now();
-    queue.submit([buffer]);
+    // Submitted as pending command buffers, so the frame's in-flight bound includes it.
+    commands.push([buffer]);
+    commands.submit(&queue);
     let callback = Arc::new(AtomicU64::new(0));
     let receipt = callback.clone();
     crate::device_poll::on_frame_complete(&queue, move || {

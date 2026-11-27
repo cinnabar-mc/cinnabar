@@ -64,6 +64,15 @@ impl UiRuntime {
         Some(tick.saturating_add(now_millis.saturating_sub(observed) / MILLIS_PER_SERVER_TICK))
     }
 
+    /// [`Self::estimated_server_tick`] at a frame build's clock, which holds until the next tick.
+    pub fn estimated_server_tick_at(
+        &self,
+        clock: &super::presentation::frame_clock::FrameClock,
+    ) -> Option<u64> {
+        let (tick, observed) = self.session.presentation_tick_anchor?;
+        Some(tick.saturating_add(clock.steps_since(observed, MILLIS_PER_SERVER_TICK)))
+    }
+
     /// Retains specified wire ticks and advances the presentation clock when they lead it.
     /// Zero timestamps leave the last nonzero ordering fence intact.
     pub(super) fn observe_presentation_tick(&mut self, tick: u64, now_millis: u64) -> u64 {
@@ -79,22 +88,25 @@ impl UiRuntime {
     }
 
     /// Drops effects that expired on the estimated session clock.
-    pub fn expire_gameplay_effects(&mut self, now_millis: u64) {
+    /// Whether any effect expired.
+    pub fn expire_gameplay_effects(&mut self, now_millis: u64) -> bool {
         let now_tick = self.estimated_server_tick(now_millis);
-        self.session.gameplay_hud.expire_effects(now_tick);
+        self.session.gameplay_hud.expire_effects(now_tick)
     }
 
     /// Observes the held state of the jump action for the mount jump-charge
     /// ramp. Holding jump while mounted starts the charge clock; releasing
     /// it, or losing the mount, resets the charge to empty.
-    pub fn set_mount_jump_held(&mut self, held: bool, now_millis: u64) {
+    /// Whether the charge clock started or reset.
+    pub fn set_mount_jump_held(&mut self, held: bool, now_millis: u64) -> bool {
         if !held || self.session.gameplay_hud.mount_unique_id().is_none() {
-            self.session.mount_jump_hold_started_millis = None;
-            return;
+            return self.session.mount_jump_hold_started_millis.take().is_some();
         }
         if self.session.mount_jump_hold_started_millis.is_none() {
             self.session.mount_jump_hold_started_millis = Some(now_millis);
+            return true;
         }
+        false
     }
 
     /// The current jump charge in `0.0..=1.0`: a linear ramp over the pinned
@@ -110,14 +122,19 @@ impl UiRuntime {
     /// Publishes the armor bar derived from the authoritative equipped armor
     /// identifiers. `None` means armor equipment is unknown, which clears the
     /// row (fail closed) rather than retaining a stale value.
-    pub fn set_derived_armor(&mut self, points: Option<u16>) {
+    /// Whether the armor stat changed.
+    pub fn set_derived_armor(&mut self, points: Option<u16>) -> bool {
         let armor = points.and_then(|points| BoundedStat::new(points.min(20), 20));
+        if self.session.hud.armor() == armor {
+            return false;
+        }
         self.session.hud.set_stats(
             self.session.hud.health(),
             self.session.hud.hunger(),
             armor,
             self.session.hud.air(),
         );
+        true
     }
 
     /// Current local actor damage state, absent when its session has no player actor.
@@ -131,7 +148,27 @@ impl UiRuntime {
     }
 
     /// Projects actor health and damage; life transitions stay in committed packet order.
-    pub fn publish_local_actor_health(&mut self, actor: Option<&client_world::ActorSnapshot>) {
+    /// Returns whether anything changed.
+    pub fn publish_local_actor_health(
+        &mut self,
+        actor: Option<&client_world::ActorSnapshot>,
+    ) -> bool {
+        let before = (
+            self.session.local_actor_damage,
+            self.session.local_player_health_available,
+            self.session.hud.health(),
+        );
+        self.project_local_actor_health(actor);
+        before
+            != (
+                self.session.local_actor_damage,
+                self.session.local_player_health_available,
+                self.session.hud.health(),
+            )
+    }
+
+    /// Writes the projection [`Self::publish_local_actor_health`] compares.
+    fn project_local_actor_health(&mut self, actor: Option<&client_world::ActorSnapshot>) {
         self.publish_local_actor_damage(actor.map(|actor| actor.status.damage));
         if let Some(health) = actor
             .and_then(|actor| actor.attributes.get("minecraft:health"))
@@ -176,36 +213,45 @@ impl UiRuntime {
         &mut self,
         identity: Option<(u8, i32, u32)>,
         now_millis: u64,
-    ) {
-        if identity != self.session.last_selected_identity {
-            self.session.last_selected_identity = identity;
-            if identity.is_some() {
-                self.session.last_selected_identity_change_millis = Some(now_millis);
-            }
+    ) -> bool {
+        if identity == self.session.last_selected_identity {
+            return false;
         }
+        self.session.last_selected_identity = identity;
+        if identity.is_some() {
+            self.session.last_selected_identity_change_millis = Some(now_millis);
+        }
+        true
     }
 
     /// Applies every queued authoritative inventory event to the inventory
     /// ledger and HUD diagnostics. Runs once per frame before presentation; the
     /// queue would otherwise grow without a consumer until the container store
     /// takes over this drain.
-    pub fn drain_pending_inventory(&mut self, player_runtime: &mut player_state::PlayerState) {
-        self.drain_inventory_prefix(player_runtime, None);
-        player_runtime.inventory.finish_drain();
+    /// Whether the runtime or the player changed.
+    pub fn drain_pending_inventory(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+    ) -> bool {
+        let mut changed = self.drain_inventory_prefix(player_runtime, None);
+        changed |= player_runtime.inventory.finish_drain();
         self.sample_crafting_observation(player_runtime);
-        self.sync_anvil_name(player_runtime);
+        changed | self.sync_anvil_name(player_runtime)
     }
 
-    /// Updates inventory presentation only through the transport prefix before an item event.
+    /// Updates inventory presentation only through the transport prefix before an item event;
+    /// whether any event applied.
     pub(super) fn drain_inventory_prefix(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         before: Option<u64>,
-    ) {
+    ) -> bool {
+        let mut applied = false;
         while let Some(sequenced) = match before {
             Some(sequence) => player_runtime.inventory.apply_next_before(sequence),
             None => player_runtime.inventory.apply_next(),
         } {
+            applied = true;
             let event = match sequenced.event {
                 inventory::InventoryAuthorityEvent::Inventory(event) => event,
                 inventory::InventoryAuthorityEvent::Registry(registry) => {
@@ -234,6 +280,7 @@ impl UiRuntime {
                 &inventory::InventoryAuthorityEvent::Inventory(event),
             );
         }
+        applied
     }
 
     pub fn apply_local_attributes(

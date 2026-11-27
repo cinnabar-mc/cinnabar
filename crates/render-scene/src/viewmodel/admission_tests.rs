@@ -798,3 +798,27 @@ fn review_render_fixed_arm_rejects_bindings_and_texture_meshes() {
     }]);
     assert!(geometry::validated_geometry(&geometry, [5; 32]).is_none());
 }
+
+/// Writers mark the scene changed only when `published` differs, so republishing the same hand
+/// must keep it, while a new token or a clear must not.
+#[test]
+fn republishing_the_same_hand_keeps_the_published_frame() {
+    let gate = ViewmodelCompletionGate::default();
+    let mut scene = fallback_scene(&gate);
+    let published = scene.published();
+    assert!(published.is_some());
+    let skin = ViewmodelSkin::new(vec![255; VIEWMODEL_TEXTURE_BYTES].into(), [4; 32]).unwrap();
+    let geometry = geometry::validated_geometry(&profile(), [5; 32]).unwrap();
+    assert!(scene.publish(test_token(), &skin, &geometry, &gate));
+    assert_eq!(scene.published(), published);
+    let moved = ViewmodelToken {
+        revision: test_token().revision + 1,
+        ..test_token()
+    };
+    assert!(scene.publish(moved, &skin, &geometry, &gate));
+    assert_ne!(scene.published(), published);
+    scene.clear(&gate);
+    assert_eq!(scene.published(), None);
+    scene.clear(&gate);
+    assert_eq!(scene.published(), None);
+}

@@ -244,3 +244,45 @@ fn weather_override_restores_current_server_presentation_without_mutation() {
     assert_eq!(output(&mut app), expected);
     assert_eq!(*app.world().resource::<WeatherState>(), wet);
 }
+
+/// Whether each extracted atmosphere output counted as changed after one update.
+#[derive(Resource, Default)]
+struct OutputsChanged(Vec<[bool; 5]>);
+
+#[test]
+fn unchanged_inputs_leave_extracted_outputs_unchanged() {
+    let mut app = atmosphere_app(false);
+    app.insert_resource(render_scene::CloudVisibility(false))
+        .insert_resource(render_scene::CloudDistanceChunks(16))
+        .insert_resource(render_scene::SkyboxSettings {
+            visible: false,
+            native_vertical_offset: false,
+        })
+        .init_resource::<OutputsChanged>()
+        .add_systems(
+            Update,
+            (|clouds: Res<render_scene::CloudVisibility>,
+              distance: Res<render_scene::CloudDistanceChunks>,
+              skybox: Res<render_scene::SkyboxSettings>,
+              view: Res<render_scene::AtmosphereViewInputs>,
+              lighting: Res<WorldLighting>,
+              mut seen: ResMut<OutputsChanged>| {
+                seen.0.push([
+                    clouds.is_changed(),
+                    distance.is_changed(),
+                    skybox.is_changed(),
+                    view.is_changed(),
+                    lighting.is_changed(),
+                ]);
+            })
+            .after(environment::update_atmosphere_frame),
+        );
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_eq!(
+        app.world().resource::<OutputsChanged>().0,
+        vec![[true; 5], [false; 5], [false; 5]],
+        "outputs count as changed only when first inserted and written"
+    );
+}

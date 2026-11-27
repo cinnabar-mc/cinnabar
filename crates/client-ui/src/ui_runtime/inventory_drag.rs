@@ -72,6 +72,11 @@ fn draggable(hit: InventoryCellHit) -> bool {
 }
 
 impl InventoryPointer {
+    /// Whether no gesture is in flight: what [`Self::reset`] leaves.
+    pub fn is_idle(&self) -> bool {
+        self.drag.is_none() && self.last_primary.is_none() && self.distribution.is_none()
+    }
+
     /// Forgets any drag in flight, e.g. when the screen changes.
     pub fn reset(&mut self) {
         *self = Self::default();

@@ -117,6 +117,22 @@ impl ScreenOverlayScene {
         };
     }
 
+    /// Whether `self` and `other` publish the same overlays to the renderer. With no layer
+    /// drawn the renderer reads only the textures, so the clock, fire projection and portal
+    /// transform are compared only while a layer is.
+    #[must_use]
+    pub fn publishes_same(&self, other: &Self) -> bool {
+        same_allocation(self.textures.as_ref(), other.textures.as_ref())
+            && self.textures_revision == other.textures_revision
+            && same_allocation(self.fire.as_ref(), other.fire.as_ref())
+            && self.fire_revision == other.fire_revision
+            && self.layers == other.layers
+            && (self.layers.is_empty()
+                || (self.clock_seconds == other.clock_seconds
+                    && self.fire_projection == other.fire_projection
+                    && self.portal_from_clip == other.portal_from_clip))
+    }
+
     pub fn set_textures(&mut self, textures: Option<Arc<ScreenOverlayTextures>>) {
         self.textures = textures;
         self.textures_revision = self.textures_revision.wrapping_add(1);
@@ -158,6 +174,15 @@ impl ScreenOverlayScene {
     #[must_use]
     pub fn layers(&self) -> &[ScreenOverlayLayer] {
         &self.layers
+    }
+}
+
+/// Whether both hold the same allocation, or both hold none.
+fn same_allocation<T: ?Sized>(a: Option<&Arc<T>>, b: Option<&Arc<T>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
     }
 }
 
@@ -210,5 +235,32 @@ mod tests {
         let mut scene = ScreenOverlayScene::default();
         scene.set_textures(None);
         assert_eq!(scene.textures_revision, 1);
+    }
+
+    #[test]
+    fn without_layers_only_texture_changes_republish() {
+        let mut scene = ScreenOverlayScene::default();
+        scene.set_layers(std::iter::empty(), 1.0);
+        let before = scene.clone();
+        scene.set_layers(std::iter::empty(), 2.0);
+        scene.set_fire_projection(1.2, 1.5);
+        scene.set_portal_from_clip(Mat4::ZERO);
+        assert!(
+            scene.publishes_same(&before),
+            "nothing reads them without a layer"
+        );
+        scene.set_textures(None);
+        assert!(!scene.publishes_same(&before));
+
+        let mut drawn = ScreenOverlayScene::default();
+        drawn.set_layers([layer(0.5)], 1.0);
+        let before = drawn.clone();
+        drawn.set_layers([layer(0.5)], 1.0);
+        assert!(drawn.publishes_same(&before));
+        drawn.set_layers([layer(0.5)], 2.0);
+        assert!(
+            !drawn.publishes_same(&before),
+            "a drawn layer animates with the clock"
+        );
     }
 }

@@ -311,8 +311,35 @@ pub(super) fn prepare_variables(
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, variables, 0.0, budget)?;
     }
+    apply_spear_variables(evaluator, state, swing, variables);
+    tick::set_item_rotation_factor(engine, variables);
+    Ok(held_item_scale)
+}
+
+/// Applies only the engine's own writes from [`prepare_variables`]: the frame swing and the
+/// completed spear pose. Callers must have proven that the skipped setup scripts and the
+/// item-rotation copy cannot change anything they read afterwards.
+pub(super) fn prepare_engine_variables(
+    evaluator: &Evaluator<'_>,
+    state: &ActorRigState,
+    swing: Option<f32>,
+    variables: &mut MolangVariables,
+) {
+    if let Some(swing) = swing {
+        variables.set(evaluator.layout.engine.attack_time, swing);
+    }
+    apply_spear_variables(evaluator, state, swing, variables);
+}
+
+/// Publishes the native spear pose for carriers that read completed spear variables.
+fn apply_spear_variables(
+    evaluator: &Evaluator<'_>,
+    state: &ActorRigState,
+    swing: Option<f32>,
+    variables: &mut MolangVariables,
+) {
     if state.complete_spear_variables {
-        engine.spear.apply(
+        evaluator.layout.engine.spear.apply(
             variables,
             evaluator.actor,
             evaluator.context,
@@ -320,6 +347,4 @@ pub(super) fn prepare_variables(
             swing.unwrap_or(evaluator.input.attack_time),
         );
     }
-    tick::set_item_rotation_factor(engine, variables);
-    Ok(held_item_scale)
 }

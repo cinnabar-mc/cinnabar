@@ -20,7 +20,9 @@ fn suppressed_cpu_hands_do_not_republish_cached_arm_textures() {
             physical_size: [800, 600],
             dpi_scale: DpiScale::new(1.0).unwrap(),
         };
-        render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+        render_prepared_ui(&player, &mut runtime, &mut presentation, prepared, false)
+            .unwrap()
+            .expect("a changed frame builds");
         assert!(
             presentation.player_hand_icons().1.is_some(),
             "the cached skin remains available"

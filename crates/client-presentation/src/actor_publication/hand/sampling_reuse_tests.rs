@@ -31,7 +31,7 @@ fn readiness_and_prepare_reuse_sampling_without_allocating() {
             local_feed: None,
             predicted_eye: None,
             predicted_feet: None,
-            local_equipment: input.clone(),
+            local_equipment: (input.clone()).into(),
             swing_progress: None,
             renders_game: true,
             hide_hand: false,
@@ -87,10 +87,13 @@ fn readiness_and_prepare_reuse_sampling_without_allocating() {
             HandCaches {
                 source: &mut ready,
                 key: &key,
+                keyed: None,
+                session: 0,
                 java_hand: &mut cache,
                 equipment: Some(&mut equipment),
             },
         )
+        .0
         .unwrap();
         assert_eq!(
             test_alloc::thread_allocations(),
@@ -135,6 +138,7 @@ fn advancing_frame_inputs_reuse_nonempty_layer_storage() {
             false,
             false,
             Some("query.frame_alpha > 0.5"),
+            None,
         );
         let mut cache = java::HandCache::default();
         let initial = hand_source_for_mode(

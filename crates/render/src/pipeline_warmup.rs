@@ -3,6 +3,7 @@
 use bevy::prelude::IntoScheduleConfigs;
 use render_scene::{PipelineWarmupReadiness, SampleCountPreflight, SampleCountRequest};
 
+use bevy::ecs::{component::ComponentId, system::SystemState};
 use std::collections::{HashMap, HashSet};
 
 #[path = "pipeline_warmup/progress.rs"]
@@ -73,6 +74,46 @@ struct WarmupRegistry {
     pending: bool,
     /// A requested sample count this frame's world-camera views also warm.
     requested: Option<SampleCountRequest>,
+    /// The resources of the pipeline owners registered with [`register`].
+    owners: Vec<ComponentId>,
+    /// Owners that existed when they last collected `ids` for the current views.
+    warmed_owners: usize,
+    /// Whether `ids` already holds every owner's variants for this frame's views and request,
+    /// so the owners need not run again.
+    warmed: bool,
+}
+
+impl WarmupRegistry {
+    /// Starts a frame with `views` and `requested`, returning the previous frame's views for
+    /// reuse. The owners' variants carry over when the views and request are unchanged and every
+    /// registered owner existed when it collected them and still exists (`owners_present`);
+    /// otherwise the owners collect them again, which drops a removed owner's variants.
+    fn begin_frame(
+        &mut self,
+        views: Vec<WarmView>,
+        requested: Option<SampleCountRequest>,
+        owners_present: bool,
+    ) -> Vec<WarmView> {
+        self.warmed = views == self.views
+            && requested == self.requested
+            && owners_present
+            && !self.owners.is_empty()
+            && self.warmed_owners == self.owners.len();
+        self.requested = requested;
+        self.pending = false;
+        if !self.warmed {
+            self.ids.clear();
+            self.warmed_owners = 0;
+        }
+        let mut previous = std::mem::replace(&mut self.views, views);
+        previous.clear();
+        previous
+    }
+}
+
+/// Owners run only while some of them still have variants to collect for the current views.
+fn owners_need_warmup(registry: Res<WarmupRegistry>) -> bool {
+    !registry.warmed
 }
 
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
@@ -90,6 +131,12 @@ pub(crate) fn register<T: PrewarmPipelines>(app: &mut App) {
         return;
     };
     if !render_app.world().contains_resource::<WarmupOwner<T>>() {
+        let owner = render_app.world_mut().register_component::<T>();
+        render_app
+            .world_mut()
+            .resource_mut::<WarmupRegistry>()
+            .owners
+            .push(owner);
         render_app
             .insert_resource(WarmupOwner::<T>(std::marker::PhantomData))
             .add_systems(
@@ -160,7 +207,10 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
             // the warm-up.
             .configure_sets(
                 Render,
-                (WarmupSet::Views, WarmupSet::Owners)
+                (
+                    WarmupSet::Views,
+                    WarmupSet::Owners.run_if(owners_need_warmup),
+                )
                     .chain()
                     .after(RenderSystems::Prepare)
                     .before(RenderSystems::Render),
@@ -206,15 +256,24 @@ pub(crate) fn requested_sample_mode(
     requested.filter(|_| world_camera && !shader_pack)
 }
 
+/// The camera state and the requested sample count that select a frame's warm-up views.
+type ViewInputs = (
+    ViewKeys<'static, 'static>,
+    Res<'static, SampleCountPreflight>,
+);
+
+/// Collects the frame's views and starts the registry's frame. Exclusive, so it can also check
+/// that every registered owner still exists.
 fn collect_views(
-    views: ViewKeys,
-    preflight: Res<SampleCountPreflight>,
-    mut registry: ResMut<WarmupRegistry>,
+    world: &mut bevy::prelude::World,
+    inputs: &mut SystemState<ViewInputs>,
+    mut keys: Local<Vec<WarmView>>,
 ) {
-    registry.views.clear();
-    registry.ids.clear();
-    registry.pending = false;
-    registry.requested = None;
+    keys.clear();
+    let mut frame_request = None;
+    let Ok((views, preflight)) = inputs.get(world) else {
+        return;
+    };
     for (camera, msaa, target, enhanced, shader_pack, world_camera) in &views {
         let key = WarmView {
             msaa: *msaa,
@@ -230,17 +289,28 @@ fn collect_views(
             shader_pack,
         );
         if requested.is_some() {
-            registry.requested = request;
+            frame_request = request;
         }
         for key in [Some(key), requested.map(|msaa| WarmView { msaa, ..key })]
             .into_iter()
             .flatten()
         {
-            if !registry.views.contains(&key) {
-                registry.views.push(key);
+            if !keys.contains(&key) {
+                keys.push(key);
             }
         }
     }
+    let registry = world.resource::<WarmupRegistry>();
+    let owners_present = registry
+        .owners
+        .iter()
+        .all(|&owner| world.contains_resource_by_id(owner));
+    let frame_views = std::mem::take(&mut *keys);
+    *keys = world.resource_mut::<WarmupRegistry>().begin_frame(
+        frame_views,
+        frame_request,
+        owners_present,
+    );
 }
 
 /// Specializes once per view configuration; later frames only compare keys.
@@ -254,6 +324,7 @@ fn prewarm_owner<T: PrewarmPipelines>(
     let Some(mut owner) = owner else {
         return;
     };
+    registry.warmed_owners += 1;
     let WarmupRegistry { views, ids, .. } = &mut *registry;
     for &view in views.iter() {
         for msaa in sample_modes(view.msaa) {

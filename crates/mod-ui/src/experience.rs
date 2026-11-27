@@ -135,6 +135,21 @@ impl ModUi {
         chrome.view.hovered = hovered;
     }
 
+    /// Whether trusted experience chrome is set, which its paint draws.
+    pub fn has_experience_chrome(&self) -> bool {
+        self.experience.is_some()
+    }
+
+    /// Whether a client part's screen is set, which its paint draws.
+    pub fn has_experience_modal(&self) -> bool {
+        self.experience_modal.is_some()
+    }
+
+    /// Whether trusted experience chrome or a client part's screen is set at all.
+    pub fn has_experience_surfaces(&self) -> bool {
+        self.experience.is_some() || self.experience_modal.is_some()
+    }
+
     /// Missing trusted chrome revokes remote code instead of running it invisibly.
     pub fn experience_chrome_failed(&self) -> bool {
         self.experience.as_ref().is_some_and(|chrome| chrome.failed)

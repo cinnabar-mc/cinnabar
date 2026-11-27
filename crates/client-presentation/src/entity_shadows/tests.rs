@@ -111,14 +111,13 @@ fn only_drawn_bodies_and_dropped_items_cast() {
     spawn(&mut stream, 3, 7, "item", 6.0);
     let mut staging = Vec::new();
     let mut scene = EntityShadowScene::default();
-    publish_entity_shadows(
-        Some(&stream),
-        1.0,
-        None,
-        None,
-        &[5],
-        &mut staging,
-        &mut scene,
+    let publish = |scene: &mut EntityShadowScene, staging: &mut Vec<_>| {
+        publish_entity_shadows(Some(&stream), 1.0, None, None, &[5], staging, scene)
+    };
+    assert!(publish(&mut scene, &mut staging));
+    assert!(
+        !publish(&mut scene, &mut staging),
+        "an unchanged caster list is not republished"
     );
     let mut casters: Vec<f32> = scene
         .0

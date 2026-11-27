@@ -21,7 +21,7 @@ use std::sync::Mutex;
 pub(crate) struct NametagOverlay;
 
 #[derive(Resource)]
-struct Installed;
+pub(super) struct Installed;
 
 /// Graded and pack views keep labels outside every world colour effect.
 pub(crate) fn enabled(enhanced: bool, pack: bool) -> bool {
@@ -41,6 +41,7 @@ pub(super) fn install_graph(world: &mut World) {
                     Some(render_scene::RuntimeStage::GpuUi),
                     "NametagOverlay",
                 )
+                .run_if(super::nametags_uploaded)
                 .in_set(NametagOverlay)
                 .after(Core3dSystems::PostProcess)
                 .after(crate::mod_render::ModPassLabel)
@@ -54,6 +55,11 @@ pub(super) fn install_graph(world: &mut World) {
     {
         world.insert_resource(Installed);
     }
+}
+
+/// Whether the overlay pass still needs adding to the 3D graph.
+pub(super) fn graph_missing(installed: Option<Res<Installed>>) -> bool {
+    installed.is_none()
 }
 
 #[derive(Component)]
@@ -77,8 +83,27 @@ type OverlayView = (
     Option<&'static Overlay>,
 );
 
-/// Prepares each opted-in view before its first label, retaining unchanged GPU resources,
-/// and releases the layer of views that no longer use it.
+/// Releases the layer of views that left Enhanced rendering and shader packs. Runs every frame,
+/// apart from label preparation, so a layer is released while no label is drawn.
+pub(super) fn release_disabled(
+    mut commands: Commands,
+    views: Query<
+        (
+            Entity,
+            Has<render_scene::EnhancedRendering>,
+            Has<render_scene::shaderpack::ShaderPackRendering>,
+        ),
+        With<Overlay>,
+    >,
+) {
+    for (entity, enhanced, pack) in &views {
+        if !enabled(enhanced, pack) {
+            commands.entity(entity).remove::<Overlay>();
+        }
+    }
+}
+
+/// Prepares each opted-in view before its first label, retaining unchanged GPU resources.
 pub(super) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
@@ -88,9 +113,6 @@ pub(super) fn prepare(
     failed.retain(|view| views.contains(view));
     for (entity, target, depth, msaa, enhanced, pack, overlay) in &views {
         if !enabled(enhanced, pack) {
-            if overlay.is_some() {
-                commands.entity(entity).remove::<Overlay>();
-            }
             continue;
         }
         if overlay.is_some_and(|overlay| {
@@ -255,6 +277,7 @@ fn draw(
             phase.render_range(&mut pass, world, entity, range)?;
         }
     }
+    crate::scene_target::ensure_resolved(world, entity, &mut context);
     let post = target.post_process_write();
     let device = world.resource::<RenderDevice>().wgpu_device();
     let mut bindings = overlay.bindings.lock().expect("nametag composite bindings");

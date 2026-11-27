@@ -91,12 +91,13 @@ impl LocatorState {
     }
 
     /// Samples only actors explicitly authorized by the server's waypoint updates.
+    /// Whether any resolved position changed.
     pub fn observe_actors(
         &mut self,
         dimension: i32,
         mut resolve: impl FnMut(i64) -> Option<[f32; 3]>,
-    ) {
-        self.actor_positions.clear();
+    ) -> bool {
+        let previous = std::mem::take(&mut self.actor_positions);
         for point in self.waypoints.values().filter(|point| {
             point.visible != Some(false) && point.client_position_authority == Some(true)
         }) {
@@ -107,6 +108,7 @@ impl LocatorState {
                 self.actor_positions.insert(id, (position, dimension));
             }
         }
+        previous != self.actor_positions
     }
 
     /// Resolves client-position authority before falling back to a supplied server position.
@@ -121,16 +123,30 @@ impl LocatorState {
         point.position
     }
 
-    /// Whether any received location belongs on the current dimension's locator.
+    /// Whether the locator bar shows in `dimension` at `now`.
+    #[cfg(test)]
     pub fn visible(&self, dimension: i32, now: u64) -> bool {
-        now >= self.experience_until
-            && (self.players.values().any(|(_, dim)| *dim == dimension)
-                || self.waypoints.values().any(|point| {
-                    point.visible != Some(false)
-                        && self
-                            .waypoint_position(point)
-                            .is_some_and(|(_, dim)| dim == dimension)
-                }))
+        self.visible_at(
+            dimension,
+            &super::presentation::frame_clock::FrameClock::new(now),
+        )
+    }
+
+    /// Whether any received location belongs on the current dimension's locator, at a frame
+    /// build's clock, which records when the answer changes.
+    pub fn visible_at(
+        &self,
+        dimension: i32,
+        clock: &super::presentation::frame_clock::FrameClock,
+    ) -> bool {
+        (self.players.values().any(|(_, dim)| *dim == dimension)
+            || self.waypoints.values().any(|point| {
+                point.visible != Some(false)
+                    && self
+                        .waypoint_position(point)
+                        .is_some_and(|(_, dim)| dim == dimension)
+            }))
+            && !clock.before(self.experience_until)
     }
 
     /// Captures only explicitly supplied locations; ordinary actor observations do not reveal players.
@@ -166,8 +182,8 @@ impl super::UiRuntime {
         &mut self,
         dimension: i32,
         resolve: impl FnMut(i64) -> Option<[f32; 3]>,
-    ) {
-        self.session.locator.observe_actors(dimension, resolve);
+    ) -> bool {
+        self.session.locator.observe_actors(dimension, resolve)
     }
 }
 

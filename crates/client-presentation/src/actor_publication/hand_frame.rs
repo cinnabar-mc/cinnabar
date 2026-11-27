@@ -10,11 +10,15 @@ use render_model::HandRigLight;
 pub(super) struct HandCaches<'a> {
     pub source: &'a mut Option<HandSource>,
     pub key: &'a Option<hand::SourceKey>,
+    /// The readiness source's reuse key and the session counter fencing reuse.
+    pub keyed: Option<super::hand_reuse::KeyedSource>,
+    pub session: u64,
     pub java_hand: &'a mut java::HandCache,
     pub equipment: Option<&'a mut EquipmentRuntime>,
 }
 
 /// Reuses the ready hand when its source key still matches, before local body placement.
+/// Also returns the final source's reuse key, for retention across frames.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn prepare(
     stream: Option<&WorldStream>,
@@ -29,7 +33,7 @@ pub(super) fn prepare(
     artwork: &render_model::ActorArtworkPages,
     hand_motion: Option<&FirstPersonHandMotion>,
     caches: HandCaches<'_>,
-) -> Option<HandSource> {
+) -> (Option<HandSource>, Option<super::hand_reuse::KeyedSource>) {
     let bodies::PoseView {
         partial_tick,
         first_person,
@@ -41,9 +45,12 @@ pub(super) fn prepare(
     let HandCaches {
         source: ready_hand_source,
         key: ready_hand_key,
+        keyed: mut ready_keyed,
+        session,
         java_hand,
         mut equipment,
     } = caches;
+    let mut final_keyed = None;
     // First person draws the player's own rig near the camera: the visible arms with every other
     // bone hidden, and a drawable held item in its own first-person frame. Anything not covered
     // (an undrawable item) leaves the CPU viewmodel in charge.
@@ -58,6 +65,27 @@ pub(super) fn prepare(
             let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
             let (consume_ticks, item_animation) = hand_use;
             let motion = hand_motion.map_or(Mat4::IDENTITY, hand_motion_matrix);
+            let reuse_key = super::hand_reuse::ReuseKey::new(
+                stream,
+                &presentation,
+                &equipment_input,
+                hand_use,
+                (partial_tick, aspect, java_mode, session),
+            );
+            // A frame-independent ready source whose inputs are unchanged since readiness
+            // needs neither a second visibility read nor a rebuild.
+            if ready_keyed
+                .as_ref()
+                .is_some_and(|ready| ready.reusable && Some(&ready.key) == reuse_key.as_ref())
+                && ready_hand_source.is_some()
+            {
+                reused_hand = true;
+                final_keyed = ready_keyed.take();
+                return ready_hand_source.take().map(|mut source| {
+                    source.motion = motion;
+                    source
+                });
+            }
             let key = hand::source_key(stream, consume_ticks, item_animation, partial_tick);
             let samples_item_scale = stream
                 .authority()
@@ -89,12 +117,25 @@ pub(super) fn prepare(
                     .is_some_and(|source| Some(source.visibility) == visibility)
             {
                 reused_hand = true;
+                final_keyed = ready_keyed
+                    .take()
+                    .filter(|ready| Some(&ready.key) == reuse_key.as_ref());
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;
                     source
                 });
             }
-            hand::source(inputs, java_mode, equipment, java_hand)
+            let source = hand::source(inputs, java_mode, equipment, java_hand);
+            // Rebuilt after readiness, so the readiness result belongs to another source.
+            final_keyed = reuse_key.map(|key| super::hand_reuse::KeyedSource {
+                retained: false,
+                readiness_checked: false,
+                reusable: source
+                    .as_ref()
+                    .is_some_and(|source| key.reusable(stream, source)),
+                key,
+            });
+            source
         })
     } else {
         None
@@ -102,7 +143,7 @@ pub(super) fn prepare(
     if let Some(equipment) = equipment {
         equipment.finish_hand_readiness(reused_hand);
     }
-    hand_source
+    (hand_source, final_keyed)
 }
 
 /// Lights the hand at visible feet, predicted feet or the authoritative eye, in that order.

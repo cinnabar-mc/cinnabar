@@ -2,7 +2,7 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 /// Maximum section population in the player's current render distance and dimension.
 /// The renderer combines this hint with observed payload sizes, within adapter limits.
-#[derive(Resource, ExtractResource, Debug, Default, Clone, Copy)]
+#[derive(Resource, ExtractResource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct ChunkArenaCapacityHint {
     pub sections: usize,

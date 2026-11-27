@@ -50,8 +50,9 @@ pub(crate) fn drive_chat_ui_actions(
     let (window_entity, window) = *window;
     let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
     if !frame.reads(|scene| matches!(scene, Scene::Bed | Scene::Chat | Scene::Loading)) {
-        presentation.set_bed_pointer(None);
-        presentation.set_chat_pointer(None);
+        client_shell::ui_resources::update(&mut presentation, |presentation| {
+            presentation.set_bed_pointer(None) | presentation.set_chat_pointer(None)
+        });
         gesture.cancel();
         return;
     }

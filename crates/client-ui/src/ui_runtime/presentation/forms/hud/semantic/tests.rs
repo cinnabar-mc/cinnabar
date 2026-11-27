@@ -11,6 +11,8 @@ struct Fixture {
     player: player_state::PlayerState,
     runtime: UiRuntime,
     frame: HudFrame,
+    /// The clock the HUD is captured at, in milliseconds.
+    now: u64,
     settings: SettingsOptions,
     catalog: Arc<Catalog>,
     scoreboard: PresentedScoreboardCache,
@@ -33,6 +35,7 @@ impl Default for Fixture {
             player,
             runtime: UiRuntime::new(1),
             frame: HudFrame::default(),
+            now: 0,
             settings: SettingsOptions::default(),
             catalog: Arc::new(Catalog::default()),
             scoreboard: Default::default(),
@@ -61,6 +64,7 @@ impl Fixture {
             &self.player,
             &self.runtime,
             &self.frame,
+            &FrameClock::new(self.now),
             sidebar,
             key,
             &self.settings,
@@ -73,6 +77,7 @@ impl Fixture {
             &self.player,
             &self.runtime,
             &self.frame,
+            self.now,
             sidebar.map(super::super::reference::sidebar_model),
             &mut icons,
             &self.settings,
@@ -142,6 +147,7 @@ fn idle_and_live_paint_inputs_do_not_reconstruct_semantic_components() {
         &fixture.player,
         &fixture.runtime,
         &fixture.frame,
+        &FrameClock::new(fixture.now),
         None,
         &fixture.settings,
     );
@@ -149,7 +155,7 @@ fn idle_and_live_paint_inputs_do_not_reconstruct_semantic_components() {
     let hotbar = cache.model.hotbar.as_ptr();
     let icons = cache.icons.as_ptr();
     for now in [1, 100, 300] {
-        fixture.frame.now_millis = now;
+        fixture.now = now;
         fixture.frame.hotbar_cooldowns[0] = now as f32 / 500.0;
         fixture.frame.attack_indicator_charge = Some(0.5);
         fixture.frame.mount_jump = Some(0.4);
@@ -169,6 +175,7 @@ fn idle_and_live_paint_inputs_do_not_reconstruct_semantic_components() {
             &fixture.player,
             &fixture.runtime,
             &fixture.frame,
+            &FrameClock::new(fixture.now),
             None,
             &fixture.settings,
         );
@@ -231,7 +238,7 @@ fn popups_use_item_text_without_replacing_actionbar_or_reviving_old_names() {
         .session
         .hud
         .set_jukebox_popup(Arc::from("Jukebox"), 3, 100);
-    fixture.frame.now_millis = 125;
+    fixture.now = 125;
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
     assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
@@ -246,11 +253,11 @@ fn popups_use_item_text_without_replacing_actionbar_or_reviving_old_names() {
         .runtime
         .observe_selected_item_identity_value(Some((1, 2, 0)), 150);
     fixture.frame.selected_item_name = Some(Arc::from("New item"));
-    fixture.frame.now_millis = 150;
+    fixture.now = 150;
     fixture.check(&mut cache);
     assert_eq!(cache.model.item_name.as_ref().unwrap().text, "New item");
     assert!(cache.model.popup.is_none());
-    fixture.frame.now_millis = 2_500;
+    fixture.now = 2_500;
     fixture.check(&mut cache);
     assert!(
         cache.model.item_name.is_none() && cache.model.popup.is_none(),
@@ -267,7 +274,7 @@ fn superseded_popups_stay_dismissed_after_selecting_an_empty_slot() {
         .session
         .hud
         .set_popup(Arc::from("Old popup"), 1, 100);
-    fixture.frame.now_millis = 100;
+    fixture.now = 100;
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
     assert!(cache.model.popup.is_some());
@@ -276,7 +283,7 @@ fn superseded_popups_stay_dismissed_after_selecting_an_empty_slot() {
         .runtime
         .observe_selected_item_identity_value(Some((0, 1, 0)), 150);
     fixture.frame.selected_item_name = Some(Arc::from("Item"));
-    fixture.frame.now_millis = 150;
+    fixture.now = 150;
     fixture.check(&mut cache);
     assert!(cache.model.popup.is_none());
     assert_eq!(cache.model.item_name.as_ref().unwrap().text, "Item");
@@ -286,7 +293,7 @@ fn superseded_popups_stay_dismissed_after_selecting_an_empty_slot() {
         .observe_selected_item_identity_value(None, 200);
     fixture.frame.selected_item_name = None;
     for now in [200, 250] {
-        fixture.frame.now_millis = now;
+        fixture.now = now;
         fixture.check(&mut cache);
         assert!(cache.model.popup.is_none());
         assert!(cache.model.item_name.is_none());
@@ -297,7 +304,7 @@ fn superseded_popups_stay_dismissed_after_selecting_an_empty_slot() {
         .session
         .hud
         .set_popup(Arc::from("New popup"), 2, 300);
-    fixture.frame.now_millis = 300;
+    fixture.now = 300;
     fixture.check(&mut cache);
     assert_eq!(cache.model.popup.as_ref().unwrap().text, "\nNew popup");
 }
@@ -314,7 +321,7 @@ fn popups_preserve_formatted_text_up_to_the_hud_text_budget() {
         .session
         .hud
         .set_popup(Arc::from(text.as_str()), 1, 100);
-    fixture.frame.now_millis = 100;
+    fixture.now = 100;
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
     let popup = cache.model.popup.as_ref().unwrap();
@@ -333,7 +340,7 @@ fn spectators_receive_the_action_bar_but_no_popups() {
     hud.set_actionbar(Arc::from("Action"), 1, 100);
     hud.set_popup(Arc::from("Popup"), 2, 100);
     hud.set_jukebox_popup(Arc::from("Jukebox"), 3, 100);
-    fixture.frame.now_millis = 125;
+    fixture.now = 125;
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
     assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
@@ -350,10 +357,10 @@ fn actionbar_controller_input_outlives_default_animation_until_explicit_clear() 
         .session
         .hud
         .set_actionbar(Arc::from("Persistent status"), 1, 100);
-    fixture.frame.now_millis = 100;
+    fixture.now = 100;
     fixture.check(&mut cache);
     fixture.runtime.session.hud.expire(30_000);
-    fixture.frame.now_millis = 30_000;
+    fixture.now = 30_000;
     fixture.check(&mut cache);
     assert!(
         fixture.runtime.hud().actionbar().is_none(),
@@ -439,7 +446,7 @@ fn actionbar_requests_reset_stateful_server_labels_after_default_expiry() {
                 .hud
                 .set_actionbar(Arc::from(text), sequence, started);
         }
-        fixture.frame.now_millis = now;
+        fixture.now = now;
         fixture.runtime.session.hud.expire(now);
         if request.is_none() {
             assert!(fixture.runtime.hud().actionbar().is_none());
@@ -520,7 +527,7 @@ fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
     fixture.frame.selected_item_name = Some(Arc::from("Item"));
     let mut cache = SemanticHud::default();
     for now in [100, 200, 349, 350, 400, 2_100, 150] {
-        fixture.frame.now_millis = now;
+        fixture.now = now;
         fixture.check(&mut cache);
     }
     assert_eq!(cache.model.title.as_ref().unwrap().creation_id, 1);
@@ -541,7 +548,7 @@ fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
     assert!(fixture.check(&mut cache).text);
     let title = cache.model.title.as_ref().unwrap();
     assert_eq!((title.creation_id, title.born, title.stay), (5, 0.15, 0.4));
-    fixture.frame.now_millis = 650;
+    fixture.now = 650;
     fixture.check(&mut cache);
     assert!(cache.model.title.is_none());
 }
@@ -552,16 +559,16 @@ fn chat_membership_tracks_future_timestamps_settings_and_both_clock_directions()
     fixture.chat("Past", 0);
     fixture.chat("Future", 1_000);
     let mut cache = SemanticHud::default();
-    fixture.frame.now_millis = 100;
+    fixture.now = 100;
     fixture.check(&mut cache);
     let text = cache.model.chat[1].text.as_ptr();
     for now in [101, 1_000, 1_001] {
-        fixture.frame.now_millis = now;
+        fixture.now = now;
         fixture.check(&mut cache);
         assert_eq!(cache.model.chat[1].text.as_ptr(), text);
     }
     for now in [100_000, 100] {
-        fixture.frame.now_millis = now;
+        fixture.now = now;
         fixture.check(&mut cache);
     }
     assert_eq!(cache.model.chat[1].born, 0.1);
@@ -603,10 +610,10 @@ fn world_text_language_and_visibility_invalidate_without_touching_hotbar() {
         show_days_played: Some(true),
     });
     fixture.frame.player_block = Some([1, 64, -3]);
-    fixture.frame.world_time = Some(f64::from(world::TICKS_PER_DAY) * 2.0);
+    fixture.frame.days_played = Some(2.0);
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
-    fixture.frame.world_time = Some(f64::from(world::TICKS_PER_DAY) * 2.5);
+    fixture.frame.days_played = Some(2.0);
     assert_eq!(fixture.check(&mut cache), HudChanges::default());
     fixture.frame.player_block = Some([2, 64, -3]);
     let changes = fixture.check(&mut cache);
@@ -822,10 +829,10 @@ fn offhand_preview_and_mod_visibility_remain_live() {
             duration_ticks: 2,
             tick: 10,
         });
-    fixture.frame.now_millis = 100;
+    fixture.now = 100;
     assert!(fixture.check(&mut cache).status);
     assert!(!cache.model.effects_visible);
-    fixture.frame.now_millis = 0;
+    fixture.now = 0;
     assert!(fixture.check(&mut cache).status);
     fixture.hide_effects = true;
     assert!(fixture.check(&mut cache).status);
@@ -912,7 +919,7 @@ fn long_multiline_chat_hud_preserves_raw_and_translated_message_tails() {
         fixture.check(&mut cache);
         assert_eq!(cache.model.chat[0].text, text, "{kind:?}");
         let before = cache.constructions;
-        fixture.frame.now_millis = 100;
+        fixture.now = 100;
         assert!(!fixture.check(&mut cache).chat);
         assert_eq!(
             cache.constructions, before,
@@ -984,7 +991,7 @@ fn title_controller_inputs_survive_native_title_expiry_without_truncation() {
     fixture.check(&mut cache);
     assert_eq!(cache.model.title.as_ref().unwrap().title, text);
     assert_eq!(cache.model.actionbar.as_ref().unwrap().text, text);
-    fixture.frame.now_millis = 60_000;
+    fixture.now = 60_000;
     fixture.check(&mut cache);
     assert!(cache.model.title.is_none());
     assert_eq!(cache.model.title_text.as_deref(), Some(text.as_str()));
@@ -996,8 +1003,10 @@ fn title_controller_inputs_survive_native_title_expiry_without_truncation() {
 
 #[test]
 fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
-    let mut fixture = Fixture::default();
-    fixture.frame.now_millis = 1000;
+    let mut fixture = Fixture {
+        now: 1000,
+        ..Fixture::default()
+    };
     fixture.settings.set(SettingId::ChatColor.index(), 1);
     let message = ui_screens::test_support::hover_chat::message_with_caption("Hello @Alex");
     fixture.chat(&message, 1);

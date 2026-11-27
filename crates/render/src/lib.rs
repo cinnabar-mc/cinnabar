@@ -52,7 +52,7 @@ pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 mod dropped_item_render;
 mod frame_boundary;
 mod hand_rig_render;
-pub use device_poll::FrameSubmissions;
+pub use device_poll::{FrameCompletion, FrameSubmissions, FrameWork};
 pub use frame_boundary::{FrameEnd, FrameStart};
 #[cfg(not(target_arch = "wasm32"))]
 mod input_pacing;
@@ -98,6 +98,7 @@ mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
 mod render_scale;
+mod strict_webgpu;
 pub use render_scale::{RenderScaleOutput, RenderScaleSharpen, RenderScaleSystems};
 
 mod runtime_profile_phases;

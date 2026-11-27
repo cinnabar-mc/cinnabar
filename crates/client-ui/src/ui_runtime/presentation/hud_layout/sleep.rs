@@ -1,6 +1,6 @@
 //! The camera's sleep fade: a dark tint while asleep, eased out on waking.
 
-use super::{HudFrame, HudLayout, UiPresentationError};
+use super::{super::frame_clock::FrameClock, HudFrame, HudLayout, UiPresentationError};
 
 /// 26.30's `PlayerSleepFadeEffectSystemUtil` fade: 5 s in, 0.5 s out, to
 /// RGB (16, 16, 32).
@@ -19,17 +19,20 @@ pub struct SleepTimeline {
 }
 
 impl SleepTimeline {
-    pub fn observe(&mut self, sleeping: bool, now_millis: u64) {
+    /// Whether the timeline changed.
+    pub fn observe(&mut self, sleeping: bool, now_millis: u64) -> bool {
         match (sleeping, self.asleep_since) {
             (true, None) => {
                 self.asleep_since = Some(now_millis);
                 self.fading = None;
+                true
             }
             (false, Some(_)) => {
                 self.fading = Some((now_millis, self.strength(now_millis)));
                 self.asleep_since = None;
+                true
             }
-            _ => {}
+            _ => false,
         }
     }
 
@@ -52,11 +55,33 @@ impl SleepTimeline {
     }
 }
 
+impl SleepTimeline {
+    /// [`Self::strength`] at a frame build's clock, which reads the time only while the tint
+    /// still fades.
+    pub fn strength_at(&self, clock: &FrameClock) -> f32 {
+        let fading_until = match (self.asleep_since, self.fading) {
+            (Some(since), _) => since.saturating_add(FADE_IN_MILLIS),
+            (None, Some((woke, _))) => woke.saturating_add(FADE_OUT_MILLIS),
+            (None, None) => return 0.0,
+        };
+        if clock.before(fading_until) {
+            self.strength(clock.millis())
+        } else {
+            // Settled: fully faded in, or out.
+            self.strength(fading_until)
+        }
+    }
+}
+
 impl HudLayout<'_> {
     /// Draws the tint under the HUD.
-    pub(super) fn sleep_overlay(&mut self, frame: &HudFrame) -> Result<(), UiPresentationError> {
+    pub(super) fn sleep_overlay(
+        &mut self,
+        frame: &HudFrame,
+        clock: &FrameClock,
+    ) -> Result<(), UiPresentationError> {
         let g = self.geometry;
-        let strength = frame.sleep.strength(frame.now_millis);
+        let strength = frame.sleep.strength_at(clock);
         let alpha = (PEAK_ALPHA * strength * 255.0).round() as u8;
         if alpha > 0 {
             self.solid_gui(

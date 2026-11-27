@@ -21,6 +21,12 @@ fn encoded(feedback: &GpuCullFeedback, device: &RenderDevice, decisions: &wgpu::
 }
 
 /// The selected view of a validating NOOP feedback fixture.
+/// Completion work for a render world that submits before registering it.
+fn immediate_work() -> crate::device_poll::FrameWork {
+    let (_, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    crate::device_poll::FrameWork::immediate(bevy::render::renderer::RenderQueue::new(queue))
+}
+
 fn fixture() -> (RenderDevice, wgpu::Queue, Entity, GpuCullFeedback) {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut world = World::new();
@@ -103,7 +109,7 @@ fn replaced_storage_and_changed_views_cannot_sample_old_history() {
             .load(Ordering::Acquire),
         RECORDING
     );
-    feedback.finish_frame();
+    feedback.finish_frame(&immediate_work());
 
     let mut world = World::new();
     world.spawn_empty();
@@ -140,7 +146,7 @@ fn a_reserved_sample_without_a_late_pass_retries_without_advancing_the_cadence()
             .load(Ordering::Acquire),
         RECORDING
     );
-    feedback.finish_frame();
+    feedback.finish_frame(&immediate_work());
     assert_eq!(feedback.next_sample, 0);
     assert_eq!(
         feedback

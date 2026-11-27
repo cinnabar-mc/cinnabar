@@ -339,7 +339,7 @@ fn captured_partial_repair_retains_result_durability() {
         &mut runtime,
         &mut presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         0,
         ItemIconFrames::default(),
     );
@@ -787,7 +787,7 @@ fn too_expensive_predictions_keep_costs_but_publish_no_result_or_hover() {
         &mut runtime,
         &mut presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         0,
         ItemIconFrames::default(),
     );

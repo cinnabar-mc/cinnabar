@@ -49,8 +49,12 @@ pub(crate) fn collect_portal_contact(
     client_world: Option<Res<ClientWorld>>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     mut facts: ResMut<ScreenEffectFacts>,
+    mut cache: Local<client_presentation::camera::facts::PortalContactCache>,
 ) {
-    client_presentation::camera::facts::collect_portal_contact(
+    let lookup = collisions.as_ref().map_or(0, |collisions| {
+        bevy::ecs::change_detection::DetectChanges::last_changed(collisions).get()
+    });
+    let in_portal = client_presentation::camera::facts::collect_portal_contact(
         &player_runtime,
         &view,
         physics
@@ -61,11 +65,18 @@ pub(crate) fn collect_portal_contact(
                 stream: world.stream.as_ref(),
             },
         ),
-        collisions.as_deref().map(|collisions| {
-            collisions as &dyn client_presentation::observations::CollisionLookup
-        }),
-        &mut facts,
+        (
+            collisions.as_deref().map(|collisions| {
+                collisions as &dyn client_presentation::observations::CollisionLookup
+            }),
+            lookup,
+        ),
+        &mut cache,
     );
+    // Writing marks the facts changed, so an unchanged contact leaves them alone.
+    if facts.in_portal != in_portal {
+        facts.in_portal = in_portal;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

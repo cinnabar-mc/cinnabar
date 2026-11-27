@@ -25,11 +25,13 @@ mod held;
 pub(super) mod hud_model;
 mod live_equipment;
 mod live_player;
+#[cfg(debug_assertions)]
+pub(super) use live_player::debug_digest;
 mod pack_equipment;
 mod player_layers;
 mod preparation;
 mod shield_icons;
-mod trim_icons;
+pub(super) mod trim_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
 mod world_trim;
@@ -148,9 +150,16 @@ pub(super) struct GuiModels {
     /// A screen's live renderer draws beside the HUD doll with its own head turn.
     pub(super) screen_model: std::sync::Mutex<hud_model::HudModel>,
     live_renderer_shown: std::sync::atomic::AtomicBool,
+    /// Whether the last build drew the player model in any preview.
+    player_model_drawn: std::sync::atomic::AtomicBool,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     pub(super) wearing_elytra: bool,
+    /// The last dressing of the player model, which an unchanged dressing repeats.
+    pub(in super::super) dress_record: Option<super::player_preview::dress_reuse::DressRecord>,
+    /// Dressings that ran rather than repeated.
+    #[cfg(test)]
+    pub(in super::super) dressings: usize,
     selected_held: [Option<held::SelectedModel>; 2],
     fire: fire::FireAtlas,
     /// Tinted copies of `models`, kept while frames draw them.
@@ -341,6 +350,9 @@ impl UiPresentationRuntime {
         self.gui_models
             .live_renderer_shown
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.gui_models
+            .player_model_drawn
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         // Node identities change between frames, so no doll keeps another frame's controls.
         for in_hud in [true, false] {
             self.gui_models
@@ -420,6 +432,9 @@ impl UiPresentationRuntime {
         {
             return;
         }
+        self.gui_models
+            .player_model_drawn
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let live_renderer = matches!(view, player_preview::PreviewView::Live { .. });
         if live_renderer {
             self.gui_models

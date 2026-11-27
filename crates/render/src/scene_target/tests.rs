@@ -62,7 +62,15 @@ fn shared_colour_retains_samples_until_one_discarding_resolve() {
             resolves += usize::from(final_attachment.resolve_target.is_some());
             assert_eq!(final_attachment.ops.store, StoreOp::Discard);
             assert_eq!(resolves, 1);
-            assert_eq!(scene.texture.usage(), TextureUsages::RENDER_ATTACHMENT);
+            // Two samples stay sampleable for the fused UI composite.
+            assert_eq!(
+                scene.texture.usage(),
+                if samples == 2 {
+                    TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING
+                } else {
+                    TextureUsages::RENDER_ATTACHMENT
+                }
+            );
             assert!(!scene.resolved.load(Ordering::Relaxed));
             let folded = scene.final_attachment(resolved.color_view(false));
             assert!(folded.resolve_target.is_some());
@@ -716,4 +724,80 @@ fn retained_passes_refuse_fallback_colour_while_the_msaa_scene_is_unavailable() 
         attachment.view,
         target.get_color_attachment().view
     ));
+}
+
+/// The final resolve waits only for views whose every pass after the scene finish can ask for it.
+#[test]
+fn only_plain_sdr_views_with_a_resolve_table_and_ui_output_resolve_lazily() {
+    use bevy::prelude::World;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, _) = bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let table = device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&Default::default());
+    let mut world = World::new();
+    let plain = world.spawn(crate::render_test_support::camera(false)).id();
+    assert!(
+        !super::nodes::resolves_lazily(&world, plain),
+        "no table yet"
+    );
+    world.insert_resource(super::resolve_lut::ResolveLut { view: table.into() });
+    assert!(
+        !super::nodes::resolves_lazily(&world, plain),
+        "no UI output pass"
+    );
+    world.insert_resource(crate::ui_render::composite::output::UiPresentInstalled);
+    assert!(super::nodes::resolves_lazily(&world, plain));
+    let hdr = world.spawn(crate::render_test_support::camera(true)).id();
+    let fxaa = world
+        .spawn((
+            crate::render_test_support::camera(false),
+            bevy::anti_alias::fxaa::Fxaa::default(),
+        ))
+        .id();
+    let pack = world
+        .spawn((
+            crate::render_test_support::camera(false),
+            render_scene::shaderpack::ShaderPackRendering,
+        ))
+        .id();
+    let enhanced = world
+        .spawn((
+            crate::render_test_support::camera(false),
+            render_scene::EnhancedRendering::default(),
+        ))
+        .id();
+    let scaled = world
+        .spawn((
+            crate::render_test_support::camera(false),
+            crate::render_scale::RenderScaleOutput(bevy::math::UVec2::ONE),
+        ))
+        .id();
+    for view in [hdr, fxaa, pack, enhanced, scaled] {
+        assert!(!super::nodes::resolves_lazily(&world, view));
+    }
 }

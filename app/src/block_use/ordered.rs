@@ -125,9 +125,24 @@ pub(crate) fn fence(
     mut runtime: ResMut<BlockUseRuntime>,
     context: BlockUseContext,
 ) -> bool {
-    if runtime.stopping() || (attack && runtime.last_success_destination().is_some()) {
+    if needs_stop(&runtime, attack) {
         stop_block_use(&mut runtime, &context, false)
     } else {
         true
     }
+}
+
+/// Whether [`fence`] has a stop to send before an action; `attack` marks an attack press.
+fn needs_stop(runtime: &BlockUseRuntime, attack: bool) -> bool {
+    runtime.stopping() || (attack && runtime.last_success_destination().is_some())
+}
+
+/// Runs [`fence`], admitting at once without fetching its block-use context when no stop
+/// is pending. The result and every side effect match running the system.
+pub(crate) fn run_fence(world: &mut bevy::prelude::World, attack: bool) -> bool {
+    if !needs_stop(world.resource::<BlockUseRuntime>(), attack) {
+        return true;
+    }
+    crate::ordered_interactions::run_cached(world, fence, attack)
+        .expect("accepted block stop carrier")
 }

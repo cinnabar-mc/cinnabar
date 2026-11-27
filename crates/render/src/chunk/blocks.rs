@@ -91,7 +91,7 @@ struct Pipelines {
 impl FromWorld for Pipelines {
     /// Uses the terrain owner's canonical shader descriptors and table layouts.
     fn from_world(world: &mut World) -> Self {
-        let mut descriptors = pipeline::layouts::descriptors::build(false);
+        let mut descriptors = pipeline::layouts::descriptors::build(false, false);
         let transparent = &mut descriptors[3];
         transparent.vertex.entry_point = Some("vertex_blocks".into());
         transparent.vertex.shader_defs.push("MOD_BLOCKS".into());

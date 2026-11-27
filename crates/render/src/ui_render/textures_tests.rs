@@ -529,6 +529,34 @@ fn page_upload_failure_leaves_pages_dirty_until_a_complete_retry() {
     assert!(gpu.resident(&catalog));
 }
 
+/// The memoized residency check answers as the full comparison does through failed uploads,
+/// retries and a replaced catalog.
+#[test]
+fn shared_residency_follows_uploads_and_catalog_replacement() {
+    let (device, queue) = noop_device();
+    let catalog = std::sync::Arc::new(catalog(0));
+    let mut gpu = UiGpuTextures::default();
+    assert!(!gpu.shared_resident(&catalog));
+    gpu.prepare(&catalog, &device, &queue, None, std::time::Duration::ZERO)
+        .unwrap();
+    assert!(gpu.shared_resident(&catalog));
+    assert!(
+        gpu.shared_resident(&catalog),
+        "a repeated check stays resident"
+    );
+    gpu.failed_font_uploads(&[0], 0, std::time::Duration::ZERO);
+    assert_eq!(gpu.shared_resident(&catalog), gpu.resident(&catalog));
+    assert!(
+        !gpu.shared_resident(&catalog),
+        "a failed upload is not resident"
+    );
+    gpu.prepare(&catalog, &device, &queue, None, TEXTURE_RETRY_DELAY)
+        .unwrap();
+    assert!(gpu.shared_resident(&catalog));
+    let other = std::sync::Arc::new(self::catalog(1));
+    assert_eq!(gpu.shared_resident(&other), gpu.resident(&other));
+}
+
 #[test]
 fn ui_model_plan_change_requires_all_writes_and_commits_only_after_complete_issuance() {
     use render_model::{UI_DYNAMIC_PAGE_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET};

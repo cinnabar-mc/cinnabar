@@ -406,8 +406,12 @@ impl ActorStore {
 
     /// Records the view's `[pitch, yaw]` (degrees) for camera-facing animations.
     pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
-        if rotation.iter().all(|value| value.is_finite()) {
+        if rotation.iter().all(|value| value.is_finite())
+            && rotation.map(f32::to_bits) != self.camera_rotation.map(f32::to_bits)
+        {
             self.camera_rotation = rotation;
+            self.view_revision =
+                super::tracked_actors::ViewStamp(super::tracked_actors::next_revision());
         }
     }
 
@@ -417,17 +421,25 @@ impl ActorStore {
 
     /// Records the view's world position for camera-relative animation queries.
     pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
-        if position.iter().all(|value| value.is_finite()) {
+        if position.iter().all(|value| value.is_finite())
+            && position.map(f32::to_bits) != self.camera_position.map(f32::to_bits)
+        {
             self.camera_position = position;
+            self.view_revision =
+                super::tracked_actors::ViewStamp(super::tracked_actors::next_revision());
         }
     }
 
     /// Stores `(runtime_id, in_water, in_lava)` samples on their actors.
     pub(crate) fn set_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         for &(runtime_id, water, lava) in samples {
-            if let Some(actor) = self.actors.get_mut(&runtime_id) {
-                actor.status.fluid = Some((water, lava));
-            }
+            // An unchanged sample keeps the actor's revision, so presentation reuse survives it.
+            self.actors.update(runtime_id, |actor| {
+                let sample = Some((water, lava));
+                let changed = actor.status.fluid != sample;
+                actor.status.fluid = sample;
+                (changed, ())
+            });
         }
     }
 }

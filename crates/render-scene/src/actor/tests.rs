@@ -271,3 +271,28 @@ fn review_render_teleport_samples_the_destination_for_local_and_remote_actors() 
         assert_eq!(frame.instances[0].position[0], 100.0);
     }
 }
+
+/// Two empty rig frames differ only in their generation and count as the same, at any partial
+/// tick; a frame with an actor never does.
+#[test]
+fn consecutive_empty_rig_frames_are_the_same_empty_frame() {
+    let mut scene = ActorRenderScene::default();
+    let assignments = std::collections::HashMap::new();
+    let first = scene
+        .update_rigs_with_artwork(0.25, None, [], &[], &assignments)
+        .clone();
+    let second = scene
+        .update_rigs_with_artwork(0.75, None, [], &[], &assignments)
+        .clone();
+    assert_ne!(first.rig.frame_generation, second.rig.frame_generation);
+    assert!(second.same_empty_frame(&first));
+    assert!(first.same_empty_frame(&second));
+    let drawn = scene.update(0.5, None, [source(7, 3.0, 0.0)]).clone();
+    assert!(!drawn.same_empty_frame(&second));
+    assert!(!second.same_empty_frame(&drawn));
+    // The shared geometry catalog compares by allocation: equal spans in a new allocation are
+    // a new catalog, and the check never reads vertex or span contents.
+    let mut copied = second.clone();
+    copied.rig.geometry_spans = Arc::from(&*second.rig.geometry_spans);
+    assert!(!copied.same_empty_frame(&second));
+}

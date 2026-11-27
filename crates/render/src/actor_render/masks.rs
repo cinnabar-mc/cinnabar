@@ -303,6 +303,7 @@ pub(super) fn install(app: &mut SubApp) {
     .add_systems(
         Render,
         prepare
+            .run_if(masks_due)
             .in_set(RenderSystems::PrepareBindGroups)
             .after(prepare_actor_bind_group),
     );
@@ -312,6 +313,21 @@ pub(super) fn install(app: &mut SubApp) {
 #[derive(Resource)]
 struct Installed;
 
+/// Runs mask preparation while the scene requests masks, and while any attachment or charge
+/// remains so the pass that retires them still runs once the last mask leaves.
+fn masks_due(
+    scene: Option<Res<render_scene::ModRenderScene>>,
+    masks: Option<Res<MaskGpu>>,
+) -> bool {
+    masks.is_none_or(|masks| !masks.targets.is_empty() || masks.attachment_bytes != 0)
+        || scene.is_some_and(|scene| !scene.masks.is_empty())
+}
+
+/// Encodes mask passes only for retained attachments; the draw visits nothing otherwise.
+fn masks_retained(masks: Option<Res<MaskGpu>>) -> bool {
+    masks.is_some_and(|masks| !masks.targets.is_empty())
+}
+
 /// Draws masks after the world and hand, before any mod post effect or UI consumes them.
 pub(crate) fn install_graph(world: &mut World) {
     if world.contains_resource::<Installed>() {
@@ -320,7 +336,8 @@ pub(crate) fn install_graph(world: &mut World) {
     if world
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
-                draw.in_set(MaskLabel)
+                draw.run_if(masks_retained)
+                    .in_set(MaskLabel)
                     .after(Core3dSystems::PostProcess)
                     .before(crate::mod_render::ModPassLabel)
                     .before(crate::ui_render::UiOverlayLabel)

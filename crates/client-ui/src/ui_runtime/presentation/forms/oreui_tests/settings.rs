@@ -216,7 +216,7 @@ fn command_macro_focus_reveals_the_entire_validation_error() {
                 })
                 .unwrap();
             assert!(presentation.scroll_menu(centre(field), 1000.0, false));
-            presentation.menu_seconds += 0.2;
+            presentation.set_menu_seconds(presentation.menu_seconds() + 0.2);
             present(&mut presentation, &view, size);
             assert!(
                 presentation
@@ -245,7 +245,7 @@ fn settings_focus_returns_from_header_and_reveals_the_same_body_control() {
     view.focused_action = Some(MenuAction::AddBack);
     present(&mut presentation, &view, size);
     assert!(presentation.scroll_menu(centre(bounds), 1000.0, false));
-    presentation.menu_seconds += 0.2;
+    presentation.set_menu_seconds(presentation.menu_seconds() + 0.2);
     present(&mut presentation, &view, size);
     assert!(
         presentation
@@ -277,7 +277,7 @@ fn settings_header_focus_preserves_a_manually_scrolled_narrow_sidebar() {
         })
         .expect("the sidebar must accept scrolling");
     assert!(presentation.scroll_menu(centre(bounds), -1000.0, false));
-    presentation.menu_seconds += 0.2;
+    presentation.set_menu_seconds(presentation.menu_seconds() + 0.2);
     present(&mut presentation, &view, size);
     let offsets = presentation.menu_scrolls.offsets().clone();
     assert!(offsets.values().any(|offset| *offset > 0.0));
@@ -330,7 +330,7 @@ fn selecting_a_category_keeps_the_sidebar_where_it_was_scrolled() {
         })
         .expect("the sidebar must accept scrolling");
     assert!(presentation.scroll_menu(centre(row), -3.0, false));
-    presentation.menu_seconds += 0.2;
+    presentation.set_menu_seconds(presentation.menu_seconds() + 0.2);
     present_menu(&mut presentation, &view, size);
     let scrolled = presentation.menu_scrolls.offsets()[oreui::SETTINGS_SIDEBAR_SCROLL_KEY];
     assert!(scrolled > 0.0, "the regression needs a scrolled sidebar");
@@ -479,7 +479,7 @@ fn settings_search_resets_result_scrolling_on_each_query_change() {
         .unwrap();
     assert!(field.max().y() <= result.min().y());
     assert!(presentation.scroll_menu(centre(result), -1000.0, false));
-    presentation.menu_seconds += 0.2;
+    presentation.set_menu_seconds(presentation.menu_seconds() + 0.2);
     presentation.menu_scrolls.clear_areas();
     present(&mut presentation, &view, size);
     assert!(

@@ -91,7 +91,7 @@ fn encoder_timestamps_bracket_the_frame_without_marker_passes() {
                 .collect::<Vec<_>>(),
         );
         let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-        timestamps.request_readback(&queue);
+        timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
         complete_readback(&mut timestamps, &device, &queue);
         let mut whole_frames = 0;
         timestamps.begin(2, |id, _, whole_frame| {
@@ -157,7 +157,7 @@ pub(super) fn finish_frame(
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     timestamps.encode_readback(&mut encoder);
     queue.submit([encoder.finish()]);
-    timestamps.request_readback(queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
 }
 
 /// Completes pending samples and their readback copies before inspecting decoded frames.
@@ -206,7 +206,7 @@ fn latency_review_coarse_span_is_open_before_upload_prefix() {
             .collect::<Vec<_>>(),
     );
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback(&queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
     complete_readback(&mut timestamps, &device, &queue);
     let mut read = false;
     timestamps.begin(2, |id, _, complete| {
@@ -299,7 +299,7 @@ fn completed_metal_samples_drain_when_every_readback_slot_is_occupied() {
     );
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback(&queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let mut frames = Vec::new();
     timestamps.begin(0, |_, frame, _| frames.push(*frame));
@@ -363,7 +363,7 @@ fn readback_includes_queries_allocated_by_parallel_recording() {
         buffers.extend(run_readback(&mut world, &device));
         queue.submit(buffers);
         let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-        timestamps.request_readback(&queue);
+        timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
         let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
         let expected = if synchronous {
             vec![RuntimeStage::GpuUi, RuntimeStage::GpuOpaque]
@@ -740,7 +740,7 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
     });
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback(&queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
     assert!(
         timestamps.ring.oldest_in_flight().is_none(),
         "an unresolved frame maps nothing"
@@ -770,7 +770,7 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
     );
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback(&queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
     let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
     assert_eq!(
         slot.stages[..slot.passes as usize],
@@ -847,7 +847,7 @@ fn readback_includes_every_camera_in_submission_order() {
             .collect::<Vec<_>>(),
     );
     let mut timestamps = world.resource_mut::<GpuTimestamps>();
-    timestamps.request_readback(&queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
     let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
     assert_eq!(slot.passes, 2);
     assert_eq!(

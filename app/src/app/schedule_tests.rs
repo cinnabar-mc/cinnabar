@@ -77,8 +77,11 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
 /// work on every frame even when it finds nothing to do, so growth must be deliberate: change
 /// these with the registrations, and prefer one set condition over a condition per system.
 /// `sync_graphics_mode`, which hands the Fancy Graphics setting to pack compiles before network
-/// ingress can start one, is one of the `Update` systems.
-const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 152, 8), ("PostUpdate", 1, 0)];
+/// ingress can start one, is one of the `Update` systems. Two of the `Update` conditions are the
+/// set conditions on `RawInputReaders` and `IdleScreenReaders`, which skip their readers on
+/// frames without input or screen activity.
+const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] =
+    [("Update", 152, 10), ("PostUpdate", 1, 0)];
 
 #[test]
 fn client_frame_dispatch_stays_within_its_budget() {

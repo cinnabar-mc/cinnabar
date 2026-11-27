@@ -167,6 +167,8 @@ impl Plugin for ChunkRenderPlugin {
             .add_systems(
                 RenderStartup,
                 (
+                    bevy::render::init_gpu_resource::<super::gpu::tint_cache::TintBakePipeline>
+                        .after(bevy::render::init_gpu_resource::<ChunkPipeline>),
                     init_chunk_gpu_arena,
                     init_chunk_gpu_animation_clock,
                     super::gpu::compact::install,
@@ -226,6 +228,20 @@ impl Plugin for ChunkRenderPlugin {
 
     fn finish(&self, app: &mut App) {
         install_atmosphere(app);
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            let _ = render_app.world_mut().try_schedule_scope(
+                bevy::render::renderer::RenderGraph,
+                |_, schedule| {
+                    schedule.add_systems(
+                        super::gpu::tint_cache::record_tint_bake
+                            .run_if(super::gpu::tint_cache::tint_bake_owed)
+                            .after(crate::upload_staging::BufferUploads)
+                            .before(bevy::core_pipeline::schedule::camera_driver)
+                            .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+                    );
+                },
+            );
+        }
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             transparent::gamma_pass::install_graph(render_app.world_mut());
         }
@@ -300,6 +316,15 @@ pub(crate) fn load_shaders(app: &mut App) {
         "../liquid.wesl",
         |source, path| crate::shader_safety::from_wesl(
             crate::material_shader::source(source),
+            path
+        )
+    );
+    load_internal_asset!(
+        app,
+        TINT_BAKE_SHADER_HANDLE,
+        "../terrain_tint_bake.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            super::gpu::tint_bake_plan::shader_source(source),
             path
         )
     );

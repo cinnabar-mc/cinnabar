@@ -65,7 +65,7 @@ pub(crate) fn frame_supported(
             })
     });
     let hand_ok = hand
-        .and_then(|scene| scene.frame.as_ref())
+        .and_then(|scene| scene.frame())
         .is_none_or(|frame| frame.rig.instances.iter().all(instance_supported));
     let blocks_ok = blocks.is_none_or(|frame| {
         frame.additive.is_empty()

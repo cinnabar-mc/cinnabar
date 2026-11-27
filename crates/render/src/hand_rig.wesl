@@ -62,7 +62,8 @@ fn current_bone(index: u32) -> BoneMatrix {
 @group(0) @binding(13) var glint_sampler: sampler;
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
+    // Invariant so the depth erase, a separate pipeline, rasterizes exactly the draw's samples.
+    @builtin(position) @invariant position: vec4<f32>,
     // Keep edge samples inside the item's atlas region under MSAA.
     @location(0) @interpolate(perspective, centroid) uv: vec4<f32>,
     @location(1) @interpolate(flat) skin_layer: u32,
@@ -265,4 +266,11 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
         let lit = tint_to_linear(vec4(gamma, 1.0)).rgb;
         return vec4(lit, select(1.0, color.a, blend));
     }
+}
+
+// The depth erase after the hand draw: every sample the draw covered, without its discards,
+// writing no colour. Extra erased samples only hold the private depth's clear value already.
+@fragment
+fn hand_depth_erase_fragment() -> @location(0) vec4<f32> {
+    return vec4(0.0);
 }

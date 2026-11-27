@@ -346,6 +346,11 @@ impl Animator {
         self.destroyed.len() == destroyed
     }
 
+    /// End and destroy events not yet taken.
+    pub fn pending_events(&self) -> usize {
+        self.events.len()
+    }
+
     /// Counts fired button events; a change may have restarted a settled animation.
     pub fn events_fired(&self) -> u64 {
         self.events_fired

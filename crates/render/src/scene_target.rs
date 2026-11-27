@@ -1,7 +1,11 @@
 //! Main-pass colour retains sample coverage until the final resolve before post-processing.
 
+#[path = "scene_target/clear.rs"]
+pub(crate) mod clear;
 #[path = "scene_target/nodes.rs"]
 pub(crate) mod nodes;
+#[path = "scene_target/resolve_lut.rs"]
+pub(crate) mod resolve_lut;
 #[cfg(test)]
 #[path = "scene_target/tests.rs"]
 mod tests;
@@ -29,6 +33,11 @@ pub(crate) struct SceneTarget {
     linear: TextureView,
     format: TextureFormat,
     resolved: AtomicBool,
+    /// The last opaque pass began without clearing colour; see `clear`.
+    skipped_clear: AtomicBool,
+    /// The final resolve was left for the first consumer of the resolved scene, or for a
+    /// composite that resolves the samples itself; see [`Self::ensure_resolved`].
+    pending: AtomicBool,
 }
 
 impl SceneTarget {
@@ -56,10 +65,11 @@ impl SceneTarget {
                     dimension: TextureDimension::D2,
                     format: encoded_format,
                     usage: TextureUsages::RENDER_ATTACHMENT
-                        | if samples == 1 {
-                            TextureUsages::COPY_SRC | TextureUsages::COPY_DST
-                        } else {
-                            TextureUsages::empty()
+                        | match samples {
+                            1 => TextureUsages::COPY_SRC | TextureUsages::COPY_DST,
+                            // The UI composite may resolve two samples through `resolve_lut`.
+                            2 => TextureUsages::TEXTURE_BINDING,
+                            _ => TextureUsages::empty(),
                         },
                     view_formats: view_formats.as_ref().map_or(&[], |formats| formats),
                 })
@@ -75,6 +85,8 @@ impl SceneTarget {
             linear,
             format,
             resolved: AtomicBool::new(false),
+            skipped_clear: AtomicBool::new(false),
+            pending: AtomicBool::new(false),
         })
     }
 
@@ -164,6 +176,12 @@ impl SceneTarget {
         self.resolve_attachment(destination, StoreOp::Discard)
     }
 
+    /// Whether the last opaque pass skipped its colour clear.
+    #[cfg(test)]
+    pub(crate) fn skipped_clear(&self) -> bool {
+        self.skipped_clear.load(Ordering::Relaxed)
+    }
+
     /// Lets overlays continue drawing after an effect has restored the scene colour.
     pub(crate) fn resume(&self) {
         self.resolved.store(false, Ordering::Relaxed);
@@ -172,6 +190,44 @@ impl SceneTarget {
     /// A retained attachment must resolve again even when the viewport is unchanged.
     fn begin_frame(&self) {
         self.resolved.store(false, Ordering::Relaxed);
+        self.pending.store(false, Ordering::Relaxed);
+    }
+
+    /// Ends the scene passes, leaving the final resolve pending when `lazy` and the samples are
+    /// still unresolved: every consumer of the resolved scene then calls
+    /// [`Self::ensure_resolved`] first, and the UI composite may resolve the samples itself.
+    pub(crate) fn finish_lazily(
+        &self,
+        context: &mut RenderContext,
+        world: &World,
+        target: &ViewTarget,
+        lazy: bool,
+    ) {
+        if lazy && !self.resolved.load(Ordering::Relaxed) && self.texture.sample_count() == 2 {
+            self.pending.store(true, Ordering::Relaxed);
+            return;
+        }
+        self.finish(context, world, target);
+    }
+
+    /// The two-sample scene's encoded view while its final resolve is still pending.
+    pub(crate) fn pending_samples(&self) -> Option<&TextureView> {
+        self.pending
+            .load(Ordering::Relaxed)
+            .then_some(&self.encoded)
+    }
+
+    /// Resolves a pending final resolve now, before a consumer reads or writes the view's main
+    /// texture; otherwise does nothing.
+    pub(crate) fn ensure_resolved(
+        &self,
+        context: &mut RenderContext,
+        world: &World,
+        target: &ViewTarget,
+    ) {
+        if self.pending.swap(false, Ordering::Relaxed) {
+            self.finish(context, world, target);
+        }
     }
 
     /// Makes the completed scene available to single-sample post-processing without a draw.
@@ -212,7 +268,8 @@ pub(crate) fn install(app: &mut App) {
     app.sub_app_mut(RenderApp)
         .init_resource::<WithheldSamples>()
         .init_resource::<MultisampleFallback>()
-        .add_systems(Render, render_systems());
+        .add_systems(Render, render_systems())
+        .add_systems(bevy::render::RenderStartup, resolve_lut::init);
 }
 
 #[derive(Resource)]
@@ -253,6 +310,10 @@ fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::S
         prepare_scene_targets
             .in_set(RenderSystems::PrepareResources)
             .after(prepare_view_targets),
+        resolve_lut::build
+            .in_set(RenderSystems::PrepareResources)
+            .run_if(resource_exists::<resolve_lut::ResolveLutBuilder>)
+            .run_if(not(resource_exists::<resolve_lut::ResolveLut>)),
     )
         .into_configs()
 }
@@ -314,6 +375,17 @@ fn admit_copy_destination(mut cameras: Query<&mut CameraMainTextureUsages, With<
 /// into mismatched targets until an allocation succeeds.
 #[derive(Component)]
 pub(crate) struct SceneTargetUnavailable;
+
+/// Resolves `view`'s pending final scene resolve before a pass reads or writes its main
+/// texture. Every consumer of the resolved scene after [`ScenePass::Finish`] calls this.
+pub(crate) fn ensure_resolved(world: &World, view: Entity, context: &mut RenderContext) {
+    if let (Some(scene), Some(target)) = (
+        world.get::<SceneTarget>(view),
+        world.get::<ViewTarget>(view),
+    ) {
+        scene.ensure_resolved(context, world, target);
+    }
+}
 
 /// Whether a view's world passes must skip because its scene colour is unavailable.
 pub(crate) fn unavailable(world: &World, view: Entity) -> bool {

@@ -98,6 +98,7 @@ pub(in crate::presentation::equipment) fn owner_rig<'a>(
         java: Default::default(),
         main_hand_equipped: None,
         java_equipped: None,
+        presentation_revision: Default::default(),
     }
 }
 

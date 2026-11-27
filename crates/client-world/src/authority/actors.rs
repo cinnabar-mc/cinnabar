@@ -479,6 +479,22 @@ impl WorldAuthority {
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
         self.actors.ropes_into(partial_tick, ropes);
     }
+    /// Identifies the actor's snapshot and its rig; see [`crate::ActorPresentationRevision`].
+    pub fn actor_presentation_revision(
+        &self,
+        runtime_id: u64,
+    ) -> Option<crate::ActorPresentationRevision> {
+        self.actors.presentation_revision(runtime_id)
+    }
+    /// Advances whenever the camera rotation or position that actor frame samples read changes.
+    pub fn actor_view_revision(&self) -> u64 {
+        self.actors.view_revision()
+    }
+    /// Whether the actor's sampled render visibility may differ between frames that share its
+    /// presentation revision, for instance with the frame fraction or camera.
+    pub fn actor_visibility_reads_frame(&self, runtime_id: u64) -> bool {
+        self.actors.visibility_reads_frame(runtime_id)
+    }
     /// Borrows one actor rig for presentation.
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)

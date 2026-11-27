@@ -8,13 +8,14 @@ use crate::ui_runtime::presentation::{
 };
 use std::borrow::Cow;
 
-/// Captures the engine recipe list with its existing cache generation.
+/// Captures the engine recipe list with its existing cache generation; whether the recipe
+/// book's entries changed.
 pub(super) fn recipe_entries(
     player_runtime: &player_state::PlayerState,
     items: &ItemResolver<'_>,
     inventory_screen: InventoryScreen,
     window_icons: &mut WindowIcons,
-) {
+) -> bool {
     let runtime = items.runtime;
     let presentation = items.presentation;
     if matches!(
@@ -50,10 +51,14 @@ pub(super) fn recipe_entries(
             };
             let icons =
                 presentation::forms::recipe_book_icons(player_runtime, runtime, sources, icon);
-            window_icons.book_entries.resize(icons.len(), None);
-            window_icons.book_entries.copy_from_slice(&icons);
+            if window_icons.book_entries[..] != icons[..] {
+                window_icons.book_entries.resize(icons.len(), None);
+                window_icons.book_entries.copy_from_slice(&icons);
+                return true;
+            }
         }
     }
+    false
 }
 
 /// Captures the visible creative cells and tab artwork.

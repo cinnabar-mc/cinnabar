@@ -1,4 +1,5 @@
 use super::*;
+use crate::sources::RemoteImage;
 use resource_pack::test_support::{layered_pack_view, pack_view};
 use std::sync::Mutex;
 
@@ -521,4 +522,175 @@ fn a_host_without_workers_completes_large_images_inline() {
         atlas.placement(local).is_some(),
         "a large encoding decodes inline"
     );
+}
+
+// A miss left for a later frame stays waiting until the next frame starts, whichever request in
+// this frame comes after it, so a retained frame never outlives it.
+#[test]
+fn a_deferred_miss_waits_until_the_next_frame_whatever_follows_it() {
+    let files = [("textures/ui/d0.png".to_owned(), png(16, 16))];
+    let spent = clocked(test_time::ManualClock::new(), INLINE_DECODE_BUDGET, false);
+    let mut atlas = ServerAtlas::new(&files, None, 1).with_image_work(spent);
+    atlas.begin_frame();
+    atlas.require(["textures/ui/d0"]);
+    assert!(
+        atlas.completions_waiting(),
+        "the miss waits for a later frame"
+    );
+    atlas.require(["textures/ui/absent"]);
+    assert!(
+        atlas.completions_waiting(),
+        "a later request in the frame keeps the miss waiting"
+    );
+    atlas.begin_frame();
+    assert!(!atlas.completions_waiting(), "the next frame retries it");
+}
+
+// A worker decode that another texture's request collects changes what paints resolve, even
+// before its own texture is placed, so a paint drawn before it cannot be repeated.
+#[test]
+fn a_decode_collected_by_another_request_changes_the_atlas_revision() {
+    let files = [("textures/ui/w0.png".to_owned(), png(16, 16))];
+    let spent = clocked(test_time::ManualClock::new(), INLINE_DECODE_BUDGET, true);
+    let mut atlas = ServerAtlas::new(&files, None, 1).with_image_work(spent);
+    atlas.require(["textures/ui/w0"]);
+    assert!(atlas.placement("textures/ui/w0").is_none());
+    let before = atlas.revision();
+    test_time::eventually("the worker decode finishes", || {
+        atlas.decodes.jobs.completion_waiting()
+    });
+    atlas.require(["textures/ui/absent"]);
+    assert!(atlas.placement("textures/ui/w0").is_none());
+    assert_ne!(atlas.revision(), before);
+}
+
+/// A download whose state the test sets.
+struct Download(Mutex<RemoteImage>);
+
+impl RemoteSource for Download {
+    fn state(&self, _url: &str) -> RemoteImage {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+// A paint that asked for a still-loading download drew without it; once the download settles a
+// retained frame must not outlive it.
+#[test]
+fn a_download_a_paint_found_loading_counts_once_it_settles() {
+    let download = Arc::new(Download(Mutex::new(RemoteImage::Loading)));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let url = "https://example.invalid/crosshair.png";
+    atlas.begin_frame();
+    atlas.require([url]);
+    assert!(atlas.placement(url).is_none());
+    assert!(
+        !atlas.completions_waiting(),
+        "a loading download has nothing to collect yet"
+    );
+    *download.0.lock().unwrap() = RemoteImage::Ready(png(16, 16).into());
+    assert!(
+        atlas.completions_waiting(),
+        "the finished download makes the next frame build"
+    );
+    atlas.begin_frame();
+    atlas.require([url]);
+    assert!(atlas.placement(url).is_some());
+    assert!(!atlas.completions_waiting());
+}
+
+// A paint that found a download loading may stop drawing it before it settles, as a crosshair
+// does when the HUD hides. The settled download makes one frame build; with no paint asking for
+// it again, later frames are idle.
+#[test]
+fn a_settled_download_no_paint_asks_for_again_stops_waiting() {
+    let download = Arc::new(Download(Mutex::new(RemoteImage::Loading)));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let url = "https://example.invalid/crosshair.png";
+    atlas.begin_frame();
+    atlas.require([url]);
+    *download.0.lock().unwrap() = RemoteImage::Failed;
+    assert!(
+        atlas.completions_waiting(),
+        "the settled download builds once"
+    );
+    atlas.begin_frame();
+    assert!(
+        !atlas.completions_waiting(),
+        "a frame that no longer asks for it leaves nothing waiting"
+    );
+    atlas.begin_frame();
+    assert!(!atlas.completions_waiting());
+}
+
+/// A download that stays loading and counts how often its state is read.
+#[derive(Default)]
+struct PolledDownload(std::sync::atomic::AtomicUsize);
+
+impl RemoteSource for PolledDownload {
+    fn state(&self, _url: &str) -> RemoteImage {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        RemoteImage::Loading
+    }
+}
+
+// Reading a download's state renews it, so a download no paint draws any more must not be read
+// by later frames, or it never ages out of the download queue.
+#[test]
+fn a_loading_download_no_paint_asks_for_again_is_not_polled() {
+    let download = Arc::new(PolledDownload::default());
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    atlas.begin_frame();
+    atlas.require(["https://example.invalid/closed-form.png"]);
+    let reads = download.0.load(std::sync::atomic::Ordering::Relaxed);
+    atlas.begin_frame();
+    assert!(!atlas.completions_waiting());
+    assert_eq!(
+        download.0.load(std::sync::atomic::Ordering::Relaxed),
+        reads,
+        "a frame that no longer draws the download leaves it unread"
+    );
+}
+
+/// Downloads that each settle on their own.
+struct Downloads(Mutex<std::collections::BTreeMap<String, RemoteImage>>);
+
+impl RemoteSource for Downloads {
+    fn state(&self, url: &str) -> RemoteImage {
+        self.0
+            .lock()
+            .unwrap()
+            .get(url)
+            .cloned()
+            .unwrap_or(RemoteImage::Loading)
+    }
+}
+
+// More loading downloads than the atlas tracks: one it had no room for still makes a frame
+// build when it settles, because the paint that missed it keeps the next frame building.
+#[test]
+fn a_loading_download_beyond_the_tracked_set_still_wakes_the_frame() {
+    let download = Arc::new(Downloads(Mutex::default()));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let urls: Vec<String> = (0..=MAX_EXTRA)
+        .map(|index| format!("https://example.invalid/{index}.png"))
+        .collect();
+    atlas.begin_frame();
+    atlas.require(urls.iter().map(String::as_str));
+    let untracked = urls
+        .iter()
+        .find(|url| !atlas.loading_remote.borrow().contains(*url))
+        .expect("one download exceeds the tracked set")
+        .clone();
+    download
+        .0
+        .lock()
+        .unwrap()
+        .insert(untracked.clone(), RemoteImage::Ready(png(16, 16).into()));
+    assert!(
+        atlas.completions_waiting(),
+        "the untracked download's completion makes the next frame build"
+    );
+    atlas.begin_frame();
+    atlas.require([untracked.as_str()]);
+    assert!(atlas.placement(&untracked).is_some());
 }

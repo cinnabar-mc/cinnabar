@@ -428,8 +428,9 @@ impl ChatScreen {
     }
 
     /// Track the pointer for next frame's hover state.
-    pub fn set_pointer(&mut self, position: Option<UiPoint>) {
-        self.pointer = position;
+    /// Whether the pointer changed.
+    pub fn set_pointer(&mut self, position: Option<UiPoint>) -> bool {
+        std::mem::replace(&mut self.pointer, position) != position
     }
 
     /// Identifies a settings slider from its current painted value segments.

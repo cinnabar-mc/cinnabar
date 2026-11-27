@@ -118,41 +118,136 @@ pub(super) fn portal_body(
         })
 }
 
-/// Samples body contact after this frame's physics and camera-pose resolution.
+/// What a portal contact check reads besides eligibility: the body's block cells, the stored
+/// blocks and their residency, the block id mode, the dimension and the collision lookup.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PortalContactKey {
+    cells: Option<([i32; 3], [i32; 3])>,
+    content: u64,
+    mode: assets::NetworkIdMode,
+    dimension: i32,
+    lookup: u32,
+}
+
+/// The last portal contact result with the inputs it was read from.
+#[derive(Default)]
+pub struct PortalContactCache {
+    last: Option<(PortalContactKey, bool)>,
+}
+
+impl PortalContactCache {
+    /// The result for `key`, running `touches` only when the key differs from the last one.
+    /// Debug and test builds also run it for a reused result and compare.
+    fn read(&mut self, key: PortalContactKey, touches: impl FnOnce() -> bool) -> bool {
+        match self.last {
+            Some((last, touching)) if last == key => {
+                #[cfg(any(test, debug_assertions))]
+                assert_eq!(
+                    touches(),
+                    touching,
+                    "a reused portal contact must match a fresh one"
+                );
+                touching
+            }
+            _ => {
+                let touching = touches();
+                self.last = Some((key, touching));
+                touching
+            }
+        }
+    }
+}
+
+/// Samples body contact after this frame's physics and camera-pose resolution. `lookup` is a
+/// revision that changes whenever `collisions` may answer differently.
 pub fn collect_portal_contact(
     player_runtime: &player_state::PlayerState,
     view: &LocalViewPose,
     physics: Option<&dyn crate::observations::PhysicsObservation>,
     client_world: Option<crate::observations::WorldObservation<'_>>,
-    collisions: Option<&dyn crate::observations::CollisionLookup>,
-    facts: &mut ScreenEffectFacts,
-) {
+    (collisions, lookup): (Option<&dyn crate::observations::CollisionLookup>, u32),
+    cache: &mut PortalContactCache,
+) -> bool {
     let stream = client_world.as_ref().and_then(|world| world.stream);
-    facts.in_portal = match (stream, collisions) {
+    match (stream, collisions) {
         (Some(stream), Some(collisions))
             if player_runtime.facts.player_game_mode()
                 != Some(protocol::PlayerGameMode::Spectator)
                 && physics.is_none_or(|physics| physics.mode() != sim::MovementMode::Riding) =>
         {
-            let world = sim::PaletteWorld::new(
-                stream.collision_store(),
-                collisions.registry(stream.network_id_mode()),
-                stream.current_dimension(),
-                Default::default(),
-            );
-            portal::touches_portal(portal_body(physics, view), |block| {
-                world.primary_runtime_id(block).is_ok_and(|runtime_id| {
-                    collisions.block_identifier(stream.network_id_mode(), runtime_id)
-                        == Some(assets::NETHER_PORTAL_IDENTIFIER)
+            let cells = portal::contact_cells(portal_body(physics, view));
+            let key = PortalContactKey {
+                cells,
+                content: stream.collision_store().content_revision(),
+                mode: stream.network_id_mode(),
+                dimension: stream.current_dimension(),
+                lookup,
+            };
+            cache.read(key, || {
+                let world = sim::PaletteWorld::new(
+                    stream.collision_store(),
+                    collisions.registry(stream.network_id_mode()),
+                    stream.current_dimension(),
+                    Default::default(),
+                );
+                portal::cells_touch_portal(cells, |block| {
+                    world.primary_runtime_id(block).is_ok_and(|runtime_id| {
+                        collisions.block_identifier(stream.network_id_mode(), runtime_id)
+                            == Some(assets::NETHER_PORTAL_IDENTIFIER)
+                    })
                 })
             })
         }
         _ => false,
-    };
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    /// A portal contact result is reused only for the same cells, blocks, mode, dimension and
+    /// lookup; any change reads the world again.
+    #[test]
+    fn portal_contact_reads_again_when_any_input_changes() {
+        let key = PortalContactKey {
+            cells: Some(([0, 64, 0], [0, 65, 0])),
+            content: 3,
+            mode: assets::NetworkIdMode::Sequential,
+            dimension: 0,
+            lookup: 1,
+        };
+        let mut cache = PortalContactCache::default();
+        let mut reads = 0;
+        let mut read = |cache: &mut PortalContactCache, key, touching| {
+            cache.read(key, || {
+                reads += 1;
+                touching
+            })
+        };
+        assert!(read(&mut cache, key, true));
+        assert!(read(&mut cache, key, true));
+        for changed in [
+            PortalContactKey {
+                cells: Some(([1, 64, 0], [1, 65, 0])),
+                ..key
+            },
+            PortalContactKey { content: 4, ..key },
+            PortalContactKey {
+                mode: assets::NetworkIdMode::Hashed,
+                ..key
+            },
+            PortalContactKey {
+                dimension: 1,
+                ..key
+            },
+            PortalContactKey { lookup: 2, ..key },
+        ] {
+            assert!(!read(&mut cache, changed, false));
+        }
+        drop(read);
+        // The repeated key reads once more in a test build, to check the reused result.
+        assert_eq!(reads, 2 + 5);
+    }
+
     use protocol::{AbilityLayerEvidence, AbilityLayersEvidence};
 
     use super::*;

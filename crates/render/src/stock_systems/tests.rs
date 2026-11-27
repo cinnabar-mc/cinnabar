@@ -71,3 +71,15 @@ fn camera_passes(remove_stock_systems: bool) -> Vec<TypeId> {
 fn removing_stock_systems_keeps_every_camera_pass() {
     assert_eq!(camera_passes(true), camera_passes(false));
 }
+
+/// Camera-graph systems this client schedules. The scene's final resolve may wait for the first
+/// pass that reads the resolved scene, so every system that draws after `ScenePass::Finish` must
+/// call `scene_target::ensure_resolved` before reading or writing the main texture, or keep
+/// `scene_target::nodes::resolves_lazily` false for the views it serves. Update this count only
+/// after checking that a new or removed system follows that rule.
+const CAMERA_PASSES: usize = 24;
+
+#[test]
+fn camera_passes_follow_the_lazy_scene_resolve_contract() {
+    assert_eq!(camera_passes(false).len(), CAMERA_PASSES);
+}

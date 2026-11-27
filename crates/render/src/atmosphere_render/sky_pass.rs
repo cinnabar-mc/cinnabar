@@ -138,38 +138,73 @@ fn drawn(world: &World, view: Entity) -> bool {
 /// colour and depth with its viewport set. Callers draw it before world geometry, or after the
 /// opaque phases when [`precedes_geometry`] allows.
 pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderPass<'w>) {
+    draw_layers(world, view, pass, false);
+}
+
+/// Like [`draw`]; with `opaque_alpha` the stock sky also writes its opaque alpha, so together
+/// with geometry that replaces whole samples it defines every sample of the pass. Callers that
+/// rely on that first check [`covers_with_opaque_alpha`].
+pub(crate) fn draw_with_alpha<'w>(
+    world: &'w World,
+    view: Entity,
+    pass: &mut TrackedRenderPass<'w>,
+    opaque_alpha: bool,
+) {
+    draw_layers(world, view, pass, opaque_alpha);
+}
+
+/// Whether [`draw_with_alpha`] with opaque alpha would draw `view`'s full-screen stock sky this frame.
+pub(crate) fn covers_with_opaque_alpha(world: &World, view: Entity) -> bool {
+    stock(world, view, true).is_some()
+}
+
+/// The stock sky pipeline, its bind group and view offset, when `view` draws a sky now.
+fn stock(
+    world: &World,
+    view: Entity,
+    opaque_alpha: bool,
+) -> Option<(
+    &bevy::render::render_resource::RenderPipeline,
+    &bevy::render::render_resource::BindGroup,
+    u32,
+    AtmospherePipelineKey,
+)> {
     if !drawn(world, view) {
-        return;
+        return None;
     }
-    let (Some(camera), Some(msaa), Some(offset)) = (
-        world.get::<ExtractedCamera>(view),
-        world.get::<Msaa>(view),
-        world.get::<ViewUniformOffset>(view),
-    ) else {
-        return;
-    };
-    let Some(gpu) = world.get_resource::<AtmosphereGpu>() else {
-        return;
-    };
-    let Some(bind_group) = gpu.bind_group.as_ref() else {
-        return;
-    };
-    let cache = world.resource::<PipelineCache>();
+    let camera = world.get::<ExtractedCamera>(view)?;
+    let msaa = world.get::<Msaa>(view)?;
+    let offset = world.get::<ViewUniformOffset>(view)?;
+    let gpu = world.get_resource::<AtmosphereGpu>()?;
+    let bind_group = gpu.bind_group.as_ref()?;
     let key = AtmospherePipelineKey {
         msaa: *msaa,
         hdr: camera.hdr,
         stars: false,
         skybox: false,
+        opaque_alpha,
     };
-    let Some(stock) = gpu
+    let pipeline = gpu
         .pipelines
         .get(&key)
-        .and_then(|id| cache.get_render_pipeline(*id))
-    else {
+        .and_then(|id| world.resource::<PipelineCache>().get_render_pipeline(*id))?;
+    Some((pipeline, bind_group, offset.offset, key))
+}
+
+/// Draws the stock sky, then the stars and finite pack cube when they are ready.
+fn draw_layers<'w>(
+    world: &'w World,
+    view: Entity,
+    pass: &mut TrackedRenderPass<'w>,
+    opaque_alpha: bool,
+) {
+    let Some((stock, bind_group, offset, key)) = stock(world, view, opaque_alpha) else {
         return;
     };
+    let gpu = world.resource::<AtmosphereGpu>();
+    let cache = world.resource::<PipelineCache>();
     pass.set_render_pipeline(stock);
-    pass.set_bind_group(0, bind_group, &[offset.offset]);
+    pass.set_bind_group(0, bind_group, &[offset]);
     pass.draw(0..3, 0..1);
     for (stars, skybox) in [(true, false), (false, true)] {
         if skybox && !gpu.skybox_active {
@@ -178,6 +213,7 @@ pub(crate) fn draw<'w>(world: &'w World, view: Entity, pass: &mut TrackedRenderP
         let key = AtmospherePipelineKey {
             stars,
             skybox,
+            opaque_alpha: false,
             ..key
         };
         if let Some(pipeline) = gpu

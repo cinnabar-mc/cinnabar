@@ -108,7 +108,7 @@ impl ActorStore {
             world_default_game_mode: None,
             entity_assets: None,
             custom_actor_facts: HashMap::new(),
-            actors: HashMap::new(),
+            actors: Default::default(),
             hitbox_budget: Default::default(),
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
@@ -156,6 +156,7 @@ impl ActorStore {
             local_item_use: LocalItemUse::Unpredicted,
             local_bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
             local_java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+            view_revision: tracked_actors::ViewStamp(tracked_actors::next_revision()),
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
             animation_view: None,
@@ -289,18 +290,24 @@ impl ActorStore {
             yaw: feed.yaw,
             head_yaw: feed.head_yaw,
         };
-        self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
-        let revision = self.synthetic_local_revision.max(1);
         let (uuid, username) = self.resolve_local_identity(unique_id, feed);
         // A seat that locks rotation draws the body at the facing the caller sampled for this
         // frame rather than easing between ticked headings.
         let locked_facing = self.rider_view_lock(unique_id, 1.0).map(|_| feed.yaw);
-        if let Some(actor) = self.actors.get_mut(&runtime_id) {
-            actor.status.predicted_render_yaw = locked_facing;
+        let next_revision = self.synthetic_local_revision.saturating_add(1);
+        let mut view_dirty = false;
+        // An unchanged feed keeps the actor's movement and presentation revisions.
+        let synced = self.actors.update(runtime_id, |actor| {
+            let mut changed = false;
+            write(
+                &mut actor.status.predicted_render_yaw,
+                locked_facing,
+                &mut changed,
+            );
             if let Some(mode) = feed.game_mode {
                 let mode = Some(protocol::GameModeUpdate::Explicit(mode));
-                self.local_view_dirty |= actor.player_game_mode != mode;
-                actor.player_game_mode = mode;
+                view_dirty |= actor.player_game_mode != mode;
+                write(&mut actor.player_game_mode, mode, &mut changed);
             }
             // Adopt the player-list identity once it arrives so the skin resolves by uuid.
             if let ActorKind::Player {
@@ -310,28 +317,59 @@ impl ActorStore {
                 && *current_uuid != uuid
             {
                 *current_uuid = uuid;
-                *current_username = username;
+                *current_username = std::sync::Arc::clone(&username);
+                changed = true;
             }
-            actor.received_pose = pose;
-            actor.status.movement_interpolation = Default::default();
-            actor.velocity = feed.velocity;
-            actor.status.native_velocity = feed.velocity;
-            actor.status.fall_fly_ticks = feed.fall_fly_ticks;
-            actor.on_ground = Some(feed.on_ground);
-            actor.movement_revision = revision;
-            actor.teleported = feed.teleported;
+            write(&mut actor.received_pose, pose, &mut changed);
+            write(
+                &mut actor.status.movement_interpolation,
+                Default::default(),
+                &mut changed,
+            );
+            write(&mut actor.velocity, feed.velocity, &mut changed);
+            write(
+                &mut actor.status.native_velocity,
+                feed.velocity,
+                &mut changed,
+            );
+            write(
+                &mut actor.status.fall_fly_ticks,
+                feed.fall_fly_ticks,
+                &mut changed,
+            );
+            write(&mut actor.on_ground, Some(feed.on_ground), &mut changed);
+            write(&mut actor.teleported, feed.teleported, &mut changed);
+            let flags = actor.local_presentation_flags;
             actor.apply_local_flags(feed);
+            changed |= actor.local_presentation_flags != flags;
             // A zero remaining count lands each tick exactly on the fed pose (no server-style
             // easing), so the body tracks local physics without lag.
-            actor.interpolation_ticks_remaining = 0;
+            write(&mut actor.interpolation_ticks_remaining, 0, &mut changed);
             if feed.teleported {
                 actor.previous_pose = pose;
                 actor.set_current_pose(pose);
+                changed = true;
+            }
+            if changed {
+                actor.movement_revision = next_revision.max(1);
+            }
+            (changed, changed)
+        });
+        if let Some(changed) = synced {
+            self.local_view_dirty |= view_dirty;
+            if changed {
+                self.synthetic_local_revision = next_revision;
+            }
+            if feed.teleported {
                 self.animation.mark_reset(runtime_id);
             }
-            self.effect_members.collidable.update(actor);
+            if let Some(actor) = self.actors.get(&runtime_id) {
+                self.effect_members.collidable.update(actor);
+            }
             return;
         }
+        self.synthetic_local_revision = next_revision;
+        let revision = next_revision.max(1);
         let mut actor = ActorSnapshot::local_player(
             unique_id,
             runtime_id,
@@ -886,5 +924,13 @@ impl ActorStore {
             runtime_id: actor.runtime_id,
             spawn_revision: actor.spawn_revision,
         }
+    }
+}
+
+/// Stores `value` in `slot`, noting whether it differed.
+fn write<T: PartialEq>(slot: &mut T, value: T, changed: &mut bool) {
+    if *slot != value {
+        *slot = value;
+        *changed = true;
     }
 }

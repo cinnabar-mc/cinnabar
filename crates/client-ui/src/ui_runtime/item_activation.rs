@@ -59,7 +59,9 @@ impl UiRuntime {
     }
 
     /// Advances the retained camera effect on bounded client time, including under menus.
-    pub fn advance_item_activation(&mut self, now_millis: u64) {
+    /// Returns whether an effect advanced or ended; the private activation clock advances on
+    /// every call but is read only when an activation starts.
+    pub fn advance_item_activation(&mut self, now_millis: u64) -> bool {
         let clock = &mut self.session.activation_clock;
         let delta = clock
             .last_frame_millis
@@ -80,7 +82,9 @@ impl UiRuntime {
             if activation.progress().is_none() {
                 self.session.item_activation = None;
             }
+            return true;
         }
+        false
     }
 
     /// Snapshots the equipped totem before subsequent inventory packets consume it.

@@ -63,6 +63,9 @@ pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'stati
         .migration
         .as_ref()
         .map_or(0, |migration| migration.buffer.size());
+    // The tint cache follows quad capacity; a replaced cache is released once its last
+    // submission completes, so growth briefly holds both.
+    let tint_cache_bytes = arena.tint_cache.capacity_bytes();
     let tracked_capacity_bytes = total_capacity_bytes([
         quad_bytes,
         geometry_bytes,
@@ -70,6 +73,7 @@ pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'stati
         biome_bytes,
         auxiliary_bytes,
         migration_bytes,
+        tint_cache_bytes,
     ]);
     bevy::log::debug!(
         event,
@@ -79,6 +83,7 @@ pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'stati
         biome_bytes,
         auxiliary_bytes,
         migration_bytes,
+        tint_cache_bytes,
         tracked_capacity_bytes,
         allocations = arena.allocations.len(),
         retired_allocations = arena.retired_allocations.len(),

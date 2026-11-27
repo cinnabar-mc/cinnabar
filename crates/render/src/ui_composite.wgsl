@@ -4,6 +4,10 @@
 @group(0) @binding(0) var ui_layer: texture_2d<f32>;
 @group(0) @binding(1) var scene: texture_2d<f32>;
 @group(0) @binding(2) var nametag_samples: texture_multisampled_2d<f32>;
+// The fused composite's unresolved two-sample scene, read through its UNORM view, and the
+// device's tabulated two-sample resolve (see `scene_target/resolve_lut.rs`).
+@group(0) @binding(3) var scene_samples: texture_multisampled_2d<f32>;
+@group(0) @binding(4) var resolve_lut: texture_2d<f32>;
 
 @vertex
 fn composite_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
@@ -84,4 +88,29 @@ fn nametag_multisample_composite_fragment(@builtin(position) position: vec4<f32>
         return under;
     }
     return colour / f32(count);
+}
+
+// The texel a render-pass resolve of both scene samples would have written, as `scene` reads
+// it: each channel's two sample codes index the device's own resolve of that code pair.
+fn resolved_scene(pixel: vec2<i32>) -> vec4<f32> {
+    let first = vec4<i32>(round(textureLoad(scene_samples, pixel, 0) * 255.0));
+    let second = vec4<i32>(round(textureLoad(scene_samples, pixel, 1) * 255.0));
+    return vec4<f32>(
+        textureLoad(resolve_lut, vec2(first.r, second.r), 0).r,
+        textureLoad(resolve_lut, vec2(first.g, second.g), 0).r,
+        textureLoad(resolve_lut, vec2(first.b, second.b), 0).r,
+        textureLoad(resolve_lut, vec2(first.a, second.a), 0).a,
+    );
+}
+
+// `composite_fragment` over the scene's unresolved samples.
+@fragment
+fn fused_composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let pixel = vec2<i32>(position.xy);
+    let ui = textureLoad(ui_layer, pixel, 0);
+    var under = vec4<f32>(0.0);
+    if ui.a != 1.0 {
+        under = resolved_scene(pixel);
+    }
+    return composite_sample(ui, under, false);
 }

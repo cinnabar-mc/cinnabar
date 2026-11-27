@@ -23,7 +23,6 @@ fn personal_settings_hide_base_hud_and_restore_it_on_close() {
             &mut 0,
             TextMetrics::for_viewport([1280, 720], DpiScale::new(1.).unwrap(), None),
             [1280., 720.],
-            0,
             false,
         )
         .unwrap();
@@ -100,7 +99,6 @@ fn authored_panels_opt_into_gameplay_hud_but_never_crosshair() {
             &mut 0,
             TextMetrics::for_viewport([1280, 720], DpiScale::new(1.).unwrap(), None),
             [1280., 720.],
-            0,
             crosshair,
         )
         .unwrap();

@@ -491,9 +491,12 @@ fn maintain_attacks(
             },
         },
     );
-    admitted
-        .mining
-        .settle_inventory(player.inventory.ledger_mut());
+    // An empty settlement leaves the player, and the UI frame reading it, unchanged.
+    if !admitted.mining.is_empty() {
+        admitted
+            .mining
+            .settle_inventory(player.inventory.ledger_mut());
+    }
     if let Some(hit) = admitted.actor_attack {
         if let Some(block_use) = block_use.as_deref_mut() {
             block_use.record_actor_use(

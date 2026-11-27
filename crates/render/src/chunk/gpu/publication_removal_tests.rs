@@ -76,6 +76,9 @@ fn stalled_removal_completion_pauses_fresh_chunks_but_preserves_replacements_and
         .get_mut::<ChunkRenderInstance>(replacing)
         .unwrap()
         .generation = 2;
+    app.world()
+        .resource::<render_scene::ChunkInstanceChanges>()
+        .mark(replacing);
     let mut fresh_instance = cube_instance(3, false);
     fresh_instance.token = Some(ChunkUploadToken {
         generation: fresh_instance.generation,

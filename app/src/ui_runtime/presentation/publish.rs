@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::{PackReload, resource_packs::PackApplication};
-use bevy::prelude::{Local, Projection, Transform};
+use bevy::prelude::{DetectChanges, DetectChangesMut, Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -12,12 +12,13 @@ use ui::mod_presentation::NametagVisibility;
 #[cfg(test)]
 mod camera_hand_tests;
 mod commit;
+mod consumed;
 mod cooldowns;
 mod loading;
 mod menu_icons;
 mod roster;
 use client_ui::ui_runtime::presentation::{
-    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
+    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame_if_changed, nametags,
     player_preview,
 };
 pub(crate) use commit::publish_ui_runtime;
@@ -32,11 +33,13 @@ pub(crate) fn observe_mount_jump_input(
     time: Res<Time<Real>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
-    runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
-    if let Some(snapshot) = input.snapshot() {
-        runtime.set_input_mode(snapshot.input_mode);
-    }
+    client_shell::ui_resources::update(&mut runtime, |runtime| {
+        runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis)
+            | runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held)
+            | input
+                .snapshot()
+                .is_some_and(|snapshot| runtime.set_input_mode(snapshot.input_mode))
+    });
 }
 
 /// Resources beyond Bevy's sixteen-parameter limit.
@@ -70,6 +73,13 @@ pub(crate) struct PublishExtras<'w, 's> {
     melee: Res<'w, client_interaction::melee::MeleeRuntime>,
     movement: Res<'w, client_interaction::movement::MovementTicker>,
     physics: Res<'w, client_interaction::movement::LocalPhysicsController>,
+    /// The runtime revisions the last HUD capture read.
+    captured: Local<'s, consumed::ConsumedTicks<2>>,
+    /// The runtime revisions the last dressing of the player model read.
+    dressed: Local<'s, consumed::ConsumedTicks<2>>,
+    /// The presentation revision the last dressing read.
+    dressed_presentation: Local<'s, consumed::ConsumedTicks<1>>,
+    system_ticks: bevy::ecs::system::SystemChangeTick,
 }
 
 /// Observes UI authority and captures inventory, including this frame's outbound predictions.
@@ -122,6 +132,10 @@ pub(crate) fn prepare_ui_runtime(
         melee,
         movement,
         physics,
+        mut captured,
+        mut dressed,
+        mut dressed_presentation,
+        system_ticks,
     } = extras;
     #[cfg(not(target_arch = "wasm32"))]
     let (settings_snapshot, menu_skin, menu_visible, menu_scene, menu) = (
@@ -146,33 +160,28 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
     prepared.0 = None;
-    runtime.set_resource_pack_loading(
-        pack_reload
-            .as_deref()
-            .is_some_and(PackReload::loading_screen),
-    );
+    // Every write below reports whether it changed anything, so an idle frame leaves the UI
+    // runtime and presentation unchanged and publication may repeat the last frame.
     let mod_presentation = std::sync::Arc::clone(presentation.mod_ui().mod_presentation());
-    runtime
-        .session
-        .player_roster
-        .set_annotations(roster::annotations(
-            &mod_presentation,
-            client_world.stream.as_ref(),
-        ));
+    let annotations = roster::annotations(&mod_presentation, client_world.stream.as_ref());
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    runtime.advance_item_activation(now_millis);
-    runtime.advance_form_handoff(now_millis);
-    runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
-    runtime.set_control_settings(Arc::clone(&settings_snapshot.0));
+    client_shell::ui_resources::update(&mut runtime, |runtime| {
+        runtime.set_resource_pack_loading(
+            pack_reload
+                .as_deref()
+                .is_some_and(PackReload::loading_screen),
+        ) | runtime.session.player_roster.set_annotations(annotations)
+            | runtime.advance_item_activation(now_millis)
+            | runtime.advance_form_handoff(now_millis)
+            | runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis())
+            | runtime.set_control_settings(Arc::clone(&settings_snapshot.0))
+    });
     if let Some(mut glint_settings) = glint_settings {
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            *glint_settings = menu_runtime.ui_glint_settings();
-        }
+        let next = menu_runtime.ui_glint_settings();
         #[cfg(target_arch = "wasm32")]
-        {
-            *glint_settings = render_scene::UiGlintSettings::default();
-        }
+        let next = render_scene::UiGlintSettings::default();
+        glint_settings.set_if_neq(next);
     }
     let Ok(window) = windows.single() else {
         hand.clear();
@@ -192,17 +201,22 @@ pub(crate) fn prepare_ui_runtime(
         }
     };
     #[cfg(not(target_arch = "wasm32"))]
-    {
-        presentation.set_safe_area(client_shell::platform_text::safe_area_insets(dpi_scale));
-    }
-    runtime.expire_hud(now_millis);
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation.set_safe_area(client_shell::platform_text::safe_area_insets(dpi_scale))
+    });
+    client_shell::ui_resources::update(&mut runtime, |runtime| runtime.expire_hud(now_millis));
     let restart = client_world.dimension_transfer.take_presentation_reset();
+    // Startup readiness is not drawn: only the loading stage it settles reaches a frame.
+    let loading_stage = presentation.loading_stage();
+    // Loading writes only the startup-probe flag, and the input is extracted whenever it counts
+    // as changed, so only a flipped flag marks it.
+    let probe_enabled = diagnostics_input.startup_probe_enabled();
     loading::prepare_loading(
         &mut client_world,
         &mut fatal_error.0,
-        &mut presentation,
+        presentation.bypass_change_detection(),
         &runtime,
-        &mut diagnostics_input,
+        diagnostics_input.bypass_change_detection(),
         &network,
         loading::LoadingObservation {
             restart,
@@ -221,10 +235,22 @@ pub(crate) fn prepare_ui_runtime(
             now: time.elapsed(),
         },
     );
-    runtime.expire_gameplay_effects(now_millis);
+    if presentation.loading_stage() != loading_stage {
+        presentation.set_changed();
+    }
+    if diagnostics_input.startup_probe_enabled() != probe_enabled {
+        diagnostics_input.set_changed();
+    }
+    client_shell::ui_resources::update(&mut runtime, |runtime| {
+        runtime.expire_gameplay_effects(now_millis)
+    });
     let stream = client_world.stream.as_ref();
-    presentation.set_preview_cosmetics(&menu_skin.cosmetics);
-    let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation.set_preview_cosmetics(&menu_skin.cosmetics)
+    });
+    let menu_preview_skin = menu_skin.standard_skin();
+    let preview_ready = presentation.menu_preview_skin_shown(&menu_preview_skin)
+        || presentation.set_menu_preview_skin(&menu_preview_skin);
     let own_pixels = render_model::ActorSkinPixels {
         width: menu_skin.width,
         height: menu_skin.height,
@@ -247,53 +273,72 @@ pub(crate) fn prepare_ui_runtime(
             stream.map(|stream| stream.authority().local_player_ui()),
         )
     };
-    presentation.set_preview_equipment_assets(
-        client_world.entity_assets.clone(),
-        client_world
-            .pack_entities
-            .as_ref()
-            .map(|pack| Arc::clone(&pack.assets)),
-    );
-    presentation.set_preview_pack_equipment(
-        client_world
-            .pack_entities
-            .as_ref()
-            .and_then(|pack| pack.equipment.clone()),
-    );
-    presentation.set_preview_player_layers(client_world.pack_entities.clone());
     let settings = Arc::clone(&settings_snapshot.0);
     let show_custom_item_models = settings.value(SettingId::ShowCustomItemModels) != 0;
-    presentation.set_player_preview_custom_item_models(show_custom_item_models);
-    // The model wears the local player's armor and held item.
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation.set_preview_equipment_assets(
+            client_world.entity_assets.clone(),
+            client_world
+                .pack_entities
+                .as_ref()
+                .map(|pack| Arc::clone(&pack.assets)),
+        ) | presentation.set_preview_pack_equipment(
+            client_world
+                .pack_entities
+                .as_ref()
+                .and_then(|pack| pack.equipment.clone()),
+        ) | presentation.set_preview_player_layers(client_world.pack_entities.clone())
+            | presentation.set_player_preview_custom_item_models(show_custom_item_models)
+    });
+    // The model wears the local player's armor and held item. Its dressing is drawn only with
+    // the model, which counts its own revision; other changes are reported.
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
     } else {
-        presentation.dress_player_preview(
-            &player_runtime,
-            &runtime,
-            stream.map(|stream| stream.authority().inventory_ui()),
-            actor_animation::AttachableAnimationInput {
-                frame_alpha: actor_partial.0,
-                delta_seconds: Some(time.delta_secs()),
-                ..Default::default()
-            },
-            |stack| {
-                client_world
-                    .stream
-                    .as_ref()?
-                    .authority()
-                    .canonical_item_stack(stack)
-            },
+        // Writers mark the runtimes changed only when they change them, and publication marks
+        // neither, so ticks the last dressing read mean it would select nothing new from them.
+        let runtimes_unchanged =
+            dressed.unchanged([player_runtime.last_changed(), runtime.last_changed()]);
+        let presentation_unchanged = dressed_presentation.unchanged([presentation.last_changed()]);
+        client_shell::ui_resources::update(&mut presentation, |presentation| {
+            presentation.dress_player_preview_if_changed(
+                &player_runtime,
+                &runtime,
+                stream.map(|stream| stream.authority().inventory_ui()),
+                actor_animation::AttachableAnimationInput {
+                    frame_alpha: actor_partial.0,
+                    delta_seconds: Some(time.delta_secs()),
+                    ..Default::default()
+                },
+                |stack| {
+                    client_world
+                        .stream
+                        .as_ref()?
+                        .authority()
+                        .canonical_item_stack(stack)
+                },
+                player_preview::DressUnchanged {
+                    runtimes: runtimes_unchanged,
+                    presentation: presentation_unchanged,
+                },
+            )
+        });
+        dressed.record(
+            [player_runtime.last_changed(), runtime.last_changed()],
+            system_ticks.this_run(),
         );
+        dressed_presentation.record([presentation.last_changed()], system_ticks.this_run());
     }
     let doll_state = client_world
         .stream
         .as_ref()
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
-    presentation.observe_paper_doll(now_millis, doll_state);
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation.observe_paper_doll(now_millis, doll_state)
+    });
     // The HUD doll keeps animating under an open screen, beside that screen's own doll.
     let hud_doll = presentation
-        .hud_frame_mut()
+        .hud_frame()
         .paper_doll_requested(player_runtime.facts.player_game_mode(), &settings)
         && settings.value(SettingId::HideHud) == 0
         && presentation.loading_stage().is_none()
@@ -317,15 +362,18 @@ pub(crate) fn prepare_ui_runtime(
                 })
                 .flatten()
         });
-    presentation.begin_live_capture();
+    // The live capture writes only the player model, which advances its own revision that a
+    // frame reads when it draws the model.
+    let live = presentation.bypass_change_detection();
+    live.begin_live_capture();
     // A screen's live renderer draws the same animated actor as the HUD doll.
     if hud_doll
-        || (presentation.has_preview_player_layers() && !menu_visible)
+        || (live.has_preview_player_layers() && !menu_visible)
         || runtime.emotes().is_open()
-        || (presentation.live_renderer_shown() && !menu_visible)
+        || (live.live_renderer_shown() && !menu_visible)
     {
-        presentation.set_cosmetic_motion(hand_rig.cosmetic_motion());
-        presentation.set_hud_glide(
+        live.set_cosmetic_motion(hand_rig.cosmetic_motion());
+        live.set_hud_glide(
             client_world
                 .stream
                 .as_ref()
@@ -337,7 +385,7 @@ pub(crate) fn prepare_ui_runtime(
                     )
                 }),
         );
-        presentation.capture_hud_player_with_emote(
+        live.capture_hud_player_with_emote(
             client_world
                 .stream
                 .as_ref()
@@ -381,9 +429,18 @@ pub(crate) fn prepare_ui_runtime(
         shown: runtime.inventory_open() || menu_visible || hud_doll || runtime.emotes().is_open(),
         hands: first_person && !hide_hand && !hand_rig.hand_is_active() && !java_held_item,
     };
+    // It observes only an open station's block.
+    let station_open = {
+        let ledger = runtime.inventory_ledger(&player_runtime);
+        ledger.window_kind().is_some() && ledger.window_position().is_some()
+    };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,
-        &mut runtime,
+        if station_open {
+            &mut runtime
+        } else {
+            runtime.bypass_change_detection()
+        },
         client_world
             .stream
             .as_ref()
@@ -415,19 +472,39 @@ pub(crate) fn prepare_ui_runtime(
             )
         })
     }));
-    let item_icons = capture_hud_frame(
+    // When the local player's first-person rig is drawing near-camera, it owns the hand; the
+    // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
+    // double-draws.
+    let hud_first_person = first_person && !hide_hand;
+    // Writers mark the runtimes changed only when they change them, and publication marks
+    // neither, so ticks the last capture read mean it would store nothing new from them.
+    let runtimes_unchanged =
+        captured.unchanged([player_runtime.last_changed(), runtime.last_changed()]);
+    let capture = capture_hud_frame_if_changed(
         &player_runtime,
-        &mut runtime,
-        &mut presentation,
+        runtime.bypass_change_detection(),
+        presentation.bypass_change_detection(),
         client_world
             .stream
             .as_ref()
             .map(|stream| stream.authority().inventory_ui()),
-        camera_settings.rendered_perspective(),
+        hud_first_person,
         now_millis,
         icon_frames,
+        runtimes_unchanged,
     );
-    presentation.hud_frame_mut().hotbar_cooldowns = cooldowns::hotbar_cooldowns(
+    if capture.runtime_changed {
+        runtime.set_changed();
+    }
+    if capture.presentation_changed {
+        presentation.set_changed();
+    }
+    captured.record(
+        [player_runtime.last_changed(), runtime.last_changed()],
+        system_ticks.this_run(),
+    );
+    let item_icons = capture.icons;
+    let hotbar_cooldowns = cooldowns::hotbar_cooldowns(
         &player_runtime,
         &runtime,
         client_world.stream.as_ref(),
@@ -435,49 +512,58 @@ pub(crate) fn prepare_ui_runtime(
         &melee,
         movement.completed_tick(),
     );
-    // Floored feet position and absolute world tick for the HUD's position and days-played text.
-    presentation.hud_frame_mut().player_block = local_frame.snapshot().map(|frame| {
+    // Floored feet position and day count for the HUD's position and days-played text.
+    let player_block = local_frame.snapshot().map(|frame| {
         let feet = frame.feet();
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
-    presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
-    presentation.hud_frame_mut().locator_view =
-        cameras
-            .single()
-            .ok()
-            .and_then(|(_, transform, projection)| {
-                let Projection::Perspective(projection) = projection else {
-                    return None;
-                };
-                Some(ui_screens::hud_renderers::LocatorView {
-                    position: transform.translation.to_array(),
-                    forward: transform.forward().to_array(),
-                    right: transform.right().to_array(),
-                    vertical_fov: projection.fov,
-                })
-            });
-    presentation.hud_frame_mut().death_screen =
-        menu_visible && menu_scene == Some(launcher::menu::MenuScreen::Death);
-    presentation.hud_frame_mut().dimension = client_world
+    let locator_view = cameras
+        .single()
+        .ok()
+        .and_then(|(_, transform, projection)| {
+            let Projection::Perspective(projection) = projection else {
+                return None;
+            };
+            Some(ui_screens::hud_renderers::LocatorView {
+                position: transform.translation.to_array(),
+                forward: transform.forward().to_array(),
+                right: transform.right().to_array(),
+                vertical_fov: projection.fov,
+            })
+        });
+    let dimension = client_world
         .stream
         .as_ref()
         .map_or(0, |stream| stream.current_dimension());
-    runtime.observe_locator_actors(presentation.hud_frame().dimension, |id| {
-        client_world
-            .stream
-            .as_ref()?
-            .authority()
-            .actor_by_unique_id(id)?
-            .interpolated_position(actor_partial.0.clamp(0.0, 1.0))
+    client_shell::ui_resources::update(&mut runtime, |runtime| {
+        runtime.observe_locator_actors(dimension, |id| {
+            client_world
+                .stream
+                .as_ref()?
+                .authority()
+                .actor_by_unique_id(id)?
+                .interpolated_position(actor_partial.0.clamp(0.0, 1.0))
+        })
     });
-    presentation.hud_frame_mut().world_time = Some(
-        client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64()),
+    let days_played = Some(
+        (client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64())
+            / f64::from(world::TICKS_PER_DAY))
+        .floor(),
     );
-    // When the local player's first-person rig is drawing near-camera, it owns the hand; the
-    // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
-    // double-draws.
-    presentation.hud_frame_mut().first_person = first_person && !hide_hand;
-    presentation.hud_frame_mut().hand_rig_active = hand_rig.hand_is_active();
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        let frame = presentation.hud_frame_mut();
+        let mut changed = store(&mut frame.hotbar_cooldowns, hotbar_cooldowns);
+        changed |= store(&mut frame.player_block, player_block);
+        changed |= store(&mut frame.thunderstorm, weather.lightning_level() > 0.0);
+        changed |= store(&mut frame.locator_view, locator_view);
+        changed |= store(
+            &mut frame.death_screen,
+            menu_visible && menu_scene == Some(launcher::menu::MenuScreen::Death),
+        );
+        changed |= store(&mut frame.dimension, dimension);
+        changed |= store(&mut frame.days_played, days_played);
+        changed | store(&mut frame.hand_rig_active, hand_rig.hand_is_active())
+    });
     if hand_rig.hand_is_active() {
         hand.use_animated_rig();
     } else {
@@ -485,19 +571,23 @@ pub(crate) fn prepare_ui_runtime(
             &player_runtime,
             &runtime,
             &client_world,
-            presentation.hud_frame_mut().first_person,
+            hud_first_person,
             hide_hand
                 || !presentation.renders_game_behind(&player_runtime, &runtime, menu)
                 || presentation.loading_stage().is_some(),
             physical_size,
         );
     }
-    runtime
-        .session
-        .player_roster
-        .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
+    client_shell::ui_resources::update(&mut runtime, |runtime| {
+        runtime
+            .session
+            .player_roster
+            .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0)
+    });
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
-    presentation.prepare_nametag_layout(&runtime);
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation.prepare_nametag_layout(&runtime)
+    });
     // Mod nametag rules decide each tag after native eligibility; with none, every tag is
     // native, and none draws while the HUD is hidden.
     let hud_hidden = !overlays.nametags;
@@ -519,6 +609,8 @@ pub(crate) fn prepare_ui_runtime(
         || annotated_self
         || settings.value(SettingId::F5SelfVisuals) != 0)
         && !first_person;
+    // Name tags draw outside the UI frame, so their bounds and anchors change no frame input.
+    let nametag_presentation = presentation.bypass_change_detection();
     let nametags = client_world
         .stream
         .as_ref()
@@ -560,7 +652,7 @@ pub(crate) fn prepare_ui_runtime(
                 );
                 tag.set_annotation(mod_presentation.nametag(tag.runtime_id(), player).cloned());
 
-                presentation.nametag_intersects_view(tag, clip_from_world, rotation)
+                nametag_presentation.nametag_intersects_view(tag, clip_from_world, rotation)
             };
             let mut tags = nametags::project_nametags(
                 &mut nametag_cache,
@@ -605,23 +697,28 @@ pub(crate) fn prepare_ui_runtime(
             .to_cols_array()
     });
     let actor_stream = client_world.stream.as_ref();
-    presentation
-        .mod_ui_mut()
-        .set_hud_projection(hud_camera, &|runtime_id| {
-            let actor = actor_stream?.authority().actor(runtime_id)?;
-            Some(mod_ui::ProjectedActor {
-                feet: actor.interpolated_position(actor_partial.0.clamp(0.0, 1.0))?,
-                player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation
+            .mod_ui_mut()
+            .set_hud_projection(hud_camera, &|runtime_id| {
+                let actor = actor_stream?.authority().actor(runtime_id)?;
+                Some(mod_ui::ProjectedActor {
+                    feet: actor.interpolated_position(actor_partial.0.clamp(0.0, 1.0))?,
+                    player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+                })
             })
-        });
-    presentation.set_nametag_local_actor(
+    });
+    let nametag_presentation = presentation.bypass_change_detection();
+    nametag_presentation.set_nametag_local_actor(
         client_world
             .stream
             .as_ref()
             .map(|stream| stream.authority().local_player_runtime_id()),
     );
-    nametag_cache.recycle_anchors(presentation.set_nametag_anchors(nametags));
-    presentation.set_chat_settings_snapshot(settings_snapshot);
+    nametag_cache.recycle_anchors(nametag_presentation.set_nametag_anchors(nametags));
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation.set_chat_settings_snapshot(settings_snapshot)
+    });
     #[cfg(not(target_arch = "wasm32"))]
     let menu_view = menu_visible.then(|| {
         let mut view = menu_runtime.view();
@@ -635,15 +732,19 @@ pub(crate) fn prepare_ui_runtime(
     });
     #[cfg(target_arch = "wasm32")]
     let menu_view = None;
-    presentation.set_menu_view(menu_view);
-    presentation.refresh_scoreboard_owner_names(
-        runtime.scoreboards(),
-        client_world
-            .stream
-            .as_ref()
-            .map(|stream| stream.authority().nametag_ui()),
-    );
-    presentation.publish_scene_inputs(&mut runtime);
+    client_shell::ui_resources::update(&mut presentation, |presentation| {
+        presentation.set_menu_view(menu_view)
+            | presentation.refresh_scoreboard_owner_names(
+                runtime.scoreboards(),
+                client_world
+                    .stream
+                    .as_ref()
+                    .map(|stream| stream.authority().nametag_ui()),
+            )
+    });
+    client_shell::ui_resources::update(&mut runtime, |runtime| {
+        presentation.publish_scene_inputs(runtime)
+    });
     prepared.0 = Some(PendingUiPublication {
         inventory: runtime.capture_presentation_inventory(&player_runtime),
         preview,
@@ -652,6 +753,15 @@ pub(crate) fn prepare_ui_runtime(
         physical_size,
         dpi_scale,
     });
+}
+
+/// Replaces `slot` with `value`; whether it differed.
+fn store<T: PartialEq>(slot: &mut T, value: T) -> bool {
+    if *slot == value {
+        return false;
+    }
+    *slot = value;
+    true
 }
 
 /// Captures predicted local movement and authoritative armor without server echo latency.

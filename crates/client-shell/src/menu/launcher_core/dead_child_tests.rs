@@ -299,3 +299,147 @@ fn realm_membership_core_exit_retires_the_pending_dialog() {
         );
     }
 }
+
+#[test]
+fn an_exit_is_noticed_at_the_next_poll() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    // The last poll found the core running; it exited since.
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_some(),
+        "no exit check before the interval ends"
+    );
+    drive_at(
+        &mut slot,
+        &mut menu,
+        &mut world,
+        false,
+        start + EXIT_POLL_INTERVAL,
+    );
+    assert!(slot.core.is_none(), "the exit is noticed at the next poll");
+    assert!(
+        world.get_resource::<LauncherAccount>().is_none(),
+        "and the clients are detached"
+    );
+}
+
+#[test]
+fn a_join_between_exit_checks_is_not_routed_to_an_exited_core() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    let start = Instant::now();
+    // The last check found the core running; it exited before the next one is due.
+    slot.next_exit_poll = Some(start + EXIT_POLL_INTERVAL);
+    drive_at(&mut slot, &mut menu, &mut world, false, start);
+    assert!(
+        slot.core.is_some(),
+        "the paced check has not noticed the exit"
+    );
+    assert!(
+        slot.begin_join("example.net:19132", false, false, true)
+            .is_none(),
+        "the join falls back to its own core at once"
+    );
+}
+
+/// The parameters [`MenuRuntime::drive_account_services`] borrows from the world.
+type AccountServiceParams = (
+    Commands<'static, 'static>,
+    Option<bevy::prelude::ResMut<'static, LauncherCoreSlot>>,
+    Option<bevy::prelude::ResMut<'static, LauncherAccount>>,
+);
+
+/// Runs one frame of [`MenuRuntime::drive_account_services`] with `slot` as the account core.
+fn drive_account_services(slot: LauncherCoreSlot, menu: &mut MenuRuntime, world: &mut World) {
+    use bevy::ecs::system::SystemState;
+    world.insert_resource(slot);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut state: SystemState<AccountServiceParams> = SystemState::new(world);
+    let (mut commands, slot, account) = state.get_mut(world).unwrap();
+    menu.drive_account_services(&mut commands, false, &player, false, slot, account, None);
+    state.apply(world);
+}
+
+#[test]
+fn a_decision_on_the_account_core_sees_an_exit_since_the_last_check() {
+    use launcher::menu::realm_membership::{Stage, State};
+    for decision in [
+        "held join",
+        "profile refresh",
+        "realm verify",
+        "realm accept",
+    ] {
+        let (mut slot, mut menu, mut world, _) = fixture(true);
+        // The last paced check found the core running; it exited since, and the next check is
+        // not due for a long time.
+        slot.next_exit_poll = Some(Instant::now() + Duration::from_secs(3600));
+        match decision {
+            "held join" => {
+                menu.intents.join_sign_in_deadline =
+                    Some(Instant::now() + Duration::from_secs(3600));
+            }
+            "profile refresh" => menu.feeds.profile_refresh_requested = true,
+            realm => {
+                menu.control_auth = Some(AuthState::Authenticated);
+                menu.realm_membership.state = Some(State {
+                    stage: if realm == "realm verify" {
+                        Stage::Verifying
+                    } else {
+                        Stage::Joining
+                    },
+                    ..Default::default()
+                });
+            }
+        }
+        drive_account_services(slot, &mut menu, &mut world);
+        assert!(
+            world.resource::<LauncherCoreSlot>().core.is_none(),
+            "{decision}: the exited core is retired in the same frame"
+        );
+        assert!(
+            menu.realm_membership.state.is_none(),
+            "{decision}: no reply from the exited core advances the Realm dialog"
+        );
+    }
+}
+
+#[test]
+fn without_a_pending_decision_the_exit_waits_for_the_paced_check() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    slot.next_exit_poll = Some(Instant::now() + Duration::from_secs(3600));
+    assert!(!menu.core_decision_pending());
+    drive_account_services(slot, &mut menu, &mut world);
+    assert!(world.resource::<LauncherCoreSlot>().core.is_some());
+}
+
+/// A run counts as stable only when a check saw the core running at the stable interval, so a
+/// core that exits just short of it and is noticed just after it still uses up its retries.
+#[test]
+fn an_exit_just_short_of_a_stable_run_noticed_after_it_stays_quick() {
+    use launcher_host::lifecycle::core_health::STABLE_RUN;
+    let (mut slot, mut menu, mut world, _) = fixture(false);
+    let started = Instant::now();
+    slot.started = Some(started);
+    for _ in 0..5 {
+        slot.backoff.next_delay(Duration::ZERO);
+    }
+    let last_running = started + STABLE_RUN - Duration::from_millis(5);
+    drive_at(&mut slot, &mut menu, &mut world, false, last_running);
+    assert!(slot.core.is_some(), "the core is still running");
+    // The core exits between that check and the next one, which lands past the stable run.
+    slot.core.as_mut().unwrap()._guard = child_guard(true);
+    drive_at(
+        &mut slot,
+        &mut menu,
+        &mut world,
+        false,
+        last_running + EXIT_POLL_INTERVAL,
+    );
+    assert!(slot.core.is_none(), "the exit is noticed");
+    assert_eq!(
+        slot.failed,
+        Some(false),
+        "a run never seen alive for the stable interval leaves the retries exhausted"
+    );
+}

@@ -39,14 +39,14 @@ static EMPTY_FURNACE_ICONS: std::sync::LazyLock<Arc<[Option<IconRef>]>> =
 const UI_ICON_SLOTS: usize = protocol::UI_SLOT_COUNT;
 
 /// One tooltip line and its color.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TooltipLine {
     pub text: String,
     pub color: [u8; 4],
 }
 
 /// Item icons for the UI-slot cells and the creative catalog page.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WindowIcons {
     pub ui: [Option<IconRef>; UI_ICON_SLOTS],
     pub creative: [Option<IconRef>; GRID_CELLS],
@@ -71,6 +71,40 @@ pub struct WindowIcons {
     pub furnace_entries: Arc<[Option<IconRef>]>,
 }
 
+impl WindowIcons {
+    /// Whether any icon but the recipe book's entries differs from `other`'s; captures borrow
+    /// those entries from the retained frame rather than copying them.
+    pub(in crate::ui_runtime::presentation) fn differs_besides_book(&self, other: &Self) -> bool {
+        let Self {
+            ui,
+            creative,
+            creative_tabs,
+            recipe,
+            recipe_output,
+            ghost_armor,
+            ghost_shield,
+            ghost_template,
+            book,
+            book_button,
+            book_more,
+            book_entries: _,
+            furnace_entries,
+        } = self;
+        *ui != other.ui
+            || *creative != other.creative
+            || *creative_tabs != other.creative_tabs
+            || *recipe != other.recipe
+            || *recipe_output != other.recipe_output
+            || *ghost_armor != other.ghost_armor
+            || *ghost_shield != other.ghost_shield
+            || *ghost_template != other.ghost_template
+            || *book != other.book
+            || *book_button != other.book_button
+            || *book_more != other.book_more
+            || *furnace_entries != other.furnace_entries
+    }
+}
+
 impl Default for WindowIcons {
     fn default() -> Self {
         Self {
@@ -92,7 +126,7 @@ impl Default for WindowIcons {
 }
 
 /// Resolved strings for the open screen.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WindowText {
     pub title: Option<String>,
     /// The actor or block entity's custom name, which vanilla shows unlocalized.

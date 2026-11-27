@@ -15,6 +15,9 @@ pub(super) const CHUNK_BINDINGS_SHADER_HANDLE: Handle<Shader> =
 /// Sorted transparent terrain: liquid and model draws through one pipeline.
 pub(super) const TRANSPARENT_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("21dc97c9-bb04-4354-8927-9001e9f5ac95");
+/// Compute kernel baking the per-quad tint cache; see `gpu::tint_cache`.
+pub(super) const TINT_BAKE_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("7d3f2a41-58c6-4b0e-9a1d-3e6b5c2f8d94");
 pub(super) const BIOME_TINT_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("ee40bfe6-1bd1-4aa6-bf15-e3185dfac253");
 pub(super) const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];

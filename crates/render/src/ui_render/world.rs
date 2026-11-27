@@ -43,6 +43,10 @@ pub(crate) fn draw_ui_view(
     gpu: &UiGpu,
     batches: &[UiRenderBatch],
 ) -> Result<(), BevyError> {
+    // Screen-only UI, a static HUD's usual case, has nothing to project.
+    if !batches.iter().any(|batch| batch.world_projection != 0) {
+        return Ok(());
+    }
     let Some(pipeline_cache) = world.get_resource::<PipelineCache>() else {
         return Ok(());
     };

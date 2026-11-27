@@ -417,6 +417,16 @@ impl ServerFormStore {
         }
         Ok(())
     }
+    /// Whether [`Self::note_stream_dimension`] with `dimension` would change nothing.
+    pub fn stream_dimension_noted(&self, dimension: i32) -> bool {
+        self.watched_dimension == Some(dimension)
+    }
+
+    /// Whether [`Self::synchronize_epoch`] with these arguments would change nothing.
+    pub fn epoch_synchronized(&self, session: u64, dimension_epoch: u64) -> bool {
+        self.watched_epoch == Some((session, dimension_epoch))
+    }
+
     pub fn note_stream_dimension(&mut self, dimension: i32) {
         if self
             .watched_dimension
@@ -527,8 +537,9 @@ pub fn flush_form_response(
 
 impl ServerFormStore {
     /// Shows the same draft when returning to the server tab without ending its controller.
-    pub fn select_settings_form(&mut self, selected: bool) {
-        self.settings_selected = selected;
+    /// Whether anything changed.
+    pub fn select_settings_form(&mut self, selected: bool) -> bool {
+        let changed = std::mem::replace(&mut self.settings_selected, selected) != selected;
         if !selected && self.settings_form_active() {
             if self.handoff_deadline_millis.take().is_some() {
                 self.active = None;
@@ -550,7 +561,15 @@ impl ServerFormStore {
             self.engine = draft.engine;
             self.focus = draft.focus;
             self.scroll = draft.scroll;
+        } else {
+            return changed;
         }
+        true
+    }
+
+    /// Whether a form response waits for [`flush_form_response`].
+    pub fn has_responses(&self) -> bool {
+        !self.pending.is_empty() || !self.busy.is_empty()
     }
 
     /// Retains this controller's final values once, including when its tab is hidden.
@@ -570,18 +589,27 @@ impl ServerFormStore {
     }
 
     /// Tracks the settings controller's lifetime and retries its initial request until accepted.
-    pub fn flush_settings_request(&mut self, in_settings: bool, send: impl FnOnce() -> bool) {
+    /// Whether anything changed.
+    pub fn flush_settings_request(
+        &mut self,
+        in_settings: bool,
+        send: impl FnOnce() -> bool,
+    ) -> bool {
         if !in_settings {
+            let changed = self.settings_open || self.settings_requested;
             if self.settings_open {
                 self.terminate_settings_form();
             }
             self.settings_open = false;
             self.settings_requested = false;
+            changed
         } else {
-            self.settings_open = true;
+            let mut changed = !std::mem::replace(&mut self.settings_open, true);
             if !self.settings_requested && send() {
                 self.settings_requested = true;
+                changed = true;
             }
+            changed
         }
     }
 }

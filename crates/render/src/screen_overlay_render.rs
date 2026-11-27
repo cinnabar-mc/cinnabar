@@ -626,6 +626,7 @@ pub(crate) fn draw_before_hud(
     ) else {
         return;
     };
+    crate::scene_target::ensure_resolved(world, view, context);
     let attachments = [Some(target.get_unsampled_color_attachment())];
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera effects before HUD"),

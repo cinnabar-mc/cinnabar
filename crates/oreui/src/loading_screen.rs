@@ -85,7 +85,7 @@ impl OreUiScreen {
         &mut self,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
-        seconds: f64,
+        seconds: &dyn Fn() -> f64,
         size: [f32; 2],
     ) -> Result<(), PaintError> {
         self.transitions.effects.finish(nodes, next, seconds, size)

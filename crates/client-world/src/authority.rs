@@ -33,6 +33,7 @@ use std::{
 };
 use world::{ChunkKey, ChunkStore};
 mod access;
+pub use access::BlockPaletteIdentity;
 mod actor_lives;
 mod actor_movement;
 mod actors;

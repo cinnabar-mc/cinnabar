@@ -69,6 +69,7 @@ pub(crate) fn install_media_screen_render(app: &mut App) {
         .init_resource::<MediaScreenPipeline>()
         .add_render_command::<Transparent3d, DrawMediaScreenCommands>()
         .add_systems(RenderStartup, init_media_screen_gpu)
+        .configure_sets(Render, MediaScreenSystems.run_if(has_screen_work))
         .add_systems(
             Render,
             (
@@ -76,7 +77,8 @@ pub(crate) fn install_media_screen_render(app: &mut App) {
                 queue_media_screens
                     .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
-            ),
+            )
+                .in_set(MediaScreenSystems),
         );
 }
 
@@ -98,6 +100,16 @@ impl ScreenState {
         let textured = self.texture.is_some() && self.uploaded;
         (view_buffer, textured.then_some(self.texture_generation))
     }
+}
+
+/// The media screen systems: they prepare and draw the scene's screens and retire removed ones.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct MediaScreenSystems;
+
+/// Whether the media screen systems have anything to do: screens to draw, or state of removed
+/// screens to retire. Without either, preparing changes nothing and queueing adds no item.
+fn has_screen_work(scene: Res<MediaScreenScene>, gpu: Option<Res<MediaScreenGpu>>) -> bool {
+    !scene.screens.is_empty() || gpu.is_some_and(|gpu| !gpu.screens.is_empty())
 }
 
 #[derive(Resource)]
@@ -604,6 +616,38 @@ mod tests {
         assert!(close(up, [0.0, 3.0, 0.0]), "{up:?}");
         let normal = Vec3::from_array(right).cross(Vec3::from_array(up));
         assert!(normal.x > 0.0);
+    }
+
+    /// The systems keep running until the last removed screen is retired, then stop.
+    #[test]
+    fn the_screen_systems_idle_only_once_removed_screens_are_retired() {
+        let (mut app, _) = fixture::app();
+        app.init_resource::<MediaScreenScene>()
+            .init_resource::<MediaScreenPipeline>()
+            .init_resource::<ViewUniforms>();
+        app.world_mut()
+            .run_system_once(init_media_screen_gpu)
+            .unwrap();
+        let has_work = |app: &mut App| app.world_mut().run_system_once(has_screen_work).unwrap();
+        assert!(!has_work(&mut app));
+        app.world_mut().resource_mut::<MediaScreenScene>().screens = vec![screen(3, 0.0)];
+        assert!(has_work(&mut app));
+        app.world_mut()
+            .run_system_once(prepare_media_screens)
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<MediaScreenScene>()
+            .screens
+            .clear();
+        assert!(
+            has_work(&mut app),
+            "the removed screen still has state to retire"
+        );
+        app.world_mut()
+            .run_system_once(prepare_media_screens)
+            .unwrap();
+        assert!(app.world().resource::<MediaScreenGpu>().draws.is_empty());
+        assert!(!has_work(&mut app));
     }
 
     #[test]

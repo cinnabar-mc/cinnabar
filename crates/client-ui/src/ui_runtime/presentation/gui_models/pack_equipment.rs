@@ -35,17 +35,18 @@ impl PackEquipment {
 
 impl UiPresentationRuntime {
     /// Replaces the session's pack armor catalog; removing the pack restores base art.
+    /// Whether the catalog changed.
     pub fn set_preview_pack_equipment(
         &mut self,
         catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
-    ) {
+    ) -> bool {
         let previous = &self.gui_models.pack_equipment.source;
         if match (previous, &catalog) {
             (Some(previous), Some(next)) => Arc::ptr_eq(previous, next),
             (None, None) => true,
             _ => false,
         } {
-            return;
+            return false;
         }
         self.gui_models.clear_selected_hands();
         self.gui_models.shield_icons.clear();
@@ -56,6 +57,7 @@ impl UiPresentationRuntime {
             ..Default::default()
         };
         self.rebuild_dynamic_textures();
+        true
     }
 
     /// Records the pack texture each armor slot wears, placing them when the worn set changes;

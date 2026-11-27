@@ -10,7 +10,7 @@ use ui::IconRef;
 
 #[derive(Default)]
 pub(in super::super) struct LiveEquipment {
-    pub(super) input: Option<AttachableAnimationInput<'static>>,
+    pub(in super::super) input: Option<AttachableAnimationInput<'static>>,
     /// A successful inactive draw suppresses the ordinary preview fallback.
     pub(super) hands: [Option<Vec<HeldLayer>>; 2],
     pub(in super::super) pages: Vec<UiTexturePage>,

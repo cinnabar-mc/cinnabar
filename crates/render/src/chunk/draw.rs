@@ -33,7 +33,11 @@ pub(in crate::chunk) fn queue_chunks(
     mut pipeline: ResMut<ChunkPipeline>,
     mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
-    (render_adapter, render_device): (Res<RenderAdapter>, Res<RenderDevice>),
+    (render_adapter, adapter_info, render_device): (
+        Res<RenderAdapter>,
+        Res<RenderAdapterInfo>,
+        Res<RenderDevice>,
+    ),
     views: Query<ChunkViewQuery>,
     instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
@@ -72,8 +76,8 @@ pub(in crate::chunk) fn queue_chunks(
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
-        Backends::from(render_adapter.get_info().backend),
-        direct_draws_required(&render_adapter.get_info()),
+        Backends::from(adapter_info.backend),
+        direct_draws_required(&adapter_info),
     );
     let diagnostic_timer = probes
         .profiler
@@ -604,8 +608,11 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     mut pipeline: ResMut<ChunkPipeline>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    render_adapter: Res<RenderAdapter>,
-    render_device: Res<RenderDevice>,
+    (render_adapter, adapter_info, render_device): (
+        Res<RenderAdapter>,
+        Res<RenderAdapterInfo>,
+        Res<RenderDevice>,
+    ),
     views: Query<ChunkViewQuery>,
     allocations: Query<&GpuChunkAllocation>,
     runtime: Res<TransparentSortRuntime>,
@@ -630,8 +637,8 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
-        Backends::from(render_adapter.get_info().backend),
-        direct_draws_required(&render_adapter.get_info()),
+        Backends::from(adapter_info.backend),
+        direct_draws_required(&adapter_info),
     );
     if draw_mode == ChunkDrawMode::Unsupported {
         return;

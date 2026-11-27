@@ -264,6 +264,11 @@ impl PlayerInventoryLedger {
         Ok(request)
     }
 
+    /// Whether [`Self::take_world_drops`] would take any.
+    pub fn world_drops_pending(&self) -> bool {
+        self.pending_world_drops != 0
+    }
+
     /// Takes admitted in-world drop gestures once, independently of transport or server replies.
     pub fn take_world_drops(&mut self) -> usize {
         std::mem::take(&mut self.pending_world_drops)

@@ -6,7 +6,7 @@ use {super::*, ui::IconRef};
 #[cfg(test)]
 mod tests;
 
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ItemIconFrames(pub [Option<u32>; protocol::HOTBAR_SLOT_COUNT as usize]);
 
 impl ItemIconFrames {

@@ -215,3 +215,45 @@ fn style_uniform_storage_shares_the_bundle_ledger() {
     drop(style);
     assert_eq!(ledger.used(), 0);
 }
+
+/// Composition preparation runs until earlier style state is retired, then stops and leaves
+/// nothing behind; the node runs only while the scene has masks.
+#[test]
+fn composition_idles_once_earlier_styles_are_retired() {
+    let (mut app, _) = crate::queue_review_support::app();
+    app.world_mut().run_system_once(init).unwrap();
+    app.init_resource::<MaskGpu>();
+    app.insert_resource(ModRenderScene::default());
+    let has_work = |app: &mut bevy::app::App| {
+        app.world_mut()
+            .run_system_once(has_composition_work)
+            .unwrap()
+    };
+    assert!(!has_work(&mut app));
+    assert!(!app.world_mut().run_system_once(has_masks).unwrap());
+    let style = StyleGpu::new(app.world().resource::<RenderDevice>(), None).unwrap();
+    app.world_mut()
+        .resource_mut::<CompositionGpu>()
+        .styles
+        .insert(
+            (
+                Entity::PLACEHOLDER,
+                DrawingHandle {
+                    owner: 1,
+                    generation: 1,
+                    slot: 1,
+                },
+            ),
+            style,
+        );
+    assert!(
+        has_work(&mut app),
+        "the earlier style still has to be retired"
+    );
+    app.world_mut().run_system_once(prepare).unwrap();
+    assert!(app.world().resource::<CompositionGpu>().styles.is_empty());
+    assert!(!has_work(&mut app));
+    app.world_mut().run_system_once(prepare).unwrap();
+    let gpu = app.world().resource::<CompositionGpu>();
+    assert!(gpu.styles.is_empty() && gpu.pyramids.is_empty());
+}

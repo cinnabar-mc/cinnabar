@@ -9,7 +9,7 @@ use ui_screens::text::bounded_text;
 
 use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line};
 use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES, popups_allowed};
-use crate::ui_runtime::{Translator, UiRuntime};
+use crate::ui_runtime::{Translator, UiRuntime, presentation::frame_clock::FrameClock};
 
 mod components;
 use components::{boss_model, sidebar_model, world_text_input, world_text_lines};
@@ -56,6 +56,7 @@ impl SemanticHud {
         player: &player_state::PlayerState,
         runtime: &UiRuntime,
         frame: &HudFrame,
+        clock: &FrameClock,
         sidebar: Option<&super::super::super::retained_hud::PresentedScoreboard>,
         sidebar_key: (u64, u64, bool),
         settings: &SettingsOptions,
@@ -81,7 +82,8 @@ impl SemanticHud {
         let old_hotbar_visible = self.model.hotbar_visible;
         let old_survival = self.model.survival_ui;
         let mut changes = HudChanges {
-            status: self.refresh_status(player, runtime, frame, settings, hide_effects) || reset,
+            status: self.refresh_status(player, runtime, frame, clock, settings, hide_effects)
+                || reset,
             ..Default::default()
         };
         if reset || !self.hotbar_matches(player, runtime, frame) {
@@ -89,15 +91,10 @@ impl SemanticHud {
             changes.hotbar = true;
         }
         changes.hotbar |= old_hotbar_visible != self.model.hotbar_visible;
-        changes.text = self.refresh_text(player, runtime, frame) || reset;
+        changes.text = self.refresh_text(player, runtime, frame, clock) || reset;
         // Item-name controls bind survival padding at creation.
         changes.text |= old_survival != self.model.survival_ui;
-        changes.chat = self.refresh_chat(
-            runtime,
-            frame.now_millis,
-            settings,
-            reset || language_changed,
-        );
+        changes.chat = self.refresh_chat(runtime, clock, settings, reset || language_changed);
         if reset || self.sidebar_key != Some(sidebar_key) {
             self.model.sidebar = sidebar.map(sidebar_model);
             self.sidebar_key = Some(sidebar_key);
@@ -148,6 +145,7 @@ impl SemanticHud {
         player: &player_state::PlayerState,
         runtime: &UiRuntime,
         frame: &HudFrame,
+        clock: &FrameClock,
         settings: &SettingsOptions,
         hide_effects: bool,
     ) -> bool {
@@ -168,10 +166,7 @@ impl SemanticHud {
         let locator = hotbar
             && frame.mount_jump.is_none()
             && frame.locator_view.is_some()
-            && runtime
-                .session
-                .locator
-                .visible(frame.dimension, frame.now_millis);
+            && runtime.session.locator.visible_at(frame.dimension, clock);
         changed |= replace(&mut model.locator_bar, locator);
         changed |= replace(
             &mut model.armor_visible,
@@ -199,13 +194,14 @@ impl SemanticHud {
             &mut model.paper_doll,
             frame.paper_doll_requested(player.facts.player_game_mode(), settings),
         );
-        changed |= replace(
-            &mut model.effects_visible,
-            !hide_effects
-                && runtime.gameplay_hud().effects().iter().any(|effect| {
-                    effect.visible_at_tick(runtime.estimated_server_tick(frame.now_millis))
-                }),
-        );
+        changed |=
+            replace(
+                &mut model.effects_visible,
+                !hide_effects
+                    && runtime.gameplay_hud().effects().iter().any(|effect| {
+                        effect.visible_at_tick(runtime.estimated_server_tick_at(clock))
+                    }),
+            );
         changed |= replace(&mut model.spectator, !hotbar);
         changed
     }
@@ -311,11 +307,12 @@ impl SemanticHud {
         player: &player_state::PlayerState,
         runtime: &UiRuntime,
         frame: &HudFrame,
+        clock: &FrameClock,
     ) -> bool {
-        let now = frame.now_millis;
+        let visible = |text: &&TimedText| clock.before(text.expires_millis);
         let popups = popups_allowed(player.facts.player_game_mode());
-        let title = runtime.hud().title().filter(|text| text.visible_at(now));
-        let subtitle = runtime.hud().subtitle().filter(|text| text.visible_at(now));
+        let title = runtime.hud().title().filter(visible);
+        let subtitle = runtime.hud().subtitle().filter(visible);
         let mut changed = refresh_title(&mut self.model.title, title, subtitle);
         changed |= refresh_controller_text(&mut self.model.title_text, runtime.hud().title_text());
         changed |=
@@ -334,7 +331,7 @@ impl SemanticHud {
             runtime
                 .hud()
                 .tip()
-                .filter(|text| text.visible_at(now))
+                .filter(visible)
                 .map(|text| (text.text.as_ref(), text.started_millis)),
         );
         changed |= refresh_timed(
@@ -342,19 +339,19 @@ impl SemanticHud {
             runtime
                 .hud()
                 .jukebox_popup()
-                .filter(|text| popups && text.visible_at(now))
+                .filter(|text| popups && visible(text))
                 .map(|text| (text.text.as_ref(), text.started_millis)),
         );
         let item_name = runtime
             .selected_item_changed_millis()
-            .filter(|changed| now.saturating_sub(*changed) < ITEM_NAME_MILLIS)
+            .filter(|changed| clock.before(changed.saturating_add(ITEM_NAME_MILLIS)))
             .zip(frame.selected_item_name.as_deref())
             .filter(|_| self.model.hotbar_visible && player.selected_hotbar_slot().is_some())
             .map(|(changed, name)| (bounded_visible_text(name), changed));
         let popup = runtime
             .hud()
             .popup()
-            .filter(|text| popups && text.visible_at(now))
+            .filter(|text| popups && visible(text))
             .filter(|text| {
                 runtime
                     .selected_item_changed_millis()
@@ -373,7 +370,7 @@ impl SemanticHud {
     fn refresh_chat(
         &mut self,
         runtime: &UiRuntime,
-        now: u64,
+        clock: &FrameClock,
         settings: &SettingsOptions,
         reset: bool,
     ) -> bool {
@@ -385,7 +382,19 @@ impl SemanticHud {
             mention_code,
             hidden,
         );
-        let horizon = seconds(now) - options.0 - 1.0;
+        // A row shows until a second after its lifetime: the answer holds until a millisecond
+        // before that, against rounding in the seconds comparison, and from a millisecond after.
+        let shown_millis = ((options.0 + 1.0) * 1_000.0).max(0.0) as u64;
+        let shows = |received_millis: u64| {
+            let leaves = received_millis.saturating_add(shown_millis);
+            if clock.before(leaves.saturating_sub(1)) {
+                true
+            } else if !clock.before(leaves.saturating_add(1)) {
+                false
+            } else {
+                seconds(received_millis) > clock.seconds() - options.0 - 1.0
+            }
+        };
         let rows = || {
             runtime
                 .chat()
@@ -397,7 +406,7 @@ impl SemanticHud {
                         .len()
                         .saturating_sub(MAX_CHAT_LINES),
                 )
-                .filter(|(_, line)| !hidden && seconds(line.received_millis) > horizon)
+                .filter(|(_, line)| !hidden && shows(line.received_millis))
         };
         let mut changed = replace(
             &mut self.model.chat_color,
@@ -419,7 +428,7 @@ impl SemanticHud {
             self.chat_rows.clear();
             self.model.chat = rows()
                 .map(|(id, line)| {
-                    let born = line.received_millis.min(now);
+                    let born = born(clock, line.received_millis);
                     self.chat_rows.push(id);
                     let text = resolve_chat_line(line, |key| runtime.translation(key));
                     Timed {
@@ -433,7 +442,7 @@ impl SemanticHud {
         }
         // A future timestamp advances only the row clock, keeping its resolved text.
         for ((_, line), model) in rows().zip(&mut self.model.chat) {
-            changed |= replace(&mut model.born, seconds(line.received_millis.min(now)));
+            changed |= replace(&mut model.born, seconds(born(clock, line.received_millis)));
         }
         changed |= replace(
             &mut self.model.chat_visible,
@@ -459,6 +468,15 @@ fn replace<T: PartialEq>(value: &mut T, next: T) -> bool {
     } else {
         *value = next;
         true
+    }
+}
+
+/// A chat row's clock: its arrival, or the time itself while that is still ahead.
+fn born(clock: &FrameClock, received_millis: u64) -> u64 {
+    if clock.before(received_millis) {
+        clock.millis()
+    } else {
+        received_millis
     }
 }
 

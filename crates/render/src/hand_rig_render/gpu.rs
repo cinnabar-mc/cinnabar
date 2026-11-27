@@ -7,7 +7,10 @@ use {
 
 use super::*;
 use crate::actor::gpu::ArtworkRawViews;
+mod pose;
 use bevy::prelude::Entity;
+use pose::PoseStreams;
+pub(super) use pose::upload_pose;
 
 const PIPELINE_SAMPLE_VARIANTS: usize = 4;
 const PIPELINE_VARIANTS: usize = PIPELINE_SAMPLE_VARIANTS * 2 * 2;
@@ -17,6 +20,7 @@ pub(super) struct HandRigDepth {
     pub(super) view: TextureView,
     pub(super) size: [u32; 2],
     pub(super) samples: u32,
+    pub(super) cleared: super::erase::DepthCleared,
 }
 
 pub(super) struct HandRigAtlas {
@@ -59,6 +63,12 @@ pub(super) struct HandRigGpu {
     pub(super) spans: Option<Buffer>,
     pub(super) previous_bones: Option<Buffer>,
     pub(super) current_bones: Option<Buffer>,
+    /// The pose streams the buffers hold, so a publication that keeps a stream's allocation
+    /// does not rewrite it.
+    uploaded_pose: Option<PoseStreams>,
+    /// Queue writes into existing pose buffers.
+    #[cfg(test)]
+    pub(super) pose_writes: u64,
     /// Reused only by the compact layout to upload both pose endpoints together.
     compact_pose: Vec<u8>,
     pub(super) skin: Option<HandRigSkin>,
@@ -73,14 +83,23 @@ pub(super) struct HandRigGpu {
     failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
+    /// The depth erase matching `pipeline`, on adapters `erase::admitted` accepts.
+    pub(super) erase_pipeline: Option<CachedRenderPipelineId>,
+    erase_admitted: bool,
+    erase_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) geometry_revision: Option<u64>,
-    pub(super) revision: Option<u64>,
+    /// The scene publication whose pose and instances the buffers hold.
+    pub(super) publication: Option<u64>,
     pub(super) maximum_vertex_count: u32,
 }
 
 /// Allocates persistent rig buffers, layouts and nearest-sampled artwork bindings.
-pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
+pub(super) fn init_gpu(
+    mut commands: Commands,
+    device: Res<RenderDevice>,
+    adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
+) {
     let mut layout = hand_rig_layout();
     if device.limits().max_storage_buffers_per_shader_stage
         < crate::device_settings::vertex_storage_buffers(&layout)
@@ -121,6 +140,9 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         spans: None,
         previous_bones: None,
         current_bones: None,
+        uploaded_pose: None,
+        #[cfg(test)]
+        pose_writes: 0,
         compact_pose: Vec::new(),
         skin: None,
         atlases: [None, None, None],
@@ -139,9 +161,12 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         failed_depth: default(),
         bind_group: None,
         pipeline: None,
+        erase_pipeline: None,
+        erase_admitted: adapter.is_some_and(|adapter| super::erase::admitted(adapter.backend)),
+        erase_variants: [None; PIPELINE_VARIANTS],
         pipeline_variants: [None; PIPELINE_VARIANTS],
         geometry_revision: None,
-        revision: None,
+        publication: None,
         maximum_vertex_count: 0,
     });
 }
@@ -168,7 +193,7 @@ pub(super) fn prepare(
         deactivate(&mut gpu);
         return;
     }
-    let Some(frame) = &scene.frame else {
+    let Some(frame) = scene.frame() else {
         deactivate(&mut gpu);
         return;
     };
@@ -210,6 +235,14 @@ pub(super) fn prepare(
     gpu.pipeline = memoized_pipeline(&mut gpu.pipeline_variants, samples, hdr, encoded, || {
         cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, hdr, encoded))
     });
+    gpu.erase_pipeline = if gpu.erase_admitted {
+        memoized_pipeline(&mut gpu.erase_variants, samples, hdr, encoded, || {
+            let draw = specialized_pipeline(layout.clone(), samples, hdr, encoded);
+            cache.queue_render_pipeline(super::erase::erase_pipeline(draw))
+        })
+    } else {
+        None
+    };
     if gpu.bind_group.is_none() || gpu.pipeline.is_none() {
         gpu.maximum_vertex_count = 0;
     }
@@ -255,7 +288,7 @@ pub(super) fn deactivate(gpu: &mut HandRigGpu) {
     gpu.bind_group = None;
     gpu.maximum_vertex_count = 0;
     gpu.instance_count = 0;
-    gpu.revision = None;
+    gpu.publication = None;
 }
 
 /// Replaces geometry storage only when the admitted geometry changes.
@@ -291,110 +324,6 @@ pub(super) fn upload_geometry(
     gpu.spans = Some(spans);
     gpu.geometry_revision = Some(frame.rig.geometry_revision);
     gpu.bind_group = None;
-    true
-}
-
-/// Uploads the current rig pose and instance stream into retained buffers; false when out of
-/// memory kept the previous pose.
-#[must_use]
-pub(super) fn upload_pose(
-    gpu: &mut HandRigGpu,
-    uploads: &crate::upload_staging::FrameUploads<'_>,
-    frame: &HandRigFrame,
-) -> bool {
-    if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
-        return true;
-    }
-    let compact = !gpu.layout.entries.iter().any(|entry| entry.binding == 5);
-    if compact {
-        if frame.rig.previous_bones.len() != frame.rig.current_bones.len() {
-            return false;
-        }
-        gpu.compact_pose.clear();
-        gpu.compact_pose
-            .extend_from_slice(bytemuck::cast_slice(&frame.rig.previous_bones));
-        gpu.compact_pose
-            .extend_from_slice(bytemuck::cast_slice(&frame.rig.current_bones));
-    }
-    let stream_count = if compact { 2 } else { 3 };
-    // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
-    let streams = [
-        (
-            "first-person rig instance",
-            bytemuck::cast_slice::<_, u8>(&frame.rig.instances),
-        ),
-        (
-            "first-person rig previous bones",
-            if compact {
-                &gpu.compact_pose
-            } else {
-                bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones)
-            },
-        ),
-        (
-            "first-person rig current bones",
-            bytemuck::cast_slice::<_, u8>(&frame.rig.current_bones),
-        ),
-    ];
-    let slots = [&gpu.instances, &gpu.previous_bones, &gpu.current_bones];
-    // Resized streams are all allocated before any write, so out of memory keeps the last
-    // consistent pose and retries next frame.
-    let mut replacements: [Option<Buffer>; 3] = [None, None, None];
-    for ((slot, (label, bytes)), replacement) in slots
-        .iter()
-        .zip(streams)
-        .zip(&mut replacements)
-        .take(stream_count)
-    {
-        if slot
-            .as_ref()
-            .is_some_and(|buffer| buffer.size() == bytes.len() as u64)
-        {
-            continue;
-        }
-        let Some(buffer) = crate::gpu_allocation::buffer_with_data(
-            &uploads.device,
-            &uploads.queue,
-            label,
-            bytes,
-            BufferUsages::STORAGE,
-        ) else {
-            return false;
-        };
-        *replacement = Some(buffer);
-    }
-    let recreated = replacements.iter().any(Option::is_some);
-    let slots = [
-        &mut gpu.instances,
-        &mut gpu.previous_bones,
-        &mut gpu.current_bones,
-    ];
-    for ((slot, (_label, bytes)), replacement) in slots
-        .into_iter()
-        .zip(streams)
-        .zip(replacements)
-        .take(stream_count)
-    {
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!(
-            "hand.pose_upload",
-            label = _label,
-            revision = frame.revision,
-            bytes = bytes.len()
-        )
-        .entered();
-        match (replacement, slot.as_ref()) {
-            (Some(buffer), _) => *slot = Some(buffer),
-            (None, Some(buffer)) => uploads.write(buffer, 0, bytes),
-            (None, None) => unreachable!("a missing stream is always replaced"),
-        }
-    }
-    gpu.maximum_vertex_count = frame.rig.maximum_vertex_count;
-    gpu.instance_count = u32::try_from(frame.rig.instances.len()).unwrap_or(0);
-    gpu.revision = Some(frame.revision);
-    if recreated {
-        gpu.bind_group = None;
-    }
     true
 }
 
@@ -644,6 +573,7 @@ pub(super) fn ensure_depth(
         view,
         size,
         samples,
+        cleared: default(),
     });
 }
 

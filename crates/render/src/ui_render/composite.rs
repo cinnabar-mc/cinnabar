@@ -64,7 +64,7 @@ pub(crate) struct UiLayerTexture {
     held: Arc<Mutex<Option<HeldLayer>>>,
     /// Bindings share the retained raster's lifetime and cover both scene ping-pong views.
     bindings: Arc<Mutex<CompositeBindings>>,
-    /// Set when the frame's final layer is left for [`ui_present`] to composite.
+    /// Set when the frame's final layer is left for [`output::ui_present`] to composite.
     present: AtomicBool,
     /// Complete nonempty encoding is independent of retained-raster eligibility.
     content_drawn: AtomicBool,
@@ -78,9 +78,59 @@ pub(crate) struct UiLayerTexture {
     direct_output: bool,
     /// Earlier alpha segments; this component's own texture is always the final segment.
     segments: Vec<UiLayerTexture>,
+    /// A leading invert left for the final composite to draw.
+    pub(super) deferred_invert: super::deferred_invert::DeferredInvertSlot,
 }
 
 impl UiLayerTexture {
+    /// Starts this frame's use of the same retained rasters, as a fresh [`frame_layer`] set
+    /// would: no presentation state carries over. Whether `last` and `segments` are the rasters
+    /// it already shares; when they are not, nothing changes.
+    fn restart(
+        &mut self,
+        last: &RetainedLayer,
+        segments: &[RetainedLayer],
+        direct_output: bool,
+    ) -> bool {
+        if !self.shares(last)
+            || self.segments.len() != segments.len()
+            || !self
+                .segments
+                .iter()
+                .zip(segments)
+                .all(|(frame, layer)| frame.shares(layer))
+        {
+            return false;
+        }
+        self.clear_frame_state();
+        self.direct_output = direct_output;
+        for segment in &mut self.segments {
+            segment.clear_frame_state();
+            segment.direct_output = false;
+        }
+        true
+    }
+
+    /// Whether this frame component shares `layer`'s retained storage.
+    fn shares(&self, layer: &RetainedLayer) -> bool {
+        self.texture.id() == layer.texture.id()
+            && Arc::ptr_eq(&self.held, &layer.held)
+            && Arc::ptr_eq(&self.bindings, &layer.bindings)
+    }
+
+    /// Resets what one frame records about its presentation.
+    fn clear_frame_state(&mut self) {
+        for flag in [
+            &self.present,
+            &self.content_drawn,
+            &self.composited,
+            &self.content_presented,
+            &self.presented,
+        ] {
+            flag.store(false, Ordering::Relaxed);
+        }
+    }
+
     /// Returns an independent raster only when the complete bounded segment set is resident.
     pub(super) fn segment(&self, index: usize, count: usize) -> Option<&Self> {
         if count != self.segments.len() + 1 || index >= count {
@@ -171,6 +221,16 @@ impl UiLayerTexture {
         self.present.store(true, Ordering::Relaxed);
     }
 
+    /// Whether the final composite writes the camera output directly.
+    pub(super) fn direct_output(&self) -> bool {
+        self.direct_output
+    }
+
+    /// Whether this frame's final layer waits for the output pass.
+    pub(super) fn present_deferred(&self) -> bool {
+        self.present.load(Ordering::Relaxed)
+    }
+
     /// A raster outside the per-view retained set, such as an element filter's offscreen group.
     pub(crate) fn detached(texture: Texture, view: TextureView) -> Self {
         Self {
@@ -185,6 +245,7 @@ impl UiLayerTexture {
             presented: AtomicBool::new(false),
             direct_output: false,
             segments: Vec::new(),
+            deferred_invert: Default::default(),
         }
     }
 }
@@ -298,10 +359,6 @@ impl UiLayerStore {
     }
 }
 
-/// Present when [`ui_present`] replaced the output blit, so the final composite may wait for it.
-#[derive(Resource)]
-pub(crate) struct UiPresentInstalled;
-
 /// Prepares a bounded independent raster set for each current view and accepted overlay topology.
 pub(crate) fn prepare_ui_layers(
     mut commands: Commands,
@@ -314,6 +371,8 @@ pub(crate) fn prepare_ui_layers(
         Option<&NativeUiTarget>,
     )>,
     gpu: Option<Res<UiGpu>>,
+    mut planned: bevy::prelude::Local<PlannedLayers>,
+    mut frames: Query<&mut UiLayerTexture>,
 ) {
     let store = &mut *store;
     store.synchronize_device(&device);
@@ -321,24 +380,7 @@ pub(crate) fn prepare_ui_layers(
     let requested = gpu
         .as_ref()
         .filter(|gpu| gpu.accepted_revision.is_some())
-        .map_or(0, |gpu| {
-            let batches: Vec<_> = gpu
-                .batches
-                .iter()
-                .enumerate()
-                .filter(|(_, batch)| {
-                    batch.world_projection == 0 && !super::backdrop::is_backdrop(batch)
-                })
-                .map(|(index, batch)| (index, batch, ()))
-                .collect();
-            super::segments::plan_ui_passes(&batches, false).layer_count()
-        });
-    let mut writers = HashMap::<_, usize>::new();
-    for (_, target, _, _) in &views {
-        if let Some(output) = target.out_texture() {
-            *writers.entry(output.id()).or_default() += 1;
-        }
-    }
+        .map_or(0, |gpu| planned.layer_count(&gpu.batches));
     for (entity, target, camera, native) in &views {
         let target = UiTarget::new(target, native);
         let size = target.main_texture().size();
@@ -371,18 +413,65 @@ pub(crate) fn prepare_ui_layers(
         });
         let direct_output = unblended
             && target.out_texture().is_some_and(|output| {
-                writers[&output.id()] == 1
+                views
+                    .iter()
+                    .filter(|(_, other, _, _)| {
+                        other
+                            .out_texture()
+                            .is_some_and(|other| other.id() == output.id())
+                    })
+                    .count()
+                    == 1
                     && crate::render_bounds::extent(output) == [size.width, size.height]
             });
-        let mut frame = frame_layer(
-            layers.last().expect("one scratch layer is always resident"),
-            direct_output,
-        );
-        frame.segments = layers[..layers.len() - 1]
+        let (last, segments) = layers
+            .split_last()
+            .expect("one scratch layer is always resident");
+        // A view still carrying this frame set's rasters starts the frame afresh in place.
+        if let Ok(mut frame) = frames.get_mut(entity)
+            && frame.restart(last, segments, direct_output)
+        {
+            continue;
+        }
+        let mut frame = frame_layer(last, direct_output);
+        frame.segments = segments
             .iter()
             .map(|layer| frame_layer(layer, false))
             .collect();
         commands.entity(entity).insert(frame);
+    }
+}
+
+/// The layer count planned for the last accepted batches, which the same batches would plan
+/// again.
+#[derive(Default)]
+pub(crate) struct PlannedLayers {
+    /// Held weakly, so later batches never reuse its address.
+    batches: Option<std::sync::Weak<[render_model::UiRenderBatch]>>,
+    count: usize,
+}
+
+impl PlannedLayers {
+    /// How many rasters `batches`' screen passes use, planned once per distinct batch list.
+    fn layer_count(&mut self, batches: &Arc<[render_model::UiRenderBatch]>) -> usize {
+        if self
+            .batches
+            .as_ref()
+            .is_some_and(|planned| std::ptr::addr_eq(planned.as_ptr(), Arc::as_ptr(batches)))
+        {
+            return self.count;
+        }
+        let screen: Vec<_> = batches
+            .iter()
+            .enumerate()
+            .filter(|(_, batch)| {
+                batch.world_projection == 0 && !super::backdrop::is_backdrop(batch)
+            })
+            .map(|(index, batch)| (index, batch, ()))
+            .collect();
+        self.count = super::segments::plan_ui_passes(&screen, false).layer_count();
+        self.batches = Some(Arc::downgrade(batches));
+        self.count
     }
 }
 
@@ -456,6 +545,7 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
         presented: AtomicBool::new(false),
         direct_output,
         segments: Vec::new(),
+        deferred_invert: Default::default(),
     }
 }
 
@@ -530,31 +620,37 @@ impl FromWorld for UiCompositePipeline {
         };
         let layout =
             BindGroupLayoutDescriptor::new("UI composite layout", &[texture(0), texture(1)]);
-        let descriptor = RenderPipelineDescriptor {
-            label: Some("gamma-space UI composite".into()),
-            layout: vec![layout.clone()],
-            vertex: VertexState {
-                shader: UI_COMPOSITE_SHADER_HANDLE,
-                entry_point: Some("composite_vertex".into()),
-                ..default()
-            },
-            fragment: Some(FragmentState {
-                shader: UI_COMPOSITE_SHADER_HANDLE,
-                entry_point: Some("composite_fragment".into()),
-                targets: vec![Some(ColorTargetState {
-                    format: render_scene::SCENE_COLOR_FORMAT,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            ..default()
-        };
+        let descriptor = composite_pipeline_descriptor(layout.clone());
         Self {
             layout,
             variants: Variants::new(UiCompositeSpecializer, descriptor),
             clear: None,
         }
+    }
+}
+
+/// The composite draws one unblended full-target triangle writing every channel, which lets
+/// [`composite_load`] skip loading or clearing the destination it fully replaces.
+fn composite_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescriptor {
+    RenderPipelineDescriptor {
+        label: Some("gamma-space UI composite".into()),
+        layout: vec![layout],
+        vertex: VertexState {
+            shader: UI_COMPOSITE_SHADER_HANDLE,
+            entry_point: Some("composite_vertex".into()),
+            ..default()
+        },
+        fragment: Some(FragmentState {
+            shader: UI_COMPOSITE_SHADER_HANDLE,
+            entry_point: Some("composite_fragment".into()),
+            targets: vec![Some(ColorTargetState {
+                format: render_scene::SCENE_COLOR_FORMAT,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        ..default()
     }
 }
 
@@ -666,7 +762,7 @@ pub(crate) fn composite<'c>(
         depth_slice: None,
         resolve_target: None,
         ops: Operations {
-            load: LoadOp::Clear(Default::default()),
+            load: composite_load(LoadOp::Clear(Default::default()), None),
             store: StoreOp::Store,
         },
     };
@@ -690,6 +786,24 @@ struct CompositeSources<'a> {
     layer: &'a UiLayerTexture,
     scene: &'a TextureView,
     target: UiTarget<'a>,
+}
+
+/// Chooses how a composite pass begins on its destination. Without a scissor the unblended
+/// composite triangle writes every pixel, so the previous contents are never observed and
+/// loading or clearing them would only cost a full-target memory pass. A scissored composite
+/// keeps `outside`, the load that defines the pixels it does not cover, as does every composite
+/// under strict WebGPU compliance, which rejects `DontCare`.
+pub(super) fn composite_load(
+    outside: LoadOp<wgpu::Color>,
+    scissor: Option<render_model::UiScissor>,
+) -> LoadOp<wgpu::Color> {
+    if scissor.is_some() || crate::strict_webgpu::enabled() {
+        return outside;
+    }
+    // SAFETY: the composite pipelines draw a full-target triangle with no blending, full write
+    // mask and no discards before any other draw in the pass, so every pixel is written before
+    // it can be blended, read or stored.
+    LoadOp::DontCare(unsafe { wgpu::LoadOpDontCare::enabled() })
 }
 
 /// Clips a viewport to a destination `extent`, or `None` when nothing of it is visible.
@@ -757,212 +871,10 @@ fn encode_composite<'c>(
     pass
 }
 
-/// Attachments and native composition state needed by the final per-view presentation pass.
-type UiPresentQuery = (
-    &'static ViewTarget,
-    &'static bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
-    Option<&'static ExtractedCamera>,
-    Option<&'static UiLayerTexture>,
-    Option<&'static NativeUiTarget>,
-);
-
-/// Presents native screen UI after the world upscale, with or without a final alpha layer.
-pub(crate) fn ui_present(
-    world: &World,
-    view: bevy::render::renderer::ViewQuery<UiPresentQuery>,
-    mut context: RenderContext,
-) {
-    let entity = view.entity();
-    let (output, _, camera, layer, native) = view.into_inner();
-    if let Some(layer) = layer {
-        layer.presented.store(false, Ordering::Relaxed);
-        layer.content_presented.store(false, Ordering::Relaxed);
-        layer.composited.store(false, Ordering::Relaxed);
-    }
-    let native = native.filter(|native| native.is_ready());
-    let target = UiTarget::new(output, native);
-    let resources = world
-        .get_resource::<UiGpu>()
-        .and_then(|gpu| gpu.composite_pipelines.get(&entity).copied())
-        .zip(world.get_resource::<PipelineCache>())
-        .zip(world.get_resource::<UiCompositePipeline>());
-    if let Some(layer) = layer.filter(|layer| layer.present.load(Ordering::Relaxed))
-        && let Some(((pipelines, cache), composite_pipeline)) = resources
-    {
-        let layout = cache.get_bind_group_layout(&composite_pipeline.layout);
-        if layer.direct_output
-            && let Some(pipeline) = pipelines
-                .output
-                .and_then(|id| cache.get_render_pipeline(id))
-        {
-            let clear = match camera.map(|camera| &camera.output_mode) {
-                Some(CameraOutputMode::Write { clear_color, .. }) => *clear_color,
-                _ => ClearColorConfig::Default,
-            };
-            let clear = match clear {
-                ClearColorConfig::Default => Some(world.resource::<ClearColor>().0.into()),
-                ClearColorConfig::Custom(color) => Some(color.into()),
-                ClearColorConfig::None => None,
-            };
-            if let Some(attachment) = target.out_texture_color_attachment(clear) {
-                // A viewport entirely outside the output draws nothing.
-                let scissor = match camera.and_then(|camera| camera.viewport.as_ref()) {
-                    Some(viewport) => composite_scissor(
-                        (viewport.physical_position, viewport.physical_size),
-                        crate::render_bounds::extent(attachment.view),
-                    )
-                    .map(Some),
-                    None => Some(None),
-                };
-                if let Some(scissor) = scissor {
-                    encode_composite(
-                        &mut context,
-                        world,
-                        CompositeSources {
-                            layer,
-                            scene: target.main_texture_view(),
-                            target,
-                        },
-                        attachment,
-                        scissor,
-                        pipeline,
-                        &layout,
-                    );
-                }
-                layer.presented.store(true, Ordering::Relaxed);
-                if let Some(native) = native {
-                    native.mark_presented();
-                }
-                return;
-            }
-        }
-        if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
-            composite(&mut context, world, target, layer, pipeline, &layout);
-            layer.composited.store(true, Ordering::Relaxed);
-        }
-    }
-    if let Some(native) = native {
-        native.present(world, &mut context, output);
-    }
-}
-
-type UiOutputQuery = (
-    &'static ViewTarget,
-    &'static bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
-    Option<&'static ExtractedCamera>,
-    Option<&'static UiLayerTexture>,
-    Option<&'static bevy::render::view::ResolvedCompositingSpace>,
-    Option<&'static NativeUiTarget>,
-);
-
-/// Qualifies content only after direct output or a successfully encoded ordinary output blit.
-fn observe_ui_output(
-    view: bevy::render::renderer::ViewQuery<UiOutputQuery>,
-    cache: Res<PipelineCache>,
-    blit: Res<bevy::core_pipeline::blit::BlitPipeline>,
-    mut pipelines: ResMut<
-        bevy::render::render_resource::SpecializedRenderPipelines<
-            bevy::core_pipeline::blit::BlitPipeline,
-        >,
-    >,
-) {
-    let (target, _, camera, layer, space, native) = view.into_inner();
-    let Some(layer) = layer else {
-        return;
-    };
-    if !layer.complete_content() {
-        return;
-    }
-    if layer.presented.load(Ordering::Relaxed) {
-        layer.content_presented.store(true, Ordering::Relaxed);
-        return;
-    }
-    if layer.present.load(Ordering::Relaxed) && !layer.composited.load(Ordering::Relaxed) {
-        return;
-    }
-    if let Some(native) = native.filter(|native| native.is_ready()) {
-        layer
-            .content_presented
-            .store(native.was_presented(), Ordering::Relaxed);
-        return;
-    }
-    let blend_state = match camera.map(|camera| &camera.output_mode) {
-        Some(CameraOutputMode::Skip) => return,
-        Some(CameraOutputMode::Write { blend_state, .. }) => blend_state.or_else(|| {
-            camera
-                .filter(|camera| camera.sorted_camera_index_for_target > 0)
-                .map(|_| BlendState::ALPHA_BLENDING)
-        }),
-        None => None,
-    };
-    let Some(target_format) = target.out_texture_view_format() else {
-        return;
-    };
-    let pipeline = pipelines.specialize(
-        &cache,
-        &blit,
-        bevy::core_pipeline::blit::BlitPipelineKey {
-            target_format,
-            blend_state,
-            samples: 1,
-            source_space: bevy::render::view::ResolvedCompositingSpace::space(space),
-        },
-    );
-    layer.content_presented.store(
-        cache.get_render_pipeline(pipeline).is_some(),
-        Ordering::Relaxed,
-    );
-}
-
-/// Runs Bevy's output blit only while neither native composition nor the HUD wrote the output.
-fn needs_output_blit(
-    view: bevy::render::renderer::ViewQuery<(Option<&UiLayerTexture>, Option<&NativeUiTarget>)>,
-) -> bool {
-    let (layer, native) = view.into_inner();
-    !layer.is_some_and(|layer| layer.presented.load(Ordering::Relaxed))
-        && !native.is_some_and(NativeUiTarget::was_presented)
-}
-
-/// Presents the HUD after post-processing, then blits only if direct output was unavailable.
-pub(crate) fn install_present_node(world: &mut World) {
-    if world.contains_resource::<UiPresentInstalled>() {
-        return;
-    }
-    let installed = world
-        .try_schedule_scope(Core3d, |world, schedule| {
-            crate::scene_target::order_camera_stages(schedule);
-            schedule
-                .remove_systems_in_set(
-                    upscaling,
-                    world,
-                    bevy::ecs::schedule::ScheduleCleanupPolicy::RemoveSystemsOnly,
-                )
-                .expect("replace the output blit");
-            schedule.add_systems((
-                crate::gpu_timing::profiled(
-                    ui_present,
-                    (!cfg!(target_os = "macos")).then_some(render_scene::RuntimeStage::GpuBlit),
-                    "UiPresent",
-                )
-                .after(Core3dSystems::PostProcess)
-                .after(super::overlay::UiOverlayLabel)
-                .after(super::overlay::UiOverlayPostLabel),
-                crate::gpu_timing::profiled(
-                    upscaling,
-                    (!cfg!(target_os = "macos")).then_some(render_scene::RuntimeStage::GpuBlit),
-                    "Upscaling",
-                )
-                .after(ui_present)
-                .after(Core3dSystems::PostProcess)
-                .run_if(needs_output_blit),
-                observe_ui_output.after(ui_present).after(upscaling),
-            ));
-        })
-        .is_ok();
-    if installed {
-        world.insert_resource(UiPresentInstalled);
-    }
-}
+#[path = "composite/fused.rs"]
+pub(crate) mod fused;
+#[path = "composite/output.rs"]
+pub(crate) mod output;
 
 #[cfg(test)]
 #[path = "composite_tests.rs"]

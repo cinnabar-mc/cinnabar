@@ -34,7 +34,7 @@ fn compact_hand_uploads_both_pose_endpoints_with_four_storage_buffers() {
     let mut state =
         bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
     let uploads = state.get(&world).unwrap();
-    let frame = scene.frame.as_ref().unwrap();
+    let frame = scene.frame().unwrap();
     assert!(upload_pose(&mut gpu, &uploads, frame));
     assert_eq!(
         gpu.previous_bones.as_ref().unwrap().size() as usize,
@@ -55,6 +55,86 @@ fn compact_hand_uploads_both_pose_endpoints_with_four_storage_buffers() {
         &crate::shader_source::standalone(&source, &["COMPACT_BONES"]),
         0,
         &gpu.layout,
+    );
+}
+
+/// A different pose published under the caller's previous revision still uploads, since the
+/// buffers follow the scene's own publication token.
+#[test]
+fn changed_pose_under_a_reused_revision_uploads() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let mut scene = HandRigScene::default();
+    for value in [1.0, 2.0] {
+        let mut rig = single_instance_frame();
+        Arc::make_mut(&mut rig.current_bones)[0][0][0] = value;
+        assert!(scene.publish(rig, skin(), light(), 1.2, 7));
+        let uploads = state.get(&world).unwrap();
+        let frame = scene.frame().unwrap();
+        assert!(upload_pose(&mut gpu, &uploads, frame));
+        assert_eq!(
+            gpu.publication,
+            Some(frame.publication),
+            "each published pose uploads, whatever revision the caller reused"
+        );
+    }
+}
+
+/// A publication that keeps the pose allocations, such as new artwork, rewrites no pose stream;
+/// a changed stream rewrites only itself.
+#[test]
+fn scene_only_publications_keep_unchanged_pose_streams() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let mut scene = HandRigScene::default();
+    let rig = single_instance_frame();
+    let mut upload = |gpu: &mut HandRigGpu, scene: &HandRigScene| {
+        let uploads = state.get(&world).unwrap();
+        assert!(upload_pose(gpu, &uploads, scene.frame().unwrap()));
+    };
+    assert!(scene.publish(rig.clone(), skin(), light(), 1.2, 1));
+    upload(&mut gpu, &scene);
+    let writes = gpu.pose_writes;
+    assert!(scene.publish(rig.clone(), skin(), light(), 1.2, 2));
+    upload(&mut gpu, &scene);
+    assert_eq!(
+        gpu.pose_writes, writes,
+        "the same pose allocations need no writes"
+    );
+    let mut moved = rig.clone();
+    Arc::make_mut(&mut moved.current_bones)[0][0][0] = 2.0;
+    assert!(scene.publish(moved, skin(), light(), 1.2, 3));
+    upload(&mut gpu, &scene);
+    assert_eq!(
+        gpu.pose_writes,
+        writes + 1,
+        "only the changed stream is written"
     );
 }
 
@@ -117,7 +197,7 @@ fn reshaped_hand_glint_reuploads_shared_pixels_and_retains_unchanged_shapes() {
             height,
             rgba8: Arc::clone(&pixels),
         }));
-        upload_glint(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+        upload_glint(&mut gpu, &device, &queue, scene.frame().unwrap());
         let texture = &gpu.glint.as_ref().unwrap()._texture;
         let size = [texture.width(), texture.height()];
         assert_eq!(size, [u32::from(width), u32::from(height)]);
@@ -148,7 +228,7 @@ fn oversized_hand_glint_is_fitted_and_unchanged_uploads_are_retained() {
         height: 1,
         rgba8: Arc::clone(&pixels),
     }));
-    let frame = scene.frame.as_ref().unwrap();
+    let frame = scene.frame().unwrap();
     upload_glint(&mut gpu, &device, &queue, frame);
     let glint = gpu.glint.as_ref().unwrap();
     assert_eq!(
@@ -224,7 +304,7 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
     assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
     world.insert_resource(scene);
     world.run_system_once(prepare).unwrap();
-    assert_eq!(world.resource::<HandRigGpu>().revision, Some(1));
+    assert_eq!(world.resource::<HandRigGpu>().publication, Some(1));
     let initial_buffers = crate::upload_allocation_tests::buffers(world);
     for revision in 2..=4 {
         let mut rig = single_instance_frame();
@@ -235,7 +315,7 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
                 .publish(rig, skin(), light(), 1.2, revision,)
         );
         world.run_system_once(prepare).unwrap();
-        assert_eq!(world.resource::<HandRigGpu>().revision, Some(revision));
+        assert_eq!(world.resource::<HandRigGpu>().publication, Some(revision));
         assert_eq!(
             crate::upload_allocation_tests::buffers(world),
             initial_buffers,
@@ -288,11 +368,11 @@ fn failed_pose_resize_skips_the_hand_draw_and_retries() {
     let gpu = world.resource::<HandRigGpu>();
     assert_eq!(gpu.instance_count, 0);
     assert!(gpu.bind_group.is_none());
-    assert_eq!(gpu.revision, None);
+    assert_eq!(gpu.publication, None);
 
     world.run_system_once(prepare).unwrap();
     let gpu = world.resource::<HandRigGpu>();
-    assert_eq!(gpu.revision, Some(2));
+    assert_eq!(gpu.publication, Some(2));
     assert_eq!(gpu.instance_count, 2);
 }
 
@@ -436,12 +516,12 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
 
     assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 7));
     scene.set_item_atlases([Some(atlas(31)), Some(atlas(32))]);
-    let frame = scene.frame.as_ref().unwrap();
+    let frame = scene.frame().unwrap();
     assert!(frame.item_atlases[0].is_none());
     assert!(frame.item_atlases[1].is_some());
     scene.set_item_atlases([Some(atlas(32)), None]);
-    assert!(scene.frame.as_ref().unwrap().item_atlases[0].is_some());
-    assert!(scene.frame.as_ref().unwrap().item_atlases[1].is_none());
+    assert!(scene.frame().unwrap().item_atlases[0].is_some());
+    assert!(scene.frame().unwrap().item_atlases[1].is_none());
     scene.set_item_atlases([
         Some(HandItemAtlas {
             width: u16::MAX,
@@ -451,7 +531,7 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
         }),
         None,
     ]);
-    assert!(scene.frame.as_ref().unwrap().item_atlases[0].is_none());
+    assert!(scene.frame().unwrap().item_atlases[0].is_none());
 }
 
 /// A per-frame pose rewrites the same buffers instead of reallocating them and the bind group.
@@ -502,11 +582,7 @@ fn pose_updates_reuse_their_buffers() {
     let mut buffers = Vec::new();
     for revision in 1..=3 {
         assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, revision));
-        assert!(upload_pose(
-            &mut gpu,
-            &uploads,
-            scene.frame.as_ref().unwrap()
-        ));
+        assert!(upload_pose(&mut gpu, &uploads, scene.frame().unwrap()));
         buffers.push(gpu.instances.as_ref().unwrap().id());
     }
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
@@ -528,13 +604,13 @@ fn pose_updates_reuse_their_buffers() {
             rgba8: off_pixels.clone(),
         }),
     ]);
-    upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+    upload_atlas(&mut gpu, &device, &queue, scene.frame().unwrap());
     assert_eq!(gpu.atlases[0].as_ref().unwrap().size, [2, 2, 1]);
     assert_eq!(gpu.atlases[1].as_ref().unwrap().size, [4, 1, 3]);
     assert!(gpu.atlases[1].as_ref().unwrap().pixels.ptr_eq(&off_pixels));
 
     // Switching animation settings preserves the artwork but changes its sampling format.
-    let frame = scene.frame.as_mut().unwrap();
+    let frame = &mut scene.frame().unwrap().clone();
     for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
         let previous = gpu.atlases[0].as_ref().unwrap()._texture.id();
         frame.light = light;
@@ -551,7 +627,7 @@ fn pose_updates_reuse_their_buffers() {
     }
 
     // Switching animation settings preserves the artwork but changes its sampling format.
-    let frame = scene.frame.as_mut().unwrap();
+    let frame = &mut scene.frame().unwrap().clone();
     for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
         let previous = gpu.atlases[0].as_ref().unwrap()._texture.id();
         frame.light = light;
@@ -582,7 +658,7 @@ fn pose_updates_reuse_their_buffers() {
             rgba8: off_pixels.clone(),
         }),
     ]);
-    upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+    upload_atlas(&mut gpu, &device, &queue, scene.frame().unwrap());
     assert_eq!(gpu.atlases[0].as_ref().unwrap().size, [1, 4, 1]);
     assert_eq!(gpu.atlases[1].as_ref().unwrap().size, [4, 1, 3]);
     scene.set_item_atlases([
@@ -594,7 +670,7 @@ fn pose_updates_reuse_their_buffers() {
             rgba8: off_pixels,
         }),
     ]);
-    upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+    upload_atlas(&mut gpu, &device, &queue, scene.frame().unwrap());
     assert!(gpu.atlases[0].is_none());
     assert!(gpu.atlases[1].is_some());
 }
@@ -623,7 +699,7 @@ fn review_render_hand_atlas_rejects_device_dimension_and_layer_limits() {
             }),
             None,
         ]);
-        upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+        upload_atlas(&mut gpu, &device, &queue, scene.frame().unwrap());
         assert!(gpu.atlases[0].is_none());
     }
 }
@@ -642,7 +718,7 @@ fn native_skin_hand_uploads_match_source_dimensions_and_reuse_textures() {
         let pixels = vec![73; side * side * 4].into();
         let mut scene = HandRigScene::default();
         assert!(scene.publish(single_instance_frame(), pixels, light(), 1.2, 7));
-        let frame = scene.frame.as_ref().unwrap();
+        let frame = scene.frame().unwrap();
         upload_skin(&mut gpu, &device, &queue, frame);
         let texture = &gpu.skin.as_ref().unwrap()._texture;
         assert_eq!(
@@ -659,7 +735,7 @@ fn native_skin_hand_uploads_match_source_dimensions_and_reuse_textures() {
     }
     let mut scene = HandRigScene::default();
     assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
-    let frame = scene.frame.as_mut().unwrap();
+    let frame = &mut scene.frame().unwrap().clone();
     upload_skin(&mut gpu, &device, &queue, frame);
     for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
         let previous = gpu.skin.as_ref().unwrap()._texture.id();
@@ -727,7 +803,7 @@ fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
     ]);
     for pack in [false, true, false] {
         gpu.raw_views = ArtworkRawViews(pack);
-        let frame = scene.frame.as_ref().unwrap();
+        let frame = scene.frame().unwrap();
         upload_skin(&mut gpu, &device, &queue, frame);
         upload_atlas(&mut gpu, &device, &queue, frame);
         upload_glint(&mut gpu, &device, &queue, frame);

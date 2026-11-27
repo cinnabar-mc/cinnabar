@@ -35,11 +35,7 @@ impl ActorAnimationStore {
         runtime_id: u64,
         source: Option<&Arc<render_api::SkinGeometrySource>>,
     ) {
-        let Some(state) = self
-            .runtime_to_lifetime
-            .get(&runtime_id)
-            .and_then(|lifetime| self.rigs.get_mut(lifetime))
-        else {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return;
         };
         let model = |state: &ActorRigState| {
@@ -47,17 +43,33 @@ impl ActorAnimationStore {
                 .skin_skeleton()
                 .map(|skeleton| Arc::as_ptr(&skeleton.prepared))
         };
-        let before = model(state);
-        if skin::sync_skin(state, source, &self.skin_preparation) {
+        let preparation = &self.skin_preparation;
+        let (next_reset, next_rest) = (self.next_reset_generation, self.next_rest_reset_generation);
+        // Re-syncing the published model every frame, or a model still being prepared, keeps
+        // the rig's revision.
+        let Some((rejected, remodeled)) = self.rigs.update(lifetime, |state| {
+            let (before, identity) = (model(state), skin::skin_identity(state));
+            let rejected = skin::sync_skin(state, source, preparation);
+            let remodeled = model(state) != before;
+            // Tick evaluation settles a skeleton reset's generations; between ticks they
+            // advance here, so pose and rest caches keyed on them rebuild for the new bones.
+            if remodeled {
+                state.reset_generation = next_reset;
+                state.rest_reset_generation = next_rest;
+            }
+            (
+                remodeled || skin::skin_identity(state) != identity,
+                (rejected, remodeled),
+            )
+        }) else {
+            return;
+        };
+        if rejected {
             self.stats.invalid_skin_geometries =
                 self.stats.invalid_skin_geometries.saturating_add(1);
         }
-        // Tick evaluation settles a skeleton reset's generations; between ticks they advance here,
-        // so pose and rest caches keyed on them rebuild for the new bones.
-        if model(state) != before {
-            state.reset_generation = self.next_reset_generation;
+        if remodeled {
             self.next_reset_generation = self.next_reset_generation.saturating_add(1);
-            state.rest_reset_generation = self.next_rest_reset_generation;
             self.next_rest_reset_generation = self.next_rest_reset_generation.saturating_add(1);
         }
     }

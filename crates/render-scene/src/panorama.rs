@@ -77,6 +77,23 @@ impl PanoramaScene {
     pub const fn has_faces(&self) -> bool {
         self.has_faces
     }
+
+    /// Whether `self` and `other` publish the same panorama to the renderer: the same faces
+    /// allocation and revision, view and game visibility. The shared upload marker is the
+    /// renderer's acknowledgement, not published state, so it is not compared.
+    #[must_use]
+    pub fn publishes_same(&self, other: &Self) -> bool {
+        let faces = match (&self.faces, &other.faces) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        faces
+            && self.faces_revision == other.faces_revision
+            && self.view == other.view
+            && self.game_hidden == other.game_hidden
+            && self.has_faces == other.has_faces
+    }
 }
 
 /// World passes queue nothing under a replacement background or an opaque pack screen.
@@ -175,5 +192,28 @@ mod tests {
     #[test]
     fn review_render_panorama_rejects_oversized_dimensions_without_overflow() {
         assert!(PanoramaFaces::new(u32::MAX, std::array::from_fn(|_| Vec::new())).is_none());
+    }
+
+    #[test]
+    fn repeated_in_world_updates_publish_the_same_scene() {
+        let mut scene = PanoramaScene::default();
+        scene.set_faces(Some(Arc::new(
+            PanoramaFaces::new(1, std::array::from_fn(|_| vec![9; 4])).unwrap(),
+        )));
+        let before = scene.clone();
+        scene.release_uploaded_faces();
+        scene.set_game_visible(true);
+        scene.show(None);
+        assert!(scene.publishes_same(&before));
+        before.mark_uploaded(before.faces_revision);
+        assert!(
+            scene.publishes_same(&before),
+            "the upload marker is not published state"
+        );
+        scene.release_uploaded_faces();
+        assert!(
+            !scene.publishes_same(&before),
+            "released pixels must reach the render copy"
+        );
     }
 }

@@ -17,7 +17,7 @@ fn paint(
     presentation.screens.touch.begin_frame();
     presentation
         .append_engine_hud(
-            player, runtime, &mut nodes, &mut next, metrics, content, 0, false,
+            player, runtime, &mut nodes, &mut next, metrics, content, false,
         )
         .unwrap();
     presentation

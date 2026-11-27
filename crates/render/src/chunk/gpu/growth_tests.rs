@@ -75,7 +75,8 @@ fn join_sized_arena_uploads_avoid_repeated_migrations() {
         .insert_resource(ChunkUploadAcknowledgements::default())
         .insert_resource(ChunkGpuRemovalQueue::default())
         .insert_resource(TransparentRetirementFence::default())
-        .insert_resource(GpuUpdateFairness::default());
+        .insert_resource(GpuUpdateFairness::default())
+        .init_resource::<render_scene::ChunkInstanceChanges>();
     let template = instance();
     let sections = 25 * 25 * 24;
     for index in 0..sections {
@@ -208,7 +209,8 @@ fn ongoing_migration_does_not_block_uploads_in_existing_capacity() {
         .insert_resource(ChunkUploadAcknowledgements::default())
         .insert_resource(ChunkGpuRemovalQueue::default())
         .insert_resource(TransparentRetirementFence::default())
-        .insert_resource(GpuUpdateFairness::default());
+        .insert_resource(GpuUpdateFairness::default())
+        .init_resource::<render_scene::ChunkInstanceChanges>();
     app.world_mut().spawn(instance());
     app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
     assert!(app.world().resource::<ChunkGpuArena>().migration.is_some());

@@ -18,6 +18,7 @@ use {
     launcher::menu::{MenuAction, MenuScreen},
 };
 
+mod hud_runtime_ticks;
 mod hud_visibility;
 mod nametag_motion;
 

@@ -102,18 +102,18 @@ impl InventorySession {
         Some(event)
     }
 
-    /// Bind crafting observations to the committed world frontier.
+    /// Bind crafting observations to the committed world frontier; whether anything changed.
     pub fn synchronize_crafting_frontier(
         &mut self,
         session: u64,
         identity: Option<(u64, u64, Option<u64>)>,
-    ) {
+    ) -> bool {
         self.crafting_authority
             .synchronize(if session == self.session_id {
                 identity
             } else {
                 None
-            });
+            })
     }
 
     /// Seed the passive crafting projection with startup registry and negotiation.
@@ -174,8 +174,9 @@ impl InventorySession {
     }
 
     /// Advance crafting once after all FIFO events and their presentation effects have drained.
-    pub fn finish_drain(&mut self) {
-        self.crafting_authority.advance();
+    /// Whether anything changed.
+    pub fn finish_drain(&mut self) -> bool {
+        self.crafting_authority.advance()
     }
 
     /// Apply a complete FIFO without application presentation effects.
@@ -193,6 +194,12 @@ impl InventorySession {
     /// Retains the available recipe catalog for presentation invalidation.
     pub fn crafting_catalog_snapshot(&self) -> Option<std::sync::Arc<protocol::RecipeCatalog>> {
         self.crafting_authority.catalog_snapshot()
+    }
+
+    /// The available recipe catalog's allocation, borrowed: comparing it by identity tells
+    /// whether [`Self::crafting_catalog_snapshot`] would return a different catalog.
+    pub fn crafting_catalog_allocation(&self) -> Option<&std::sync::Arc<protocol::RecipeCatalog>> {
+        self.crafting_authority.catalog_allocation()
     }
 
     /// The recipe the presented crafting grid forms against the committed

@@ -11,9 +11,7 @@ use bevy::{
     render::{
         Render, RenderStartup,
         diagnostic::resolve_encoder,
-        renderer::{
-            PendingCommandBuffers, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
-        },
+        renderer::{PendingCommandBuffers, RenderDevice, RenderGraph, RenderGraphSystems},
     },
 };
 use objc2::{Message, rc::Retained, runtime::ProtocolObject};
@@ -228,7 +226,7 @@ impl MetalFrames {
     }
 
     /// Retains a completion callback for submissions already issued, with no GPU wait.
-    fn submit(&mut self, queue: &RenderQueue, pacer: Option<&InputPacer>) {
+    fn submit(&mut self, completion: &crate::device_poll::FrameWork, pacer: Option<&InputPacer>) {
         // Frames skipped by the timing ring still contribute work to the queue prediction.
         let submission = pacer.map(|pacer| (pacer.clone(), pacer.gpu_submitted()));
         let Some(slot) = self.recording.take() else {
@@ -237,7 +235,7 @@ impl MetalFrames {
         let started = self.slots[slot].started.unwrap_or_else(Instant::now);
         self.slots[slot].submission = submission;
         let latency = self.slots[slot].latency.clone();
-        crate::device_poll::on_frame_complete(queue, move || {
+        completion.on_frame_complete(move || {
             complete(&latency, started, Instant::now());
         });
         self.ring.submit(slot);
@@ -332,10 +330,10 @@ fn close_frame(
 /// Requests completion after all frame submissions, before the render world's existing poll.
 fn end_frame(
     mut frames: ResMut<MetalFrames>,
-    queue: Res<RenderQueue>,
+    completion: crate::device_poll::FrameCompletion,
     pacer: Option<Res<InputPacer>>,
 ) {
-    frames.submit(&queue, pacer.as_deref());
+    frames.submit(&completion.work(), pacer.as_deref());
 }
 
 #[cfg(test)]

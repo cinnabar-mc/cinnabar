@@ -442,12 +442,24 @@ pub(super) fn queue(
     }
 }
 
+impl Gpu {
+    /// Holds no mesh, view state, draw or retired storage: preparing with no live drawing
+    /// changes nothing.
+    pub(super) fn at_rest(&self) -> bool {
+        self.meshes.is_empty()
+            && self.views.is_empty()
+            && self.draws.is_empty()
+            && self.retired.is_empty()
+            && self.retired_views.is_empty()
+    }
+}
+
 /// Keeps removed geometry charged until the last submitted GPU work using it has completed.
-pub(super) fn retire(mut gpu: ResMut<Gpu>, queue: Res<RenderQueue>) {
+pub(super) fn retire(mut gpu: ResMut<Gpu>, completion: crate::device_poll::FrameCompletion) {
     if gpu.retired.is_empty() && gpu.retired_views.is_empty() {
         return;
     }
     let retired = std::mem::take(&mut gpu.retired);
     let views = std::mem::take(&mut gpu.retired_views);
-    crate::device_poll::on_frame_complete(&queue, move || drop((retired, views)));
+    completion.on_frame_complete(move || drop((retired, views)));
 }

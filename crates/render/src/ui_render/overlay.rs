@@ -163,7 +163,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
         .is_ok();
     if installed {
         world.insert_resource(OverlayPassesInstalled);
-        super::composite::install_present_node(world);
+        super::composite::output::install_present_node(world);
     }
 }
 
@@ -180,6 +180,60 @@ type UiOverlayView = (
     Option<&'static ViewTarget>,
 );
 
+/// What the last queue of UI pipelines read, and whether it found every pipeline it needed. A
+/// queue reading the same again would specialize the same pipelines and keep the same entries.
+#[derive(Default)]
+pub(super) struct QueuedPipelines {
+    /// Held weakly, so later batches never reuse its address.
+    batches: Option<std::sync::Weak<[UiRenderBatch]>>,
+    buffers: bool,
+    views: Vec<QueuedView>,
+    complete: bool,
+}
+
+/// What queueing reads of one view.
+#[derive(Clone, Copy, PartialEq)]
+struct QueuedView {
+    entity: Entity,
+    hdr: bool,
+    msaa: Msaa,
+    output: Option<TextureFormat>,
+    depth: bool,
+    layer: Option<bevy::render::render_resource::TextureId>,
+}
+
+impl QueuedView {
+    fn of(
+        (entity, _, camera, msaa, depth, layer, target): <UiOverlayView as bevy::ecs::query::QueryData>::Item<'_, '_>,
+    ) -> Self {
+        Self {
+            entity,
+            hdr: camera.hdr,
+            msaa: *msaa,
+            output: target.and_then(ViewTarget::out_texture_view_format),
+            depth: depth.is_some(),
+            layer: layer.map(|layer| layer.texture.id()),
+        }
+    }
+}
+
+impl QueuedPipelines {
+    /// Whether a queue of `gpu`'s batches for `views` would read exactly what the last one did,
+    /// which found every pipeline.
+    fn repeats(&self, gpu: &UiGpu, views: &Query<'_, '_, UiOverlayView>) -> bool {
+        self.complete
+            && self.batches.as_ref().is_some_and(|batches| {
+                std::ptr::addr_eq(batches.as_ptr(), Arc::as_ptr(&gpu.batches))
+            })
+            && self.buffers == (gpu.vertex_buffer.is_some() && gpu.index_buffer.is_some())
+            && self.views.len() == views.iter().len()
+            && views
+                .iter()
+                .zip(&self.views)
+                .all(|(view, queued)| QueuedView::of(view) == *queued)
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Independent Bevy render resources and view query.
 pub(super) fn queue_ui_overlay(
     pipeline_cache: Res<PipelineCache>,
@@ -190,6 +244,7 @@ pub(super) fn queue_ui_overlay(
     render_device: Res<RenderDevice>,
     mut model_depths: ResMut<super::model_depth::UiModelDepths>,
     coverage: Option<Res<UiHandCoverage>>,
+    mut queued: bevy::prelude::Local<QueuedPipelines>,
 ) {
     #[cfg(test)]
     gpu.world_passes
@@ -198,6 +253,13 @@ pub(super) fn queue_ui_overlay(
     // unchanged accepted revisions, before any preparation/queue early return.
     if let Some(coverage) = coverage {
         coverage.clear();
+    }
+    // A new device dropped the model depth targets, which only a full queue recreates.
+    if model_depths.synchronize_device(&render_device) {
+        queued.complete = false;
+    }
+    if queued.repeats(&gpu, &views) {
+        return;
     }
     // Retain unchanged view entries rather than freeing/reallocating tree nodes
     // every frame; only departed views release their cached pair.
@@ -208,7 +270,6 @@ pub(super) fn queue_ui_overlay(
         .retain(|(view, _, _, _), _| views.contains(*view));
     gpu.model_view_pipelines
         .retain(|(view, _, _), _| views.contains(*view));
-    model_depths.synchronize_device(&render_device);
     model_depths.views.retain(|view, _| views.contains(*view));
     if gpu.batches.is_empty() || gpu.vertex_buffer.is_none() || gpu.index_buffer.is_none() {
         return;
@@ -227,6 +288,7 @@ pub(super) fn queue_ui_overlay(
     if !needs_model_depth {
         model_depths.views.clear();
     }
+    let mut complete = true;
     for (view_entity, _view, camera, msaa, depth, layer, target) in &views {
         let Ok(pipeline_id) = pipeline.variants.specialize(
             &pipeline_cache,
@@ -242,6 +304,7 @@ pub(super) fn queue_ui_overlay(
             },
         ) else {
             gpu.view_pipelines.remove(&view_entity);
+            complete = false;
             continue;
         };
         let invert_pipeline_id = if needs_invert {
@@ -250,6 +313,7 @@ pub(super) fn queue_ui_overlay(
                 .specialize(&pipeline_cache, hud_invert_pipeline_key(camera.hdr))
             else {
                 gpu.view_pipelines.remove(&view_entity);
+                complete = false;
                 continue;
             };
             id
@@ -271,10 +335,16 @@ pub(super) fn queue_ui_overlay(
             }
             None => {
                 gpu.composite_pipelines.remove(&view_entity);
+                complete = false;
             }
         }
-        if needs_model_depth && let Some(layer) = layer {
-            model_depths.ensure(view_entity, layer, &render_device);
+        // A missing depth surface leaves the queue incomplete, so an identical later frame
+        // queues again and retries the allocation.
+        if needs_model_depth
+            && let Some(layer) = layer
+            && !model_depths.ensure(view_entity, layer, &render_device)
+        {
+            complete = false;
         }
         if needs_models {
             for (depth_test, depth_write) in
@@ -329,6 +399,7 @@ pub(super) fn queue_ui_overlay(
                 } else {
                     gpu.model_view_pipelines
                         .remove(&(view_entity, depth_test, depth_write));
+                    complete = false;
                 }
             }
         } else {
@@ -393,11 +464,17 @@ pub(super) fn queue_ui_overlay(
                             depth_write,
                             attached_depth,
                         ));
+                        complete = false;
                     }
                 }
             }
         }
     }
+    queued.batches = Some(Arc::downgrade(&gpu.batches));
+    queued.buffers = true;
+    queued.views.clear();
+    queued.views.extend(views.iter().map(QueuedView::of));
+    queued.complete = complete;
 }
 
 pub(crate) fn retain_view_pipeline_entries(
@@ -449,6 +526,7 @@ pub(crate) fn ui_overlay(
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
     let (target, main, camera, resolution_override, layer, output, native) = query.into_inner();
+    let view_target = target;
     let context = &mut context;
     crate::screen_overlay_render::draw_before_hud(
         view_entity,
@@ -458,6 +536,9 @@ pub(crate) fn ui_overlay(
         context,
         world,
     );
+    if native.is_some() {
+        crate::scene_target::ensure_resolved(world, view_entity, context);
+    }
     // Keep screen UI reachable in the reduced view if native composition is unavailable.
     let native = native.filter(|native| {
         UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
@@ -521,6 +602,7 @@ pub(crate) fn ui_overlay(
         .filter(|(_, batch, _)| batch.world_projection == 0)
         .partition(|(_, batch, _)| super::backdrop::is_backdrop(batch));
     if !backdrops.is_empty() {
+        crate::scene_target::ensure_resolved(world, view_entity, context);
         super::backdrop::apply_backdrops(
             context,
             &super::backdrop::BackdropDraw {
@@ -542,13 +624,33 @@ pub(crate) fn ui_overlay(
     let mut model_lifetime = super::model_depth::ModelDepthLifetime::default();
     let plan = plan_ui_passes(
         &batches,
-        world.contains_resource::<super::composite::UiPresentInstalled>(),
+        world.contains_resource::<super::composite::output::UiPresentInstalled>(),
     );
     let publication = gpu
         .last_admitted_publication
         .upgrade()
         .filter(|input| Some(input.revision) == gpu.accepted_revision);
     let profile = world.get_resource::<super::profile::UiProfile>();
+    // A leading invert whose pixels the deferred layer never covers draws in the final
+    // composite's pass instead of its own; see `deferred_invert`.
+    let postponed = super::deferred_invert::plan(
+        &plan,
+        &batches,
+        &super::deferred_invert::PlanInputs {
+            world,
+            view: view_entity,
+            view_target,
+            target,
+            layer,
+            gpu,
+            cache: pipeline_cache,
+            invert: *invert,
+            publication: publication.as_deref(),
+            full_viewport: viewport.is_none(),
+            output_extent,
+            skip: skip.as_ref(),
+        },
+    );
     // Alpha batches blend in the gamma-space layer; an invert batch (the
     // crosshair) must see the scene, so the layer composites before it.
     let raster_count = plan.layer_count();
@@ -566,6 +668,13 @@ pub(crate) fn ui_overlay(
         };
         let raster = retained.unwrap_or(layer);
         let inverted = segment.inverted.map(|index| &batches[index]);
+        let inverted = match (inverted, &postponed) {
+            (Some(inverted), Some((position, _))) if segment.inverted == Some(*position) => {
+                frame_encoded |= inverted.1.index_count > 0;
+                None
+            }
+            (inverted, _) => inverted,
+        };
         let layer_draw = UiLayerDraw {
             world,
             gpu,
@@ -655,6 +764,13 @@ pub(crate) fn ui_overlay(
             }
             (true, encoded, nonempty)
         } else {
+            // Element filters may sample the scene.
+            if layered
+                .iter()
+                .any(|(_, batch, _)| batch.filter_group.is_some())
+            {
+                crate::scene_target::ensure_resolved(world, view_entity, context);
+            }
             let drawn = super::filter::draw_layer(
                 context,
                 &layer_draw,
@@ -711,6 +827,10 @@ pub(crate) fn ui_overlay(
             layer.defer_present();
         }
         let composited = encoded && !segment.present;
+        // Both read or write the resolved scene.
+        if composited || invert.is_some() {
+            crate::scene_target::ensure_resolved(world, view_entity, context);
+        }
         let shared = super::segments::invert_shares_composite(
             composited,
             invert.as_ref().map(|(_, depth, _)| *depth),
@@ -784,6 +904,19 @@ pub(crate) fn ui_overlay(
             );
         }
     }
+    if let Some((_, invert)) = postponed {
+        if layer.present_deferred() {
+            layer.deferred_invert.set(Some(invert));
+        } else {
+            crate::scene_target::ensure_resolved(world, view_entity, context);
+            frame_encoded |= super::deferred_invert::own_pass(
+                context,
+                world,
+                target.main_texture_view(),
+                &invert,
+            );
+        }
+    }
     layer.record_content_draw(frame_complete, frame_encoded);
     Ok(())
 }
@@ -806,80 +939,6 @@ pub(super) fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
         depth_write: false,
         isolated_depth: false,
         attached_depth: false,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn retained_hand_split_keeps_mixed_bucket_layer_blend_and_shadow_fill_order() {
-        let plan = render_model::UiTexturePlan::new(&[
-            [1024, 1024],
-            [2048, 2048],
-            [256, 256],
-            [2048, 2048],
-        ])
-        .unwrap();
-        let batches = [1, 0, 3, 2, 1]
-            .into_iter()
-            .enumerate()
-            .map(|(index, page)| {
-                UiRenderBatch::new(
-                    page,
-                    render_model::UiScissor::new(index as u32, 0, 20, 20),
-                    index as u32 * 18,
-                    18,
-                    if index == 2 {
-                        UI_BLEND_INVERT
-                    } else {
-                        UI_BLEND_ALPHA
-                    },
-                )
-            })
-            .collect::<Vec<_>>();
-        let trace = resolved_batches(Some(7), &batches, plan.locations(), plan.buckets())
-            .unwrap()
-            .flat_map(|(index, batch, location)| {
-                retained_batch_ranges(batch, Some(&(60..66)))
-                    .into_iter()
-                    .flatten()
-                    .map(move |range| {
-                        (
-                            index,
-                            location.bucket,
-                            location.layer,
-                            batch.blend_mode,
-                            batch.scissor.x,
-                            range,
-                        )
-                    })
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            trace,
-            vec![
-                (0, 1, 0, UI_BLEND_ALPHA, 0, 0..18),
-                (1, 0, 0, UI_BLEND_ALPHA, 1, 18..36),
-                (2, 1, 1, UI_BLEND_INVERT, 2, 36..54),
-                (3, 2, 0, UI_BLEND_ALPHA, 3, 54..60),
-                (3, 2, 0, UI_BLEND_ALPHA, 3, 66..72),
-                (4, 1, 0, UI_BLEND_ALPHA, 4, 72..90),
-            ]
-        );
-        let full = resolved_batches(Some(7), &batches, plan.locations(), plan.buckets())
-            .unwrap()
-            .flat_map(|(_, batch, _)| retained_batch_ranges(batch, None).into_iter().flatten())
-            .collect::<Vec<_>>();
-        assert_eq!(full, vec![0..18, 18..36, 36..54, 54..72, 72..90]);
-        assert!(resolved_batches(None, &batches, plan.locations(), plan.buckets()).is_none());
-        let mut locations = plan.locations().to_vec();
-        locations[1].layer = 2;
-        assert!(
-            resolved_batches(Some(7), &batches, &locations, plan.buckets()).is_none(),
-            "late invalid physical layer must emit no prefix"
-        );
     }
 }
 
@@ -914,3 +973,7 @@ pub(super) fn screen_pages_complete(gpu: &UiGpu) -> bool {
                 .is_some()
         })
 }
+
+#[cfg(test)]
+#[path = "overlay_tests.rs"]
+mod tests;

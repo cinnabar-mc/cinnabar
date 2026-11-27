@@ -8,7 +8,8 @@ use std::{
 use bevy::{
     log::warn,
     prelude::{
-        Commands, Local, Mat4, Projection, Query, Res, ResMut, Resource, Time, Transform, With,
+        Commands, DetectChangesMut, Local, Mat4, Projection, Query, Res, ResMut, Resource, Time,
+        Transform, With,
     },
 };
 use render_scene::{
@@ -111,9 +112,13 @@ pub fn publish_screen_overlays(
     textures: Option<Res<ChunkTextureAssets>>,
     mut fire_source: Local<Option<(ChunkTextureAssetIdentity, u32)>>,
 ) {
-    let Some(mut scene) = scene else {
+    let Some(mut published) = scene else {
         return;
     };
+    // The scene is extracted whenever it counts as changed, so it is marked only when what the
+    // renderer reads from it differs.
+    let before = published.clone();
+    let scene = published.bypass_change_detection();
     if let Some(textures) = textures.filter(|textures| !textures.assets().is_diagnostic()) {
         let identity = textures.identity();
         if fire_source
@@ -144,11 +149,15 @@ pub fn publish_screen_overlays(
             Mat4::from_quat(transform.rotation) * projection.get_clip_from_view().inverse(),
         );
     }
+    if !published.publishes_same(&before) {
+        published.set_changed();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::prelude::{App, DetectChanges, IntoScheduleConfigs, Update};
 
     #[test]
     fn camera_fire_binding_uses_the_active_pinned_registry_protocol() {
@@ -219,5 +228,35 @@ mod tests {
             textures.pumpkin().unwrap().len(),
             (SCREEN_OVERLAY_TEXTURE_SIDE * SCREEN_OVERLAY_TEXTURE_SIDE * 4) as usize
         );
+    }
+
+    /// The scene is extracted whenever it counts as changed; with no layer drawn, a running clock
+    /// must not mark it.
+    #[test]
+    fn steady_frames_without_layers_leave_the_scene_unchanged() {
+        #[derive(Resource, Default)]
+        struct Seen(Vec<bool>);
+        let mut app = App::new();
+        app.init_resource::<Time>()
+            .init_resource::<ScreenOverlays>()
+            .init_resource::<ScreenOverlayScene>()
+            .init_resource::<Seen>()
+            .add_systems(
+                Update,
+                (
+                    publish_screen_overlays,
+                    |scene: Res<ScreenOverlayScene>, mut seen: ResMut<Seen>| {
+                        seen.0.push(scene.is_changed());
+                    },
+                )
+                    .chain(),
+            );
+        for _ in 0..3 {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_millis(16));
+            app.update();
+        }
+        assert_eq!(app.world().resource::<Seen>().0, [true, false, false]);
     }
 }

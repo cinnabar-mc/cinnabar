@@ -499,3 +499,58 @@ fn client_part_revoke_and_disconnect_release_uploaded_meshes() {
         );
     }
 }
+
+/// The retained systems run while a drawing is live and until its removed storage is released,
+/// then stop; at rest a further frame of them leaves every owner at rest.
+#[test]
+fn retained_systems_idle_once_removed_storage_is_released() {
+    let (mut app, _) = crate::queue_review_support::app();
+    app.init_resource::<gpu::Gpu>()
+        .init_resource::<materials::Materials>()
+        .init_resource::<clips::Targets>()
+        .init_resource::<clock::AnimationClock>()
+        .init_resource::<pipeline::Pipeline>()
+        .insert_resource(DrawingFrame {
+            connection: 1,
+            ..default()
+        })
+        .init_resource::<render_scene::ModRenderScene>()
+        .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>();
+    let has_work = |app: &mut App| app.world_mut().run_system_once(has_retained_work).unwrap();
+    let frame = |app: &mut App| {
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        app.world_mut().run_system_once(pipeline::bindings).unwrap();
+        app.world_mut().run_system_once(materials::retire).unwrap();
+        app.world_mut().run_system_once(gpu::retire).unwrap();
+    };
+    assert!(!has_work(&mut app));
+
+    let (store, _, _) = drawing();
+    app.world_mut().resource_mut::<DrawingFrame>().live_owners = store
+        .snapshot()
+        .geometry
+        .keys()
+        .map(|h| (h.owner, h.generation))
+        .collect();
+    app.world_mut()
+        .resource_mut::<render_scene::ModRenderScene>()
+        .retained = vec![store.snapshot().clone()];
+    assert!(has_work(&mut app));
+    frame(&mut app);
+    assert!(!app.world().resource::<gpu::Gpu>().meshes.is_empty());
+
+    app.world_mut()
+        .resource_mut::<render_scene::ModRenderScene>()
+        .retained
+        .clear();
+    assert!(
+        has_work(&mut app),
+        "the uploaded mesh still has to be released"
+    );
+    frame(&mut app);
+    assert!(!has_work(&mut app));
+    frame(&mut app);
+    assert!(app.world().resource::<gpu::Gpu>().at_rest());
+    assert!(app.world().resource::<materials::Materials>().at_rest());
+    assert!(!has_work(&mut app));
+}
