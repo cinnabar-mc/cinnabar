@@ -20,7 +20,11 @@ use bevy::{
 use bevy::{
     ecs::schedule::MainThreadExecutor,
     prelude::{App, Plugin, Res, Resource, World},
-    render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
+    render::{
+        Render, RenderApp, RenderSystems,
+        pipelined_rendering::RenderExtractApp,
+        renderer::{FrameTailOnRenderThread, RenderFrameTail},
+    },
 };
 use render_model::{Cadence, FrameRate};
 
@@ -582,8 +586,20 @@ fn mark_render_start(pacer: Res<InputPacer>) {
     pacer.render_started();
 }
 
-fn mark_render_end(pacer: Res<InputPacer>) {
-    pacer.render_finished();
+/// Marks the frame rendered once its submission and backpressure are done: in the render frame
+/// tail when the render thread runs one, so pacing counts the tail's work and waits.
+fn mark_render_end(
+    pacer: Res<InputPacer>,
+    tail: Option<Res<RenderFrameTail>>,
+    on_render_thread: Option<Res<FrameTailOnRenderThread>>,
+) {
+    match tail.filter(|_| on_render_thread.is_some()) {
+        Some(tail) => {
+            let pacer = pacer.clone();
+            tail.defer(move || pacer.render_finished());
+        }
+        None => pacer.render_finished(),
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]

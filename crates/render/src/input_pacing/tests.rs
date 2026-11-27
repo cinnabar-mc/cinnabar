@@ -590,3 +590,45 @@ fn quantiles_pick_the_ranked_sample_of_the_held_window() {
         }
     }
 }
+
+// Submission and GPU backpressure run in the render frame tail, after the render schedule's
+// last set; a render counted as finished before them would let input be sampled too early.
+#[test]
+fn render_completion_counts_the_frame_tail_on_the_render_thread() {
+    use bevy::ecs::system::RunSystemOnce;
+    let clock = FakeClock::new();
+    let pacer = InputPacer::new(clock.clone(), true);
+    let tail = RenderFrameTail::default();
+    let mut world = World::new();
+    world.insert_resource(pacer.clone());
+    world.insert_resource(tail.clone());
+    world.insert_resource(FrameTailOnRenderThread);
+    pacer.render_started();
+    clock.advance(ms(2.0));
+    world.run_system_once(mark_render_end).unwrap();
+    assert_eq!(pacer.state().finished, 0, "the tail has not run yet");
+    clock.advance(ms(5.0));
+    tail.run();
+    let state = pacer.state();
+    assert_eq!(state.finished, 1);
+    assert_eq!(
+        state.model.render.samples[0],
+        ms(7.0),
+        "the render time includes the tail's submission and waits"
+    );
+}
+
+// Without a render-thread tail the frame is finished when the render schedule ends.
+#[test]
+fn render_completion_without_a_render_thread_tail_is_immediate() {
+    use bevy::ecs::system::RunSystemOnce;
+    let clock = FakeClock::new();
+    let pacer = InputPacer::new(clock.clone(), true);
+    let mut world = World::new();
+    world.insert_resource(pacer.clone());
+    world.insert_resource(RenderFrameTail::default());
+    pacer.render_started();
+    clock.advance(ms(2.0));
+    world.run_system_once(mark_render_end).unwrap();
+    assert_eq!(pacer.state().finished, 1);
+}
