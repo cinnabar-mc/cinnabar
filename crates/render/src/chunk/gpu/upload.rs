@@ -62,19 +62,23 @@ impl ChunkInstanceQueries<'_, '_> {
         self.changes.take_into(&mut marked.entities);
         #[cfg(debug_assertions)]
         {
-            let completed = std::mem::take(&mut marked.completed);
+            // Sorted once per run, so a pack reload marking every instance stays linearithmic.
+            let mut completed = std::mem::take(&mut marked.completed);
+            completed.sort_unstable();
             if std::mem::replace(&mut marked.ran, true) {
-                let changed = self.queries.p1().iter().collect::<Vec<_>>();
+                let mut changed = self.queries.p1().iter().collect::<Vec<_>>();
+                changed.sort_unstable();
                 for entity in &changed {
                     debug_assert!(
-                        marked.entities.binary_search(entity).is_ok() || completed.contains(entity),
+                        marked.entities.binary_search(entity).is_ok()
+                            || completed.binary_search(entity).is_ok(),
                         "{entity} changed its chunk instance without marking ChunkInstanceChanges"
                     );
                 }
                 let all_instances = self.queries.p0();
                 for entity in &marked.entities {
                     debug_assert!(
-                        changed.contains(entity) || !all_instances.contains(*entity),
+                        changed.binary_search(entity).is_ok() || !all_instances.contains(*entity),
                         "{entity} was marked in ChunkInstanceChanges without changing its instance"
                     );
                 }
