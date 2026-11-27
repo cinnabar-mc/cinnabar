@@ -322,7 +322,8 @@ fn the_table_waits_for_a_two_sample_view_and_survives_a_failure_at_every_stage()
     let Some(fixture) = two_sample_fixture("lazily built two-sample resolve table") else {
         return;
     };
-    for failing in [SAMPLES_LABEL, TABLE_LABEL, PIPELINE_LABEL] {
+    let stages = [SAMPLES_LABEL, TABLE_LABEL, MODULE_LABEL, PIPELINE_LABEL];
+    for (stage, failing) in stages.into_iter().enumerate() {
         let mut world = World::new();
         world.insert_resource(RenderDevice::from(fixture.device.clone()));
         world.insert_resource(RenderQueue::new(fixture.queue.clone()));
@@ -332,10 +333,13 @@ fn the_table_waits_for_a_two_sample_view_and_survives_a_failure_at_every_stage()
         });
         let view = world.spawn(Msaa::Off).id();
         let attempts = Rc::new(Cell::new(0));
-        let counted = attempts.clone();
+        let later = Rc::new(Cell::new(0));
+        let (counted, skipped) = (attempts.clone(), later.clone());
         let _failure = crate::gpu_allocation::inject(move |label, _| {
             if label == failing {
                 counted.set(counted.get() + 1);
+            } else if stages[stage + 1..].contains(&label) {
+                skipped.set(skipped.get() + 1);
             }
             label == failing
         });
@@ -347,6 +351,11 @@ fn the_table_waits_for_a_two_sample_view_and_survives_a_failure_at_every_stage()
         assert!(
             !world.contains_resource::<ResolveLut>(),
             "a failed {failing} leaves the plain resolve"
+        );
+        assert_eq!(
+            later.get(),
+            0,
+            "nothing after a failed {failing} is created from it"
         );
         for _ in 0..16 {
             world.run_system_once(build).unwrap();

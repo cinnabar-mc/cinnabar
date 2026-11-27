@@ -89,12 +89,14 @@ pub(super) fn build(
 const SAMPLES_LABEL: &str = "two-sample resolve table samples";
 /// Label of the table's checked resolved allocation.
 const TABLE_LABEL: &str = "two-sample resolve table";
+/// Label of the table's checked shader module.
+const MODULE_LABEL: &str = "two-sample resolve table shader";
 /// Label of the table's checked sample-writing pipeline.
 const PIPELINE_LABEL: &str = "two-sample resolve table pipeline";
 
 /// Allocates the table's textures, then encodes and submits its construction, returning its
-/// sRGB view; `None`, with nothing encoded, when an allocation or the pipeline runs out of
-/// memory.
+/// sRGB view; `None`, with nothing encoded, when an allocation, the shader module or the
+/// pipeline runs out of memory. Each is checked on its own, so a failed one is never passed on.
 pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::TextureView> {
     let gpu = device.wgpu_device();
     let size = wgpu::Extent3d {
@@ -127,11 +129,13 @@ pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::
             view_formats: &[],
         })
     })?;
-    let pipeline = crate::gpu_allocation::checked(device, PIPELINE_LABEL, 0, || {
-        let module = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(PIPELINE_LABEL),
+    let module = crate::gpu_allocation::checked(device, MODULE_LABEL, 0, || {
+        gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(MODULE_LABEL),
             source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
-        });
+        })
+    })?;
+    let pipeline = crate::gpu_allocation::checked(device, PIPELINE_LABEL, 0, || {
         gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(PIPELINE_LABEL),
             layout: None,
