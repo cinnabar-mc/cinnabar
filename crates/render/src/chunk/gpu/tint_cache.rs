@@ -137,11 +137,22 @@ pub(in crate::chunk) struct TintCacheState {
     cache: Option<TintCache>,
     /// The capacity and inputs whose cache last failed or was released, retried only on change.
     failed: Option<(usize, TintInputs)>,
-    /// Allocations owed a bake, with how many of their quads earlier frames already baked.
-    pending: HashMap<Entity, u32>,
+    /// Allocations owed a bake: how many of their quads earlier frames already baked, and whether
+    /// the entries still waiting were already cleared.
+    pending: HashMap<Entity, Owed>,
     bake_all: bool,
     /// Jobs the last bake owed beyond the job buffer, which the next preparation grows toward.
     wanted_jobs: usize,
+}
+
+/// An allocation's bake progress.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Owed {
+    /// Quads from the allocation's start that earlier bakes recorded.
+    done: u32,
+    /// Whether the entries past `done` were cleared since the allocation was last uploaded, so
+    /// later frames need not clear them again while they wait.
+    cleared: bool,
 }
 
 /// One frame's bake: jobs one dispatch reaches, entries still waiting to be cleared, and the
@@ -156,7 +167,7 @@ impl TintCacheState {
     /// Records that `entity`'s allocation was uploaded and must be baked from its first quad.
     pub(in crate::chunk) fn queue_bake(&mut self, entity: Entity) {
         if self.cache.is_some() && !self.bake_all {
-            self.pending.insert(entity, 0);
+            self.pending.insert(entity, Owed::default());
         }
     }
 
@@ -389,7 +400,10 @@ impl TintCacheState {
             };
         };
         if std::mem::take(&mut self.bake_all) {
-            self.pending = allocations.keys().map(|&entity| (entity, 0)).collect();
+            self.pending = allocations
+                .keys()
+                .map(|&entity| (entity, Owed::default()))
+                .collect();
         }
         plan_owed(
             &mut self.pending,
@@ -404,13 +418,21 @@ impl TintCacheState {
         )
     }
 
+    /// Records the job-buffer growth a recorded bake leaves owed: the work beyond `capacity`, or
+    /// none once the backlog fits, so a later rebuild does not grow the buffer for drained work.
+    fn owe_growth(&mut self, owed: usize, capacity: u32) {
+        self.wanted_jobs = if owed > capacity as usize { owed } else { 0 };
+    }
+
     /// Retires the work `batch` recorded: finished allocations leave the queue and partial ones
     /// keep their progress.
     fn commit(&mut self, batch: &Batch) {
         for &(entity, progress) in &batch.progress {
             match progress {
                 Some(done) => {
-                    self.pending.insert(entity, done);
+                    if let Some(owed) = self.pending.get_mut(&entity) {
+                        owed.done = done;
+                    }
                 }
                 None => {
                     self.pending.remove(&entity);
@@ -423,9 +445,10 @@ impl TintCacheState {
 /// Plans one dispatch over `pending`, where `resident` gives each live allocation's quads and
 /// origin slot. Entries that departed, hold no quads or lie beyond `entries` leave `pending`;
 /// the rest bake in entity order, in pieces within `limit` workgroups per axis, up to
-/// `max_jobs` pieces from the quads earlier frames already baked, and the remainder waits.
+/// `max_jobs` pieces from the quads earlier frames already baked, and the remainder waits. A
+/// remainder is listed for clearing only the first time it waits after an upload.
 fn plan_owed(
-    pending: &mut HashMap<Entity, u32>,
+    pending: &mut HashMap<Entity, Owed>,
     resident: impl Fn(Entity) -> Option<(std::ops::Range<u32>, u32)>,
     entries: u64,
     limit: u32,
@@ -440,10 +463,10 @@ fn plan_owed(
             )
         })
     };
-    pending.retain(|&entity, &mut done| remaining(entity, done).is_some());
+    pending.retain(|&entity, owed| remaining(entity, owed.done).is_some());
     let mut owed: Vec<_> = pending
         .iter()
-        .map(|(&entity, &done)| (entity, done))
+        .map(|(&entity, owed)| (entity, owed.done))
         .collect();
     owed.sort_unstable();
     let mut batch = Batch {
@@ -456,14 +479,20 @@ fn plan_owed(
             continue;
         };
         let mut baked = 0;
+        let entry = pending.get_mut(&entity).expect("retained above");
+        let mut waits = false;
         for piece in plan::split(job, limit) {
             if batch.jobs.len() < max_jobs {
                 baked += piece[1];
                 batch.jobs.push(piece);
             } else {
-                batch.waiting.push(piece);
+                waits = true;
+                if !entry.cleared {
+                    batch.waiting.push(piece);
+                }
             }
         }
+        entry.cleared |= waits;
         if baked > 0 {
             let finished = baked == job[1];
             batch
@@ -624,9 +653,8 @@ pub(in crate::chunk) fn record_tint_bake(
         pass.set_bind_group(1, output_group, &[]);
         plan::dispatch(&mut pass, &batch.jobs, limit);
     }
-    if owed > tint.job_capacity as usize {
-        state.wanted_jobs = owed;
-    }
+    let capacity = tint.job_capacity;
+    state.owe_growth(owed, capacity);
     state.commit(&batch);
 }
 
@@ -639,13 +667,27 @@ mod tests {
     }
 
     /// Applies `batch` to `pending` as a recorded bake does.
-    fn commit(pending: &mut HashMap<Entity, u32>, batch: &Batch) {
+    fn commit(pending: &mut HashMap<Entity, Owed>, batch: &Batch) {
         for &(entity, progress) in &batch.progress {
             match progress {
-                Some(done) => pending.insert(entity, done),
-                None => pending.remove(&entity),
-            };
+                Some(done) => {
+                    if let Some(owed) = pending.get_mut(&entity) {
+                        owed.done = done;
+                    }
+                }
+                None => {
+                    pending.remove(&entity);
+                }
+            }
         }
+    }
+
+    /// A queue of freshly uploaded allocations.
+    fn queued(entities: &[u32]) -> HashMap<Entity, Owed> {
+        entities
+            .iter()
+            .map(|&index| (entity(index), Owed::default()))
+            .collect()
     }
 
     /// A noop device with every table a bake binds, and a cache prepared over them.
@@ -816,7 +858,7 @@ mod tests {
 
     #[test]
     fn owed_work_drops_departed_empty_and_uncached_allocations_without_a_dispatch() {
-        let mut pending = HashMap::from([(entity(1), 0), (entity(2), 0), (entity(3), 0)]);
+        let mut pending = queued(&[1, 2, 3]);
         let resident = |e: Entity| match e.index_u32() {
             2 => Some((10..10, 0)),
             3 => Some((200..210, 1)),
@@ -830,7 +872,7 @@ mod tests {
     #[test]
     fn deferred_work_advances_every_frame_and_retires_when_baked() {
         // Two workgroups per axis: at most four 128-quad pieces per dispatch.
-        let mut pending = HashMap::from([(entity(1), 0), (entity(2), 0)]);
+        let mut pending = queued(&[1, 2]);
         let resident = |e: Entity| match e.index_u32() {
             1 => Some((0..600, 0)),
             2 => Some((1000..1010, 1)),
@@ -856,6 +898,45 @@ mod tests {
             .chain((1000..1010).map(|quad| (quad, 1)))
             .collect();
         assert_eq!(baked, expected, "every quad bakes exactly once");
+    }
+
+    #[test]
+    fn waiting_entries_are_cleared_once_until_their_allocation_is_uploaded_again() {
+        // One piece per dispatch, so most of the allocation waits.
+        let resident = |e: Entity| (e.index_u32() == 1).then_some((0..512, 0));
+        let mut pending = queued(&[1]);
+        let first = plan_owed(&mut pending, resident, 4096, 1, 1);
+        assert_eq!(first.jobs.len(), 1);
+        let rest = 512 - first.jobs[0][1];
+        assert!(rest > 0);
+        assert_eq!(
+            first.waiting.iter().map(|piece| piece[1]).sum::<u32>(),
+            rest,
+            "the first wait clears every entry past the bake"
+        );
+        commit(&mut pending, &first);
+        let second = plan_owed(&mut pending, resident, 4096, 1, 1);
+        assert_eq!(second.jobs.len(), 1, "the bake still advances");
+        assert!(
+            second.waiting.is_empty(),
+            "entries cleared earlier are not cleared again"
+        );
+        pending.insert(entity(1), Owed::default());
+        let reuploaded = plan_owed(&mut pending, resident, 4096, 1, 1);
+        assert_eq!(
+            reuploaded.waiting.iter().map(|piece| piece[1]).sum::<u32>(),
+            rest,
+            "a new upload clears its waiting entries again"
+        );
+    }
+
+    #[test]
+    fn growth_is_owed_only_while_the_backlog_exceeds_the_job_buffer() {
+        let mut state = TintCacheState::default();
+        state.owe_growth(300, 256);
+        assert_eq!(state.wanted_jobs, 300);
+        state.owe_growth(40, 256);
+        assert_eq!(state.wanted_jobs, 0, "a drained backlog owes no growth");
     }
 
     #[test]
