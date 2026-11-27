@@ -155,11 +155,14 @@ struct Owed {
     cleared: bool,
 }
 
-/// One frame's bake: jobs one dispatch reaches, entries still waiting to be cleared, and the
-/// progress to record once the jobs are recorded.
+/// One frame's bake: jobs one dispatch reaches, entries still waiting to be cleared, how many
+/// pieces wait for a later dispatch, cleared or not, and the progress to record once the jobs
+/// are recorded.
+#[derive(Default)]
 struct Batch {
     jobs: Vec<Job>,
     waiting: Vec<Job>,
+    deferred: usize,
     progress: Vec<(Entity, Option<u32>)>,
 }
 
@@ -393,11 +396,7 @@ impl TintCacheState {
             .as_ref()
             .map(|cache| (cache.entries, cache.job_capacity))
         else {
-            return Batch {
-                jobs: Vec::new(),
-                waiting: Vec::new(),
-                progress: Vec::new(),
-            };
+            return Batch::default();
         };
         if std::mem::take(&mut self.bake_all) {
             self.pending = allocations
@@ -469,11 +468,7 @@ fn plan_owed(
         .map(|(&entity, owed)| (entity, owed.done))
         .collect();
     owed.sort_unstable();
-    let mut batch = Batch {
-        jobs: Vec::new(),
-        waiting: Vec::new(),
-        progress: Vec::new(),
-    };
+    let mut batch = Batch::default();
     for (entity, done) in owed {
         let Some(job) = remaining(entity, done) else {
             continue;
@@ -487,6 +482,7 @@ fn plan_owed(
                 batch.jobs.push(piece);
             } else {
                 waits = true;
+                batch.deferred += 1;
                 if !entry.cleared {
                     batch.waiting.push(piece);
                 }
@@ -615,7 +611,7 @@ pub(in crate::chunk) fn record_tint_bake(
     }
     let encoder = context.command_encoder();
     plan::clear(encoder, &tint.buffer, &batch.waiting);
-    let owed = batch.jobs.len() + batch.waiting.len();
+    let owed = batch.jobs.len() + batch.deferred;
     let kernel = pipeline
         .as_deref()
         .and_then(|pipeline| pipeline.id)
@@ -920,6 +916,11 @@ mod tests {
         assert!(
             second.waiting.is_empty(),
             "entries cleared earlier are not cleared again"
+        );
+        assert_eq!(
+            second.deferred,
+            first.deferred - 1,
+            "pieces that need no clear still count toward the owed growth"
         );
         pending.insert(entity(1), Owed::default());
         let reuploaded = plan_owed(&mut pending, resident, 4096, 1, 1);
