@@ -7,8 +7,6 @@ use std::{collections::BTreeMap, path::Path};
 
 /// Fewer pairs give no meaningful spread.
 const MIN_ROUNDS: usize = 3;
-/// Per-phase frame statistics paired across builds; `_fps` is higher-better, `_ms` lower-better.
-const FRAME_METRICS: [&str; 5] = ["avg_fps", "low_1pct_fps", "p50_ms", "p99_ms", "max_ms"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Side {
@@ -57,10 +55,13 @@ pub(super) fn run(
     output: &Path,
 ) -> Result<(), String> {
     if rounds < MIN_ROUNDS {
-        return Err(format!("paired benchmarks need at least {MIN_ROUNDS} rounds"));
+        return Err(format!(
+            "paired benchmarks need at least {MIN_ROUNDS} rounds"
+        ));
     }
     let output = run::new_output_directory(repo, output)?;
-    let run_dir = |round: usize, side: Side| output.join(format!("round-{round:02}-{}", side.name()));
+    let run_dir =
+        |round: usize, side: Side| output.join(format!("round-{round:02}-{}", side.name()));
     for round in 0..rounds {
         for side in order(round) {
             let plan = match side {
@@ -78,11 +79,7 @@ pub(super) fn run(
         pairs.push(ratios(&b, &c)?);
     }
     let summary = summarize(&pairs);
-    let slower: Vec<&String> = summary
-        .iter()
-        .filter(|(key, paired)| key.ends_with(".avg_fps") && paired.p75 < 1.)
-        .map(|(key, _)| key)
-        .collect();
+    let slower = mostly_slower(&pairs);
     let result = serde_json::json!({
         "comparison": "alternating_pairs", "candidate_over_base": summary,
         "slower_average_fps": slower, "qualification": "incomplete",
@@ -96,13 +93,31 @@ pub(super) fn run(
     }
 }
 
+/// Average-FPS metrics whose candidate/base ratio is below one in at least three quarters of the
+/// pairs that measured them.
+fn mostly_slower(pairs: &[BTreeMap<String, f64>]) -> Vec<String> {
+    let mut counts: BTreeMap<&String, (usize, usize)> = BTreeMap::new();
+    for pair in pairs {
+        for (key, ratio) in pair.iter().filter(|(key, _)| key.ends_with(".avg_fps")) {
+            let (slower, measured) = counts.entry(key).or_default();
+            *slower += usize::from(*ratio < 1.);
+            *measured += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(_, (slower, measured))| 4 * slower >= 3 * measured)
+        .map(|(key, _)| key.clone())
+        .collect()
+}
+
 /// Candidate/base ratios of every frame statistic and mean stage metric both reports carry.
 fn ratios(base: &Value, candidate: &Value) -> Result<BTreeMap<String, f64>, String> {
     let values = |report: &Value| -> Result<BTreeMap<String, f64>, String> {
         let mut values = BTreeMap::new();
         for phase in report["frames"].as_array().ok_or("missing frames")? {
             let name = phase["phase"].as_str().ok_or("missing phase name")?;
-            for metric in FRAME_METRICS {
+            for metric in report::FRAME_METRICS {
                 if let Some(value) = phase[metric].as_f64() {
                     values.insert(format!("frames.{name}.{metric}"), value);
                 }
@@ -183,7 +198,25 @@ mod tests {
         let ratios = ratios(&report(4000., 0.25), &report(5000., 0.2)).unwrap();
         assert_eq!(ratios["frames.spawn.avg_fps"], 1.25);
         assert_eq!(ratios["cpu.spawn.main_frame.mean_ms"], 0.8);
-        assert!(!ratios.contains_key("frames.spawn.max_ms"), "zero is not a usable reference");
+        assert!(
+            !ratios.contains_key("frames.spawn.max_ms"),
+            "zero is not a usable reference"
+        );
+    }
+
+    #[test]
+    fn slower_counts_pairs_rather_than_interpolated_quantiles() {
+        let pairs = |ratios: &[f64]| -> Vec<_> {
+            ratios
+                .iter()
+                .map(|ratio| BTreeMap::from([("frames.spawn.avg_fps".to_owned(), *ratio)]))
+                .collect()
+        };
+        assert_eq!(
+            mostly_slower(&pairs(&[0.8, 0.9, 0.99, 1.1])),
+            ["frames.spawn.avg_fps"]
+        );
+        assert!(mostly_slower(&pairs(&[0.8, 0.9, 1.01, 1.1])).is_empty());
     }
 
     #[test]

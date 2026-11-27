@@ -88,6 +88,21 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     let scratch = tempfile::tempdir().map_err(|source| spawn_error("create scratch", source))?;
     let out = options.out.clone().unwrap_or_else(|| scratch.path().into());
     fs::create_dir_all(&out).map_err(|source| spawn_error("create output directory", source))?;
+    // Callgrind runs from each test's package directory, so its profile paths must be absolute.
+    let out = out
+        .canonicalize()
+        .map_err(|source| spawn_error("resolve output directory", source))?;
+    let path = root.join(BUDGET_FILE);
+    if path
+        .parent()
+        .and_then(|parent| parent.canonicalize().ok())
+        .as_ref()
+        == Some(&out)
+    {
+        return Err(error(
+            "--out would overwrite the committed budgets; use --update to change them",
+        ));
+    }
     let tests = discover(&root)?;
     let mut measured = Budgets {
         toolchain: toolchain(&root)?,
@@ -101,7 +116,6 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             .insert(test.id.clone(), measure(test, &profile)?);
     }
     write_budgets(&out.join("instruction-budgets.json"), &measured)?;
-    let path = root.join(BUDGET_FILE);
     if options.update {
         write_budgets(&path, &measured)?;
         println!("wrote {} budgets to {BUDGET_FILE}", measured.budgets.len());

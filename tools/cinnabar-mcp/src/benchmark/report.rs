@@ -8,6 +8,17 @@ use std::{collections::BTreeMap, path::Path};
 const FORMAT: &str = "horizon-benchmark-report";
 const MANIFEST_FORMAT: &str = "cinnabar-benchmark-manifest";
 const VERSION: u32 = 1;
+/// Per-phase frame statistics that comparisons pair; `_fps` is higher-better, `_ms` lower-better.
+pub(super) const FRAME_METRICS: [&str; 8] = [
+    "avg_fps",
+    "low_1pct_fps",
+    "low_01pct_fps",
+    "p50_ms",
+    "p95_ms",
+    "p99_ms",
+    "p999_ms",
+    "max_ms",
+];
 
 /// Writes one summary and a linked companion with explicit measurement gaps.
 #[expect(
@@ -255,16 +266,7 @@ pub(super) fn compare(first: &Path, second: &Path) -> Result<(), String> {
             .find(|other| other["phase"] == phase["phase"])
             .ok_or("missing matching phase")?;
         let mut row = BTreeMap::new();
-        for metric in [
-            "avg_fps",
-            "low_1pct_fps",
-            "low_01pct_fps",
-            "p50_ms",
-            "p95_ms",
-            "p99_ms",
-            "p999_ms",
-            "max_ms",
-        ] {
+        for metric in FRAME_METRICS {
             let value = phase[metric]
                 .as_f64()
                 .filter(|v| v.is_finite() && *v > 0.)
