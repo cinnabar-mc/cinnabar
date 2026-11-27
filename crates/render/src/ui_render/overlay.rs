@@ -338,8 +338,13 @@ pub(super) fn queue_ui_overlay(
                 complete = false;
             }
         }
-        if needs_model_depth && let Some(layer) = layer {
-            model_depths.ensure(view_entity, layer, &render_device);
+        // A missing depth surface leaves the queue incomplete, so an identical later frame
+        // queues again and retries the allocation.
+        if needs_model_depth
+            && let Some(layer) = layer
+            && !model_depths.ensure(view_entity, layer, &render_device)
+        {
+            complete = false;
         }
         if needs_models {
             for (depth_test, depth_write) in
