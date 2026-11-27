@@ -395,22 +395,3 @@ fn installed_retained_hud_matches_fresh_pixels_at_both_dpi_scales() {
         snapshot::write(&retained, &format!("retained-hud-dpi-{dpi}"));
     }
 }
-
-/// Frames of each HUD instruction budget, after one warm-up frame.
-const BUDGET_FRAMES: u64 = 60;
-
-#[test]
-fn instruction_budget_unchanged_survival_hud_frames() {
-    let mut player = player_state::PlayerState::new(1);
-    let runtime = survival(&mut player, 20);
-    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
-    let first = build(&player, &mut presentation, &runtime, 0);
-    let builds = presentation.tree_builds;
-    test_instructions::count(|| {
-        for frame in 1..=BUDGET_FRAMES {
-            std::hint::black_box(build(&player, &mut presentation, &runtime, frame * 16));
-        }
-    });
-    assert_eq!(presentation.tree_builds, builds, "an unchanged HUD rebuilt");
-    assert_eq!(build(&player, &mut presentation, &runtime, 0), first);
-}

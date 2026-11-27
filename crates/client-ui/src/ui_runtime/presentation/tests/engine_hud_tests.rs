@@ -19,6 +19,7 @@ mod death_screen;
 mod effects;
 mod experience_spacing;
 mod geometry;
+mod instruction_budget;
 mod locator;
 mod long_chat;
 mod menu_crosshair;

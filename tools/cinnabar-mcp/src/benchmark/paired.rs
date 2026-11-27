@@ -62,6 +62,8 @@ pub(super) fn run(
     let output = run::new_output_directory(repo, output)?;
     let run_dir =
         |round: usize, side: Side| output.join(format!("round-{round:02}-{}", side.name()));
+    let mut pairs = Vec::with_capacity(rounds);
+    let mut first: Option<[Value; 3]> = None;
     for round in 0..rounds {
         for side in order(round) {
             let plan = match side {
@@ -70,10 +72,7 @@ pub(super) fn run(
             };
             run::run(repo, plan, &run_dir(round, side))?;
         }
-    }
-    let mut pairs = Vec::with_capacity(rounds);
-    let mut first: Option<[Value; 3]> = None;
-    for round in 0..rounds {
+        // Stop as soon as a pair cannot join the comparison, before spending more runs.
         let (b, bm) = report::load(&run_dir(round, Side::Base).join("report.json"))?;
         let (c, cm) = report::load(&run_dir(round, Side::Candidate).join("report.json"))?;
         report::compatible(&c, &cm, &b, &bm)?;
