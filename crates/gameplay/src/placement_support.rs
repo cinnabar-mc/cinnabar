@@ -32,6 +32,12 @@ pub(crate) fn attachment_states(
     if fact.traits.contains(T::MULTIFACE) {
         return crate::placement_multiface::attachment_states(canonical, input.face, supports);
     }
+    if let Some((age, _)) = nether_vine(fact.placement) {
+        // Weeping and twisting vines keep the held state; only their support decides placement.
+        return (known_keys(canonical, &[age.name()])
+            && crate::placement_state::valid_property(fact, canonical, age).is_some())
+        .then(|| canonical.clone());
+    }
     if fact.traits.contains(T::TORCH) {
         if !known_keys(canonical, &[P::TorchFacingDirection.name()]) {
             return None;
@@ -133,6 +139,15 @@ pub(crate) fn attachment_states(
     Some(states)
 }
 
+/// Weeping vines hang from the block above; twisting vines stand on the block below.
+fn nether_vine(rule: R) -> Option<(P, u8)> {
+    match rule {
+        R::WeepingVines => Some((P::WeepingVinesAge, 1)),
+        R::TwistingVines => Some((P::TwistingVinesAge, 0)),
+        _ => None,
+    }
+}
+
 /// Refuses additional state keys whose placement behavior has not been established.
 fn known_keys(states: &Map<String, Value>, allowed: &[&str]) -> bool {
     states.len() == allowed.len() && states.keys().all(|key| allowed.contains(&key.as_str()))
@@ -172,6 +187,7 @@ pub(crate) fn support_requirement(
         },
         R::Lantern => state_bit(states, P::Hanging.name()).map(u8::from),
         R::FrogSpawn => Some(0),
+        R::WeepingVines | R::TwistingVines => nether_vine(fact.placement).map(|(_, face)| face),
         _ => {
             return match fact.survival {
                 S::Carpet | S::Door | S::Candle | S::SeaPickle | S::SnowLayer => {
@@ -237,6 +253,10 @@ pub(crate) fn support_acceptance(
             SupportKind::Air | SupportKind::Water => Some(false),
             _ => None,
         };
+    }
+    // A weeping or twisting vine also grows from another vine of its own kind.
+    if nether_vine(fact.placement).is_some() && support.placement == fact.placement {
+        return Some(true);
     }
     if accepts_support(fact, support, full_cube) {
         return Some(true);

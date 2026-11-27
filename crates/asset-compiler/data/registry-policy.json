@@ -5335,6 +5335,22 @@
       ]
     },
     {
+      "id": "placement-weeping-vines",
+      "fact": "placement:WeepingVines",
+      "status": "provisional",
+      "members": [
+        "minecraft:weeping_vines"
+      ]
+    },
+    {
+      "id": "placement-twisting-vines",
+      "fact": "placement:TwistingVines",
+      "status": "provisional",
+      "members": [
+        "minecraft:twisting_vines"
+      ]
+    },
+    {
       "id": "placement-loom",
       "fact": "placement:Loom",
       "status": "provisional",

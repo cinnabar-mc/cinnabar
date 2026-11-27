@@ -726,6 +726,89 @@ fn immediate_vines_attach_to_each_horizontal_clicked_support() {
     }
 }
 
+/// Places one block into the fixture sub-chunk.
+fn set_block(store: &mut ChunkStore, position: [i32; 3], block: u32, mode: NetworkIdMode) {
+    let [x, y, z] = position.map(|axis| axis as u8);
+    store
+        .update_block(
+            SubChunkKey::new(0, 0, 0, 0),
+            BlockUpdate::new(x, y, z, 0, block),
+            id(record("minecraft:air", &[]), mode),
+        )
+        .unwrap();
+}
+
+#[test]
+fn nether_vines_grow_from_full_support_and_from_their_own_kind() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for (name, face, step) in [
+            ("minecraft:weeping_vines", 0_u8, -1),
+            ("minecraft:twisting_vines", 1_u8, 1),
+        ] {
+            let held = id(record(name, &[]), mode);
+            let mut store = store(mode);
+            let around = surroundings();
+            let mut click = context(&around);
+            click.input.face = face;
+            let first = predict(name, &store, mode, &click)
+                .unwrap_or_else(|| panic!("{name} mode={mode:?}"));
+            assert_eq!(first.position, [8, 8 + step, 8]);
+            assert_eq!(first.block, held, "{name} keeps the held state");
+            assert!(first.additional.is_empty());
+
+            set_block(&mut store, first.position, held, mode);
+            let mut around = surroundings();
+            around.clicked = fixtures().1.block_facts(mode, held);
+            let mut click = context(&around);
+            click.clicked = first.position;
+            click.input.face = face;
+            let second = predict(name, &store, mode, &click)
+                .unwrap_or_else(|| panic!("{name} on itself mode={mode:?}"));
+            assert_eq!(second.position, [8, 8 + 2 * step, 8]);
+            assert_eq!(second.block, held);
+        }
+    }
+}
+
+#[test]
+fn nether_vines_without_their_growth_support_stay_server_confirmed() {
+    let mode = NetworkIdMode::Sequential;
+    let store = store(mode);
+    let around = surroundings();
+    // Weeping vines need the block above and twisting vines the block below.
+    for (name, faces) in [
+        ("minecraft:weeping_vines", [1_u8, 2, 3, 4, 5]),
+        ("minecraft:twisting_vines", [0_u8, 2, 3, 4, 5]),
+    ] {
+        for face in faces {
+            let mut click = context(&around);
+            click.input.face = face;
+            assert!(
+                predict(name, &store, mode, &click).is_none(),
+                "{name} face={face}"
+            );
+        }
+    }
+
+    // Leaves are not a proven support, and neither is the other kind of vine.
+    for support in ["minecraft:oak_leaves", "minecraft:twisting_vines"] {
+        let mut store = ChunkStore::new();
+        store
+            .mark_sub_chunk_loaded(SubChunkKey::new(0, 0, 0, 0))
+            .unwrap();
+        let block = id(record(support, &[]), mode);
+        set_block(&mut store, [8, 8, 8], block, mode);
+        let mut around = surroundings();
+        around.clicked = fixtures().1.block_facts(mode, block);
+        let mut click = context(&around);
+        click.input.face = 0;
+        assert!(
+            predict("minecraft:weeping_vines", &store, mode, &click).is_none(),
+            "support={support}"
+        );
+    }
+}
+
 #[test]
 fn ordinary_sign_items_select_wall_identity_for_every_side_face() {
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
