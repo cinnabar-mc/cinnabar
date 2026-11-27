@@ -69,6 +69,22 @@ impl RigMap {
         })
     }
 
+    /// Borrows the rigs `admit` accepts for mutation, assuming each of those changes. Rejected
+    /// rigs keep their revision.
+    pub(super) fn iter_mut_where(
+        &mut self,
+        mut admit: impl FnMut(&ActorLifetimeId, &ActorRigState) -> bool,
+    ) -> impl Iterator<Item = (&ActorLifetimeId, &mut ActorRigState)> {
+        let revision = next_revision();
+        self.rigs
+            .iter_mut()
+            .filter(move |(lifetime, state)| admit(lifetime, state))
+            .map(move |(lifetime, state)| {
+                state.presentation_revision = revision;
+                (lifetime, state)
+            })
+    }
+
     /// Borrows every rig for mutation, assuming each changes.
     #[cfg(test)]
     pub(super) fn values_mut(&mut self) -> impl Iterator<Item = &mut ActorRigState> {

@@ -623,6 +623,31 @@ fn local_gait_corrections_preserve_intervening_and_consecutive_hurt_events() {
     );
 }
 
+/// A frame refresh of the local view leaves the revision of every rig it does not refresh.
+#[test]
+fn local_view_refresh_stamps_only_the_local_rig() {
+    let (mut actors, mut store) = fixture();
+    let mut other = actors[&1].clone();
+    other.runtime_id = 2;
+    other.unique_id = 2;
+    store.insert(1, 0, &other);
+    actors.insert(2, other);
+    let context = ActorTickContext {
+        is_local: true,
+        ..Default::default()
+    };
+    store.advance_tick(&actors, None, Some(1), true, true, |_| context.clone());
+    let remote = store.get(2).unwrap().presentation_revision;
+    let local = store.get(1).unwrap().presentation_revision;
+    store.refresh_local_view(&actors, 1, |_| context.clone());
+    assert_ne!(store.get(1).unwrap().presentation_revision, local);
+    assert_eq!(
+        store.get(2).unwrap().presentation_revision,
+        remote,
+        "a rig the refresh skips keeps its revision"
+    );
+}
+
 /// Per-frame local setters that repeat their values, apart from the frame fractions, keep the
 /// rig's presentation revision; real changes and ticks advance it.
 #[test]
