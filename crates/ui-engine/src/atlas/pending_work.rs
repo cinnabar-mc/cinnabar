@@ -4,16 +4,13 @@ use super::ServerAtlas;
 
 impl ServerAtlas {
     /// Starts a frame's texture requests: misses left for a later frame accumulate until the
-    /// next frame starts, whichever request left them. Downloads that settled since a paint found
-    /// them loading stop waiting: this frame's paints request them again if they still draw them.
+    /// next frame starts, whichever request left them. Downloads a paint found loading stop
+    /// waiting: this frame's paints request them again if they still draw them, so a download
+    /// no screen draws any more is neither polled nor kept alive by repeated frames.
     pub fn begin_frame(&mut self) {
         self.decodes.deferred = false;
         self.untracked_remote.set(false);
-        if let Some(remote) = self.remote.as_ref() {
-            self.loading_remote
-                .get_mut()
-                .retain(|url| !settled(remote.state(url)));
-        }
+        self.loading_remote.get_mut().clear();
     }
 
     /// Whether decode work a later require would collect, or a decode left for a later frame,

@@ -622,6 +622,35 @@ fn a_settled_download_no_paint_asks_for_again_stops_waiting() {
     assert!(!atlas.completions_waiting());
 }
 
+/// A download that stays loading and counts how often its state is read.
+#[derive(Default)]
+struct PolledDownload(std::sync::atomic::AtomicUsize);
+
+impl RemoteSource for PolledDownload {
+    fn state(&self, _url: &str) -> RemoteImage {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        RemoteImage::Loading
+    }
+}
+
+// Reading a download's state renews it, so a download no paint draws any more must not be read
+// by later frames, or it never ages out of the download queue.
+#[test]
+fn a_loading_download_no_paint_asks_for_again_is_not_polled() {
+    let download = Arc::new(PolledDownload::default());
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    atlas.begin_frame();
+    atlas.require(["https://example.invalid/closed-form.png"]);
+    atlas.begin_frame();
+    let reads = download.0.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(!atlas.completions_waiting());
+    assert_eq!(
+        download.0.load(std::sync::atomic::Ordering::Relaxed),
+        reads,
+        "a frame that no longer draws the download leaves it unread"
+    );
+}
+
 /// Downloads that each settle on their own.
 struct Downloads(Mutex<std::collections::BTreeMap<String, RemoteImage>>);
 
