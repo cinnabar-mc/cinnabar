@@ -244,7 +244,7 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     buffers.extend(super::tests::run_readback(&mut world, &device));
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback(&queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     timestamps.begin(0, |_, _, _| {
         panic!("completed samples still need a readback copy")
@@ -263,7 +263,7 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     buffers.extend(super::tests::run_readback(&mut world, &device));
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback(&queue);
+    timestamps.request_readback(&crate::device_poll::FrameWork::immediate(queue.clone()));
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let index = timestamps.ring.oldest_in_flight().unwrap();
     assert_eq!(timestamps.slots[index].passes, 1);
