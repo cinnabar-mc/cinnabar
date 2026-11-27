@@ -343,16 +343,19 @@ fn a_join_between_exit_checks_is_not_routed_to_an_exited_core() {
     );
 }
 
+/// The parameters [`MenuRuntime::drive_account_services`] borrows from the world.
+type AccountServiceParams = (
+    Commands<'static, 'static>,
+    Option<bevy::prelude::ResMut<'static, LauncherCoreSlot>>,
+    Option<bevy::prelude::ResMut<'static, LauncherAccount>>,
+);
+
 /// Runs one frame of [`MenuRuntime::drive_account_services`] with `slot` as the account core.
 fn drive_account_services(slot: LauncherCoreSlot, menu: &mut MenuRuntime, world: &mut World) {
-    use bevy::{ecs::system::SystemState, prelude::ResMut};
+    use bevy::ecs::system::SystemState;
     world.insert_resource(slot);
     let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
-    let mut state: SystemState<(
-        Commands,
-        Option<ResMut<LauncherCoreSlot>>,
-        Option<ResMut<LauncherAccount>>,
-    )> = SystemState::new(world);
+    let mut state: SystemState<AccountServiceParams> = SystemState::new(world);
     let (mut commands, slot, account) = state.get_mut(world).unwrap();
     menu.drive_account_services(&mut commands, false, &player, false, slot, account, None);
     state.apply(world);
