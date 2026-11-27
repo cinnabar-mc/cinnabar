@@ -87,6 +87,8 @@ pub(super) fn build(
 
 /// Label of the table's build, for its error scopes and allocation warnings.
 const BUILD_LABEL: &str = "two-sample resolve table";
+/// Label of the table's submission, checked in its own scopes after the build's.
+const SUBMIT_LABEL: &str = "two-sample resolve table submission";
 
 /// Steps of the table's build, in order; tests raise a real GPU error after any of them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,15 +135,23 @@ fn fault_after(gpu: &wgpu::Device, step: Step) {
 /// out-of-memory and validation error scopes ([`crate::gpu_allocation::fallible`]): a step
 /// that runs out of memory returns an invalid handle, and a later step given that handle
 /// fails validation, so both kinds are captured and none reaches the uncaptured error handler.
-/// The finished commands are submitted only once both scopes come back clean.
+/// The finished commands are submitted only once both scopes come back clean, and the
+/// submission runs in scopes of its own, since it can also run out of memory; the table is
+/// returned only when those come back clean too.
+///
+/// An out-of-memory error that invalidates the device while encoding or submitting is not
+/// recoverable here: wgpu treats it as device loss for every encoder, the frame's main one
+/// included, and the renderer's device-loss handling deals with it.
 pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::TextureView> {
     let bytes = u64::from(CODES) * u64::from(CODES) * 4 * 3;
     let (view, commands) = crate::gpu_allocation::fallible(device, BUILD_LABEL, bytes, || {
         encode(device.wgpu_device())
     })?;
-    #[cfg(test)]
-    SUBMITTED.set(SUBMITTED.get() + 1);
-    queue.submit([commands]);
+    crate::gpu_allocation::fallible(device, SUBMIT_LABEL, 0, || {
+        #[cfg(test)]
+        SUBMITTED.set(SUBMITTED.get() + 1);
+        queue.submit([commands]);
+    })?;
     Some(view)
 }
 

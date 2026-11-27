@@ -325,41 +325,48 @@ fn build_world(fixture: &crate::gpu_snapshot::Gpu, msaa: Msaa) -> (World, Entity
     (world, view)
 }
 
-/// The table allocates nothing until a two-sample view needs it, and a build whose error scopes
-/// report a failure leaves it absent, with nothing submitted, which keeps the plain resolve;
-/// the build then retries with backoff instead of failing the renderer.
+/// The table allocates nothing until a two-sample view needs it, and a build or submission
+/// whose error scopes report a failure leaves it absent, which keeps the plain resolve; the
+/// build then retries with backoff instead of failing the renderer. A failed build submits
+/// nothing.
 #[test]
-fn the_table_waits_for_a_two_sample_view_and_survives_a_failed_build() {
+fn the_table_waits_for_a_two_sample_view_and_survives_a_failed_build_or_submission() {
     use bevy::ecs::system::RunSystemOnce;
     use std::{cell::Cell, rc::Rc};
     let Some(fixture) = two_sample_fixture("lazily built two-sample resolve table") else {
         return;
     };
-    let (mut world, view) = build_world(&fixture, Msaa::Off);
-    let attempts = Rc::new(Cell::new(0));
-    let counted = attempts.clone();
-    let _failure = crate::gpu_allocation::inject(move |label, _| {
-        let build = label == BUILD_LABEL;
-        counted.set(counted.get() + usize::from(build));
-        build
-    });
-    SUBMITTED.set(0);
-    world.run_system_once(build).unwrap();
-    assert_eq!(attempts.get(), 0, "no table while anti-aliasing is off");
-    world.entity_mut(view).insert(Msaa::Sample2);
-    world.run_system_once(build).unwrap();
-    assert_eq!(attempts.get(), 1, "a two-sample view builds the table");
-    assert!(
-        !world.contains_resource::<ResolveLut>(),
-        "a failed build leaves the plain resolve"
-    );
-    assert_eq!(SUBMITTED.get(), 0, "a failed build submits nothing");
-    for _ in 0..16 {
+    for failing in [BUILD_LABEL, SUBMIT_LABEL] {
+        let (mut world, view) = build_world(&fixture, Msaa::Off);
+        let attempts = Rc::new(Cell::new(0));
+        let counted = attempts.clone();
+        let _failure = crate::gpu_allocation::inject(move |label, _| {
+            let fails = label == failing;
+            counted.set(counted.get() + usize::from(fails));
+            fails
+        });
+        SUBMITTED.set(0);
         world.run_system_once(build).unwrap();
+        assert_eq!(attempts.get(), 0, "no table while anti-aliasing is off");
+        world.entity_mut(view).insert(Msaa::Sample2);
+        world.run_system_once(build).unwrap();
+        assert_eq!(attempts.get(), 1, "a two-sample view builds the table");
+        assert!(
+            !world.contains_resource::<ResolveLut>(),
+            "a failed {failing} leaves the plain resolve"
+        );
+        if failing == BUILD_LABEL {
+            assert_eq!(SUBMITTED.get(), 0, "a failed build submits nothing");
+        }
+        for _ in 0..16 {
+            world.run_system_once(build).unwrap();
+        }
+        assert!(
+            attempts.get() > 1,
+            "the build retries after a failed {failing}"
+        );
+        assert!(!world.contains_resource::<ResolveLut>());
     }
-    assert!(attempts.get() > 1, "the failed build retries");
-    assert!(!world.contains_resource::<ResolveLut>());
-    assert_eq!(SUBMITTED.get(), 0);
 }
 
 /// A real GPU error after any step of the build, from the textures through `finish`, is caught
