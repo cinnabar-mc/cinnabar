@@ -190,6 +190,7 @@ wat = "1"
 
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
+test-instructions = { path = "../crates/test-instructions" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }
 mod-ui = { path = "../crates/mod-ui", features = ["test-support"] }
 client-interaction = { path = "../crates/client-interaction", features = ["test-support"] }

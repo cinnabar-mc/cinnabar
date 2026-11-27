@@ -5,7 +5,7 @@ use crate::processes::{Client, Launch, LocalServer};
 use developer_control::{client::Controller, protocol::Command};
 use serde_json::{Value, json};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -14,6 +14,22 @@ const POLL: Duration = Duration::from_millis(250);
 
 /// Runs one frozen fixture in disposable user/world directories and writes reduced local artifacts.
 pub(super) fn run(repo: &Path, plan_file: &Path, output: &Path) -> Result<(), String> {
+    let output = new_output_directory(repo, output)?;
+    files::write(
+        &output.join("attempt.json"),
+        &json!({"status": "started", "kind": "diagnostic_resident_render"}),
+    )?;
+    let result = run_plan(plan_file, &output);
+    let outcome = match &result {
+        Ok(()) => json!({"status": "complete"}),
+        Err(error) => json!({"status": "failed_or_incomplete", "error": error}),
+    };
+    files::write(&output.join("outcome.json"), &outcome)?;
+    result
+}
+
+/// Creates a new output directory outside the checkout and returns its absolute path.
+pub(super) fn new_output_directory(repo: &Path, output: &Path) -> Result<PathBuf, String> {
     let parent = output
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -29,17 +45,7 @@ pub(super) fn run(repo: &Path, plan_file: &Path, output: &Path) -> Result<(), St
         return Err("benchmark output must be outside the checkout".into());
     }
     std::fs::create_dir(&output).map_err(|e| e.to_string())?;
-    files::write(
-        &output.join("attempt.json"),
-        &json!({"status": "started", "kind": "diagnostic_resident_render"}),
-    )?;
-    let result = run_plan(plan_file, &output);
-    let outcome = match &result {
-        Ok(()) => json!({"status": "complete"}),
-        Err(error) => json!({"status": "failed_or_incomplete", "error": error}),
-    };
-    files::write(&output.join("outcome.json"), &outcome)?;
-    result
+    Ok(output)
 }
 
 /// Executes validated inputs while the outer attempt retains launch and capture failures.

@@ -862,3 +862,23 @@ fn artwork_publication_shares_prepared_static_pixels() {
     );
     assert_eq!(scene.atlas().unwrap().texel("mob/test", 0, 0), Some([7; 4]));
 }
+
+/// Sixty 60 Hz frames of 400 static chests beside a few animated portals.
+#[test]
+fn instruction_budget_settled_block_entity_frames() {
+    let mut scene = scene();
+    let submissions: Vec<_> = (0..400)
+        .map(|index| chest(index, 1.0))
+        .chain((400..408).map(portal))
+        .collect();
+    scene.update(SceneClock::default(), &[], &submissions);
+    test_instructions::count(|| {
+        for frame in 1..=60 {
+            let clock = SceneClock {
+                ticks: f64::from(frame) / 3.0,
+            };
+            std::hint::black_box(scene.update(clock, &[], &submissions));
+        }
+    });
+    assert!(!scene.frame.solid.is_empty(), "the chests draw");
+}

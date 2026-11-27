@@ -116,7 +116,7 @@ fn comparable_settings(state: &Value) -> Value {
 }
 
 /// Reads a report and its mandatory checksum-linked local companion.
-fn load(path: &Path) -> Result<(Value, Value), String> {
+pub(super) fn load(path: &Path) -> Result<(Value, Value), String> {
     let report: Value = files::read(path)?;
     let companion: Value = files::read(&path.with_file_name("manifest.json"))?;
     if report["format"] != FORMAT

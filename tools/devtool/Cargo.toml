@@ -39,6 +39,7 @@ regex = "1"
 tempfile = "3"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true
+test-instructions = { path = "../../crates/test-instructions" }
 workspace-declarations = { path = "../workspace-declarations" }
 
 [target.'cfg(unix)'.dependencies]

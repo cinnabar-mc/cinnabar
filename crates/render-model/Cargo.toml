@@ -40,6 +40,7 @@ sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }
+test-instructions = { path = "../test-instructions" }
 pack-compiler = { path = "../pack-compiler" }
 pack-entity-compiler = { path = "../pack-compiler/entity" }
 tempfile = "3"

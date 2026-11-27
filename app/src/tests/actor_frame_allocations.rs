@@ -93,9 +93,8 @@ fn spawn(runtime_id: u64, position: [f32; 3]) -> WorldEvent {
     }))
 }
 
-/// The most allocations any frame without an animation tick made, once `actors` animated
-/// actors stand in view.
-fn steady_frame_allocations(actors: u64) -> u64 {
+/// A world with `actors` animated actors standing in view of the camera.
+fn steady_actor_world(actors: u64) -> World {
     let (_pack, artwork, entities) =
         compiled_fixture("1.0", 1, assets::ActorPoseMode::CompiledLiteral);
     let mut stream = stream(Arc::clone(&entities));
@@ -117,43 +116,75 @@ fn steady_frame_allocations(actors: u64) -> u64 {
         Arc::clone(&entities),
     );
     client_world.stream = Some(stream);
-    let mut world = actor_frame_world(
+    actor_frame_world(
         client_world,
         scene,
         artwork,
         HandRigBuilder::from_runtime_assets(&entities).unwrap(),
         (Vec3::new(0.0, 66.0, -12.0), Vec3::new(0.0, 64.0, 4.0)),
-    );
-    let tick = |world: &World| {
-        world
-            .resource::<crate::runtime::world::ClientWorld>()
-            .stream
-            .as_ref()
-            .and_then(|stream| stream.authority().actor_rig(100))
-            .map(|rig| rig.completed_tick)
-    };
+    )
+}
+
+/// The first actor's last completed animation tick.
+fn rig_tick(world: &World) -> Option<u64> {
+    world
+        .resource::<crate::runtime::world::ClientWorld>()
+        .stream
+        .as_ref()
+        .and_then(|stream| stream.authority().actor_rig(100))
+        .map(|rig| rig.completed_tick)
+}
+
+/// Advances the real clock by one 60 Hz frame and runs the actor publication systems.
+fn actor_frame(world: &mut World, clock: &mut Instant) {
+    *clock += Duration::from_nanos(16_666_667);
+    world
+        .resource_mut::<Time<Real>>()
+        .update_with_instant(*clock);
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
+    world.run_system_cached(prepare_actor_render_frame).unwrap();
+    world.run_system_cached(publish_actor_render_frame).unwrap();
+}
+
+fn drawn_actors(world: &World) -> u64 {
+    world.resource::<ActorRenderFrame>().rig.instances.len() as u64
+}
+
+/// The most allocations any frame without an animation tick made, once `actors` animated
+/// actors stand in view.
+fn steady_frame_allocations(actors: u64) -> u64 {
+    let mut world = steady_actor_world(actors);
     let mut clock = Instant::now();
     let mut worst = 0;
     for frame in 0..60 {
-        clock += Duration::from_nanos(16_666_667);
-        world
-            .resource_mut::<Time<Real>>()
-            .update_with_instant(clock);
-        let before_tick = tick(&world);
+        let before_tick = rig_tick(&world);
         let before = test_alloc::thread_allocations();
-        world
-            .run_system_cached(crate::runtime::network::advance_actor_frame)
-            .unwrap();
-        world.run_system_cached(prepare_actor_render_frame).unwrap();
-        world.run_system_cached(publish_actor_render_frame).unwrap();
+        actor_frame(&mut world, &mut clock);
         let allocated = test_alloc::thread_allocations() - before;
-        if frame >= 30 && tick(&world) == before_tick {
+        if frame >= 30 && rig_tick(&world) == before_tick {
             worst = worst.max(allocated);
         }
     }
-    let drawn = world.resource::<ActorRenderFrame>().rig.instances.len();
-    assert_eq!(drawn as u64, actors, "every actor stands in view");
+    assert_eq!(drawn_actors(&world), actors, "every actor stands in view");
     worst
+}
+
+/// Thirty settled 60 Hz frames of 48 animated actors, ticks included.
+#[test]
+fn instruction_budget_steady_actor_frames() {
+    let mut world = steady_actor_world(48);
+    let mut clock = Instant::now();
+    for _ in 0..30 {
+        actor_frame(&mut world, &mut clock);
+    }
+    test_instructions::count(|| {
+        for _ in 0..30 {
+            actor_frame(&mut world, &mut clock);
+        }
+    });
+    assert_eq!(drawn_actors(&world), 48, "every actor stands in view");
 }
 
 /// Converted poses, layer poses, bone matrices and build buffers persist across the frames of a

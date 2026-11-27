@@ -1,3 +1,34 @@
+# Instruction budgets
+
+Instruction budgets are the CI gate against CPU regressions. A test whose name starts with
+`instruction_budget_` warms its scenario, then wraps the steady work in
+`test_instructions::count`. `devtool instruction-budgets` runs each such test under Callgrind,
+counting only what the calling thread retires inside that region, and compares the count with
+`tools/devtool/instruction-budgets.json`. A count above **or below** its budget by more than
+`TOLERANCE_PERCENT` in `tools/devtool/src/instruction_budgets.rs` fails,
+as do a test without a budget, a budget without a test and a toolchain change, so gains are
+locked in rather than left as headroom. Counts are deterministic for a given toolchain and
+build profile; the tool pins glibc's CPU-dependent copy strategies so CI's mixed runner CPUs
+agree.
+
+```sh
+cargo run -p devtool --locked -- instruction-budgets            # check
+cargo run -p devtool --locked -- instruction-budgets --update   # rewrite the budgets
+```
+
+It needs x86-64 Linux, Valgrind and cargo-nextest, and builds every workspace test binary with
+the caller's test profile, so run it on a build host and with the CI profile settings
+(`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0`). CI runs it in
+the Linux test job and uploads `instruction-budgets` with the measured file and one Callgrind
+profile per test; when a change is intended, commit that file and explain increases in the PR.
+`callgrind_annotate <test>.callgrind` attributes a change to functions.
+
+Add a budget beside the code it protects for each hot path, especially per-frame work that a
+settled frame should skip: keep the counted work single-threaded, deterministic and fast under
+Callgrind (well under a second natively), assert the behaviour it measures, and record the new
+entry with `--update`. Counts track work, not wall time; the hardware runs below remain the
+evidence for frame-time claims.
+
 # Headless chunk benchmarks
 
 Criterion covers palette/column decode, full light solves, cube meshing, biome records,
@@ -101,6 +132,19 @@ or missing phases. Its ratios are first/second and describe diagnostic interval
 statistics only. One process run has no confidence interval. Full stage tracing
 changes the workload; neither this report nor a matching comparison closes a
 shipping-artifact, displayed-pacing, streaming, stability or hardware release gate.
+
+## Paired comparisons
+
+Hardware noise swamps single runs, so check a frame-time change with
+`cinnabar-mcp --repo <checkout> --benchmark-paired <base-plan.json> <candidate-plan.json> <rounds> <new-output-directory>`.
+The two plans differ only in `binary`, for example a release build of `origin/dev` and one of
+the branch. Each round runs both builds, alternating which goes first, into
+`round-NN-base` and `round-NN-candidate`; every pair must pass the comparison checks above.
+`paired.json` gives each frame statistic's and stage mean's candidate/base ratio as a median and
+interquartile range over the rounds. The command fails when the candidate's average FPS is lower
+in at least three quarters of the pairs for any route. Use seven or more rounds on an idle,
+plugged-in machine, ideally with both processes pinned to one CPU complex, and quote the median
+and IQR in the PR. For a near-stationary view, give a route a short distance at low speed.
 
 Trace overwrites, missing frame sequences and unclosed final intervals fail capture.
 Intervals belong to their starting frame, including a stall ending after the route.

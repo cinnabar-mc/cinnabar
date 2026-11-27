@@ -66,6 +66,7 @@ members = [
     "crates/render-api",
     "crates/cosmetics",
     "crates/test-alloc",
+    "crates/test-instructions",
     "crates/test-time",
     "crates/render-model",
     "crates/render-scene",
