@@ -60,6 +60,12 @@ pub(super) struct HandRigGpu {
     pub(super) spans: Option<Buffer>,
     pub(super) previous_bones: Option<Buffer>,
     pub(super) current_bones: Option<Buffer>,
+    /// The pose streams the buffers hold, so a publication that keeps a stream's allocation
+    /// does not rewrite it.
+    uploaded_pose: Option<PoseStreams>,
+    /// Queue writes into existing pose buffers.
+    #[cfg(test)]
+    pub(super) pose_writes: u64,
     /// Reused only by the compact layout to upload both pose endpoints together.
     compact_pose: Vec<u8>,
     pub(super) skin: Option<HandRigSkin>,
@@ -131,6 +137,9 @@ pub(super) fn init_gpu(
         spans: None,
         previous_bones: None,
         current_bones: None,
+        uploaded_pose: None,
+        #[cfg(test)]
+        pose_writes: 0,
         compact_pose: Vec::new(),
         skin: None,
         atlases: [None, None, None],
@@ -318,6 +327,13 @@ pub(super) fn upload_geometry(
 /// Uploads the current rig pose and instance stream into retained buffers; false when out of
 /// memory kept the previous pose.
 #[must_use]
+/// The pose allocations a hand rig frame draws from.
+struct PoseStreams {
+    instances: std::sync::Arc<[render_model::ActorGpuInstance]>,
+    previous_bones: std::sync::Arc<[[[f32; 4]; 3]]>,
+    current_bones: std::sync::Arc<[[[f32; 4]; 3]]>,
+}
+
 pub(super) fn upload_pose(
     gpu: &mut HandRigGpu,
     uploads: &crate::upload_staging::FrameUploads<'_>,
@@ -338,6 +354,23 @@ pub(super) fn upload_pose(
             .extend_from_slice(bytemuck::cast_slice(&frame.rig.current_bones));
     }
     let stream_count = if compact { 2 } else { 3 };
+    // A stream whose allocation the buffers already hold is unchanged: scene-only publications,
+    // such as new artwork, keep the pose allocations.
+    let same = |held: &PoseStreams| {
+        let instances = std::sync::Arc::ptr_eq(&held.instances, &frame.rig.instances);
+        let previous = std::sync::Arc::ptr_eq(&held.previous_bones, &frame.rig.previous_bones);
+        let current = std::sync::Arc::ptr_eq(&held.current_bones, &frame.rig.current_bones);
+        [
+            instances,
+            if compact {
+                previous && current
+            } else {
+                previous
+            },
+            current,
+        ]
+    };
+    let unchanged = gpu.uploaded_pose.as_ref().map_or([false; 3], same);
     // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
     let streams = [
         (
@@ -390,10 +423,13 @@ pub(super) fn upload_pose(
         &mut gpu.previous_bones,
         &mut gpu.current_bones,
     ];
-    for ((slot, (_label, bytes)), replacement) in slots
+    #[cfg(test)]
+    let mut writes = 0;
+    for (((slot, (_label, bytes)), replacement), unchanged) in slots
         .into_iter()
         .zip(streams)
         .zip(replacements)
+        .zip(unchanged)
         .take(stream_count)
     {
         #[cfg(feature = "tracy")]
@@ -406,10 +442,26 @@ pub(super) fn upload_pose(
         .entered();
         match (replacement, slot.as_ref()) {
             (Some(buffer), _) => *slot = Some(buffer),
-            (None, Some(buffer)) => uploads.write(buffer, 0, bytes),
+            (None, Some(_)) if unchanged => {}
+            (None, Some(buffer)) => {
+                uploads.write(buffer, 0, bytes);
+                #[cfg(test)]
+                {
+                    writes += 1;
+                }
+            }
             (None, None) => unreachable!("a missing stream is always replaced"),
         }
     }
+    #[cfg(test)]
+    {
+        gpu.pose_writes += writes;
+    }
+    gpu.uploaded_pose = Some(PoseStreams {
+        instances: std::sync::Arc::clone(&frame.rig.instances),
+        previous_bones: std::sync::Arc::clone(&frame.rig.previous_bones),
+        current_bones: std::sync::Arc::clone(&frame.rig.current_bones),
+    });
     gpu.maximum_vertex_count = frame.rig.maximum_vertex_count;
     gpu.instance_count = u32::try_from(frame.rig.instances.len()).unwrap_or(0);
     gpu.publication = Some(frame.publication);

@@ -93,6 +93,51 @@ fn changed_pose_under_a_reused_revision_uploads() {
     }
 }
 
+/// A publication that keeps the pose allocations, such as new artwork, rewrites no pose stream;
+/// a changed stream rewrites only itself.
+#[test]
+fn scene_only_publications_keep_unchanged_pose_streams() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let mut scene = HandRigScene::default();
+    let rig = single_instance_frame();
+    let mut upload = |gpu: &mut HandRigGpu, scene: &HandRigScene| {
+        let uploads = state.get(&world).unwrap();
+        assert!(upload_pose(gpu, &uploads, scene.frame.as_ref().unwrap()));
+    };
+    assert!(scene.publish(rig.clone(), skin(), light(), 1.2, 1));
+    upload(&mut gpu, &scene);
+    let writes = gpu.pose_writes;
+    assert!(scene.publish(rig.clone(), skin(), light(), 1.2, 2));
+    upload(&mut gpu, &scene);
+    assert_eq!(
+        gpu.pose_writes, writes,
+        "the same pose allocations need no writes"
+    );
+    let mut moved = rig.clone();
+    Arc::make_mut(&mut moved.current_bones)[0][0][0] = 2.0;
+    assert!(scene.publish(moved, skin(), light(), 1.2, 3));
+    upload(&mut gpu, &scene);
+    assert_eq!(
+        gpu.pose_writes,
+        writes + 1,
+        "only the changed stream is written"
+    );
+}
+
 /// Missing hand depth backs off, recovers, and retries a resized request immediately.
 #[test]
 fn hand_depth_allocation_failure_backs_off_then_recovers() {
