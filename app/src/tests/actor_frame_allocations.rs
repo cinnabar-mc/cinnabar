@@ -135,6 +135,12 @@ fn rig_tick(world: &World) -> Option<u64> {
         .map(|rig| rig.completed_tick)
 }
 
+/// The world's real-clock start, so every frame advances by exactly one frame however long
+/// setup took.
+fn frame_clock(world: &World) -> Instant {
+    world.resource::<Time<Real>>().startup()
+}
+
 /// Advances the real clock by one 60 Hz frame and runs the actor publication systems.
 fn actor_frame(world: &mut World, clock: &mut Instant) {
     *clock += Duration::from_nanos(16_666_667);
@@ -156,7 +162,7 @@ fn drawn_actors(world: &World) -> u64 {
 /// actors stand in view.
 fn steady_frame_allocations(actors: u64) -> u64 {
     let mut world = steady_actor_world(actors);
-    let mut clock = Instant::now();
+    let mut clock = frame_clock(&world);
     let mut worst = 0;
     for frame in 0..60 {
         let before_tick = rig_tick(&world);
@@ -175,7 +181,7 @@ fn steady_frame_allocations(actors: u64) -> u64 {
 #[test]
 fn instruction_budget_steady_actor_frames() {
     let mut world = steady_actor_world(48);
-    let mut clock = Instant::now();
+    let mut clock = frame_clock(&world);
     for _ in 0..30 {
         actor_frame(&mut world, &mut clock);
     }
