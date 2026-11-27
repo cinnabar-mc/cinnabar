@@ -255,7 +255,8 @@ fn coverage_skip_matches_compositing_uncovered_sprites() {
         return;
     };
     let shipped = include_str!("../../src/atmosphere.wesl");
-    let skip = "    if (mapping.z == 0.0) { return vec4(0.0); }\n";
+    // Without its line ending, which a Windows checkout may store as CRLF.
+    let skip = "if (mapping.z == 0.0) { return vec4(0.0); }";
     assert_eq!(
         shipped.matches(skip).count(),
         2,
