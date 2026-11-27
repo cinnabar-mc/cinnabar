@@ -37,9 +37,30 @@ use {
 use controls::{should_stop_emote, slot_key, wheel_key};
 type SlotPreferences = [Option<String>; EMOTE_SLOT_COUNT];
 
+/// What an open wheel or playing emote belongs to: the session, the local actor, its dimension
+/// and its rig's reset generation. A change retires both.
+pub(crate) type EmoteIdentity = (u64, u64, i32, u64);
+
+/// The local player's [`EmoteIdentity`], or `None` before the actor is known.
+pub(crate) fn local_emote_identity(
+    runtime: &UiRuntime,
+    player: &PlayerRuntime,
+    world: Option<&ClientWorld>,
+) -> Option<EmoteIdentity> {
+    let runtime_id = runtime.local_runtime_id(player)?;
+    let stream = world.and_then(|world| world.stream.as_ref());
+    let rig = stream.and_then(|stream| stream.authority().actor_rig(runtime_id));
+    Some((
+        runtime.session_id(),
+        runtime_id,
+        stream.map_or(0, |stream| stream.current_dimension()),
+        rig.map_or(0, |rig| rig.reset_generation),
+    ))
+}
+
 #[derive(Default)]
 pub(crate) struct ObservedEmotes {
-    identity: Option<(u64, u64, i32, u64)>,
+    identity: Option<EmoteIdentity>,
     preferences: Option<Option<SlotPreferences>>,
     catalog_generation: u64,
     pointer: Option<UiPoint>,
@@ -87,15 +108,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         .world
         .as_deref()
         .and_then(|world| world.stream.as_ref());
-    let rig = runtime_id.and_then(|id| stream.and_then(|stream| stream.authority().actor_rig(id)));
-    let identity = runtime_id.map(|id| {
-        (
-            input.runtime.session_id(),
-            id,
-            stream.map_or(0, |stream| stream.current_dimension()),
-            rig.map_or(0, |rig| rig.reset_generation),
-        )
-    });
+    let identity = local_emote_identity(&input.runtime, &input.player, input.world.as_deref());
     if identity != input.observed.identity {
         input.runtime.emotes_mut().close();
         input.runtime.emotes_mut().stop();

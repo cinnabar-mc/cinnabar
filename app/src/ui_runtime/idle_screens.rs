@@ -3,6 +3,7 @@ use bevy::prelude::{Local, Res};
 use client_shell::{input_activity::RawInput, menu::MenuRuntime, ui_resources::UiRuntimeResource};
 use client_ui::ui_runtime::scene_stack::Scene;
 
+use super::emotes::{EmoteIdentity, local_emote_identity};
 use super::input_owner::top_scene;
 use crate::runtime::world::ClientWorld;
 
@@ -16,9 +17,10 @@ pub(crate) struct IdleScreenReaders;
 
 /// Whether [`IdleScreenReaders`] run: this frame or the one before carried raw input, a screen
 /// above gameplay, a visible menu, consent-owned input, screen-consumed input, an open or
-/// requested editor, an open emote wheel or mob effects screen, or a playing emote. The frame
-/// after any of these still runs them, so state they keep from one frame to the next, such as
-/// whether they owned the cursor, settles first.
+/// requested editor, an open emote wheel or mob effects screen, a playing emote, or a changed
+/// [`EmoteIdentity`]. The frame after any of these still runs them, so state they keep from one
+/// frame to the next, such as whether they owned the cursor or whose emotes they hold, settles
+/// first: a wheel opened later is never retired for an identity change it did not see.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn screen_readers_due(
     input: RawInput,
@@ -29,8 +31,14 @@ pub(crate) fn screen_readers_due(
     consumed: Option<Res<client_state::ScreenInputConsumed>>,
     world: Option<Res<ClientWorld>>,
     mut busy_before: Local<bool>,
+    mut emote_identity: Local<Option<EmoteIdentity>>,
 ) -> bool {
-    let busy = input.active()
+    // Starts as the emote driver's own observation does: no identity yet.
+    let identity = local_emote_identity(&runtime, &player, world.as_deref());
+    let identity_changed = *emote_identity != identity;
+    *emote_identity = identity;
+    let busy = identity_changed
+        || input.active()
         || menu.as_deref().is_some_and(MenuRuntime::is_visible)
         || consent.is_some_and(|consent| consent.0)
         || consumed.is_some_and(|consumed| consumed.0)
