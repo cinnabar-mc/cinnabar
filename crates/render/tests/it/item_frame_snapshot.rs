@@ -253,7 +253,7 @@ fn render_face(
             Draw {
                 fragment: "block_entity_overlay",
                 vertices: textured_end..vertices.len() as u32,
-                bindings: &bindings[..5],
+                bindings: &bindings,
                 blend: None,
                 write_depth: true,
             },
