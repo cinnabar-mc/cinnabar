@@ -111,6 +111,7 @@ fn install_pass(world: &mut World) {
                     Some(render_scene::RuntimeStage::GpuPanorama),
                     "PanoramaPass",
                 )
+                .run_if(panorama_visible)
                 .after(bevy::core_pipeline::core_3d::main_transparent_pass_3d)
                 .after(crate::scene_target::ScenePass::Transparent)
                 .after(crate::ui_render::UiWorldLabel)
@@ -122,6 +123,12 @@ fn install_pass(world: &mut World) {
     {
         world.insert_resource(PassInstalled);
     }
+}
+
+/// Encodes the backdrop pass only while a panorama or startup cover is shown; the pass draws
+/// nothing otherwise.
+fn panorama_visible(gpu: Option<Res<PanoramaGpu>>) -> bool {
+    gpu.is_some_and(|gpu| gpu.visible)
 }
 
 #[derive(Resource)]
@@ -606,5 +613,25 @@ mod latency_tests {
             world.run_system_once(prepare_panorama).unwrap();
             assert!(world.resource::<PanoramaGpu>().visible);
         });
+    }
+
+    /// The backdrop pass is encoded only while preparation shows a panorama or startup cover.
+    #[test]
+    fn the_backdrop_pass_runs_only_while_shown() {
+        let (device, queue) = crate::gpu_timing::tests::noop_device(wgpu::Features::empty());
+        let mut world = World::new();
+        world.insert_resource(device);
+        world.insert_resource(queue);
+        world.insert_resource(PanoramaScene::default());
+        assert!(!world.run_system_once(panorama_visible).unwrap());
+        world.run_system_once(init_gpu).unwrap();
+        world
+            .resource_mut::<PanoramaScene>()
+            .set_game_visible(false);
+        world.run_system_once(prepare_panorama).unwrap();
+        assert!(world.run_system_once(panorama_visible).unwrap());
+        world.resource_mut::<PanoramaScene>().set_game_visible(true);
+        world.run_system_once(prepare_panorama).unwrap();
+        assert!(!world.run_system_once(panorama_visible).unwrap());
     }
 }

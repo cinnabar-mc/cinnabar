@@ -119,6 +119,7 @@ pub(crate) fn install_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(node::entity_shadows, None, "EntityShadowLabel")
+                    .run_if(shadows_uploaded)
                     .in_set(EntityShadowLabel)
                     .after(crate::scene_target::ScenePass::Opaque)
                     .after(crate::chunk::GpuCullLateLabel)
@@ -135,6 +136,11 @@ pub(crate) fn install_graph(world: &mut World) {
 
 #[derive(Resource)]
 struct ShadowPassInstalled;
+
+/// Encodes the shadow pass only when casters were uploaded; the pass draws nothing otherwise.
+fn shadows_uploaded(gpu: Option<Res<EntityShadowGpu>>) -> bool {
+    gpu.is_some_and(|gpu| gpu.count != 0)
+}
 
 mod gpu;
 mod node;

@@ -190,3 +190,23 @@ fn neutral_sky_shades_with_the_plain_grey_and_the_end_has_no_glow() {
     let end = noon.with_sky_kind(SkyKind::End);
     assert_eq!(shadow_params(&end).colour, [0.7, 0.7, 0.7, 1.0]);
 }
+
+/// The shadow pass is encoded only while casters are uploaded.
+#[test]
+fn the_shadow_pass_runs_only_while_casters_are_uploaded() {
+    let mut world = noop_world();
+    assert!(
+        !world.run_system_once(shadows_uploaded).unwrap(),
+        "an empty scene draws nothing"
+    );
+    let mut prepare = IntoSystem::into_system(prepare_shadow_buffers);
+    prepare.initialize(&mut world);
+
+    publish(&mut world, &[caster(0.0)]);
+    prepare.run((), &mut world).unwrap();
+    assert!(world.run_system_once(shadows_uploaded).unwrap());
+
+    publish(&mut world, &[]);
+    prepare.run((), &mut world).unwrap();
+    assert!(!world.run_system_once(shadows_uploaded).unwrap());
+}

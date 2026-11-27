@@ -21,7 +21,7 @@ use std::sync::Mutex;
 pub(crate) struct NametagOverlay;
 
 #[derive(Resource)]
-struct Installed;
+pub(super) struct Installed;
 
 /// Graded and pack views keep labels outside every world colour effect.
 pub(crate) fn enabled(enhanced: bool, pack: bool) -> bool {
@@ -41,6 +41,7 @@ pub(super) fn install_graph(world: &mut World) {
                     Some(render_scene::RuntimeStage::GpuUi),
                     "NametagOverlay",
                 )
+                .run_if(super::nametags_uploaded)
                 .in_set(NametagOverlay)
                 .after(Core3dSystems::PostProcess)
                 .after(crate::mod_render::ModPassLabel)
@@ -54,6 +55,11 @@ pub(super) fn install_graph(world: &mut World) {
     {
         world.insert_resource(Installed);
     }
+}
+
+/// Whether the overlay pass still needs adding to the 3D graph.
+pub(super) fn graph_missing(installed: Option<Res<Installed>>) -> bool {
+    installed.is_none()
 }
 
 #[derive(Component)]
