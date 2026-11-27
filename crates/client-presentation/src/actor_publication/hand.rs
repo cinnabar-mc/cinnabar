@@ -145,7 +145,7 @@ pub(super) fn publish_hand_rig(
         .and_then(|(source, fov)| Some((source, fov, source.presentation.skin_rgba8.clone()?)))
     else {
         published.record(None, None);
-        if scene.frame.is_some() {
+        if scene.is_active() {
             scene.clear();
         }
         return;
@@ -183,7 +183,7 @@ pub(super) fn publish_hand_rig(
         {
             let fresh = builder.build(partial_tick, None, inputs.submissions().iter().cloned());
             assert!(
-                scene.frame.as_ref().is_some_and(|held| {
+                scene.frame().is_some_and(|held| {
                     super::hand_publication::same_frame(&held.rig, &fresh)
                         && held.skin == skin
                         && held.light == light

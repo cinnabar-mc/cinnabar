@@ -280,8 +280,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 );
                 let hand = world
                     .resource::<render_scene::HandRigScene>()
-                    .frame
-                    .as_ref()
+                    .frame()
                     .expect("first-person hand remains available");
                 assert!(!hand.rig.instances.is_empty());
                 let unchanged = stream.authority().actor_rig(1).unwrap();

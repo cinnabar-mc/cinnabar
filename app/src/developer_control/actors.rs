@@ -32,7 +32,7 @@ fn hand_item_counts(instances: &[render_model::ActorGpuInstance]) -> [usize; 2] 
 pub(super) fn hand_snapshot(world: &World) -> Value {
     let Some(frame) = world
         .get_resource::<render_scene::HandRigScene>()
-        .and_then(|scene| scene.frame.as_ref())
+        .and_then(|scene| scene.frame())
     else {
         return Value::Null;
     };

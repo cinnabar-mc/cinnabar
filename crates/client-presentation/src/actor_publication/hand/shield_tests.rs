@@ -183,8 +183,7 @@ fn first_person_shield_readiness_reuses_composition_across_published_frames() {
         );
         let frame = world
             .resource::<render_scene::HandRigScene>()
-            .frame
-            .as_ref()
+            .frame()
             .unwrap();
         assert!(pixels.ptr_eq(&frame.item_atlases[0].as_ref().unwrap().rgba8));
         retained = Some(pixels);

@@ -266,7 +266,7 @@ fn prepare_views(
         .map(|profiler| profiler.time(RuntimeStage::ShaderpackUniforms));
     let hand_fov = hand
         .as_ref()
-        .and_then(|hand| hand.frame.as_ref())
+        .and_then(|hand| hand.frame())
         .map_or(DEFAULT_HAND_FOV_DEGREES.to_radians(), |frame| {
             frame.fov_radians
         });

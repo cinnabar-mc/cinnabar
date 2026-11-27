@@ -147,8 +147,7 @@ impl Frames {
     fn published(&self) -> Vec<render_model::ActorGpuInstance> {
         self.world
             .resource::<render_scene::HandRigScene>()
-            .frame
-            .as_ref()
+            .frame()
             .expect("the hand draws")
             .rig
             .instances
@@ -303,8 +302,8 @@ fn outside_publication_under_the_same_revision_is_not_kept() {
     let held = frames
         .world
         .resource::<render_scene::HandRigScene>()
-        .frame
-        .clone()
+        .frame()
+        .cloned()
         .expect("the hand draws");
     let mut scene = frames.world.resource_mut::<render_scene::HandRigScene>();
     assert!(scene.publish(
@@ -413,8 +412,7 @@ fn artwork_edited_in_place_is_republished() {
         frames
             .world
             .resource::<render_scene::HandRigScene>()
-            .frame
-            .as_ref()
+            .frame()
             .is_some_and(|frame| frame.item_atlases[2].is_some()),
         "republishing restores the map background"
     );
