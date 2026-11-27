@@ -352,13 +352,20 @@ fn idle_passes_without_spawners_publish_nothing_until_one_arrives() {
             .unwrap();
         stream.poll([1024.0, 66.0, 1024.0], 0);
     }
+    // Displays publish under their store's own session, and that store numbers its first display
+    // runtime 1, so they are told from world actors by session, not runtime id.
     let displayed = |world: &bevy::prelude::World| {
+        let world_session = world
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().actor_session_id());
         world
             .resource::<PreparedActorPublication>()
             .submissions()
             .unwrap_or_default()
             .iter()
-            .filter(|body| body.input.identity.runtime_id != 1)
+            .filter(|body| Some(body.input.identity.session_id) != world_session)
             .count()
     };
     for _ in 0..4 {

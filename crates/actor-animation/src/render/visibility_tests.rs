@@ -703,13 +703,16 @@ fn engine_variable_gates_skip_independent_setup_scripts() {
             // The swing interpolates 0.1 to 0.9, so only the later fraction passes the gate.
             assert_eq!(visibility.hides_body(), alpha < 0.5);
             assert!(!visibility.hides_held_items());
-            assert_eq!(
-                setup
-                    .iter()
-                    .any(|&index| work.get(index).is_some_and(|&runs| runs > 0)),
-                setup_writes_gate,
-                "alpha {alpha}: setup work {work:?}"
-            );
+            let runs = |index: usize| work.get(index).is_some_and(|&runs| runs > 0);
+            if setup_writes_gate {
+                // The gate reads slot 9, which only pre-animation writes here.
+                assert!(runs(setup[1]), "alpha {alpha}: setup work {work:?}");
+            } else {
+                assert!(
+                    !setup.iter().any(|&index| runs(index)),
+                    "alpha {alpha}: setup work {work:?}"
+                );
+            }
         }
     }
 }

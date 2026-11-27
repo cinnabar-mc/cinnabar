@@ -294,5 +294,20 @@ fn composite_without_a_load_overwrites_stale_destination_pixels() {
         return;
     };
     assert!(skipped.iter().all(|pixel| *pixel != STALE));
+    // A pixel both draws missed would match between the two loads without either draw writing
+    // it, so empty UI pixels must also show the (nonzero) scene.
+    for (index, pixel) in ui.iter().enumerate() {
+        if *pixel == [0; 4] {
+            let written = skipped[index];
+            assert!(
+                written
+                    .iter()
+                    .zip(scene[index])
+                    .all(|(written, scene)| (written - scene).abs() < 1e-5),
+                "pixel {index}: {written:?} is not the scene {:?}",
+                scene[index]
+            );
+        }
+    }
     assert_eq!(skipped, cleared);
 }

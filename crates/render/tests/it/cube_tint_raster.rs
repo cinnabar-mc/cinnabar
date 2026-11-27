@@ -567,10 +567,18 @@ fn baked_one_block_tints_draw_the_uncached_blend() {
     else {
         return;
     };
-    // The cached layout takes a storage slot beyond the default limit; production devices
-    // take the adapter's.
+    // The cached layout takes a vertex storage slot beyond `required_vertex_storage_buffers`,
+    // as `tint_cache::supported` requires; production devices take the adapter's limit.
+    let adapter_storage = adapter.limits().max_storage_buffers_per_shader_stage;
+    if adapter_storage <= render::required_vertex_storage_buffers() {
+        eprintln!(
+            "missing fixture: {name}: the adapter exposes {adapter_storage} storage buffers per \
+             stage, too few for the tint cache layout"
+        );
+        return;
+    }
     let limits = wgpu::Limits {
-        max_storage_buffers_per_shader_stage: adapter.limits().max_storage_buffers_per_shader_stage,
+        max_storage_buffers_per_shader_stage: adapter_storage,
         ..Default::default()
     };
     let Some(gpu) = Gpu::for_fixture_with_limits(name, wgpu::Features::empty(), limits) else {

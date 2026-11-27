@@ -215,16 +215,29 @@ fn composite(
 /// under empty, translucent and opaque UI alike.
 #[test]
 fn fused_composite_matches_resolving_then_compositing() {
-    let Some(fixture) = crate::gpu_snapshot::Gpu::for_fixture_with(
+    let Some((fixture, adapter)) = crate::gpu_snapshot::Gpu::for_fixture_with_adapter(
         "tabulated two-sample resolve",
         wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+        wgpu::Limits::default(),
     ) else {
         return;
     };
     let (gpu, queue) = (&fixture.device, &fixture.queue);
+    // The same capabilities `supported` requires before building the table.
+    let resolves_two_samples = |format| {
+        let flags = adapter.get_texture_format_features(format).flags;
+        flags.sample_count_supported(2)
+            && flags.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
+    };
     if !gpu
         .features()
         .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+        || ![
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        ]
+        .into_iter()
+        .all(resolves_two_samples)
     {
         eprintln!("missing fixture: two-sample render targets for the resolve table");
         return;
