@@ -621,3 +621,47 @@ fn a_settled_download_no_paint_asks_for_again_stops_waiting() {
     atlas.begin_frame();
     assert!(!atlas.completions_waiting());
 }
+
+/// Downloads that each settle on their own.
+struct Downloads(Mutex<std::collections::BTreeMap<String, RemoteImage>>);
+
+impl RemoteSource for Downloads {
+    fn state(&self, url: &str) -> RemoteImage {
+        self.0
+            .lock()
+            .unwrap()
+            .get(url)
+            .cloned()
+            .unwrap_or(RemoteImage::Loading)
+    }
+}
+
+// More loading downloads than the atlas tracks: one it had no room for still makes a frame
+// build when it settles, because the paint that missed it keeps the next frame building.
+#[test]
+fn a_loading_download_beyond_the_tracked_set_still_wakes_the_frame() {
+    let download = Arc::new(Downloads(Mutex::default()));
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(None, Some(download.clone()));
+    let urls: Vec<String> = (0..=MAX_EXTRA)
+        .map(|index| format!("https://example.invalid/{index}.png"))
+        .collect();
+    atlas.begin_frame();
+    atlas.require(urls.iter().map(String::as_str));
+    let untracked = urls
+        .iter()
+        .find(|url| !atlas.loading_remote.borrow().contains(*url))
+        .expect("one download exceeds the tracked set")
+        .clone();
+    download
+        .0
+        .lock()
+        .unwrap()
+        .insert(untracked.clone(), RemoteImage::Ready(png(16, 16).into()));
+    assert!(
+        atlas.completions_waiting(),
+        "the untracked download's completion makes the next frame build"
+    );
+    atlas.begin_frame();
+    atlas.require([untracked.as_str()]);
+    assert!(atlas.placement(&untracked).is_some());
+}

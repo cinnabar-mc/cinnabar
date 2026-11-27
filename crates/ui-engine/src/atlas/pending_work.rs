@@ -8,6 +8,7 @@ impl ServerAtlas {
     /// them loading stop waiting: this frame's paints request them again if they still draw them.
     pub fn begin_frame(&mut self) {
         self.decodes.deferred = false;
+        self.untracked_remote.set(false);
         if let Some(remote) = self.remote.as_ref() {
             self.loading_remote
                 .get_mut()
@@ -17,9 +18,11 @@ impl ServerAtlas {
 
     /// Whether decode work a later require would collect, or a decode left for a later frame,
     /// is waiting: a frame drawn without it may draw differently once it lands.
-    /// A download a paint found still loading counts once it settles, ready or failed.
+    /// A download a paint found still loading counts once it settles, ready or failed; one the
+    /// paint could not track counts at once, so each frame asks again until it can be tracked.
     pub fn completions_waiting(&self) -> bool {
         self.decodes.deferred
+            || self.untracked_remote.get()
             || self.decodes.jobs.completion_waiting()
             || self.remote.as_ref().is_some_and(|remote| {
                 self.loading_remote

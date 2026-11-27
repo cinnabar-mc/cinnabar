@@ -19,6 +19,7 @@ impl ServerAtlas {
         self.extra.get_mut().clear();
         self.extra_sidecars.get_mut().clear();
         self.loading_remote.get_mut().clear();
+        self.untracked_remote.set(false);
         self.local_reads = Default::default();
         self.decodes = Default::default();
         self.native = Default::default();

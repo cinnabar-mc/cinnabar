@@ -23,8 +23,10 @@ impl ServerAtlas {
             let mut loading = self.loading_remote.borrow_mut();
             if settled {
                 loading.remove(key);
-            } else if loading.len() < MAX_EXTRA {
+            } else if loading.len() < MAX_EXTRA || loading.contains(key) {
                 loading.insert(key.to_owned());
+            } else {
+                self.untracked_remote.set(true);
             }
         }
         if settled {

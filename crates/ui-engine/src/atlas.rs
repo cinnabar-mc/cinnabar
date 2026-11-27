@@ -301,6 +301,9 @@ pub struct ServerAtlas {
     remote: Option<Arc<dyn RemoteSource>>,
     /// Downloaded URLs a paint asked for while they were still loading.
     loading_remote: RefCell<std::collections::BTreeSet<String>>,
+    /// Whether a paint this frame asked for a loading URL [`Self::loading_remote`] had no room
+    /// to track, so its completion cannot be noticed.
+    untracked_remote: std::cell::Cell<bool>,
     resident: BTreeMap<String, ServerTexture>,
     pages: Vec<Page>,
     images: Vec<UiTexturePage>,
