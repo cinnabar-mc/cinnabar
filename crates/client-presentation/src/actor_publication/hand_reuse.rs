@@ -110,7 +110,8 @@ fn same_presentation(left: &ActorRigPresentation, right: &ActorRigPresentation) 
 }
 
 impl ReuseKey {
-    /// Captures the inputs the source was or would be built from.
+    /// Captures the inputs the source was or would be built from, or `None` when no source built
+    /// from them could be reused.
     pub(super) fn new(
         stream: &WorldStream,
         presentation: &ActorRigPresentation,
@@ -121,11 +122,16 @@ impl ReuseKey {
         ),
         (alpha, aspect, java_mode, session): (f32, f32, bool, u64),
     ) -> Option<Self> {
+        // `reusable` rejects Java mode and held items, so they skip the lookup and clone.
+        let hands_empty = equipment.main.is_none() && equipment.off.is_none();
+        if java_mode || !hands_empty {
+            return None;
+        }
         let runtime_id = presentation.submission.input.identity.runtime_id;
         Some(Self {
             revision: stream.authority().actor_presentation_revision(runtime_id)?,
             presentation: presentation.clone(),
-            hands_empty: equipment.main.is_none() && equipment.off.is_none(),
+            hands_empty,
             hand_use: (
                 consume_ticks,
                 item_animation.map(|input| {
@@ -168,6 +174,8 @@ pub(super) struct KeyedSource {
     pub(super) reusable: bool,
     /// Whether the source is the previous frame's published source, taken across frames.
     pub(super) retained: bool,
+    /// Whether this frame's readiness check ran on this source, so its cached result applies.
+    pub(super) readiness_checked: bool,
 }
 
 /// The geometry catalog revision, projection bits and hand motion bits a readiness check ran
@@ -203,12 +211,23 @@ impl HandReuse {
         Some(source)
     }
 
-    /// Retains a published source for the next frame when it may outlive this one.
+    /// Retains a published source for the next frame when it may outlive this one. A source
+    /// that readiness did not check also forgets the cached readiness, which belongs to the
+    /// source it checked.
     pub(super) fn retain(&mut self, keyed: Option<KeyedSource>, source: Option<HandSource>) {
+        self.keep_readiness_for(keyed.as_ref().map(|keyed| keyed.readiness_checked));
         self.retained = keyed
             .filter(|keyed| keyed.reusable)
             .zip(source)
             .map(|(keyed, source)| (keyed.key, source));
+    }
+
+    /// Forgets the cached readiness unless the published source, keyed when `checked` is
+    /// `Some`, is the one readiness checked.
+    fn keep_readiness_for(&mut self, checked: Option<bool>) {
+        if checked == Some(false) {
+            self.ready = None;
+        }
     }
 
     /// Forgets the retained source and any reuse in progress.
@@ -232,4 +251,27 @@ pub(super) fn same_output(reused: &HandSource, fresh: &HandSource) -> bool {
             == fresh.item_glint.as_ref().map(|glint| &glint.rgba8)
         && reused.maps.background.as_ref().map(|atlas| &atlas.rgba8)
             == fresh.maps.background.as_ref().map(|atlas| &atlas.rgba8)
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::HandReuse;
+
+    /// Readiness cached for one source never vouches for a source rebuilt after the check.
+    #[test]
+    fn a_source_rebuilt_after_readiness_forgets_the_cached_result() {
+        let mut reuse = HandReuse {
+            ready: Some(((1, None, [0; 16]), true)),
+            ..HandReuse::default()
+        };
+        reuse.keep_readiness_for(Some(true));
+        assert!(reuse.ready.is_some(), "the checked source keeps it");
+        reuse.keep_readiness_for(None);
+        assert!(
+            reuse.ready.is_some(),
+            "an unkeyed frame is checked again anyway"
+        );
+        reuse.keep_readiness_for(Some(false));
+        assert!(reuse.ready.is_none(), "a rebuilt source forgets it");
+    }
 }

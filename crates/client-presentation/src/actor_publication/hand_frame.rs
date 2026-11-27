@@ -126,8 +126,10 @@ pub(super) fn prepare(
                 });
             }
             let source = hand::source(inputs, java_mode, equipment, java_hand);
+            // Rebuilt after readiness, so the readiness result belongs to another source.
             final_keyed = reuse_key.map(|key| super::hand_reuse::KeyedSource {
                 retained: false,
+                readiness_checked: false,
                 reusable: source
                     .as_ref()
                     .is_some_and(|source| key.reusable(stream, source)),

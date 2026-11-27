@@ -499,6 +499,7 @@ pub fn advance_actor_frame(
                     key,
                     reusable: true,
                     retained: true,
+                    readiness_checked: true,
                 });
                 return Some(source);
             }
@@ -508,6 +509,7 @@ pub fn advance_actor_frame(
             equipment.end_hand_readiness();
             *ready_keyed = key.map(|key| super::hand_reuse::KeyedSource {
                 retained: false,
+                readiness_checked: true,
                 reusable: source
                     .as_ref()
                     .is_some_and(|source| key.reusable(stream, source)),
