@@ -574,19 +574,24 @@ impl Plugin for InputPacingPlugin {
             render_app.add_systems(
                 Render,
                 (
-                    (
-                        mark_surface_start.before(bevy::render::view::window::prepare_windows),
-                        mark_surface_end.after(bevy::render::view::window::prepare_windows),
-                    )
-                        .in_set(RenderSystems::PrepareViews),
-                    mark_render_submitted
-                        .in_set(RenderSystems::Render)
-                        .after(crate::device_poll::FrameSubmissions)
-                        .before(crate::device_poll::poll_device),
-                ),
+                    mark_surface_start.before(bevy::render::view::window::prepare_windows),
+                    mark_surface_end.after(bevy::render::view::window::prepare_windows),
+                )
+                    .in_set(RenderSystems::PrepareViews),
             );
+            #[cfg(any(target_os = "macos", test))]
+            track_feeding_work(render_app.world_mut());
         }
     }
+}
+
+/// Ends each frame's feeding work once the frame is submitted, before its poll waits on the GPU.
+#[cfg(any(target_os = "macos", test))]
+fn track_feeding_work(render_world: &mut World) {
+    let pacer = render_world.resource::<InputPacer>().clone();
+    render_world
+        .get_resource_or_init::<crate::device_poll::FrameSubmitted>()
+        .subscribe(move || pacer.render_work_finished());
 }
 
 fn mark_update_start(pacer: Res<InputPacer>) {
@@ -603,30 +608,6 @@ fn mark_render_start(pacer: Res<InputPacer>) {
     pacer.render_started();
 }
 
-/// Runs `mark` where the frame's deferred submission and device poll run: in the render frame
-/// tail when the render thread runs one, otherwise at once.
-fn in_frame_order(
-    tail: Option<Res<RenderFrameTail>>,
-    on_render_thread: Option<Res<FrameTailOnRenderThread>>,
-    mark: impl FnOnce() + Send + 'static,
-) {
-    match tail.filter(|_| on_render_thread.is_some()) {
-        Some(tail) => tail.defer(mark),
-        None => mark(),
-    }
-}
-
-/// Marks the frame's CPU work done once it is submitted, before the device poll waits on the GPU.
-#[cfg(any(target_os = "macos", test))]
-fn mark_render_submitted(
-    pacer: Res<InputPacer>,
-    tail: Option<Res<RenderFrameTail>>,
-    on_render_thread: Option<Res<FrameTailOnRenderThread>>,
-) {
-    let pacer = pacer.clone();
-    in_frame_order(tail, on_render_thread, move || pacer.render_work_finished());
-}
-
 /// Marks the frame rendered once its submission and backpressure are done, so pacing counts the
 /// render frame tail's work and waits.
 fn mark_render_end(
@@ -634,8 +615,13 @@ fn mark_render_end(
     tail: Option<Res<RenderFrameTail>>,
     on_render_thread: Option<Res<FrameTailOnRenderThread>>,
 ) {
-    let pacer = pacer.clone();
-    in_frame_order(tail, on_render_thread, move || pacer.render_finished());
+    match tail.filter(|_| on_render_thread.is_some()) {
+        Some(tail) => {
+            let pacer = pacer.clone();
+            tail.defer(move || pacer.render_finished());
+        }
+        None => pacer.render_finished(),
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]

@@ -79,6 +79,30 @@ impl FramesInFlight {
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FrameSubmissions;
 
+/// Hooks run once each frame's last submission is made, before its poll may wait on the GPU.
+#[derive(Resource, Default, Clone)]
+pub(crate) struct FrameSubmitted(Arc<Mutex<Vec<SubmittedHook>>>);
+
+type SubmittedHook = Box<dyn Fn() + Send + Sync>;
+
+impl FrameSubmitted {
+    /// Runs `hook` after every later frame's submission, where the frame's poll runs.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn subscribe(&self, hook: impl Fn() + Send + Sync + 'static) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Box::new(hook));
+    }
+
+    /// Runs every subscribed hook.
+    pub(crate) fn notify(&self) {
+        for hook in self.0.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            hook();
+        }
+    }
+}
+
 /// Polls issued so far; tests read it to prove there is exactly one per frame.
 #[derive(Resource, Default, Debug, Clone)]
 pub(crate) struct DevicePolls(pub(crate) Arc<AtomicU64>);
@@ -182,6 +206,7 @@ pub(crate) fn install(render_app: &mut SubApp) {
     render_app
         .init_resource::<DevicePolls>()
         .init_resource::<FramesInFlight>()
+        .init_resource::<FrameSubmitted>()
         .init_resource::<WorkerSubmitGate>()
         .configure_sets(
             Render,
@@ -242,7 +267,7 @@ fn frame_submission(
 /// fires need no render world, so the next extraction overlaps them. They still run before the
 /// next render frame, so readers keep seeing what arrived by the previous frame's poll.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn poll_device(
+fn poll_device(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     pending: Option<ResMut<PendingCommandBuffers>>,
@@ -251,6 +276,7 @@ pub(crate) fn poll_device(
     tail: Option<Res<RenderFrameTail>>,
     on_render_thread: Option<Res<FrameTailOnRenderThread>>,
     tail_submission: Option<Res<FrameSubmission>>,
+    submitted_hooks: Res<FrameSubmitted>,
 ) {
     let tail = tail.filter(|_| on_render_thread.is_some());
     let mut pending = pending.map(ResMut::into_inner);
@@ -268,6 +294,7 @@ pub(crate) fn poll_device(
     };
     let queue = queue.clone();
     let (device, frames, polls) = (device.wgpu_device().clone(), frames.clone(), polls.clone());
+    let submitted_hooks = submitted_hooks.clone();
     let poll = move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("render.device_poll").entered();
@@ -276,6 +303,7 @@ pub(crate) fn poll_device(
                 .and_then(|submission| submission.take_index())
                 .unwrap_or_else(|| queue.submit([]))
         });
+        submitted_hooks.notify();
         if let Err(error) = frames.finish_frame(&device, submission) {
             warn!(?error, "could not poll the render device");
         }

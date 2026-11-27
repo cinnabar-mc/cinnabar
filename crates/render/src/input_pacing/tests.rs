@@ -605,14 +605,21 @@ fn render_completion_counts_the_frame_tail_on_the_render_thread() {
     world.insert_resource(pacer.clone());
     world.insert_resource(tail.clone());
     world.insert_resource(FrameTailOnRenderThread);
+    track_feeding_work(&mut world);
+    let submitted = world
+        .resource::<crate::device_poll::FrameSubmitted>()
+        .clone();
     pacer.render_started();
     clock.advance(ms(2.0));
-    world.run_system_once(mark_render_submitted).unwrap();
-    let poll_wait = clock.clone();
-    tail.defer(move || poll_wait.advance(ms(5.0)));
+    // The frame's poll in the tail: its submission, then the GPU wait.
+    let poll = clock.clone();
+    tail.defer(move || {
+        poll.advance(ms(1.0));
+        submitted.notify();
+        poll.advance(ms(5.0));
+    });
     world.run_system_once(mark_render_end).unwrap();
     assert_eq!(pacer.state().finished, 0, "the tail has not run yet");
-    clock.advance(ms(1.0));
     tail.run();
     let state = pacer.state();
     assert_eq!(state.finished, 1);

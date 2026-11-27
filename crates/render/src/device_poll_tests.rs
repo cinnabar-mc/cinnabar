@@ -223,6 +223,30 @@ fn a_frame_without_a_graph_submission_sends_its_staged_writes() {
     assert_eq!(*written, STAGED);
 }
 
+/// Hooks see a frame whose graph submits nothing only after its fallback submission sends the
+/// staged writes, and before the poll records the frame.
+#[test]
+fn frame_submitted_hooks_run_after_the_fallback_submission() {
+    let (mut app, _) = writes_only_app();
+    let queue = app.world().resource::<RenderQueue>().clone();
+    let frames = app.world().resource::<FramesInFlight>().clone();
+    let seen = Arc::new(std::sync::Mutex::new(None));
+    let (hook_queue, hook_seen) = (queue.clone(), Arc::clone(&seen));
+    app.world()
+        .resource::<super::FrameSubmitted>()
+        .subscribe(move || {
+            let recorded = frames.0.lock().unwrap().len();
+            *hook_seen.lock().unwrap() = Some((submission_marker(&hook_queue), recorded));
+        });
+    let before = submission_marker(&queue);
+    app.world_mut().run_schedule(Render);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        Some((before + 2, 0)),
+        "the hook runs after the frame's own submission and before the poll records it"
+    );
+}
+
 /// Stands in for an owner that submits its own work after the graph, like the Metal queue probe.
 fn submit_after_graph(
     device: Res<RenderDevice>,
