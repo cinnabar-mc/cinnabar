@@ -177,7 +177,10 @@ fn install_ui_render(app: &mut App) {
         .init_resource::<composite::fused::FusedComposite>()
         .add_systems(
             Render,
-            presentation::observe_ui_frame
+            (
+                presentation::observe_ui_frame,
+                composite::fused::retire_unused_bindings,
+            )
                 .after(bevy::render::renderer::render_system)
                 .before(crate::device_poll::FrameSubmissions),
         )

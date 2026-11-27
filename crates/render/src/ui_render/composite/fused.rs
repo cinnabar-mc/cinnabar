@@ -3,17 +3,27 @@
 //! the device's own tabulated resolve ([`crate::scene_target::resolve_lut`]).
 
 use super::*;
+#[cfg(test)]
+#[path = "fused_tests.rs"]
+mod tests;
 use bevy::render::render_resource::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, CachedRenderPipelineId,
     PipelineCache, RenderPipeline, ShaderStages, TextureSampleType, TextureViewDimension,
 };
 
-/// Fused composite pipelines per output format and their cached bindings.
+/// Fused composite pipelines per output format and each view's cached binding.
 #[derive(Resource)]
 pub(crate) struct FusedComposite {
     layout: BindGroupLayoutDescriptor,
     pipelines: Mutex<HashMap<TextureFormat, CachedRenderPipelineId>>,
-    bindings: Mutex<HashMap<[TextureViewId; 2], BindGroup>>,
+    bindings: Mutex<HashMap<Entity, FusedBinding>>,
+}
+
+/// A view's binding of its current layer and scene samples, and whether this frame drew it.
+struct FusedBinding {
+    targets: [TextureViewId; 2],
+    group: BindGroup,
+    used: bool,
 }
 
 impl Default for FusedComposite {
@@ -38,9 +48,6 @@ impl Default for FusedComposite {
         }
     }
 }
-
-/// Retained bindings beyond which the cache restarts, bounding retired texture views.
-const MAX_BINDINGS: usize = 8;
 
 impl FusedComposite {
     /// The compiled fused composite writing `format`, queuing it on first use.
@@ -71,6 +78,7 @@ impl FusedComposite {
         &self,
         context: &'c mut RenderContext,
         world: &World,
+        view: Entity,
         (layer, samples, table): (&UiLayerTexture, &TextureView, &TextureView),
         destination: RenderPassColorAttachment<'_>,
         pipeline: &'c RenderPipeline,
@@ -81,24 +89,25 @@ impl FusedComposite {
                 .bindings
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let key = [layer.view.id(), samples.id()];
-            if !bindings.contains_key(&key) && bindings.len() >= MAX_BINDINGS {
-                bindings.clear();
+            let targets = [layer.view.id(), samples.id()];
+            let create = || {
+                context.render_device().create_bind_group(
+                    Some("fused UI composite bindings"),
+                    &cache.get_bind_group_layout(&self.layout),
+                    &BindGroupEntries::with_indices(((0, &layer.view), (3, samples), (4, table))),
+                )
+            };
+            let binding = bindings.entry(view).or_insert_with(|| FusedBinding {
+                targets,
+                group: create(),
+                used: true,
+            });
+            if binding.targets != targets {
+                binding.targets = targets;
+                binding.group = create();
             }
-            bindings
-                .entry(key)
-                .or_insert_with(|| {
-                    context.render_device().create_bind_group(
-                        Some("fused UI composite bindings"),
-                        &cache.get_bind_group_layout(&self.layout),
-                        &BindGroupEntries::with_indices((
-                            (0, &layer.view),
-                            (3, samples),
-                            (4, table),
-                        )),
-                    )
-                })
-                .clone()
+            binding.used = true;
+            binding.group.clone()
         };
         if let Some(profile) = world.get_resource::<super::super::profile::UiProfile>() {
             profile.record_pass(render_scene::RuntimeStage::GpuUiComposite);
@@ -122,4 +131,14 @@ impl FusedComposite {
         pass.draw(0..3, 0..1);
         pass
     }
+}
+
+/// Drops the bindings no view drew this frame, releasing retired layer and scene targets once
+/// a view is resized, removed or stops fusing its composite.
+pub(crate) fn retire_unused_bindings(fused: Res<FusedComposite>) {
+    fused
+        .bindings
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|_, binding| std::mem::take(&mut binding.used));
 }

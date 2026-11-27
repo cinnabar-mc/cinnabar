@@ -83,6 +83,7 @@ pub(crate) fn ui_present(
                         fused.encode(
                             &mut context,
                             world,
+                            entity,
                             (layer, samples, &table.view),
                             attachment,
                             pipeline,
