@@ -144,8 +144,10 @@ pub(super) fn drive_mod(
                 output.as_ref().and_then(|output| output.drawing.clone()),
                 packet_render::session(&gameplay),
             );
-            if let Some(scene) = render_scene.as_deref_mut() {
-                packet_render::publish_alone(scene, drawing);
+            if let Some(scene) = render_scene.as_mut()
+                && packet_render::publish_alone(scene.bypass_change_detection(), drawing)
+            {
+                scene.set_changed();
             }
         }
         let source = output.as_ref().map_or(0, |output| output.camera_sequence);
@@ -196,8 +198,10 @@ pub(super) fn drive_mod(
         gameplay.apply_movement_input(None, false, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
-            if let Some(scene) = render_scene.as_deref_mut() {
-                packet_render::publish_alone(scene, drawing);
+            if let Some(scene) = render_scene.as_mut()
+                && packet_render::publish_alone(scene.bypass_change_detection(), drawing)
+            {
+                scene.set_changed();
             }
         }
         if let Some(packets) = packets.as_ref() {

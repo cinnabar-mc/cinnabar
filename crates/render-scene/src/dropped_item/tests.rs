@@ -78,3 +78,36 @@ fn empty_terrain_publications_keep_their_list_until_candidates_arrive() {
     scene.publish_terrain_instances(8, &[]);
     assert!(scene.terrain_instances.is_empty());
 }
+
+#[test]
+fn steady_empty_frames_publish_the_same_scene() {
+    let mut scene = DroppedItemScene::default();
+    scene.publish(1, Arc::from([]), &[], &[], &[], 1.0);
+    scene.publish_terrain_instances(7, &[]);
+    scene.set_glint(None, [0.1, 0.0, 1.0]);
+    let before = scene.clone();
+    scene.publish(1, Arc::from([]), &[], &[], &[], 1.0);
+    scene.publish_terrain_instances(7, &[]);
+    scene.set_glint(None, [0.2, 0.0, 1.0]);
+    assert!(
+        scene.publishes_same(&before),
+        "with nothing drawn, only the glint clock moved"
+    );
+
+    let instance = DroppedItemInstance {
+        model: 0,
+        world_from_item: dropped_item_transform([0.0; 3], 0.0, 1.0),
+        block_level: 0,
+        sky_level: 15,
+        overlay_rgba8: 0,
+        glint: true,
+    };
+    scene.publish(1, Arc::from([]), &[instance], &[], &[], 1.0);
+    assert!(!scene.publishes_same(&before));
+    let drawn = scene.clone();
+    scene.set_glint(None, [0.3, 0.0, 1.0]);
+    assert!(
+        !scene.publishes_same(&drawn),
+        "a drawn glint animates with the clock"
+    );
+}

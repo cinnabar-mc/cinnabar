@@ -70,13 +70,19 @@ pub fn drive_primitive_shapes(
     runtime: &client_ui::ui_runtime::UiRuntime,
     mut publisher: bevy::prelude::Local<PrimitiveShapePublisher>,
 ) {
+    // The scene is extracted whenever it counts as changed, so it is marked only when what the
+    // renderer reads from it differs; the store's contents are shared, not extracted.
+    let before = scene.published();
     publisher.publish(
         stream,
-        &mut scene,
+        bevy::prelude::DetectChangesMut::bypass_change_detection(&mut scene),
         now,
         partial_tick,
         Some(view.feet_translation().to_array()),
     );
+    if scene.published() != before {
+        bevy::prelude::DetectChangesMut::set_changed(&mut scene);
+    }
     let mut store = scene.store.lock().expect("primitive store lock poisoned");
     presentation.prepare_primitive_text(&mut store, runtime);
 }

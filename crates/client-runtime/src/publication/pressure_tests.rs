@@ -442,3 +442,37 @@ fn renderer_budget_carries_the_preparation_time_allowance() {
     controller.begin_frame(Duration::from_millis(16));
     assert_eq!(controller.budget().max_preparation_time, allowance);
 }
+
+/// The budget is extracted whenever it counts as changed, so only a new value may mark it.
+#[test]
+fn the_budget_counts_as_changed_only_when_its_value_changes() {
+    use bevy::prelude::DetectChanges;
+    #[derive(bevy::prelude::Resource, Default)]
+    struct Seen(Vec<(bool, ChunkUploadBudget)>);
+    let mut app = App::new();
+    app.init_resource::<Time<Real>>()
+        .init_resource::<ChunkUploadBudget>()
+        .init_resource::<ChunkRenderQueue>()
+        .init_resource::<PublicationController>()
+        .init_resource::<Seen>();
+    configure_publication_frame(&mut app);
+    app.add_systems(
+        Update,
+        (|budget: bevy::prelude::Res<ChunkUploadBudget>, mut seen: ResMut<Seen>| {
+            seen.0.push((budget.is_changed(), *budget));
+        })
+        .after(begin_publication_frame),
+    );
+    for _ in 0..6 {
+        app.update();
+    }
+    let seen = &app.world().resource::<Seen>().0;
+    assert!(seen[0].0, "insertion counts as a change");
+    for pair in seen.windows(2) {
+        assert_eq!(pair[1].0, pair[1].1 != pair[0].1, "{seen:?}");
+    }
+    assert!(
+        seen.windows(2).any(|pair| pair[1].1 == pair[0].1),
+        "a steady budget must occur for this test to cover anything: {seen:?}"
+    );
+}

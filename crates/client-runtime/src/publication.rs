@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy::{
-    prelude::{App, IntoScheduleConfigs, Res, ResMut, Resource, Time, Update},
+    prelude::{App, DetectChangesMut, IntoScheduleConfigs, Res, ResMut, Resource, Time, Update},
     time::Real,
 };
 use client_state::RuntimeFrameSet;
@@ -353,7 +353,8 @@ pub fn begin_publication_frame(
     mut budget: ResMut<ChunkUploadBudget>,
 ) {
     controller.begin_frame(time.delta());
-    *budget = controller.budget();
+    // The budget is extracted whenever it counts as changed, so a steady budget is not rewritten.
+    budget.set_if_neq(controller.budget());
 }
 
 #[must_use]

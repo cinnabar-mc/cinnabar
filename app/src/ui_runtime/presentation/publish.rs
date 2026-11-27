@@ -208,12 +208,15 @@ pub(crate) fn prepare_ui_runtime(
     let restart = client_world.dimension_transfer.take_presentation_reset();
     // Startup readiness is not drawn: only the loading stage it settles reaches a frame.
     let loading_stage = presentation.loading_stage();
+    // Loading writes only the startup-probe flag, and the input is extracted whenever it counts
+    // as changed, so only a flipped flag marks it.
+    let probe_enabled = diagnostics_input.startup_probe_enabled();
     loading::prepare_loading(
         &mut client_world,
         &mut fatal_error.0,
         presentation.bypass_change_detection(),
         &runtime,
-        &mut diagnostics_input,
+        diagnostics_input.bypass_change_detection(),
         &network,
         loading::LoadingObservation {
             restart,
@@ -234,6 +237,9 @@ pub(crate) fn prepare_ui_runtime(
     );
     if presentation.loading_stage() != loading_stage {
         presentation.set_changed();
+    }
+    if diagnostics_input.startup_probe_enabled() != probe_enabled {
+        diagnostics_input.set_changed();
     }
     client_shell::ui_resources::update(&mut runtime, |runtime| {
         runtime.expire_gameplay_effects(now_millis)

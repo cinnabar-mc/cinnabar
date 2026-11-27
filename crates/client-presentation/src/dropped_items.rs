@@ -19,7 +19,7 @@ use {
         ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
         dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
     },
-    render_scene::{ChunkTextureAssets, DroppedItemScene},
+    render_scene::{ChunkTextureAssets, DroppedItemRepublish, DroppedItemScene},
 };
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
@@ -615,7 +615,9 @@ impl DroppedItemPublisher<'_, '_> {
             prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
-        let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
+        let (Some(mut scene), Some(icons)) =
+            (self.scene.as_mut().map(DroppedItemRepublish::new), icons)
+        else {
             return;
         };
         let Some(stream) = stream else {
@@ -697,7 +699,7 @@ impl DroppedItemPublisher<'_, '_> {
         }
         let empty = dropped.is_empty() && candidates.is_empty() && carried_blocks.is_empty();
         let empty = empty && ropes.is_empty() && placement_icons.is_empty();
-        let held = idle.holds((cache.revision, budget, glint.0.as_ref()), empty, scene);
+        let held = idle.holds((cache.revision, budget, glint.0.as_ref()), empty, &scene);
         #[cfg(not(any(test, debug_assertions)))]
         if held.is_some() {
             return;
@@ -925,7 +927,7 @@ impl DroppedItemPublisher<'_, '_> {
         );
         scene.set_glint(glint.0, glint.1.scroll());
         scene.publish_terrain_instances(stream.authority().actor_session_id(), terrain_instances);
-        idle.record((start_revision, cache.revision), empty, scene, held);
+        idle.record((start_revision, cache.revision), empty, &scene, held);
         dropped.clear();
         candidates.clear();
         ropes.clear();
@@ -987,7 +989,6 @@ fn dropped_icon_key<'a>(
             )
         })
 }
-
 #[cfg(test)]
 #[path = "dropped_items/tests.rs"]
 mod palette_tests;

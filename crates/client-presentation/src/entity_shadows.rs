@@ -1,5 +1,5 @@
 //! Publishes this frame's entity-shadow casters for the renderer.
-use bevy::math::Vec3;
+use bevy::{ecs::change_detection::DetectChangesMut, math::Vec3};
 use chunk_pipeline::WorldStream;
 use render_model::EntityShadow;
 use {
@@ -38,8 +38,8 @@ pub fn drawn_bodies(frame: &ActorRenderFrame, session_id: Option<u64>, out: &mut
     out.sort_unstable();
 }
 
-/// Rebuilds the caster list into `staging` and publishes it; an unchanged list keeps the scene's
-/// revision. Rigged actors cast only if `drawn_bodies` (sorted) holds their bodies; dropped
+/// Rebuilds the caster list into `staging` and publishes it, returning whether the list changed;
+/// an unchanged list keeps the scene's revision. Rigged actors cast only if `drawn_bodies` (sorted) holds their bodies; dropped
 /// items, drawn outside the rig frame, are admitted as actors are and culled by volume.
 pub fn publish_entity_shadows(
     stream: Option<&WorldStream>,
@@ -49,7 +49,7 @@ pub fn publish_entity_shadows(
     drawn_bodies: &[u64],
     staging: &mut Vec<EntityShadow>,
     scene: &mut EntityShadowScene,
-) {
+) -> bool {
     staging.clear();
     if let Some(stream) = stream {
         for caster in stream.authority().actor_shadow_casters(partial_tick) {
@@ -81,7 +81,7 @@ pub fn publish_entity_shadows(
             }
         }
     }
-    scene.0.publish(staging);
+    scene.0.publish(staging)
 }
 
 fn volume_may_be_visible(shadow: &EntityShadow, player: bool, view: ActorCullView) -> bool {
@@ -162,15 +162,18 @@ pub fn drive_entity_shadows(
         stream.map(|stream| stream.authority().actor_session_id()),
         &mut drawn,
     );
-    crate::entity_shadows::publish_entity_shadows(
+    // The scene is extracted whenever it counts as changed, so only a new caster list marks it.
+    if crate::entity_shadows::publish_entity_shadows(
         stream,
         partial_tick.0,
         local,
         view,
         &drawn,
         &mut staging,
-        &mut scene,
-    );
+        scene.bypass_change_detection(),
+    ) {
+        scene.set_changed();
+    }
 }
 
 #[cfg(test)]

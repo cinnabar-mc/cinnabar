@@ -1,4 +1,7 @@
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use bevy::{
+    prelude::{DetectChangesMut, ResMut, Resource},
+    render::extract_resource::ExtractResource,
+};
 
 use render_model::{
     DroppedItemInstance, DroppedItemModel, DynamicLightRun, EquipmentRaster, ItemMeshVertex,
@@ -88,9 +91,75 @@ impl DroppedItemScene {
         replace_unless_both_empty(&mut self.terrain_instances, &instances[..count]);
     }
 
+    /// Whether `self` and `other` publish the same frame to the renderer. Lists compare by
+    /// allocation, since every replacement allocates. The glint scroll is compared only while
+    /// something is drawn: nothing samples it otherwise, and the frame that draws something again
+    /// carries the current scroll.
+    #[must_use]
+    pub fn publishes_same(&self, other: &Self) -> bool {
+        let glint = match (&self.glint, &other.glint) {
+            (Some(a), Some(b)) => {
+                a.width == b.width && a.height == b.height && Arc::ptr_eq(&a.rgba8, &b.rgba8)
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        let drawn = !(self.instances.is_empty()
+            && self.terrain_instances.is_empty()
+            && self.dynamic.is_empty());
+        self.model_budget == other.model_budget
+            && self.models_revision == other.models_revision
+            && Arc::ptr_eq(&self.models, &other.models)
+            && Arc::ptr_eq(&self.instances, &other.instances)
+            && self.terrain_session_id == other.terrain_session_id
+            && Arc::ptr_eq(&self.terrain_instances, &other.terrain_instances)
+            && Arc::ptr_eq(&self.dynamic, &other.dynamic)
+            && Arc::ptr_eq(&self.dynamic_light, &other.dynamic_light)
+            && self.daylight == other.daylight
+            && glint
+            && (!drawn || self.glint_scroll == other.glint_scroll)
+    }
+
     #[must_use]
     pub fn instance_count(&self) -> usize {
         self.instances.len()
+    }
+}
+
+/// Lends the dropped-item scene without change detection and, when dropped, marks it changed
+/// only if what it publishes differs. The scene is extracted whenever it counts as changed, so a
+/// frame with nothing new rewrites nothing.
+pub struct DroppedItemRepublish<'a, 'w> {
+    scene: &'a mut ResMut<'w, DroppedItemScene>,
+    before: DroppedItemScene,
+}
+
+impl<'a, 'w> DroppedItemRepublish<'a, 'w> {
+    #[must_use]
+    pub fn new(scene: &'a mut ResMut<'w, DroppedItemScene>) -> Self {
+        let before = DroppedItemScene::clone(scene);
+        Self { scene, before }
+    }
+}
+
+impl std::ops::Deref for DroppedItemRepublish<'_, '_> {
+    type Target = DroppedItemScene;
+    fn deref(&self) -> &DroppedItemScene {
+        self.scene
+    }
+}
+
+impl std::ops::DerefMut for DroppedItemRepublish<'_, '_> {
+    fn deref_mut(&mut self) -> &mut DroppedItemScene {
+        self.scene.bypass_change_detection()
+    }
+}
+
+impl Drop for DroppedItemRepublish<'_, '_> {
+    fn drop(&mut self) {
+        if !self.scene.publishes_same(&self.before) {
+            self.scene.set_changed();
+        }
     }
 }
 

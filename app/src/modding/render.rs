@@ -49,17 +49,20 @@ pub(crate) fn update_overlay(
     scene: &mut ResMut<ModRenderScene>,
     update: impl FnOnce(&mut ModRenderScene),
 ) {
-    let overlays = |scene: &ModRenderScene| {
-        (
-            std::sync::Arc::as_ptr(&scene.debug_vertices).cast::<()>(),
-            std::sync::Arc::as_ptr(&scene.block_vertices).cast::<()>(),
-        )
-    };
-    let before = overlays(scene);
+    let before = overlay_buffers(scene);
     update(scene.bypass_change_detection());
-    if overlays(scene) != before {
+    if overlay_buffers(scene) != before {
         scene.set_changed();
     }
+}
+
+/// The identities of the scene's overlay vertex buffers, which its setters replace exactly when
+/// their inputs change.
+pub(crate) fn overlay_buffers(scene: &ModRenderScene) -> (*const (), *const ()) {
+    (
+        std::sync::Arc::as_ptr(&scene.debug_vertices).cast::<()>(),
+        std::sync::Arc::as_ptr(&scene.block_vertices).cast::<()>(),
+    )
 }
 
 /// Scene depth becomes sampleable once a mod holds both render grants.

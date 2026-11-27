@@ -106,7 +106,7 @@ pub use cloud_config::{
     adjusted_player_render_distance_blocks,
 };
 pub use cloud_visibility::{CloudDistanceChunks, CloudVisibility};
-pub use dropped_item::DroppedItemScene;
+pub use dropped_item::{DroppedItemRepublish, DroppedItemScene};
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;
 pub use far_terrain::{FarTerrainResidency, FarTerrainScene};
