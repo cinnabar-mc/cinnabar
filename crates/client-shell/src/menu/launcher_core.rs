@@ -19,9 +19,9 @@ use std::{
 /// How often a running core is asked whether it exited: the shared service cadence. Each check
 /// is a `wait4` syscall, so it is not made every frame. An exit is noticed within this interval,
 /// which nothing needs sooner: restarts wait at least the backoff's 500 ms base delay, the
-/// backoff only distinguishes runs shorter than its 60 s stable run, and a join routed in between
-/// checks the core itself (see [`LauncherCoreSlot::begin_join`]). A newly spawned core is checked
-/// on the next drive.
+/// backoff measures a run up to the last check that found the core running, so a late check
+/// never lengthens a run, and a join routed in between checks the core itself (see
+/// [`LauncherCoreSlot::begin_join`]). A newly spawned core is checked on the next drive.
 const EXIT_POLL_INTERVAL: Duration = super::services::SERVICE_POLL_INTERVAL;
 
 /// Allows auth updates beside a separate direct game core, but protects games this core owns.
@@ -60,6 +60,8 @@ pub struct LauncherCoreSlot {
     backoff: RestartBackoff,
     /// When the current core was spawned, by the `now` that spawned it.
     started: Option<Instant>,
+    /// The `now` of the last exit check that found the current core running.
+    seen_running: Option<Instant>,
     /// The earliest restart after such an exit.
     restart_at: Option<Instant>,
     /// When the current core may next be checked for an exit; `None` checks at once.
@@ -93,15 +95,23 @@ impl LauncherCoreSlot {
         if exit_poll_due && self.core.is_some() {
             self.next_exit_poll = Some(now + EXIT_POLL_INTERVAL);
         }
-        if let Some((status, authenticated)) = self
-            .core
-            .as_mut()
-            .filter(|_| exit_poll_due)
-            .and_then(|core| Some((core._guard.exit_status()?, core.authenticated)))
-        {
-            let ran_for = self.started.map_or(Duration::ZERO, |started| {
-                now.saturating_duration_since(started)
-            });
+        let exited = match self.core.as_mut().filter(|_| exit_poll_due) {
+            Some(core) => match core._guard.exit_status() {
+                Some(status) => Some((status, core.authenticated)),
+                None => {
+                    self.seen_running = Some(now);
+                    None
+                }
+            },
+            None => None,
+        };
+        if let Some((status, authenticated)) = exited {
+            // Only a run seen alive for the whole stable interval counts as stable; the exit
+            // itself may have come at any point since that check.
+            let ran_for = match (self.started, self.seen_running) {
+                (Some(started), Some(running)) => running.saturating_duration_since(started),
+                _ => Duration::ZERO,
+            };
             match self.backoff.next_delay(ran_for) {
                 Some(delay) => {
                     bevy::log::warn!(
@@ -201,6 +211,7 @@ impl LauncherCoreSlot {
                         self.core = Some(core);
                         self.next_exit_poll = None;
                         self.started = Some(now);
+                        self.seen_running = Some(now);
                         self.restart_at = None;
                         self.failed = None;
                     }

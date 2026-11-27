@@ -412,3 +412,34 @@ fn without_a_pending_decision_the_exit_waits_for_the_paced_check() {
     drive_account_services(slot, &mut menu, &mut world);
     assert!(world.resource::<LauncherCoreSlot>().core.is_some());
 }
+
+/// A run counts as stable only when a check saw the core running at the stable interval, so a
+/// core that exits just short of it and is noticed just after it still uses up its retries.
+#[test]
+fn an_exit_just_short_of_a_stable_run_noticed_after_it_stays_quick() {
+    use launcher_host::lifecycle::core_health::STABLE_RUN;
+    let (mut slot, mut menu, mut world, _) = fixture(false);
+    let started = Instant::now();
+    slot.started = Some(started);
+    for _ in 0..5 {
+        slot.backoff.next_delay(Duration::ZERO);
+    }
+    let last_running = started + STABLE_RUN - Duration::from_millis(5);
+    drive_at(&mut slot, &mut menu, &mut world, false, last_running);
+    assert!(slot.core.is_some(), "the core is still running");
+    // The core exits between that check and the next one, which lands past the stable run.
+    slot.core.as_mut().unwrap()._guard = child_guard(true);
+    drive_at(
+        &mut slot,
+        &mut menu,
+        &mut world,
+        false,
+        last_running + EXIT_POLL_INTERVAL,
+    );
+    assert!(slot.core.is_none(), "the exit is noticed");
+    assert_eq!(
+        slot.failed,
+        Some(false),
+        "a run never seen alive for the stable interval leaves the retries exhausted"
+    );
+}
