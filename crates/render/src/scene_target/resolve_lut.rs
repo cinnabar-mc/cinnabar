@@ -89,9 +89,12 @@ pub(super) fn build(
 const SAMPLES_LABEL: &str = "two-sample resolve table samples";
 /// Label of the table's checked resolved allocation.
 const TABLE_LABEL: &str = "two-sample resolve table";
+/// Label of the table's checked sample-writing pipeline.
+const PIPELINE_LABEL: &str = "two-sample resolve table pipeline";
 
 /// Allocates the table's textures, then encodes and submits its construction, returning its
-/// sRGB view; `None`, with nothing encoded, when either allocation runs out of memory.
+/// sRGB view; `None`, with nothing encoded, when an allocation or the pipeline runs out of
+/// memory.
 pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::TextureView> {
     let gpu = device.wgpu_device();
     let size = wgpu::Extent3d {
@@ -124,38 +127,40 @@ pub(crate) fn table(device: &RenderDevice, queue: &wgpu::Queue) -> Option<wgpu::
             view_formats: &[],
         })
     })?;
-    let module = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("two-sample resolve table"),
-        source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
-    });
-    let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("two-sample resolve table samples"),
-        layout: None,
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vertex"),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        primitive: Default::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState {
-            count: 2,
-            ..Default::default()
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some("samples"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    });
+    let pipeline = crate::gpu_allocation::checked(device, PIPELINE_LABEL, 0, || {
+        let module = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(PIPELINE_LABEL),
+            source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
+        });
+        gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(PIPELINE_LABEL),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vertex"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 2,
+                ..Default::default()
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("samples"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    })?;
     let encoded = samples.create_view(&Default::default());
     let linear = samples.create_view(&wgpu::TextureViewDescriptor {
         format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),

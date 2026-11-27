@@ -312,44 +312,49 @@ fn fused_composite_matches_resolving_then_compositing() {
     );
 }
 
-/// The table allocates nothing until a two-sample view needs it, and a failed allocation leaves
-/// it absent, which keeps the plain resolve, then retries with backoff instead of failing the
-/// renderer.
+/// The table allocates nothing until a two-sample view needs it, and a failed allocation or
+/// pipeline at any stage leaves it absent, which keeps the plain resolve, then retries with
+/// backoff instead of failing the renderer.
 #[test]
-fn the_table_waits_for_a_two_sample_view_and_survives_a_failed_allocation() {
+fn the_table_waits_for_a_two_sample_view_and_survives_a_failure_at_every_stage() {
     use bevy::ecs::system::RunSystemOnce;
     use std::{cell::Cell, rc::Rc};
     let Some(fixture) = two_sample_fixture("lazily built two-sample resolve table") else {
         return;
     };
-    let mut world = World::new();
-    world.insert_resource(RenderDevice::from(fixture.device.clone()));
-    world.insert_resource(RenderQueue::new(fixture.queue.clone()));
-    world.insert_resource(ResolveLutBuilder {
-        supported: true,
-        failed: Default::default(),
-    });
-    let view = world.spawn(Msaa::Off).id();
-    let attempts = Rc::new(Cell::new(0));
-    let counted = attempts.clone();
-    let _failure = crate::gpu_allocation::inject(move |label, _| {
-        if label == SAMPLES_LABEL || label == TABLE_LABEL {
-            counted.set(counted.get() + 1);
-        }
-        label == SAMPLES_LABEL
-    });
-    world.run_system_once(build).unwrap();
-    assert_eq!(attempts.get(), 0, "no table while anti-aliasing is off");
-    world.entity_mut(view).insert(Msaa::Sample2);
-    world.run_system_once(build).unwrap();
-    assert_eq!(attempts.get(), 1, "a two-sample view builds the table");
-    assert!(
-        !world.contains_resource::<ResolveLut>(),
-        "a failed allocation leaves the plain resolve"
-    );
-    for _ in 0..16 {
+    for failing in [SAMPLES_LABEL, TABLE_LABEL, PIPELINE_LABEL] {
+        let mut world = World::new();
+        world.insert_resource(RenderDevice::from(fixture.device.clone()));
+        world.insert_resource(RenderQueue::new(fixture.queue.clone()));
+        world.insert_resource(ResolveLutBuilder {
+            supported: true,
+            failed: Default::default(),
+        });
+        let view = world.spawn(Msaa::Off).id();
+        let attempts = Rc::new(Cell::new(0));
+        let counted = attempts.clone();
+        let _failure = crate::gpu_allocation::inject(move |label, _| {
+            if label == failing {
+                counted.set(counted.get() + 1);
+            }
+            label == failing
+        });
         world.run_system_once(build).unwrap();
+        assert_eq!(attempts.get(), 0, "no table while anti-aliasing is off");
+        world.entity_mut(view).insert(Msaa::Sample2);
+        world.run_system_once(build).unwrap();
+        assert_eq!(attempts.get(), 1, "a two-sample view builds the table");
+        assert!(
+            !world.contains_resource::<ResolveLut>(),
+            "a failed {failing} leaves the plain resolve"
+        );
+        for _ in 0..16 {
+            world.run_system_once(build).unwrap();
+        }
+        assert!(
+            attempts.get() > 1,
+            "the build retries after a failed {failing}"
+        );
+        assert!(!world.contains_resource::<ResolveLut>());
     }
-    assert!(attempts.get() > 1, "the failed build retries");
-    assert!(!world.contains_resource::<ResolveLut>());
 }
