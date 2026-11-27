@@ -177,20 +177,29 @@ fn steady_frame_allocations(actors: u64) -> u64 {
     worst
 }
 
-/// Thirty settled 60 Hz frames of 48 animated actors, ticks included.
+/// Thirty settled 60 Hz frames of 48 animated actors, ticks included. The test thread is the
+/// only Rayon worker, so animation never moves rigs to threads Callgrind does not count.
 #[test]
 fn instruction_budget_steady_actor_frames() {
-    let mut world = steady_actor_world(48);
-    let mut clock = frame_clock(&world);
-    for _ in 0..30 {
-        actor_frame(&mut world, &mut clock);
-    }
-    test_instructions::count(|| {
+    let serial = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .use_current_thread()
+        .build()
+        .unwrap();
+    serial.install(|| {
+        assert_eq!(rayon::current_num_threads(), 1);
+        let mut world = steady_actor_world(48);
+        let mut clock = frame_clock(&world);
         for _ in 0..30 {
             actor_frame(&mut world, &mut clock);
         }
+        test_instructions::count(|| {
+            for _ in 0..30 {
+                actor_frame(&mut world, &mut clock);
+            }
+        });
+        assert_eq!(drawn_actors(&world), 48, "every actor stands in view");
     });
-    assert_eq!(drawn_actors(&world), 48, "every actor stands in view");
 }
 
 /// Converted poses, layer poses, bone matrices and build buffers persist across the frames of a

@@ -7,9 +7,9 @@ counting only what the calling thread retires inside that region, and compares t
 `tools/devtool/instruction-budgets.json`. A count above **or below** its budget by more than
 `TOLERANCE_PERCENT` in `tools/devtool/src/instruction_budgets.rs` fails,
 as do a test without a budget, a budget without a test and a toolchain change, so gains are
-locked in rather than left as headroom. Counts are deterministic for a given toolchain and
-build profile; the tool pins glibc's CPU-dependent copy strategies so CI's mixed runner CPUs
-agree.
+locked in rather than left as headroom. For a given toolchain and build profile, repeated CI
+runs agree to well within the tolerance; the tool pins glibc's CPU-dependent copy strategies so
+CI's mixed runner CPUs agree too.
 
 ```sh
 cargo run -p devtool --locked -- instruction-budgets            # check
@@ -24,7 +24,8 @@ profile per test; when a change is intended, commit that file and explain increa
 `callgrind_annotate <test>.callgrind` attributes a change to functions.
 
 Add a budget beside the code it protects for each hot path, especially per-frame work that a
-settled frame should skip: keep the counted work single-threaded, deterministic and fast under
+settled frame should skip: keep the counted work single-threaded (make the test thread the only
+Rayon worker when the path uses Rayon), deterministic and fast under
 Callgrind (well under a second natively), assert the behaviour it measures, and record the new
 entry with `--update`. Counts track work, not wall time; the hardware runs below remain the
 evidence for frame-time claims.
@@ -142,7 +143,9 @@ the branch. Each round runs both builds, alternating which goes first, into
 `round-NN-base` and `round-NN-candidate`; every pair must pass the comparison checks above, and every round must measure the same
 binaries and workload as the first.
 `paired.json` gives each frame statistic's and CPU stage mean's candidate/base ratio as a median and
-interquartile range over the rounds. The command fails when the candidate's average FPS is lower
+interquartile range over the rounds; metrics some round could not pair, such as stage means that
+round to zero, are listed as unavailable rather than summarized. `outcome.json` records whether
+the attempt completed or why it stopped. The command fails when the candidate's average FPS is lower
 in at least three quarters of the pairs for any route. Use seven or more rounds on an idle,
 plugged-in machine, ideally with both processes pinned to one CPU complex, and quote the median
 and IQR in the PR. For a near-stationary view, give a route a short distance at low speed.

@@ -41,12 +41,9 @@ fn order(round: usize) -> [Side; 2] {
     }
 }
 
-/// Runs `rounds` pairs, then writes and prints `paired.json`. Fails when the candidate's average
-/// FPS is lower in at least three quarters of the pairs for any phase.
-#[expect(
-    clippy::print_stdout,
-    reason = "the explicit comparison CLI returns its JSON result on stdout"
-)]
+/// Runs `rounds` pairs, then writes and prints `paired.json` and records the attempt's outcome.
+/// Fails when the candidate's average FPS is lower in at least three quarters of the pairs for
+/// any phase.
 pub(super) fn run(
     repo: &Path,
     base: &Path,
@@ -60,6 +57,27 @@ pub(super) fn run(
         ));
     }
     let output = run::new_output_directory(repo, output)?;
+    let result = compare_rounds(repo, base, candidate, rounds, &output);
+    let outcome = match &result {
+        Ok(()) => serde_json::json!({"status": "complete"}),
+        Err(error) => serde_json::json!({"status": "failed_or_rejected", "error": error}),
+    };
+    files::write(&output.join("outcome.json"), &outcome)?;
+    result
+}
+
+/// Runs and validates each pair as it completes, then summarizes every round.
+#[expect(
+    clippy::print_stdout,
+    reason = "the explicit comparison CLI returns its JSON result on stdout"
+)]
+fn compare_rounds(
+    repo: &Path,
+    base: &Path,
+    candidate: &Path,
+    rounds: usize,
+    output: &Path,
+) -> Result<(), String> {
     let run_dir =
         |round: usize, side: Side| output.join(format!("round-{round:02}-{}", side.name()));
     let mut pairs = Vec::with_capacity(rounds);
@@ -89,11 +107,13 @@ pub(super) fn run(
         pairs.push(ratios(&b, &c)?);
     }
     let summary = summarize(&pairs);
+    let unavailable = partially_measured(&pairs);
     let slower = mostly_slower(&pairs);
     let result = serde_json::json!({
         "comparison": "alternating_pairs", "candidate_over_base": summary,
         "slower_average_fps": slower, "qualification": "incomplete",
         "gpu_comparison": "unsupported_without_origin_ids",
+        "unavailable_at_report_precision": unavailable,
     });
     files::write(&output.join("paired.json"), &result)?;
     println!("{result}");
@@ -102,6 +122,20 @@ pub(super) fn run(
     } else {
         Err(format!("the candidate is slower in {slower:?}"))
     }
+}
+
+/// Metrics some rounds could not pair, usually stage means that round to zero at the reports'
+/// millisecond precision; summarizing only the other rounds would bias their spread.
+fn partially_measured(pairs: &[BTreeMap<String, f64>]) -> Vec<String> {
+    let mut counts: BTreeMap<&String, usize> = BTreeMap::new();
+    for key in pairs.iter().flat_map(BTreeMap::keys) {
+        *counts.entry(key).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .filter(|(_, count)| *count != pairs.len())
+        .map(|(key, _)| key.clone())
+        .collect()
 }
 
 /// Average-FPS metrics whose candidate/base ratio is below one in at least three quarters of the
@@ -161,7 +195,7 @@ fn ratios(base: &Value, candidate: &Value) -> Result<BTreeMap<String, f64>, Stri
         .collect())
 }
 
-/// Median and interquartile range of each metric's ratio over the rounds that measured it.
+/// Median and interquartile range of each metric's ratio, for metrics every round measured.
 fn summarize(pairs: &[BTreeMap<String, f64>]) -> BTreeMap<String, Paired> {
     let mut by_metric: BTreeMap<&String, Vec<f64>> = BTreeMap::new();
     for pair in pairs {
@@ -171,6 +205,7 @@ fn summarize(pairs: &[BTreeMap<String, f64>]) -> BTreeMap<String, Paired> {
     }
     by_metric
         .into_iter()
+        .filter(|(_, ratios)| ratios.len() == pairs.len())
         .map(|(key, mut ratios)| {
             ratios.sort_by(f64::total_cmp);
             let quantile = |q: f64| {
@@ -238,6 +273,16 @@ mod tests {
             ["frames.spawn.avg_fps"]
         );
         assert!(mostly_slower(&pairs(&[0.8, 0.9, 1.01, 1.1])).is_empty());
+    }
+
+    #[test]
+    fn metrics_missing_from_a_round_are_reported_not_summarized() {
+        let pairs = [
+            BTreeMap::from([("a".to_owned(), 0.5), ("b".to_owned(), 1.0)]),
+            BTreeMap::from([("b".to_owned(), 1.0)]),
+        ];
+        assert_eq!(partially_measured(&pairs), ["a"]);
+        assert_eq!(summarize(&pairs).keys().collect::<Vec<_>>(), ["b"]);
     }
 
     #[test]
