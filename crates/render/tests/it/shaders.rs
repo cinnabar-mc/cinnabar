@@ -5,6 +5,7 @@ use crate::shader_source;
 
 use crate::motion_blur_shader;
 use crate::nametag_shader;
+use crate::tint_bake_plan;
 use crate::ui_shader;
 
 /// Resolve the vanilla shader for standalone validation.
@@ -255,6 +256,9 @@ fn every_shader_parses_and_validates() {
         } else if name == "motion_blur.wgsl" {
             // The production constructor injects the shared motion tile size.
             standalone(&motion_blur_shader::source(&raw, false))
+        } else if name == "terrain_tint_bake.wesl" {
+            // The production constructor substitutes the bake workgroup size.
+            standalone(&tint_bake_plan::shader_source(&raw))
         } else if name == "transparent_terrain.wesl" {
             // Composes the liquid and model modules, whose shared names only the composer resolves.
             shader_source::composed(&raw, &[])
