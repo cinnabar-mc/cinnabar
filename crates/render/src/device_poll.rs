@@ -34,6 +34,9 @@ use std::{
 #[cfg(test)]
 #[path = "device_poll_tests.rs"]
 mod tests;
+#[path = "device_poll/worker_gate.rs"]
+pub(crate) mod worker_gate;
+pub(crate) use worker_gate::WorkerSubmitGate;
 
 /// Frames of GPU work that may still be queued or executing once a frame's poll returns. It is
 /// above the two frames a swap chain queues, so presented windows never wait here.
@@ -179,6 +182,7 @@ pub(crate) fn install(render_app: &mut SubApp) {
     render_app
         .init_resource::<DevicePolls>()
         .init_resource::<FramesInFlight>()
+        .init_resource::<WorkerSubmitGate>()
         .configure_sets(
             Render,
             FrameSubmissions
@@ -187,9 +191,15 @@ pub(crate) fn install(render_app: &mut SubApp) {
         )
         .add_systems(
             Render,
-            poll_device
-                .in_set(RenderSystems::Render)
-                .after(FrameSubmissions),
+            (
+                poll_device
+                    .in_set(RenderSystems::Render)
+                    .after(FrameSubmissions),
+                worker_gate::close_worker_submissions
+                    .in_set(RenderSystems::Render)
+                    .before(render_system),
+                worker_gate::open_worker_submissions.in_set(FrameSubmissions),
+            ),
         );
 }
 

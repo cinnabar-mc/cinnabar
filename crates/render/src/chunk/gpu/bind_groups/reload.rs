@@ -18,6 +18,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     reload: Res<ChunkTextureReload>,
     admission: Option<Res<render_scene::startup_work::WorldWorkAdmission>>,
     mut coverage: Option<ResMut<TerrainCoverage>>,
+    worker_gate: Option<Res<crate::device_poll::WorkerSubmitGate>>,
 ) {
     let identity = assets.binding_identity();
     poll_bootstrap_atlas(&assets, &mut gpu_assets, &mut stats, &render_device);
@@ -234,10 +235,17 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             });
         let _ = sender.send(result);
     };
+    // The worker's submissions wait while the render thread defers the frame's own.
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::spawn(work);
+    {
+        let gate = worker_gate.map(|gate| gate.clone()).unwrap_or_default();
+        std::thread::spawn(move || crate::device_poll::worker_gate::with_gate(gate, work));
+    }
     #[cfg(target_arch = "wasm32")]
-    crate::browser_jobs::submit(crate::browser_jobs::Lane::Textures, work);
+    {
+        let _ = worker_gate;
+        crate::browser_jobs::submit(crate::browser_jobs::Lane::Textures, work);
+    }
 }
 
 /// One finite bootstrap worker and the immutable atlas identity it is allowed to publish.

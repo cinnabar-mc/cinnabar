@@ -155,7 +155,8 @@ pub(in crate::chunk) fn ensure_transparent_ref_capacity(
             bytes = copies.iter().map(|copy| copy.bytes).sum::<u64>(),
         )
         .entered();
-        queue.submit([command]);
+        // A resource-pack reload runs this on a worker, outside the frame's submission.
+        crate::device_poll::worker_gate::submit(queue, [command]);
     }
     arena.transparent_ref_buffer = grown;
     arena.transparent_slot_refs = slot_refs;
