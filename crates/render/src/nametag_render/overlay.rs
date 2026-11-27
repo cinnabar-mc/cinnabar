@@ -83,8 +83,27 @@ type OverlayView = (
     Option<&'static Overlay>,
 );
 
-/// Prepares each opted-in view before its first label, retaining unchanged GPU resources,
-/// and releases the layer of views that no longer use it.
+/// Releases the layer of views that left Enhanced rendering and shader packs. Runs every frame,
+/// apart from label preparation, so a layer is released while no label is drawn.
+pub(super) fn release_disabled(
+    mut commands: Commands,
+    views: Query<
+        (
+            Entity,
+            Has<render_scene::EnhancedRendering>,
+            Has<render_scene::shaderpack::ShaderPackRendering>,
+        ),
+        With<Overlay>,
+    >,
+) {
+    for (entity, enhanced, pack) in &views {
+        if !enabled(enhanced, pack) {
+            commands.entity(entity).remove::<Overlay>();
+        }
+    }
+}
+
+/// Prepares each opted-in view before its first label, retaining unchanged GPU resources.
 pub(super) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
@@ -94,9 +113,6 @@ pub(super) fn prepare(
     failed.retain(|view| views.contains(view));
     for (entity, target, depth, msaa, enhanced, pack, overlay) in &views {
         if !enabled(enhanced, pack) {
-            if overlay.is_some() {
-                commands.entity(entity).remove::<Overlay>();
-            }
             continue;
         }
         if overlay.is_some_and(|overlay| {

@@ -136,6 +136,7 @@ pub(crate) fn install_nametag_render(app: &mut App) {
                 overlay::install_graph
                     .run_if(overlay::graph_missing)
                     .in_set(RenderSystems::Prepare),
+                overlay::release_disabled.in_set(RenderSystems::PrepareResources),
                 (
                     prepare_nametags.in_set(RenderSystems::PrepareResources),
                     overlay::prepare
