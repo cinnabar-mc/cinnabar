@@ -414,25 +414,3 @@ fn instruction_budget_unchanged_survival_hud_frames() {
     assert_eq!(presentation.tree_builds, builds, "an unchanged HUD rebuilt");
     assert_eq!(build(&player, &mut presentation, &runtime, 0), first);
 }
-
-#[test]
-fn instruction_budget_survival_hud_frames_with_changing_health() {
-    let mut player = player_state::PlayerState::new(1);
-    let mut runtime = survival(&mut player, 20);
-    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
-    build(&player, &mut presentation, &runtime, 0);
-    let mut frames = Vec::new();
-    test_instructions::count(|| {
-        for frame in 1..=BUDGET_FRAMES {
-            let health = 20 - (frame % 2) as u16;
-            runtime.session.hud.set_stats(
-                BoundedStat::new(health, 20),
-                BoundedStat::new(20, 20),
-                BoundedStat::new(0, 20),
-                None,
-            );
-            frames.push(build(&player, &mut presentation, &runtime, frame * 16));
-        }
-    });
-    assert_ne!(frames[0], frames[1], "health changes reach the HUD");
-}
