@@ -72,6 +72,7 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
     let texture_view = texture.create_view(&Default::default());
     let sampler = gpu.device.create_sampler(&Default::default());
     let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
+    let atmosphere = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
     let source = source();
     let blend = wgpu::BlendState {
         color: wgpu::BlendComponent {
@@ -120,6 +121,10 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
                 binding: 5,
                 resource: lightmap.as_entire_binding(),
             },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: atmosphere.as_entire_binding(),
+            },
         ];
         let mut draws = vec![Draw {
             fragment: "block_entity_overlay",
@@ -148,7 +153,7 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
                 bindings: if mode == "outline" {
                     &bindings[..2]
                 } else {
-                    &bindings
+                    &bindings[..5]
                 },
                 blend: if mode == "outline" { None } else { Some(blend) },
                 write_depth: mode == "outline",
