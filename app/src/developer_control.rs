@@ -7,6 +7,7 @@ mod camera;
 mod cape;
 mod capture;
 pub(crate) mod cursor_isolation;
+mod hand_frame;
 mod input;
 mod inventory;
 #[cfg(target_os = "macos")]
@@ -177,7 +178,14 @@ fn dispatch(world: &mut World) {
             Command::CameraPath(path) => camera::start(world, path),
             Command::CameraPathRealTime(path) => camera::start_realtime(world, path),
             Command::CameraRelease => camera::release(world),
-            Command::State => Ok(state::snapshot(world)),
+            Command::State => {
+                if let Some(mut actors) = world
+                    .get_resource_mut::<client_presentation::actor_publication::ActorFrameState>(
+                ) {
+                    actors.request_hand_inspection();
+                }
+                Ok(state::snapshot(world))
+            }
             Command::InventoryOpen => {
                 inventory::open(world, reply);
                 continue;

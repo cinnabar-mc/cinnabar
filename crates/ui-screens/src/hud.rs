@@ -22,6 +22,9 @@ use ui_engine::{
 
 use crate::hud_renderers::{HudPaint, HudRenderer, HungerAnimation};
 
+mod actionbar;
+#[cfg(test)]
+mod actionbar_layering_tests;
 mod chat;
 #[cfg(test)]
 mod color_tests;
@@ -87,6 +90,10 @@ pub fn register(registry: &mut ScreenRegistry) {
     catalog.restore_before(CarrierRestore {
         authored: titles::authored,
         restore: titles::restore,
+    });
+    catalog.restore_before(CarrierRestore {
+        authored: actionbar::authored,
+        restore: actionbar::restore,
     });
     catalog.after_layers(chat::prefer_builtin);
 }

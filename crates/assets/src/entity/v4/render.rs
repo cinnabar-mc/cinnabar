@@ -228,6 +228,7 @@ pub struct EntityRenderGeometry {
 }
 
 /// One authored `textures` entry: the first candidate whose condition holds is drawn.
+/// An empty candidate range keeps an unresolved sampler at its authored index.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityRenderSlot {
@@ -411,10 +412,9 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         previous_rig = layer.rig;
     }
     for slot in render.slots.iter() {
-        if slot.candidate_count == 0
-            || slot
-                .default_candidate
-                .is_some_and(|offset| offset >= slot.candidate_count)
+        if slot
+            .default_candidate
+            .is_some_and(|offset| offset >= slot.candidate_count)
             || !range_in_bounds(
                 slot.first_candidate,
                 u32::from(slot.candidate_count),

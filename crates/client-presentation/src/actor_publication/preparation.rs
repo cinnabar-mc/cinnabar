@@ -11,6 +11,8 @@ use bevy::prelude::DetectChanges;
 /// Retained actor state shared by early simulation and final render preparation.
 #[derive(Resource, Default)]
 pub struct ActorFrameState {
+    #[cfg(feature = "developer-control")]
+    pub(super) hand_inspection: super::hand_inspection::HandInspection,
     pub(super) paintings: super::paintings::PaintingRoutes,
     pub(super) published_session: Option<u64>,
     pub(super) published_pack: Option<Arc<assets::SessionEntityPack>>,
@@ -49,6 +51,17 @@ pub struct ActorFrameState {
 }
 
 impl ActorFrameState {
+    /// Arms an immutable registration observation at the next normal hand publication.
+    #[cfg(feature = "developer-control")]
+    pub fn request_hand_inspection(&mut self) {
+        self.hand_inspection.request();
+    }
+
+    /// The last requested pre/post-build observation, tagged with its own publication generation.
+    #[cfg(feature = "developer-control")]
+    pub fn hand_inspection(&self) -> Option<&serde_json::Value> {
+        self.hand_inspection.snapshot()
+    }
     /// Cosmetic motion shared by the world attachment and the HUD paperdoll for this frame.
     pub fn cosmetic_motion(&mut self) -> &[(cosmetics::Item, render_model::hats::Motion)] {
         self.hat_state.local_motion()
@@ -136,6 +149,8 @@ pub fn advance_actor_frame(
         ..
     } = params;
     let ActorFrameState {
+        #[cfg(feature = "developer-control")]
+        hand_inspection,
         published_session,
         published_pack,
         pack_geometry_ready,
@@ -184,6 +199,10 @@ pub fn advance_actor_frame(
     let early = motion_step.take();
     let new_session = *published_session != session_id;
     if new_session {
+        #[cfg(feature = "developer-control")]
+        {
+            hand_inspection.clear_snapshot();
+        }
         if session_id.is_none() {
             *client_world.prepared_actor_artwork = None;
         }
@@ -250,8 +269,9 @@ pub fn advance_actor_frame(
         );
         drop(artwork_timer);
         // Always republished: presentation selects from these pages, the scene validates them.
-        let (effective, staged, locations) = apply_session_pack(
+        let (effective, staged, locations) = apply_session_pack_to_owners(
             &mut scene,
+            &mut hand_builder,
             &resources,
             pack.as_deref(),
             icons,

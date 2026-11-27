@@ -39,11 +39,14 @@ use {
     render_scene::HandRigScene,
 };
 
+mod artwork;
 pub(crate) mod bindings;
 mod gpu;
 pub(crate) mod node;
 pub(crate) mod shaderpack_source;
 use gpu::*;
+#[cfg(test)]
+mod catalog_tests;
 #[cfg(test)]
 mod tests;
 

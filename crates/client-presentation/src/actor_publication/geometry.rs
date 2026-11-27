@@ -63,6 +63,36 @@ pub(super) fn apply_session_pack(
     (effective, session_icons, icon_locations)
 }
 
+/// Installs one prepared session pack into the world and first-person rig owners.
+pub(super) fn apply_session_pack_to_owners(
+    scene: &mut ActorRenderScene,
+    hand: &mut HandRigBuilder,
+    resources: &crate::prepared_actor_artwork::PreparedSessionResources,
+    pack: Option<&assets::SessionEntityPack>,
+    session_icons: SessionIconInput<'_>,
+    geometry_ready: &mut SessionGeometryReady,
+    equipment: Option<&mut EquipmentRuntime>,
+    profiler: Option<&RuntimeStageProfiler>,
+) -> (
+    Option<render_model::ActorArtworkPages>,
+    Option<StagedSessionIcons>,
+    Vec<Option<render_model::ActorArtworkLocation>>,
+) {
+    let result = apply_session_pack(
+        scene,
+        resources,
+        pack,
+        session_icons,
+        geometry_ready,
+        equipment,
+        profiler,
+    );
+    if !geometry_ready.hand_entities || !geometry_ready.hand_equipment {
+        apply_hand_session_geometry(hand, resources, geometry_ready, profiler);
+    }
+    result
+}
+
 /// Session item icons a pack worker already placed, or icons the frame stages itself.
 pub(super) enum SessionIconInput<'a> {
     Placed(&'a crate::prepared_actor_artwork::PlacedSessionIcons),
@@ -74,6 +104,49 @@ pub(super) enum SessionIconInput<'a> {
 pub(super) struct SessionGeometryReady {
     pub(super) entities: bool,
     pub(super) equipment: bool,
+    pub(super) hand_entities: bool,
+    pub(super) hand_equipment: bool,
+}
+
+/// Installs each session range independently in the first-person catalog.
+fn apply_hand_session_geometry(
+    hand: &mut HandRigBuilder,
+    resources: &crate::prepared_actor_artwork::PreparedSessionResources,
+    ready: &mut SessionGeometryReady,
+    profiler: Option<&RuntimeStageProfiler>,
+) {
+    let geometry_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorGeometrySetup));
+    let (entities, equipment) = match (ready.hand_entities, ready.hand_equipment) {
+        (false, false) => hand.0.replace_session_pack_geometries(
+            resources.entities.clone(),
+            resources.equipment.clone(),
+        ),
+        (false, true) => (
+            hand.0.replace_pack_geometries(resources.entities.clone()),
+            Ok(()),
+        ),
+        (true, false) => (
+            Ok(()),
+            hand.0
+                .replace_pack_equipment_geometries(resources.equipment.clone()),
+        ),
+        (true, true) => return,
+    };
+    ready.hand_entities = entities.is_ok();
+    ready.hand_equipment = equipment.is_ok();
+    if let Err(error) = entities {
+        bevy::log::warn!(
+            ?error,
+            "server pack entity geometry was not applied to hand builder"
+        );
+    }
+    if let Err(error) = equipment {
+        bevy::log::warn!(
+            ?error,
+            "server pack equipment geometry was not applied to hand builder"
+        );
+    }
+    drop(geometry_timer);
 }
 
 /// Retries rejected namespaces while retaining geometry that already published successfully.

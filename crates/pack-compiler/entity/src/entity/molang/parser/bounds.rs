@@ -27,12 +27,16 @@ pub(super) fn bounded(expression: Expr) -> Result<Expr, AssetError> {
                 Expr::Unary(_, value) | Expr::Coalesce(_, _, value) => {
                     pending.push((Node::Expression(value), child));
                 }
-                Expr::Binary(_, left, right)
-                | Expr::And(left, right)
-                | Expr::Or(left, right)
-                | Expr::Arrow(left, right) => {
+                Expr::Binary(_, left, right) | Expr::Arrow(left, right) => {
                     pending.push((Node::Expression(left), child));
                     pending.push((Node::Expression(right), child));
+                }
+                Expr::And(operands) | Expr::Or(operands) => {
+                    pending.extend(
+                        operands
+                            .iter()
+                            .map(|value| (Node::Expression(value), child)),
+                    );
                 }
                 Expr::Conditional(condition, yes, no) => {
                     pending.push((Node::Expression(condition), child));

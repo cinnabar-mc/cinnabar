@@ -220,9 +220,16 @@ fn tooltip_lines_with_name_style(
     if let Some(identifier) = identifier {
         lines.extend(fireworks::lines(runtime, identifier, &stack.extra_data));
     }
-    lines.extend(display.lore.iter().map(|line| TooltipLine {
-        text: line.to_string(),
-        color: LORE_COLOR,
+    lines.extend(display.lore.iter().flat_map(|line| {
+        let text = protocol::parse_raw_text(line)
+            .map(|document| runtime.resolve_raw_text(&document).text)
+            .unwrap_or_else(|_| line.to_string());
+        text.split('\n')
+            .map(|line| TooltipLine {
+                text: line.to_string(),
+                color: LORE_COLOR,
+            })
+            .collect::<Vec<_>>()
     }));
     lines
 }

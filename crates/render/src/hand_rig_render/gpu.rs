@@ -5,6 +5,7 @@ use {
     render_scene::HandRigScene,
 };
 
+use super::artwork::{CatalogBindGroup, CatalogLayerUniform, build_bind_group};
 use super::*;
 use crate::actor::gpu::ArtworkRawViews;
 use bevy::prelude::Entity;
@@ -63,6 +64,9 @@ pub(super) struct HandRigGpu {
     compact_pose: Vec<u8>,
     pub(super) skin: Option<HandRigSkin>,
     pub(super) atlases: [Option<HandRigAtlas>; 3],
+    pub(super) artwork_routing: super::artwork::HandArtworkRouting,
+    pub(super) catalog_bind_groups: Vec<CatalogBindGroup>,
+    pub(super) catalog_layer_default: Buffer,
     /// The raw-view setting new artwork textures are created with; artwork created under
     /// another setting is replaced.
     pub(super) raw_views: ArtworkRawViews,
@@ -124,6 +128,16 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         compact_pose: Vec::new(),
         skin: None,
         atlases: [None, None, None],
+        artwork_routing: default(),
+        catalog_bind_groups: Vec::new(),
+        catalog_layer_default: uniform(
+            "first-person rig default catalog layer",
+            bytemuck::bytes_of(&CatalogLayerUniform {
+                layer: 0,
+                enabled: 0,
+                padding: [0; 2],
+            }),
+        ),
         raw_views: ArtworkRawViews::default(),
         glint_sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("first-person repeat glint sampler"),
@@ -169,6 +183,9 @@ pub(super) fn prepare(
         return;
     }
     let Some(frame) = &scene.frame else {
+        gpu.artwork_routing = default();
+        gpu.catalog_bind_groups.clear();
+        gpu.bind_group = None;
         deactivate(&mut gpu);
         return;
     };
@@ -203,7 +220,7 @@ pub(super) fn prepare(
         CAMERA_NEAR_PLANE_BLOCKS,
     );
     upload_uniforms(&mut gpu, &uploads, projection, frame.light);
-    build_bind_group(&mut gpu, &uploads.device, &cache);
+    build_bind_group(&mut gpu, &uploads.device, &uploads.queue, &cache);
     let gpu = &mut *gpu;
     let layout = gpu.layout.clone();
     let encoded = bindings::hand_uses_encoded_color(&frame.light, hdr);
@@ -532,6 +549,15 @@ pub(super) fn upload_atlas(
         });
         gpu.bind_group = None;
     }
+    let format = bindings::hand_artwork_format(&frame.light);
+    if gpu
+        .artwork_routing
+        .upload(frame, device, queue, format, raw_views)
+    {
+        gpu.catalog_bind_groups.clear();
+        gpu.bind_group = None;
+    }
+    gpu.artwork_routing.plan(frame);
 }
 
 /// Uploads the frame's held-item glint, or a transparent texel without one, keeping the texture
@@ -647,84 +673,6 @@ pub(super) fn ensure_depth(
     });
 }
 
-/// Binds the retained rig, lighting and artwork resources for drawing.
-pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cache: &PipelineCache) {
-    if gpu.bind_group.is_some() {
-        return;
-    }
-    let current = if gpu.layout.entries.iter().any(|entry| entry.binding == 5) {
-        gpu.current_bones.as_ref()
-    } else {
-        gpu.previous_bones.as_ref()
-    };
-    let (
-        Some(instances),
-        Some(vertices),
-        Some(spans),
-        Some(previous),
-        Some(current),
-        Some(skin),
-        Some(glint),
-    ) = (
-        gpu.instances.as_ref(),
-        gpu.vertices.buffer(),
-        gpu.spans.as_ref(),
-        gpu.previous_bones.as_ref(),
-        current,
-        gpu.skin.as_ref(),
-        gpu.glint.as_ref(),
-    )
-    else {
-        return;
-    };
-    let mut entries = Vec::from(
-        bindings::HandFragmentBindings {
-            instances,
-            skins: &skin.view,
-            skin_sampler: &gpu.sampler,
-            material: &gpu.material,
-            light: &gpu.light_uniform,
-            // Without an item atlas the skin view stands in; no instance selects it.
-            main_atlas: gpu.atlases[0]
-                .as_ref()
-                .map_or(&skin.view, |atlas| &atlas.view),
-            offhand_atlas: gpu.atlases[1]
-                .as_ref()
-                .map_or(&skin.view, |atlas| &atlas.view),
-            map_background: gpu.atlases[2]
-                .as_ref()
-                .map_or(&skin.view, |atlas| &atlas.view),
-            item_glint: &glint.view,
-            glint_sampler: &gpu.glint_sampler,
-        }
-        .entries(),
-    );
-    entries.extend(
-        [
-            (0, &gpu.view_uniform),
-            (2, vertices),
-            (3, spans),
-            (4, previous),
-            (5, current),
-        ]
-        .map(|(binding, buffer)| BindGroupEntry {
-            binding,
-            resource: buffer.as_entire_binding(),
-        }),
-    );
-    entries.retain(|entry| {
-        gpu.layout
-            .entries
-            .iter()
-            .any(|kept| kept.binding == entry.binding)
-    });
-    gpu.bind_group = Some(device.create_bind_group(
-        "first-person rig bind group",
-        &cache.get_bind_group_layout(&gpu.layout),
-        &entries,
-    ));
-}
-
 /// Keeps each supported sample count, colour format and blend space independently.
 pub(super) fn memoized_pipeline<T: Copy>(
     entries: &mut [Option<T>; PIPELINE_VARIANTS],
@@ -803,6 +751,13 @@ pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPi
         }),
         ..default()
     };
+    descriptor.vertex.shader_defs.push("CATALOG_ROUTING".into());
+    descriptor
+        .fragment
+        .as_mut()
+        .unwrap()
+        .shader_defs
+        .push("CATALOG_ROUTING".into());
     if compact {
         descriptor.vertex.shader_defs.push("COMPACT_BONES".into());
         descriptor
@@ -849,6 +804,16 @@ pub(super) fn hand_rig_layout() -> BindGroupLayoutDescriptor {
             storage_entry(3, size_of::<ActorRigGeometrySpan>() as u64),
             storage_entry(4, size_of::<[[f32; 4]; 3]>() as u64),
             storage_entry(5, size_of::<[[f32; 4]; 3]>() as u64),
+            BindGroupLayoutEntry {
+                binding: 15,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<CatalogLayerUniform>() as u64),
+                },
+                count: None,
+            },
             BindGroupLayoutEntry {
                 binding: 6,
                 visibility: ShaderStages::FRAGMENT,

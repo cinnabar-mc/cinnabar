@@ -81,16 +81,35 @@ pub(super) fn prepare(
                 aspect,
             };
             let visibility = java_hand.native_pose.visibility(&inputs, java_mode);
+            let mut controller_draws = if visibility.is_some_and(|value| value.hides_body()) {
+                Vec::new()
+            } else if let Some(source) = ready_hand_source.as_ref() {
+                let base = source
+                    .body
+                    .as_ref()
+                    .unwrap_or(&source.presentation.submission);
+                java_hand.native_pose.controller_draws(&inputs, base)
+            } else {
+                java_hand
+                    .native_pose
+                    .controller_draws(&inputs, &inputs.presentation.submission)
+            };
+            let camera = hand::hand_camera_from_rig(inputs.presentation.authored_scale, motion);
+            for (submission, _) in &mut controller_draws {
+                submission.world_from_actor = camera;
+            }
             if key == *ready_hand_key
                 && !samples_item_scale
                 && !holds_map
-                && ready_hand_source
-                    .as_ref()
-                    .is_some_and(|source| Some(source.visibility) == visibility)
+                && ready_hand_source.as_ref().is_some_and(|source| {
+                    Some(source.visibility) == visibility
+                        && source.controller_draws == controller_draws
+                })
             {
                 reused_hand = true;
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;
+                    source.controller_draws = controller_draws;
                     source
                 });
             }

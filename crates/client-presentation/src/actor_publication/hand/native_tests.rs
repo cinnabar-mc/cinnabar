@@ -123,6 +123,75 @@ pub(super) fn fixture_with_visibility(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
+    fixture_with_files(
+        main,
+        clock,
+        animated,
+        bound,
+        turning,
+        hide_body,
+        visibility,
+        |_| {},
+    )
+}
+
+/// Builds the normal fixture after applying a test-only edit to its compiled source files.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn fixture_with_files(
+    main: Option<&str>,
+    clock: bool,
+    animated: bool,
+    bound: bool,
+    turning: bool,
+    hide_body: bool,
+    visibility: Option<&str>,
+    edit_files: impl FnOnce(&mut Vec<(Box<str>, Vec<u8>)>),
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+) {
+    let ((stream, equipment, artwork, input), entities, _) = fixture_with_catalog(
+        main,
+        clock,
+        animated,
+        bound,
+        turning,
+        hide_body,
+        visibility,
+        edit_files,
+        |_| {},
+    );
+    ((stream, equipment, artwork, input), entities)
+}
+
+/// Also exposes the compiled equipment catalog so tests can add a binding without an authored
+/// definition, the shape the production startup fallback admits for missing external geometry.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn fixture_with_catalog(
+    main: Option<&str>,
+    clock: bool,
+    animated: bool,
+    bound: bool,
+    turning: bool,
+    hide_body: bool,
+    visibility: Option<&str>,
+    edit_files: impl FnOnce(&mut Vec<(Box<str>, Vec<u8>)>),
+    edit_bindings: impl FnOnce(&mut Vec<assets::EquipmentBinding>),
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+    Arc<assets::RuntimeEquipmentCatalog>,
+) {
     let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.player_test","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0]}, {"name":"body","pivot":[0,24,0]},
@@ -234,18 +303,27 @@ pub(super) fn fixture_with_visibility(
         value["minecraft:client_entity"]["description"]["hide_held_items"] = expression.into();
         *document = serde_json::to_vec(&value).unwrap();
     }
+    edit_files(&mut files);
     let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
         .unwrap();
+    let mut bindings = compiled.equipment_bindings;
+    edit_bindings(&mut bindings);
     let catalog = Arc::new(
         assets::RuntimeEquipmentCatalog::from_parts(
             compiled.identity,
-            compiled.equipment_bindings,
+            bindings,
             compiled.equipment_textures,
         )
         .unwrap(),
     );
-    let entities = Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
+    let entity_bytes = assets::encode_entity_blob(&compiled.entities).unwrap();
+    let entities = Arc::new(assets::RuntimeEntityAssets::decode(&entity_bytes).unwrap());
+    let actor_bytes =
+        assets::encode_actor_catalog(&entity_bytes, &compiled.textures, &compiled.bindings)
+            .unwrap();
+    let actor_catalog = assets::RuntimeActorCatalog::decode(&actor_bytes, &entities).unwrap();
+    let actor_artwork = ActorArtworkPages::new(&actor_catalog);
     let sprite = assets::IconSprite {
         width: 16,
         height: 16,
@@ -274,11 +352,11 @@ pub(super) fn fixture_with_visibility(
     );
     let (equipment, artwork, _) = EquipmentRuntime::build(
         entities.clone(),
-        Some(catalog),
+        Some(Arc::clone(&catalog)),
         icons,
         None,
         None,
-        ActorArtworkPages::default(),
+        actor_artwork,
     );
     let mut stream = WorldStream::new_with_asset_sets(
         protocol::WorldBootstrap {
@@ -348,7 +426,7 @@ pub(super) fn fixture_with_visibility(
         }),
         ..Default::default()
     };
-    ((stream, equipment, artwork, input), entities)
+    ((stream, equipment, artwork, input), entities, catalog)
 }
 
 /// Uses the production selector with independent actor and physics fractions.

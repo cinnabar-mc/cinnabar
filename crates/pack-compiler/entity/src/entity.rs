@@ -6,10 +6,10 @@ use std::{
 
 use assets::{
     AssetError, CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
-    EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
-    EntityGeometryBone, EntityGeometryInheritance, EquipmentBinding, MAX_ENTITY_ASSET_SOURCES,
-    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_TOTAL_SOURCE_BYTES,
-    validate_entity_geometry_inheritance,
+    EntityDependency, EntityDependencyKind, EntityDependencyResolution,
+    EntityDependencyStorageBudget, EntityGeometry, EntityGeometryBone, EntityGeometryInheritance,
+    EquipmentBinding, MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES,
+    MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -423,6 +423,14 @@ fn assemble(
     if symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
     }
+    let mut dependency_budget = EntityDependencyStorageBudget::new(MAX_ENTITY_CATALOG_BYTES);
+    for symbol in symbols.values() {
+        for dependency in &symbol.dependencies {
+            dependency_budget
+                .charge(dependency.identifier.len())
+                .map_err(|_| invalid("entity dependency storage exceeds catalog budget"))?;
+        }
+    }
     let source_indices = sources
         .iter()
         .enumerate()
@@ -793,9 +801,7 @@ fn parse_entity(
         &mut dependencies,
     )?;
     if let Some(animations) = description.get("animations") {
-        let mut values = Vec::new();
-        collect_string_leaves(animations, &mut values, 0)?;
-        for target in values {
+        collect_string_leaves(animations, 0, &mut |target| {
             let kind = if target.starts_with("controller.animation.") {
                 EntityDependencyKind::AnimationController
             } else {
@@ -806,7 +812,8 @@ fn parse_entity(
                 identifier: target.into(),
                 resolution: EntityDependencyResolution::External,
             });
-        }
+            Ok(())
+        })?;
     }
     collect_named_dependencies(
         description.get("animation_controllers"),
@@ -817,9 +824,6 @@ fn parse_entity(
         description.get("render_controllers"),
         &mut dependencies,
     )?;
-    if dependencies.len() > MAX_ENTITY_DEPENDENCIES {
-        return Err(invalid("client entity dependency count exceeds bound"));
-    }
     insert_symbol(
         symbols,
         kind,
@@ -840,22 +844,17 @@ fn collect_named_dependencies(
     let Some(value) = value else {
         return Ok(());
     };
-    let mut values = Vec::new();
-    collect_string_leaves(value, &mut values, 0)?;
-    for identifier in values {
+    collect_string_leaves(value, 0, &mut |identifier| {
         if kind == EntityDependencyKind::Texture && identifier.is_empty() {
-            continue;
+            return Ok(());
         }
         dependencies.insert(EntityDependency {
             kind,
             identifier: identifier.into(),
             resolution: EntityDependencyResolution::External,
         });
-        if dependencies.len() > MAX_ENTITY_DEPENDENCIES {
-            return Err(invalid("client entity dependency count exceeds bound"));
-        }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 fn collect_render_controller_dependencies(
@@ -892,9 +891,6 @@ fn collect_render_controller_dependencies(
                 ));
             }
         }
-        if dependencies.len() > MAX_ENTITY_DEPENDENCIES {
-            return Err(invalid("client entity dependency count exceeds bound"));
-        }
     }
     Ok(())
 }
@@ -909,30 +905,27 @@ const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
     }
 }
 
-fn collect_string_leaves<'a>(
-    value: &'a Value,
-    output: &mut Vec<&'a str>,
+fn collect_string_leaves(
+    value: &Value,
     depth: usize,
+    visitor: &mut impl FnMut(&str) -> Result<(), AssetError>,
 ) -> Result<(), AssetError> {
-    if depth > 16 || output.len() > MAX_ENTITY_DEPENDENCIES {
+    if depth > 16 {
         return Err(invalid("entity dependency structure exceeds bound"));
     }
     match value {
-        Value::String(value) => output.push(value),
+        Value::String(value) => visitor(value)?,
         Value::Array(values) => {
             for value in values {
-                collect_string_leaves(value, output, depth + 1)?;
+                collect_string_leaves(value, depth + 1, visitor)?;
             }
         }
         Value::Object(values) => {
             for value in values.values() {
-                collect_string_leaves(value, output, depth + 1)?;
+                collect_string_leaves(value, depth + 1, visitor)?;
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
-    }
-    if output.len() > MAX_ENTITY_DEPENDENCIES {
-        return Err(invalid("entity dependency count exceeds bound"));
     }
     Ok(())
 }

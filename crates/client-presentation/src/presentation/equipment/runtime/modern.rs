@@ -17,9 +17,17 @@ fn should_fallback_to_icon(show_custom_item_models: bool, from_pack: bool) -> bo
 pub(crate) struct HeldSelection {
     source: Option<pack::BindingSource>,
     icon_fallback: bool,
+    owns_definition: bool,
 }
 
 impl HeldSelection {
+    /// Whether the selected binding owns an authored definition that can be evaluated,
+    /// independently of whether that definition drew. A geometry-only startup fallback
+    /// is admitted for missing artwork but has no definition to occupy the hand's draw slot.
+    pub(crate) const fn admitted(&self) -> bool {
+        self.owns_definition
+    }
+
     /// Reports whether this admitted definition supplies its own hand placement.
     pub(crate) fn uses_authored_hand(&self, item: &WornItem) -> bool {
         !self.icon_fallback
@@ -63,10 +71,25 @@ impl EquipmentRuntime {
                 input,
             )
         };
+        let owns_definition = source.as_ref().is_some_and(|source| {
+            let assets = if source.from_pack {
+                self.pack.as_ref().map(|pack| &pack.assets)
+            } else {
+                Some(&self.assets)
+            };
+            assets
+                .and_then(|assets| {
+                    assets.attachable_rig_binding(
+                        source.catalog.bindings()[source.index].attachable_identifier(),
+                    )
+                })
+                .is_some()
+        });
         HeldSelection {
             icon_fallback: source.as_ref().is_some_and(|source| {
                 should_fallback_to_icon(self.show_custom_item_models, source.from_pack)
             }),
+            owns_definition,
             source,
         }
     }
@@ -125,6 +148,35 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
+        let mut hidden = false;
+        self.held_attachable_from_source_with_policy(
+            body,
+            item,
+            source,
+            owner,
+            owner_rig,
+            input,
+            java_hand,
+            false,
+            &mut hidden,
+        )
+    }
+
+    /// Evaluates and renders one admitted held definition, optionally consuming an exact world
+    /// main-hand authored-zero proof from that same evaluation.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn held_attachable_from_source_with_policy(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        source: &pack::BindingSource,
+        owner: &ActorSnapshot,
+        owner_rig: &ActorRigSnapshot<'_>,
+        input: AttachableAnimationInput<'_>,
+        java_hand: Option<render_model::java_animation::JavaHand>,
+        allow_world_hide: bool,
+        hidden: &mut bool,
+    ) -> Option<FirstPersonItem> {
         // First person samples only the hand's body pose, not its controller models, so roots
         // bind to and follow the body alone there.
         let owner_rig = &ActorRigSnapshot {
@@ -160,8 +212,50 @@ impl EquipmentRuntime {
         } else {
             (Arc::clone(&self.assets), &mut self.attachables)
         };
-        let evaluated =
-            runtime.evaluate(binding.attachable_identifier(), owner, owner_rig, input)?;
+        let eligible_world_main_hand = allow_world_hide
+            && self.show_custom_item_models
+            && binding.identifier.as_ref() == item.identifier.as_ref()
+            && java_hand.is_none()
+            && !input.first_person
+            && !input.off_hand
+            && !input.worn
+            && !input.is_paperdoll
+            && !input.is_in_ui
+            && input.owner_main_hand == Some(item.identifier.as_ref());
+        let evaluated = if eligible_world_main_hand {
+            match runtime.evaluate_world_main_hand(
+                binding.attachable_identifier(),
+                owner,
+                owner_rig,
+                input,
+            ) {
+                actor_animation::WorldAttachableEvaluation::Drawable(snapshot) => Some(snapshot),
+                actor_animation::WorldAttachableEvaluation::AuthoredZeroRootSample(sample) => {
+                    match authored_zero_sample_decision(
+                        sample.drawable,
+                        Self::authored_zero_root_has_valid_world_endpoints(
+                            &sample.proof,
+                            binding.attachable_identifier(),
+                            owner_rig.actor,
+                            body,
+                            &body_bones,
+                            owner_rig,
+                            input,
+                        ),
+                    ) {
+                        AuthoredZeroSampleDecision::Hide => {
+                            *hidden = true;
+                            return None;
+                        }
+                        AuthoredZeroSampleDecision::Draw(snapshot) => Some(snapshot),
+                        AuthoredZeroSampleDecision::Fallback => None,
+                    }
+                }
+                actor_animation::WorldAttachableEvaluation::Unavailable => None,
+            }
+        } else {
+            runtime.evaluate(binding.attachable_identifier(), owner, owner_rig, input)
+        }?;
         // Each hand has its own item texture page. Multi-layer attachables remain
         // explicitly incomplete rather than accidentally displaying an enchantment layer.
         let selected = evaluated
@@ -322,7 +416,76 @@ impl EquipmentRuntime {
     }
 }
 
+fn bone_transform_is_finite(transform: actor_animation::BoneTransform) -> bool {
+    transform.rotation.iter().all(|value| value.is_finite())
+        && transform
+            .translation_scale
+            .iter()
+            .all(|value| value.is_finite())
+        && transform.axis_scale.iter().all(|value| value.is_finite())
+}
+
+fn valid_composed_zero_root_endpoints(
+    mut compose: impl FnMut(f32) -> Option<RenderBoneTransform>,
+) -> bool {
+    [0.0, 1.0].into_iter().all(|endpoint| {
+        compose(endpoint).is_some_and(|placed| {
+            placed.is_finite() && placed.axis_scale[..3].iter().all(|scale| *scale == 0.0)
+        })
+    })
+}
+
 impl EquipmentRuntime {
+    /// Requires the retained local evidence to compose as a real finite zero-scale pose at both
+    /// body endpoints. No renderer sentinel or missing owner binding is accepted as placement.
+    fn authored_zero_root_has_valid_world_endpoints(
+        proof: &actor_animation::AuthoredZeroRootProof<'_>,
+        identifier: &str,
+        owner: actor_animation::ActorLifetimeId,
+        body: &ActorRigSubmission,
+        body_bones: &BodyBones,
+        owner_rig: &ActorRigSnapshot<'_>,
+        input: AttachableAnimationInput<'_>,
+    ) -> bool {
+        if proof.attachable_identifier != identifier
+            || proof.owner != owner
+            || proof.effective_scale != [0.0; 3]
+            || proof.rig_scale.iter().any(|value| !value.is_finite())
+            || !bone_transform_is_finite(proof.root_transform)
+        {
+            return false;
+        }
+        let placement_input = AttachableAnimationInput {
+            held_item_scale: owner_rig.held_item_scale,
+            ..input
+        };
+        let held_scale = placement_input.main_hand_scale();
+        let model_scale =
+            std::array::from_fn(|axis| proof.rig_scale[0] * proof.rig_scale[axis + 1] * held_scale);
+        if model_scale.iter().any(|value| !value.is_finite()) {
+            return false;
+        }
+        let skeleton = actor_animation::attachment::OwnerSkeleton::body(
+            &body.input.previous_bones,
+            &body.input.current_bones,
+            &body_bones.names,
+        )
+        .with_layers(owner_rig);
+        valid_composed_zero_root_endpoints(|endpoint| {
+            let endpoint_input = AttachableAnimationInput {
+                frame_alpha: endpoint,
+                ..placement_input
+            };
+            let parent = actor_animation::attachment::parent_for_root(
+                skeleton,
+                endpoint_input,
+                proof.root_parent,
+                model_scale,
+            )?;
+            actor_animation::attachment::compose_parent(parent, proof.root_transform)
+        })
+    }
+
     /// The mesh of attachable geometry `key.1` drawn with `texture`, built once per artwork
     /// page. Its texture meshes are extruded from that texture's pixels.
     pub(super) fn attachable_mesh(
@@ -342,6 +505,25 @@ impl EquipmentRuntime {
     }
 }
 
+enum AuthoredZeroSampleDecision<T> {
+    Hide,
+    Draw(T),
+    Fallback,
+}
+
+fn authored_zero_sample_decision<T>(
+    drawable: Option<T>,
+    proof_accepted: bool,
+) -> AuthoredZeroSampleDecision<T> {
+    if proof_accepted {
+        AuthoredZeroSampleDecision::Hide
+    } else if let Some(drawable) = drawable {
+        AuthoredZeroSampleDecision::Draw(drawable)
+    } else {
+        AuthoredZeroSampleDecision::Fallback
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +532,46 @@ mod tests {
         assert!(should_fallback_to_icon(false, true));
         assert!(!should_fallback_to_icon(true, true));
         assert!(!should_fallback_to_icon(false, false));
+    }
+
+    #[test]
+    fn zero_root_requires_two_finite_composed_placements() {
+        let valid = || RenderBoneTransform {
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            translation_scale: [0.0, 0.0, 0.0, 1.0],
+            axis_scale: [0.0, 0.0, 0.0, 1.0],
+        };
+        assert!(valid_composed_zero_root_endpoints(|_| Some(valid())));
+        assert!(!valid_composed_zero_root_endpoints(|endpoint| {
+            (endpoint == 0.0).then(valid)
+        }));
+        assert!(!valid_composed_zero_root_endpoints(|endpoint| {
+            let mut pose = valid();
+            if endpoint == 1.0 {
+                pose.translation_scale[0] = f32::NAN;
+            }
+            Some(pose)
+        }));
+    }
+
+    #[test]
+    fn rejected_zero_root_uses_the_same_optional_drawable() {
+        let original: Arc<str> = Arc::from("original evaluated drawable");
+        match authored_zero_sample_decision(Some(Arc::clone(&original)), false) {
+            AuthoredZeroSampleDecision::Draw(drawable) => {
+                assert!(Arc::ptr_eq(&drawable, &original));
+            }
+            AuthoredZeroSampleDecision::Hide | AuthoredZeroSampleDecision::Fallback => {
+                panic!("rejected proof must keep its original drawable")
+            }
+        }
+        assert!(matches!(
+            authored_zero_sample_decision::<Arc<str>>(None, false),
+            AuthoredZeroSampleDecision::Fallback
+        ));
+        assert!(matches!(
+            authored_zero_sample_decision(Some(original), true),
+            AuthoredZeroSampleDecision::Hide
+        ));
     }
 }

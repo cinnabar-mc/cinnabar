@@ -901,12 +901,66 @@ controller model that has the parent bone, then the body, as native
 `attemptToSetParentBoneMapping` does. A player's body layer keeps
 the body slot and draws before controller models listed ahead of it, which differs from native
 list order only where a blended model overlaps the body. Other entities still choose their
-primary rig controller at compilation, the UI paperdoll and first-person hand draw only the body, how native substitutes a
-skin's model for controllers other than the body is unverified, and version-matched in-game
-acceptance remains incomplete.
+primary rig controller at compilation, and the UI paperdoll still draws only the body.
+First-person controller models reach CPU hand publication and the hand GPU consumes their
+retained catalog page/layer locations. Native and shader-pack consumers share validated routing;
+the player-skin sentinel remains independent of held-item/map flags. Matched native material
+and presentation qualification remains incomplete. How native substitutes a skin's model for controllers other
+than the body is unverified, and version-matched in-game acceptance remains incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
+  Client-entity dependencies are deduplicated and admitted by checked catalog-wide retained-storage
+  accounting, not an alias-count cutoff. Carrier preflight applies the same accounting before typed
+  allocation. Source limits, transient producer allocations and the separate particle-owner
+  reference truncation remain unqualified against native behavior. Flat boolean chains use
+  n-ary nodes and iterative short-circuit lowering rather than recursive tree growth, with
+  source/operation budgets and genuine nested-input guards retained. Compiler/evaluator
+  regressions and an isolated complete pre-animation compilation pass. First-person controller
+  model publication carries sampled geometry, poses, materials and independent artwork, with
+  interpolated/completed-sample and ordinary sampling-reuse regressions passing.
+  The pre-registration-fix headless BDS replay at 1280 by 720 showed no visible
+  first-person weapon or authored animation; that is historical evidence for the
+  earlier build, not the latest GUI result. After the generic session-geometry
+  registration fix and refreshed-app test, the owner supplied two screenshots
+  showing a visible first-person weapon in aim and reload poses and reports
+  observing both animations. The direct catalog artwork/location route through
+  the generic hand controller GPU path remains unqualified; the screenshots do
+  not identify the path that produced this draw. Ammo updates, eligible tactical
+  refill and two ordinary held-item controls pass; matched native presentation,
+  general GPU composition and the full animation gate remain open.
+  The pre-fix on-demand final hand-frame diagnostic showed only an ordinary item draw
+  in three live idle samples and after switching back, with two missing-geometry
+  builder rejections and no controller-model instance. A visible bone control had
+  no such rejections. The pre-fix one-shot pre/post-build witness identified both selected
+  controller geometries: their requested rig IDs were resident in the world scene,
+  but absent from the hand builder before and after the normal build. Session
+  geometry installation previously updated only the world scene. The production
+  session-pack installation path now sends prepared ranges to both owners and tracks
+  their readiness independently. Its regression failed on the missing hand geometry
+  before the fix and passes after; all 994 `client-presentation` library tests pass.
+  Owner-level pack replacement/disconnect coverage remains pending. The latest
+  owner GUI screenshots show a first-person weapon in aiming and reload poses after
+  testing the refreshed `Cinnabar Dev.app`; the owner reports observing both
+  animations. This supersedes the earlier blank-hand GUI result for that later
+  check. The stills do not provide a temporal animation recording, identify the
+  exact draw path, or establish matched native texture/placement/animation parity.
+  The hand GPU now retains demanded catalog pages and ordered page/layer draw spans,
+  normalizing the skin sentinel without occupying an item or map slot. Production resource
+  selection and GPU fragment readback were RED before the fix; all 25 focused hand-render
+  tests pass, including independent pages/layers, skin/item/map controls, changed-page
+  replacement and allocation-free warm artwork uploads. A rebuilt headless Metal candidate
+  corrects the weapon palette in BDS idle and switch-back captures, with bone/stairs controls
+  visible and unchanged CPU artwork/material context and player view. This qualifies the
+  reproduced texture symptom, not exact official-client presentation. Broader material/raster
+  composition, rendered coverage and performance qualification remain
+  open. Manually populated synthetic publication is a separate pass. The idle
+  diagnostic itself did not exercise firing, reload or fresh ammunition HUD delivery.
+  Render-controller texture slots now retain their authored indices across unresolved
+  sources and carrier decode. Focused BDS idle comparisons remove the bogus glint
+  extrusion while keeping the authored hand and held model. A duplicate held sprite
+  remains visible in one case; deliberate no-draw versus ordinary sprite fallback
+  and broader pack coverage remain open.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.
@@ -1467,6 +1521,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   still leaves some blank; that bound is incomplete parity work.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  The first server layer authoring an actionbar overlays carrier defaults rather than
+  inheriting the built-in HUD's anchors; later server customizations remain intact.
+  Regression tests cover visible multiline text and untouched built-in presentation;
+  broader composed-HUD and matched native acceptance remain incomplete.
   Server locator packets now reach session-owned locations and the pack-positioned bar
   in Survival and Creative, with explicit hiding and temporary XP display. Locator
   distance-dependent icons, legacy color selection, tracked-actor fallback behavior,

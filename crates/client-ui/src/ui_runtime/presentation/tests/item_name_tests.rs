@@ -107,6 +107,55 @@ fn publish(
 }
 
 #[test]
+fn item_lore_resolves_a_localized_rawtext_translation() {
+    let key = "krep:gun.evolys.lore";
+    let translated = r"§fТип: Пулемет \n§fГруппа предметов: §4Тяжелое Оружие§r \n§fЭй, это же интегрированный ресивер… ты что делаешь!? \n\n§fКалибр: .308 Winchester \nУрон: 10§r \n\n§1Переведенный пак TACZ";
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_server_lang(Some(
+        assets::ServerLangOverlay::from_layers([format!("{key}={translated}")]).unwrap(),
+    ));
+
+    let rawtext = format!(r#"{{"rawtext":[{{"translate":"{key}"}}]}}"#);
+    let mut extra = (-1_i16).to_le_bytes().to_vec();
+    extra.extend([1, 10, 0, 0]); // Version and unnamed fixed little-endian NBT root.
+    extra.extend([10, 7, 0]); // display compound.
+    extra.extend(b"display");
+    extra.extend([9, 4, 0]); // Lore list of strings.
+    extra.extend(b"Lore");
+    extra.push(8);
+    extra.extend(2_i32.to_le_bytes());
+    for line in [rawtext.as_str(), "plain lore"] {
+        extra.extend(u16::try_from(line.len()).unwrap().to_le_bytes());
+        extra.extend(line.as_bytes());
+    }
+    extra.extend([0, 0]); // Close display and root compounds.
+    extra.extend([0; 8]); // Empty canPlaceOn and canDestroy lists.
+    let mut stack = sword(None);
+    stack.nbt_digest = Sha256::digest(&extra).into();
+    stack.extra_data = extra.into();
+
+    let tooltip =
+        inventory_tooltip::tooltip_lines(&runtime, &stack, Some("minecraft:diamond_sword"), None);
+    assert_eq!(
+        tooltip[1..]
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "§fТип: Пулемет ",
+            "§fГруппа предметов: §4Тяжелое Оружие§r ",
+            "§fЭй, это же интегрированный ресивер… ты что делаешь!? ",
+            "",
+            "§fКалибр: .308 Winchester ",
+            "Урон: 10§r ",
+            "",
+            "§1Переведенный пак TACZ",
+            "plain lore",
+        ]
+    );
+}
+
+#[test]
 fn selected_item_name_reads_nbt_and_restarts_for_same_kind_in_another_slot() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);

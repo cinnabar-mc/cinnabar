@@ -17,7 +17,6 @@ pub(super) enum IrOp {
     Pop,
     Negate,
     Not,
-    Truthy,
     Binary(Binary),
     Call(MolangFunction),
     Jump(Label),
@@ -230,17 +229,18 @@ impl Codegen {
                 self.expression(right)?;
                 self.emit(IrOp::Binary(*operator));
             }
-            Expr::And(left, right) | Expr::Or(left, right) => {
+            Expr::And(operands) | Expr::Or(operands) => {
                 let and = matches!(expression, Expr::And(..));
                 let (short, end) = (self.label(), self.label());
-                self.expression(left)?;
-                self.emit(if and {
-                    IrOp::JumpIfFalse(short)
-                } else {
-                    IrOp::JumpIfTrue(short)
-                });
-                self.expression(right)?;
-                self.emit(IrOp::Truthy);
+                for operand in operands {
+                    self.expression(operand)?;
+                    self.emit(if and {
+                        IrOp::JumpIfFalse(short)
+                    } else {
+                        IrOp::JumpIfTrue(short)
+                    });
+                }
+                self.emit(IrOp::Push(if and { 1.0 } else { 0.0 }));
                 self.emit(IrOp::Jump(end));
                 self.place(short);
                 self.emit(IrOp::Push(if and { 0.0 } else { 1.0 }));
@@ -304,11 +304,21 @@ pub(super) fn fold_with(expression: &Expr, read: &dyn Fn(&Expr) -> Option<f32>) 
             let (left, right) = (fold_with(left, read)?, fold_with(right, read)?);
             binary(*operator, left, right)
         }
-        Expr::And(left, right) => {
-            truth(fold_with(left, read)? != 0.0 && fold_with(right, read)? != 0.0)
+        Expr::And(operands) => {
+            for operand in operands {
+                if fold_with(operand, read)? == 0.0 {
+                    return Some(0.0);
+                }
+            }
+            1.0
         }
-        Expr::Or(left, right) => {
-            truth(fold_with(left, read)? != 0.0 || fold_with(right, read)? != 0.0)
+        Expr::Or(operands) => {
+            for operand in operands {
+                if fold_with(operand, read)? != 0.0 {
+                    return Some(1.0);
+                }
+            }
+            0.0
         }
         Expr::Conditional(condition, yes, no) => {
             if fold_with(condition, read)? != 0.0 {

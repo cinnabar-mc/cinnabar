@@ -16,18 +16,6 @@ const MAX_MATRIX_ROWS: usize = 8_192;
 const MAX_GEOMETRY_VERTICES: usize = 4_096;
 const MAX_TOTAL_VERTICES: usize = 16_384;
 
-/// Counts published item instances independently of the player's skin arms.
-fn hand_item_counts(instances: &[render_model::ActorGpuInstance]) -> [usize; 2] {
-    let mut counts = [0; 2];
-    for instance in instances {
-        if instance.texture_layer & render_model::HAND_ITEM_LAYER_FLAG != 0 {
-            let offhand = instance.texture_layer & render_model::HAND_OFFHAND_LAYER_FLAG != 0;
-            counts[usize::from(offhand)] += 1;
-        }
-    }
-    counts
-}
-
 /// Reports the last published first-person items for capture acceptance checks.
 pub(super) fn hand_snapshot(world: &World) -> Value {
     let Some(frame) = world
@@ -36,13 +24,7 @@ pub(super) fn hand_snapshot(world: &World) -> Value {
     else {
         return Value::Null;
     };
-    let [main, offhand] = hand_item_counts(&frame.rig.instances);
-    json!({
-        "frame_generation": frame.rig.frame_generation,
-        "geometry_revision": frame.rig.geometry_revision,
-        "main_item_instances": main,
-        "offhand_item_instances": offhand,
-    })
+    super::hand_frame::snapshot(frame)
 }
 
 fn camera(world: &World) -> Option<Value> {
@@ -268,8 +250,8 @@ mod hand_tests {
                 ..Default::default()
             }
         });
-        assert_eq!(hand_item_counts(&instances), [2, 1]);
-        assert_eq!(hand_item_counts(&[]), [0, 0]);
+        assert_eq!(super::super::hand_frame::item_counts(&instances), [2, 1]);
+        assert_eq!(super::super::hand_frame::item_counts(&[]), [0, 0]);
         assert!(hand_snapshot(&World::new()).is_null());
     }
 }

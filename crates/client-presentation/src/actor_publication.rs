@@ -12,6 +12,8 @@ mod flames;
 mod geometry;
 mod ground_effects;
 mod hand_frame;
+#[cfg(feature = "developer-control")]
+mod hand_inspection;
 mod hats;
 pub use ground_effects::{GroundEffectWearer, GroundEffectWearers};
 pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
@@ -21,7 +23,11 @@ mod occlusion;
 mod paintings;
 pub use flames::WorldActorFlames;
 mod views;
-use geometry::{SessionGeometryReady, SessionIconInput, apply_session_pack, register_geometries};
+#[cfg(test)]
+use geometry::apply_session_pack;
+use geometry::{
+    SessionGeometryReady, SessionIconInput, apply_session_pack_to_owners, register_geometries,
+};
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
 mod emote_geometry;
@@ -507,15 +513,57 @@ pub fn prepare_actor_render_frame(
             },
         ),
     );
+    let hand_source = hand_source.filter(|_| !input.hide_hand);
+    #[cfg(feature = "developer-control")]
+    let inspection = state.hand_inspection.take_request().then(|| {
+        let mut report = hand_inspection::HandInspection::before(
+            &params.hand_builder.0,
+            &params.scene,
+            client_world
+                .pack_entities
+                .as_deref()
+                .map(|pack| pack.assets.as_ref()),
+            hand_source
+                .as_ref()
+                .map(HandSource::inspection_submissions)
+                .unwrap_or_default(),
+        );
+        report["source_visibility"] = serde_json::json!(
+            hand_source
+                .as_ref()
+                .map(|source| format!("{:?}", source.visibility))
+        );
+        report["show_custom_item_models"] =
+            serde_json::json!(params.presentation.settings.feel().show_custom_item_models);
+        report["held_selection"] = serde_json::json!(hand_source.as_ref().map(|source| {
+            source.item_selection.each_ref().map(|selection| {
+                selection.as_ref().map(|selection| {
+                    serde_json::json!({"item": selection.item.as_ref(), "branch": selection.branch})
+                })
+            })
+        }));
+        report["world_session_entities_ready"] =
+            serde_json::json!(state.pack_geometry_ready.entities);
+        report["world_session_equipment_ready"] =
+            serde_json::json!(state.pack_geometry_ready.equipment);
+        report
+    });
     publish_hand_rig(
         &mut params.hand_builder.0,
         &mut params.hand_scene,
         &mut state.hand_revision,
-        hand_source.filter(|_| !input.hide_hand),
+        hand_source,
+        artwork,
         hand_camera_fov,
         hand_light,
         (step.partial_tick, params.glint_settings.as_deref()),
     );
+    #[cfg(feature = "developer-control")]
+    if let Some(report) = inspection {
+        state
+            .hand_inspection
+            .finish(report, &params.hand_builder.0, &params.hand_scene);
+    }
 }
 
 #[cfg(test)]

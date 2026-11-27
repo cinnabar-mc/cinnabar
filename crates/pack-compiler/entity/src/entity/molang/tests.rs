@@ -456,3 +456,84 @@ fn incomplete_tag_membership_remains_unknown_through_negation() {
         );
     }
 }
+
+#[test]
+fn boolean_chain_folding_short_circuits_in_source_order_and_normalizes_truth() {
+    let Program::Simple(expression) =
+        parser::parse("variable.a || variable.b && variable.c").unwrap()
+    else {
+        panic!("expression parses as simple");
+    };
+    let reads = std::cell::RefCell::new(Vec::new());
+    let value = fold_with(&expression, &|read| {
+        let Expr::Variable(_, name) = read else {
+            return None;
+        };
+        reads.borrow_mut().push(name.to_string());
+        Some(match name.as_ref() {
+            "variable.a" => 2.5,
+            "variable.b" => 0.0,
+            "variable.c" => 1.0,
+            _ => return None,
+        })
+    });
+    assert_eq!(value, Some(1.0));
+    assert_eq!(*reads.borrow(), ["variable.a"]);
+
+    let Program::Simple(expression) =
+        parser::parse("variable.a && variable.b || variable.c").unwrap()
+    else {
+        panic!("expression parses as simple");
+    };
+    reads.borrow_mut().clear();
+    let value = fold_with(&expression, &|read| {
+        let Expr::Variable(_, name) = read else {
+            return None;
+        };
+        reads.borrow_mut().push(name.to_string());
+        Some(match name.as_ref() {
+            "variable.a" => 3.0,
+            "variable.b" => -4.0,
+            "variable.c" => 8.0,
+            _ => return None,
+        })
+    });
+    assert_eq!(value, Some(1.0));
+    assert_eq!(*reads.borrow(), ["variable.a", "variable.b"]);
+}
+
+#[test]
+fn boolean_chain_bytecode_has_forward_short_circuit_targets() {
+    for (source, is_and) in [
+        ("variable.a && variable.b && variable.c", true),
+        ("variable.a || variable.b || variable.c", false),
+    ] {
+        let program = ops(source);
+        let branches = program
+            .iter()
+            .enumerate()
+            .filter_map(|(index, op)| {
+                let matches = if is_and {
+                    matches!(op, MolangOp::JumpIfFalse(_))
+                } else {
+                    matches!(op, MolangOp::JumpIfTrue(_))
+                };
+                matches.then_some((index, op))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(branches.len(), 3, "{source}");
+        let short_target = u16::try_from(program.len() - 1).unwrap();
+        for (index, op) in branches {
+            let target = match op {
+                MolangOp::JumpIfFalse(target) | MolangOp::JumpIfTrue(target) => *target,
+                _ => unreachable!(),
+            };
+            assert!(usize::from(target) > index, "branch must move forward");
+            assert_eq!(target, short_target, "all terms share the short result");
+        }
+        assert!(matches!(program.last(), Some(MolangOp::Push(_))));
+        assert!(program.iter().any(
+            |op| matches!(op, MolangOp::Jump(target) if usize::from(*target) == program.len())
+        ));
+    }
+}

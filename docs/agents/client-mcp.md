@@ -8,6 +8,9 @@ schemas document every argument. Agents drive the client only through this endpo
 
 - `connect` with `local_server` runs `make local-server`'s binary on a free loopback port. Remote
   joins need `allow_remote`, since they sign in with the configured account; ask the owner first.
+  An owner may grant standing authorization for a designated disposable test server. In that scope
+  use `allow_remote` and the owner-owned auth cache by reference, and proceed with chat, `/give`,
+  inventory and world fixtures without asking again.
   The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, `/tp`, `/weather` and
   `/time set <ticks|noon|midnight|…>` (frozen until `/time cycle`) for captures.
 - `input` sends real key and mouse events, so mods' ability keys (`Digit1`…) work; `F1` hides the HUD.
@@ -43,6 +46,16 @@ schemas document every argument. Agents drive the client only through this endpo
   directly before sending a stimulus. These diagnostics do not grant movement authority.
 - `state.hand_draw` reports the last published main-hand and offhand item instance counts.
   Check these alongside the selected item when verifying held-item captures; skin arms do not count.
+  It also inspects the final CPU `HandRigFrame` on demand: ordered draws, geometry samples,
+  artwork page/layer locations, raster state, placement and both pose endpoints. Omitted
+  draw, vertex and bone counts identify bounded output. This is publication evidence, not
+  GPU consumption; source controller names and visibility decisions are not retained there.
+- `state.hand_registration` is an optional one-shot pre/post-build observation. A `state`
+  request arms the next ordinary hand publication and returns the previous observation;
+  query again for the new result and use its own publication generation/revision. It
+  reports requested rig IDs, selected categories, pack geometry names where resolvable,
+  hand/world residency and manifest matches. Readiness is not an admission verdict;
+  repeated identity/rig matches are marked ambiguous rather than assigned speculatively.
 - `state.client_part_screens` lists each running client part's open modal screen: its `bundle`,
   its `template` (such as `ui/terminal.json`), whether it is `focused` (owns input) and whether
   the last frame `drawn` it. `state.screens` lists only the client's own scenes.

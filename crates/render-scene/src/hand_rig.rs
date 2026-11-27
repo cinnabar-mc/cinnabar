@@ -1,11 +1,16 @@
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use render_api::SkinRgba8;
-use render_model::{ActorRigRenderFrame, EquipmentRaster, HandItemAtlas, HandRigLight};
+use render_model::{
+    ActorArtworkPages, ActorRigRenderFrame, EquipmentRaster, HandItemAtlas, HandRigLight,
+};
+use std::sync::Arc;
 /// One frame's local first-person arms and held items in camera space, with their
 /// artwork, lighting, and base FOV.
 #[derive(Clone, Debug)]
 pub struct HandRigFrame {
     pub rig: ActorRigRenderFrame,
+    pub artwork: Option<Arc<ActorArtworkPages>>,
+    pub draw_locations: Arc<[Option<render_model::ActorArtworkLocation>]>,
     pub skin: SkinRgba8,
     pub light: HandRigLight,
     pub fov_radians: f32,
@@ -56,6 +61,8 @@ impl HandRigScene {
         }
         self.frame = Some(HandRigFrame {
             rig,
+            artwork: None,
+            draw_locations: Arc::from([]),
             skin,
             light,
             fov_radians,
@@ -64,6 +71,23 @@ impl HandRigScene {
             item_glint: None,
         });
         true
+    }
+
+    /// Keeps the artwork pages alive for all controller draws in this frame.
+    pub fn set_artwork(&mut self, artwork: Arc<ActorArtworkPages>) {
+        if let Some(frame) = &mut self.frame {
+            frame.artwork = Some(artwork);
+        }
+    }
+
+    /// Stores per-instance artwork locations in the same order as the rig manifest.
+    pub fn set_draw_locations(
+        &mut self,
+        locations: impl Into<Arc<[Option<render_model::ActorArtworkLocation>]>>,
+    ) {
+        if let Some(frame) = &mut self.frame {
+            frame.draw_locations = locations.into();
+        }
     }
 
     /// Supplies the atlas page for item instances of the published frame; ignored when inactive

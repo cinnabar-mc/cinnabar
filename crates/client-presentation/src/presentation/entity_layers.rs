@@ -400,6 +400,34 @@ fn layered(
     submission
 }
 
+/// Resolves camera-space controller draws without assigning synthetic actor-layer IDs.
+/// Locations stay paired with their draws and controller order is retained.
+pub(crate) fn ordered_draws(
+    body: &ActorRigSubmission,
+    layers: &[RenderTextureLayer],
+    artwork: &ActorArtworkPages,
+    cache: &mut LayerPoseCache,
+    player_skin: bool,
+) -> Vec<(ActorRigSubmission, Option<ActorArtworkLocation>)> {
+    let mut draws = Vec::new();
+    for layer in layers {
+        if player_skin && layer.geometry.is_none() {
+            continue;
+        }
+        let Some(layer) = resolve_layer(body, layer, artwork, cache, player_skin) else {
+            continue;
+        };
+        if layer.model.is_none() {
+            continue;
+        }
+        let location = layer.location;
+        let mut submission = layered(body, &layer, 0, cache);
+        submission.input.identity.layer = body.input.identity.layer;
+        draws.push((submission, location));
+    }
+    draws
+}
+
 /// Applies each entity body's selected texture layers to the batch: the first replaces the
 /// body's texture, the rest are appended as extra layers of the same actor.
 #[cfg(any(test, feature = "test-support"))]
@@ -509,6 +537,7 @@ mod tests {
         let original_rig = batch.submissions[0].input.rig;
         let original_skin = batch.skin_layers[0].clone();
         let layer = RenderTextureLayer {
+            authored_layer: None,
             masks: None,
             render_state: Some(render_api::render_state::RenderState {
                 blend: Some(render_api::render_state::BlendState::ALPHA),
@@ -579,6 +608,7 @@ mod tests {
         let mut batch =
             super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
         let layer = |runtime_skin: bool, source: u32| RenderTextureLayer {
+            authored_layer: None,
             render_state: None,
             masks: None,
             material: assets::EntityRenderMaterial::Default,
@@ -657,6 +687,7 @@ mod tests {
     #[test]
     fn runtime_skin_overlay_uses_the_first_admitted_layer_and_keeps_later_layers_independent() {
         let layer = RenderTextureLayer {
+            authored_layer: None,
             render_state: None,
             masks: None,
             material: assets::EntityRenderMaterial::Default,
@@ -775,6 +806,7 @@ mod tests {
             axis_scale: [1.0; 3],
         }]);
         let layer = |runtime_skin: bool, source: u32, geometry: Option<u32>| RenderTextureLayer {
+            authored_layer: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             render_state: None,
@@ -877,6 +909,7 @@ mod tests {
             axis_scale: [1.0; 3],
         }]);
         let morph = RenderTextureLayer {
+            authored_layer: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             render_state: None,

@@ -7,6 +7,9 @@ pub use initialization::ActorInitialization;
 
 use serde_json::Value;
 
+// This legacy consumer truncation is separate from catalog admission and remains an incomplete parity limit.
+const MAX_PARTICLE_OWNER_REFERENCES: usize = 512;
+
 mod lifecycle;
 pub use lifecycle::{ActorEffectKey, ActorEffectTracker};
 
@@ -45,7 +48,7 @@ impl ActorEffectBindings {
             .into_iter()
             .flatten()
             .filter_map(|(alias, value)| Some((name_str(alias)?.into(), name(value)?.into())))
-            .take(assets::MAX_ENTITY_DEPENDENCIES)
+            .take(MAX_PARTICLE_OWNER_REFERENCES)
             .collect();
         self.entities.insert(identifier.into(), aliases);
     }
@@ -81,7 +84,7 @@ impl ActorEffectBindings {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .take(assets::MAX_ENTITY_DEPENDENCIES)
+                    .take(MAX_PARTICLE_OWNER_REFERENCES)
                 {
                     let Some(alias) = name(&effect["effect"]) else {
                         self.unsupported += 1;

@@ -222,6 +222,89 @@ fn authored_expressions_evaluate_to_their_vanilla_values() {
 }
 
 #[test]
+fn flat_boolean_chains_compile_and_preserve_precedence() {
+    let long_or = (0..61)
+        .map(|index| format!("variable.choice == {index}"))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    let long_and = (0..61)
+        .map(|index| format!("variable.choice >= {index}"))
+        .collect::<Vec<_>>()
+        .join(" && ");
+    let scripts = serde_json::json!({
+        "pre_animation": [
+            "variable.choice = 60;",
+            format!("variable.long_chain = {long_or};"),
+            format!("variable.long_and = {long_and};"),
+            "variable.precedence = variable.choice == 0 || variable.choice == 60 && 0;",
+        ],
+        "animate": ["probe"],
+    });
+    let expressions = [
+        "variable.long_chain",
+        "variable.long_and",
+        "variable.precedence",
+    ];
+    let bones = expressions
+        .iter()
+        .enumerate()
+        .map(|(index, _)| serde_json::json!({"name":format!("b{index}"),"pivot":[0,0,0]}))
+        .collect();
+    let channels = expressions
+        .iter()
+        .enumerate()
+        .map(|(index, expression)| {
+            (
+                format!("b{index}"),
+                serde_json::json!({"rotation":[expression, 0.0, 0.0]}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let pack = write_pack(
+        "boolean_chain",
+        vec![
+            (
+                "entity/boolean_chain.entity.json",
+                entity_file(
+                    "boolean_chain",
+                    scripts,
+                    serde_json::json!({"probe":"animation.boolean_chain.probe"}),
+                ),
+            ),
+            (
+                "models/entity/boolean_chain.geo.json",
+                geometry_file("boolean_chain", bones),
+            ),
+            (
+                "animations/boolean_chain.animation.json",
+                serde_json::json!({"format_version":"1.8.0","animations":{
+                    "animation.boolean_chain.probe":{"loop":true,"bones":channels}}}),
+            ),
+            (
+                "render_controllers/boolean_chain.render_controllers.json",
+                render_file("boolean_chain"),
+            ),
+        ],
+    );
+    let (mut world, entities) = spawned("boolean_chain", &pack);
+    world.advance_actor_interpolation_ticks(1);
+    for (index, (expression, expected)) in [
+        ("long OR chain, true only at the end", 1.0),
+        ("long AND chain with all terms true", 1.0),
+        ("OR binds less tightly than AND", 0.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let angle = authored_x_angle(&world, &entities, &format!("b{index}"));
+        assert!(
+            (angle - expected).abs() < 1.0e-3,
+            "{expression} evaluated to {angle}, expected {expected}"
+        );
+    }
+}
+
+#[test]
 fn a_state_leaves_once_its_clips_finish_and_the_next_state_starts_its_clip_at_zero() {
     let pack = write_pack(
         "clock",

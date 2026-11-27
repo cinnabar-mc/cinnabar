@@ -12,6 +12,8 @@ use render_model::{ActorRigSubmission, HandItemAtlas, HandRigLight};
 #[cfg(test)]
 mod bootstrap_tests;
 #[cfg(test)]
+mod controller_model_tests;
+#[cfg(test)]
 mod item_switch_tests;
 #[cfg(test)]
 mod lighting_tests;
@@ -31,6 +33,8 @@ mod spear_tests;
 mod third_person_tests;
 #[cfg(test)]
 mod visibility_tests;
+#[cfg(test)]
+mod world_duplicate_sprite_tests;
 pub(super) use native_pose::NativePoseCache;
 
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
@@ -113,6 +117,7 @@ pub(super) fn publish_hand_rig(
     scene: &mut HandRigScene,
     revision: &mut u64,
     source: Option<HandSource>,
+    artwork: &render_model::ActorArtworkPages,
     fov_radians: Option<f32>,
     mut light: HandRigLight,
     (partial_tick, glint): (f32, Option<&render_scene::UiGlintSettings>),
@@ -125,13 +130,16 @@ pub(super) fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let frame = builder.build(
+    let frame = builder.build_ordered_located(
         partial_tick,
         None,
-        source.all_submissions().map(|mut submission| {
-            super::equipment_layers::animate_glint(&mut submission, partial_tick, glint);
-            submission
-        }),
+        source
+            .all_located_submissions()
+            .map(|(mut submission, location)| {
+                super::equipment_layers::animate_glint(&mut submission, partial_tick, glint);
+                (submission, location)
+            }),
+        |_, location| location.map_or(0, |location| location.page()),
     );
     let mut atlases = [None, None];
     for (index, entry) in source.items.into_iter().enumerate() {
@@ -143,6 +151,8 @@ pub(super) fn publish_hand_rig(
     }
     *revision = revision.wrapping_add(1).max(1);
     if scene.publish(frame, skin, light, fov, *revision) {
+        scene.set_artwork(Arc::new(artwork.clone()));
+        scene.set_draw_locations(Arc::from(builder.instance_locations()));
         scene.set_item_atlases(atlases);
         scene.set_item_glint(source.item_glint);
         scene.set_map_background(source.maps.background);
@@ -190,13 +200,26 @@ pub(super) fn local_consume(
     Some(((input.use_elapsed_ticks? as f32 + alpha).min(ticks), ticks))
 }
 
+/// Records the selected path before atlas admission and authored visibility are applied.
+#[cfg(feature = "developer-control")]
+pub(super) struct HandSelectionInspection {
+    pub(super) item: Arc<str>,
+    pub(super) branch: &'static str,
+}
+
 /// What the first-person pass draws: arm-masked body pose and/or a held item with its atlas page
 /// and whether its bone is in camera space.
 pub(super) struct HandSource {
     pub(super) presentation: ActorRigPresentation,
     pub(super) visibility: actor_animation::RenderVisibility,
     pub(super) body: Option<ActorRigSubmission>,
+    pub(super) controller_draws: Vec<(
+        ActorRigSubmission,
+        Option<render_model::ActorArtworkLocation>,
+    )>,
     pub(super) items: [Option<(FirstPersonItem, HandItemAtlas)>; 2],
+    #[cfg(feature = "developer-control")]
+    pub(super) item_selection: [Option<HandSelectionInspection>; 2],
     pub(super) maps: maps::MapLayers,
     /// The held-item glint raster, bound whenever an item draws with the glint material.
     pub(super) item_glint: Option<render_model::EquipmentRaster>,
@@ -220,8 +243,15 @@ impl HandSource {
         }
     }
 
-    /// Includes each received map's paper with the current camera motion.
-    pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
+    /// Pairs controller artwork with the same camera-space draws used for readiness.
+    pub(super) fn all_located_submissions(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ActorRigSubmission,
+            Option<render_model::ActorArtworkLocation>,
+        ),
+    > + '_ {
         self.maps
             .paper
             .iter()
@@ -229,9 +259,47 @@ impl HandSource {
             .map(|(paper, camera)| {
                 let mut paper = paper.clone();
                 paper.world_from_actor = camera_space_rows(self.motion * *camera);
-                paper
+                (paper, None)
             })
-            .chain(self.submissions().into_iter().flatten())
+            .chain(
+                self.submissions()
+                    .into_iter()
+                    .flatten()
+                    .map(|submission| (submission, None)),
+            )
+            .chain(self.controller_draws.iter().cloned())
+    }
+
+    /// Labels the same selected draws for an explicitly requested registration observation.
+    #[cfg(feature = "developer-control")]
+    pub(super) fn inspection_submissions(
+        &self,
+    ) -> Vec<(
+        &'static str,
+        ActorRigSubmission,
+        Option<render_model::ActorArtworkLocation>,
+    )> {
+        let categories = std::iter::repeat_n("map_paper", self.maps.paper.iter().flatten().count())
+            .chain(
+                self.submissions()
+                    .into_iter()
+                    .zip(["body", "main_item", "offhand_item"])
+                    .filter_map(|(submission, category)| submission.map(|_| category)),
+            )
+            .chain(std::iter::repeat_n(
+                "controller",
+                self.controller_draws.len(),
+            ));
+        self.all_located_submissions()
+            .zip(categories)
+            .map(|((submission, location), category)| (category, submission, location))
+            .collect()
+    }
+
+    /// Includes each received map's paper with the current camera motion.
+    pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
+        self.all_located_submissions()
+            .map(|(submission, _)| submission)
     }
 
     /// Places the exact body/item submissions shared by validation and final construction.
@@ -349,11 +417,14 @@ pub(super) fn vanilla_hand_source(
     };
     let body_camera =
         bare.then(|| render_model::legacy_combat::legacy_first_person_arm(hand.swing, hand.equip));
+    #[cfg(feature = "developer-control")]
+    let mut item_selection = [None, None];
     let mut items = std::array::from_fn(|index| {
         let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
         if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER {
             return None;
         }
+        let mut admitted = false;
         let mut icon_fallback = false;
         let modern = item_animation.and_then(|mut render_input| {
             render_input.frame_alpha = alpha;
@@ -366,6 +437,7 @@ pub(super) fn vanilla_hand_source(
                 } else {
                     let selected =
                         equipment.select_held_item(item, actor, &rig, render_input, java_mode);
+                    admitted = selected.admitted();
                     icon_fallback = selected.uses_icon_fallback();
                     if icon_fallback {
                         return equipment.first_person_item_icon_with_use(
@@ -389,6 +461,7 @@ pub(super) fn vanilla_hand_source(
             } else {
                 let selected =
                     equipment.select_held_item(item, actor, &rig, render_input, java_mode);
+                admitted = selected.admitted();
                 icon_fallback = selected.uses_icon_fallback();
                 if icon_fallback {
                     return equipment.first_person_offhand_icon(&presentation.submission, item);
@@ -403,6 +476,7 @@ pub(super) fn vanilla_hand_source(
                     None,
                 );
             };
+            admitted = selected.admitted();
             icon_fallback = selected.uses_icon_fallback();
             equipment.first_person_selected_attachable(
                 &presentation.submission,
@@ -414,7 +488,32 @@ pub(super) fn vanilla_hand_source(
                 None,
             )
         });
+        #[cfg(feature = "developer-control")]
+        {
+            let branch = if icon_fallback {
+                "custom_models_disabled"
+            } else if modern.is_some() {
+                "attachable"
+            } else if !java_mode && index == 0 && admitted {
+                "admitted_without_draw"
+            } else if item_animation.is_none() {
+                "ordinary_without_attachable_sample"
+            } else {
+                "ordinary_after_no_attachable_draw"
+            };
+            item_selection[index] = Some(HandSelectionInspection {
+                item: Arc::clone(&item.identifier),
+                branch,
+            });
+        }
         let mut layer = modern.or_else(|| {
+            // An admitted authored definition owns the main hand's draw slot: if it samples but
+            // emits nothing, adding an ordinary sprite would draw the item twice. A geometry-only
+            // startup fallback has no definition to evaluate, so it keeps its ordinary sprite, as
+            // do unbound stacks and an explicit icon fallback. Java/offhand paths are unchanged.
+            if !java_mode && index == 0 && admitted && !icon_fallback {
+                return None;
+            }
             if index == 0 {
                 if icon_fallback {
                     equipment.first_person_item_icon_with_use(
@@ -507,7 +606,10 @@ pub(super) fn vanilla_hand_source(
             visibility: Default::default(),
             presentation,
             body,
+            controller_draws: Vec::new(),
             items,
+            #[cfg(feature = "developer-control")]
+            item_selection,
             maps,
             item_glint: artwork.item_glint.clone(),
             motion,
@@ -599,10 +701,13 @@ pub(super) fn source(
     let mut source =
         unmasked_source(inputs.clone(), java_mode, equipment, cache).or_else(|| {
             (visibility.hides_body() || visibility.hides_held_items()).then_some(HandSource {
-                presentation: inputs.presentation,
+                presentation: inputs.presentation.clone(),
                 visibility,
                 body: None,
+                controller_draws: Vec::new(),
                 items: [None, None],
+                #[cfg(feature = "developer-control")]
+                item_selection: [None, None],
                 maps: Default::default(),
                 item_glint: None,
                 motion: inputs.motion,
@@ -610,6 +715,17 @@ pub(super) fn source(
             })
         })?;
     source.apply_visibility(visibility);
+    if !visibility.hides_body() {
+        let base = source
+            .body
+            .as_ref()
+            .unwrap_or(&source.presentation.submission);
+        source.controller_draws = cache.native_pose.controller_draws(&inputs, base);
+        let camera = hand_camera_from_rig(source.presentation.authored_scale, source.motion);
+        for (submission, _) in &mut source.controller_draws {
+            submission.world_from_actor = camera;
+        }
+    }
     Some(source)
 }
 

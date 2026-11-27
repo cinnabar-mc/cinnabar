@@ -353,6 +353,65 @@ and exact native and platform comparison remain open.
 
 ## P4.3-RIGS
 
+Client-entity dependency admission deduplicates references and applies checked catalog-wide
+retained-storage accounting through compiler assembly, compiled validation and streaming carrier
+preflight. Synthetic regressions cover repeated aliases, unique references, rig/carrier round trips,
+invalid neighbors and budget boundaries. Transient producer allocations and native limit parity
+remain open. Flat boolean chains now use n-ary nodes and iterative short-circuit lowering.
+Compiler/evaluator regressions cover dynamic long chains and precedence; source/operation
+boundaries, lazy folding, branch targets and genuine nested-input guards have owning coverage.
+An isolated pack probe retains complete pre-animation; other optional fallbacks and rendered
+qualification remain open. The local first-person CPU candidate publishes ordered controller geometry,
+sampled poses, materials and independent artwork. Its actual publication regression
+passes at interpolated/completed samples, alongside ordinary sampling reuse. Owning libraries
+pass 1,923 tests with three pre-existing ignored tests; the developer-control play build succeeds.
+Headless BDS frames from the pre-registration-fix candidate showed no visible weapon; those are
+historical and do not represent the later owner GUI check. After the session registration fix,
+the owner supplied two refreshed-`Cinnabar Dev.app` screenshots showing a visible first-person
+weapon in an aiming pose and a canted reload pose; the owner reports both animations were
+observed. This confirms one owner-tested rendered case, not the catalog artwork/location route,
+temporal animation sequence, native parity or broad compatibility. Keep those acceptance gates
+open until the corresponding evidence exists.
+
+A separate pre-fix on-demand hand-frame diagnostic witnessed three idle samples
+and one switch-back sample containing only an ordinary item draw, no controller-model
+instance, and two missing-geometry builder rejections. Instance and pose listings are
+complete; the large item mesh's vertex listing is bounded. A bone control was visible
+with no missing-geometry rejection. A pre-fix one-shot pre/post-build witness resolved
+both selected controller geometries to the session catalog: their requested IDs were
+resident in the world scene but absent from the hand builder before and after normal
+admission, with no final manifest matches.
+The missing hand registration is fixed in the shared session-pack installation
+path: prepared ranges are sent to the hand builder, with independent owner readiness.
+The production-path regression failed on the missing hand geometry before the fix
+and passes afterward; the full `client-presentation` library suite passes 994 tests.
+Owner-level pack replacement/disconnect coverage remains open; this diagnostic and
+CPU regression close no visual or animation gate. The hand GPU now retains demanded
+catalog pages and routes ordered draws by their explicit page/layer, sharing selection
+with shader-pack hands and normalizing the player-skin sentinel. Production resource
+selection and GPU fragment readback were RED before the fix; 25 focused hand-render
+tests pass, covering independent page/layer patterns, legacy artwork controls, invalid
+references, page replacement and warm-upload allocation retention. A rebuilt headless Metal
+candidate corrects the weapon texture in BDS idle and switch-back captures; bone/stairs
+controls remain visible, with unchanged CPU artwork/material context and player view.
+This qualifies the reproduced texture symptom only; broader material/raster, matched
+official-client presentation, animation and performance qualification remain open.
+
+The render-controller texture-slot regression preserves empty authored positions
+through compiler and carrier round trips. Matched headless Metal BDS idle frames
+lose the bogus glint extrusion in two cases while retaining the authored models and
+hands; an ordinary bone control is unchanged. One case still shows a duplicate
+held sprite. Intentional no-draw versus fallback, further item coverage and matched
+native presentation remain open.
+
+The owner separately reports a manual GUI test through the refreshed
+`Cinnabar Dev.app`: the ammunition counter and third-person weapon are visible. In a
+later check the owner reports a first-person weapon with aiming and reload animations,
+and supplied two still screenshots showing the weapon in those poses. This later result
+supersedes the earlier blank-hand GUI observation for that check. These user-provided
+captures are not agent captures; static poses do not establish animation timing,
+exact native presentation or broad model/material coverage.
+
 Local leg cycles consume completed physics movement in both animation modes.
 Deterministic coverage checks independent actor cadence, movement retries and frame
 interpolation. Linux running-jump captures cover both modes; matched native
@@ -461,6 +520,12 @@ faces. Regressions cover projected surface orientation, transparent front holes 
 retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
 
 ## P5.2-HUD
+
+Server-authored actionbar definitions restore carrier defaults before the first authoring layer,
+preventing built-in Java anchors from leaking into a panel that relies on carrier placement.
+Production policy/factory/layout regressions cover visible multiline updates, untouched built-in
+presentation, non-authoring lower layers and later-layer customization. Full rendered and native
+HUD qualification remains open.
 
 | Field | Evidence |
 |---|---|

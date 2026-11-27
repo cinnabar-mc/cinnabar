@@ -43,7 +43,15 @@ impl EquipmentRuntime {
             if authored
                 && (equipment.java.is_none() || binding.third_person.literal().is_none())
                 && let Some(animation) = animation
-                && let Some(animated) = self.held_attachable_from_source(
+            {
+                let allow_world_hide = layer == LAYER_MAIN_HAND
+                    && equipment.java.is_none()
+                    && self.show_custom_item_models
+                    && !animation.held_input(equipment, false).first_person
+                    && animation.held_input(equipment, false).owner_main_hand
+                        == Some(item.identifier.as_ref());
+                let mut hidden = false;
+                let animated = self.held_attachable_from_source_with_policy(
                     body,
                     item,
                     source,
@@ -51,10 +59,16 @@ impl EquipmentRuntime {
                     animation.rig,
                     animation.held_input(equipment, layer == LAYER_OFF_HAND),
                     None,
-                )
-            {
-                layers.push(animated.presentation);
-                return;
+                    allow_world_hide,
+                    &mut hidden,
+                );
+                if hidden {
+                    return;
+                }
+                if let Some(animated) = animated {
+                    layers.push(animated.presentation);
+                    return;
+                }
             }
             let hand = if layer == LAYER_OFF_HAND {
                 bones.left_item

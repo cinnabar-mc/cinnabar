@@ -48,7 +48,20 @@ impl RigSource for ShaderpackHand<'_> {
             let Some(span) = self.frame.rig.geometry_spans.get(data.geometry_id as usize) else {
                 continue;
             };
-            let flags = data.texture_layer;
+            let original_flags = data.texture_layer;
+            let flags = if original_flags == u32::MAX {
+                0
+            } else {
+                original_flags
+            };
+            let catalog = match self.gpu.artwork_routing.route(self.frame, index) {
+                Some(super::artwork::TextureRoute::Catalog { page, layer }) => Some((
+                    self.gpu.artwork_routing.pages[page].as_ref().unwrap(),
+                    layer,
+                )),
+                Some(super::artwork::TextureRoute::Legacy) => None,
+                None => continue,
+            };
             let item = flags & HAND_ITEM_LAYER_FLAG != 0;
             let hand = if flags & HAND_OFFHAND_LAYER_FLAG != 0 {
                 Hand::Off
@@ -56,7 +69,9 @@ impl RigSource for ShaderpackHand<'_> {
                 Hand::Main
             };
             let held = item.then_some(hand);
-            let texture = if flags & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0 {
+            let texture = if let Some((page, _)) = catalog {
+                raw(Some((&page._texture, page.raw_views)))
+            } else if flags & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0 {
                 raw(self.gpu.atlases[2]
                     .as_ref()
                     .map(|atlas| (&atlas._texture, atlas.raw_views)))
@@ -85,7 +100,7 @@ impl RigSource for ShaderpackHand<'_> {
                 vertex_count: span.vertex_count,
                 texture: LayerTexture {
                     texture,
-                    layer: flags & HAND_TEXTURE_LAYER_MASK,
+                    layer: catalog.map_or(flags & HAND_TEXTURE_LAYER_MASK, |(_, layer)| layer),
                     compose: LayerCompose::Plain,
                 },
                 runtime_id: None,
