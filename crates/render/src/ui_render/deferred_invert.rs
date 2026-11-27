@@ -99,13 +99,18 @@ pub(super) fn plan(
     if !disjoint(input, batch, layered) {
         return None;
     }
+    // The composite clamps the scene where the layer is empty; only a normalized main target
+    // stores those values unchanged, so a float target keeps the ordered invert.
+    let main_format = inputs.view_target.main_texture_format();
+    if !normalized(main_format) {
+        return None;
+    }
     let cache = inputs.cache;
     cache.get_render_pipeline(inputs.invert)?;
     let pipelines = inputs.gpu.composite_pipelines.get(&inputs.view)?;
     cache.get_render_pipeline(pipelines.main)?;
     let output = if inputs.layer.direct_output() {
         cache.get_render_pipeline(pipelines.output?)?;
-        let main_format = inputs.view_target.main_texture_format();
         let out_format = inputs.view_target.out_texture_view_format()?;
         if !blends_alike(main_format, out_format) {
             return None;
@@ -135,6 +140,8 @@ pub(super) fn plan(
 
 /// Inclusive pixel bounds `[min_x, min_y, max_x, max_y]` that a batch's triangles can touch in
 /// the publication's physical viewport, clipped by its scissor; `None` when it covers nothing.
+/// Vertices the shader rounds to binary16 before projection, or that cannot be projected, may
+/// land anywhere, so they give the whole target.
 pub(super) fn batch_bounds(input: &UiRenderInput, batch: &UiRenderBatch) -> Option<[f32; 4]> {
     let first = batch.first_index as usize;
     let indices = input
@@ -148,7 +155,10 @@ pub(super) fn batch_bounds(input: &UiRenderInput, batch: &UiRenderBatch) -> Opti
     ];
     for &index in indices {
         let vertex = input.vertices.get(index as usize)?;
-        if vertex.clip_w.is_nan() || vertex.clip_w <= 0.0 {
+        if vertex.clip_w.is_nan()
+            || vertex.clip_w <= 0.0
+            || vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0
+        {
             return Some([
                 f32::NEG_INFINITY,
                 f32::NEG_INFINITY,
@@ -204,6 +214,18 @@ pub(super) fn blends_alike(main: TextureFormat, output: TextureFormat) -> bool {
         )
     };
     main == output || (srgb8(main) && srgb8(output))
+}
+
+/// Colour targets that store only values in `[0, 1]`, as the composite writes the scene.
+pub(super) fn normalized(format: TextureFormat) -> bool {
+    matches!(
+        format,
+        TextureFormat::Rgba8Unorm
+            | TextureFormat::Rgba8UnormSrgb
+            | TextureFormat::Bgra8Unorm
+            | TextureFormat::Bgra8UnormSrgb
+            | TextureFormat::Rgb10a2Unorm
+    )
 }
 
 /// Output-format variants of view invert pipelines, keyed by the main-format pipeline.

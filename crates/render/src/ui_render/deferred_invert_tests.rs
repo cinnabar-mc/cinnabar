@@ -117,6 +117,32 @@ fn inverts_defer_only_when_their_pixels_miss_every_layered_batch() {
     assert!(disjoint(&input, &crosshair, [&hotbar, &clipped]));
 }
 
+/// A batch whose vertices the shader rounds to binary16 can cover pixels its raw positions miss,
+/// so it is never proven disjoint from the invert.
+#[test]
+fn half_float_batches_keep_the_ordered_invert() {
+    let mut input = input(&[[30.0, 30.0, 34.0, 34.0], [50.0, 50.0, 60.0, 60.0]]);
+    let crosshair = batch(UI_BLEND_INVERT, 0).1;
+    let far = batch(UI_BLEND_ALPHA, 6).1;
+    assert!(disjoint(&input, &crosshair, [&far]));
+    let mut vertices = input.vertices.to_vec();
+    for vertex in &mut vertices[4..] {
+        vertex.style_flags |= render_api::UI_STYLE_HALF_FLOAT_XY;
+    }
+    input.vertices = vertices.into();
+    assert!(!disjoint(&input, &crosshair, [&far]));
+}
+
+/// Float main targets keep values the composite clamps, so they keep the ordered invert.
+#[test]
+fn only_normalized_main_targets_defer() {
+    use TextureFormat::*;
+    assert!(normalized(Rgba8UnormSrgb));
+    assert!(normalized(Bgra8Unorm));
+    assert!(!normalized(Rgba16Float));
+    assert!(!normalized(Rgba32Float));
+}
+
 #[test]
 fn only_matching_or_eight_bit_srgb_targets_blend_alike() {
     use TextureFormat::*;
