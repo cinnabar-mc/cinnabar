@@ -3,7 +3,10 @@
 use super::{files, report, run};
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 /// Fewer pairs give no meaningful spread.
 const MIN_ROUNDS: usize = 3;
@@ -81,6 +84,7 @@ fn compare_rounds(
     let run_dir =
         |round: usize, side: Side| output.join(format!("round-{round:02}-{}", side.name()));
     let mut pairs = Vec::with_capacity(rounds);
+    let mut observed = BTreeSet::new();
     let mut first: Option<[Value; 3]> = None;
     for round in 0..rounds {
         for side in order(round) {
@@ -104,10 +108,12 @@ fn compare_rounds(
                 "round {round} measured a different build or workload than round 0"
             ));
         }
-        pairs.push(ratios(&b, &c)?);
+        let (b, c) = (metric_values(&b)?, metric_values(&c)?);
+        observed.extend(b.keys().chain(c.keys()).cloned());
+        pairs.push(ratios(&b, &c));
     }
     let summary = summarize(&pairs);
-    let unavailable = partially_measured(&pairs);
+    let unavailable = unpaired(&observed, &pairs);
     let slower = mostly_slower(&pairs);
     let result = serde_json::json!({
         "comparison": "alternating_pairs", "candidate_over_base": summary,
@@ -124,17 +130,14 @@ fn compare_rounds(
     }
 }
 
-/// Metrics some rounds could not pair, usually stage means that round to zero at the reports'
-/// millisecond precision; summarizing only the other rounds would bias their spread.
-fn partially_measured(pairs: &[BTreeMap<String, f64>]) -> Vec<String> {
-    let mut counts: BTreeMap<&String, usize> = BTreeMap::new();
-    for key in pairs.iter().flat_map(BTreeMap::keys) {
-        *counts.entry(key).or_default() += 1;
-    }
-    counts
-        .into_iter()
-        .filter(|(_, count)| *count != pairs.len())
-        .map(|(key, _)| key.clone())
+/// Metrics either build reported that some round could not pair: missing from one build, or a
+/// stage mean that rounds to zero at the reports' millisecond precision. Summarizing only the
+/// other rounds would bias their spread, and dropping them would hide a removed stage.
+fn unpaired(observed: &BTreeSet<String>, pairs: &[BTreeMap<String, f64>]) -> Vec<String> {
+    observed
+        .iter()
+        .filter(|key| pairs.iter().filter(|pair| pair.contains_key(*key)).count() != pairs.len())
+        .cloned()
         .collect()
 }
 
@@ -162,37 +165,39 @@ fn cpu_stage_mean(name: &str) -> bool {
     name.starts_with("cpu_spans.") && name.ends_with(".mean_ms")
 }
 
-/// Candidate/base ratios of every frame statistic and CPU stage mean both reports carry.
-fn ratios(base: &Value, candidate: &Value) -> Result<BTreeMap<String, f64>, String> {
-    let values = |report: &Value| -> Result<BTreeMap<String, f64>, String> {
-        let mut values = BTreeMap::new();
-        for phase in report["frames"].as_array().ok_or("missing frames")? {
-            let name = phase["phase"].as_str().ok_or("missing phase name")?;
-            for metric in report::FRAME_METRICS {
-                if let Some(value) = phase[metric].as_f64() {
-                    values.insert(format!("frames.{name}.{metric}"), value);
-                }
+/// Every frame statistic and CPU stage mean a report carries.
+fn metric_values(report: &Value) -> Result<BTreeMap<String, f64>, String> {
+    let mut values = BTreeMap::new();
+    for phase in report["frames"].as_array().ok_or("missing frames")? {
+        let name = phase["phase"].as_str().ok_or("missing phase name")?;
+        for metric in report::FRAME_METRICS {
+            if let Some(value) = phase[metric].as_f64() {
+                values.insert(format!("frames.{name}.{metric}"), value);
             }
         }
-        if let Some(metrics) = report["metrics"].as_object() {
-            for (name, summary) in metrics {
-                if let Some(mean) = summary["mean"].as_f64().filter(|_| cpu_stage_mean(name)) {
-                    values.insert(name.clone(), mean);
-                }
+    }
+    if let Some(metrics) = report["metrics"].as_object() {
+        for (name, summary) in metrics {
+            if let Some(mean) = summary["mean"].as_f64().filter(|_| cpu_stage_mean(name)) {
+                values.insert(name.clone(), mean);
             }
         }
-        Ok(values)
-    };
-    let base = values(base)?;
-    let candidate = values(candidate)?;
-    Ok(base
-        .into_iter()
+    }
+    Ok(values)
+}
+
+/// Candidate/base ratios of the metrics both builds report with positive, finite values.
+fn ratios(
+    base: &BTreeMap<String, f64>,
+    candidate: &BTreeMap<String, f64>,
+) -> BTreeMap<String, f64> {
+    base.iter()
         .filter_map(|(key, reference)| {
-            let value = *candidate.get(&key)?;
+            let value = *candidate.get(key)?;
             let usable = |v: f64| v.is_finite() && v > 0.;
-            (usable(value) && usable(reference)).then(|| (key, value / reference))
+            (usable(value) && usable(*reference)).then(|| (key.clone(), value / reference))
         })
-        .collect())
+        .collect()
 }
 
 /// Median and interquartile range of each metric's ratio, for metrics every round measured.
@@ -250,7 +255,10 @@ mod tests {
 
     #[test]
     fn ratios_pair_shared_positive_metrics() {
-        let ratios = ratios(&report(4000., 0.25), &report(5000., 0.2)).unwrap();
+        let ratios = ratios(
+            &metric_values(&report(4000., 0.25)).unwrap(),
+            &metric_values(&report(5000., 0.2)).unwrap(),
+        );
         assert_eq!(ratios["frames.spawn.avg_fps"], 1.25);
         assert_eq!(ratios["cpu_spans.spawn.main_frame.mean_ms"], 0.8);
         assert!(!ratios.contains_key("gpu_received.spawn.gpu_frame.p99_ms"));
@@ -276,12 +284,13 @@ mod tests {
     }
 
     #[test]
-    fn metrics_missing_from_a_round_are_reported_not_summarized() {
+    fn metrics_missing_from_any_round_are_reported_not_summarized() {
         let pairs = [
             BTreeMap::from([("a".to_owned(), 0.5), ("b".to_owned(), 1.0)]),
             BTreeMap::from([("b".to_owned(), 1.0)]),
         ];
-        assert_eq!(partially_measured(&pairs), ["a"]);
+        let observed = BTreeSet::from(["a", "b", "removed"].map(str::to_owned));
+        assert_eq!(unpaired(&observed, &pairs), ["a", "removed"]);
         assert_eq!(summarize(&pairs).keys().collect::<Vec<_>>(), ["b"]);
     }
 

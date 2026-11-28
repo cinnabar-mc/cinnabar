@@ -1,7 +1,9 @@
 //! Settled frames of a JSON-UI HUD from an original in-memory carrier, so binding, layout and
 //! retained paint run without the installed carrier.
 
-use assets::{RuntimeUiAssets, UiAtlasPage, UiFile, UiTexturePlacement, encode_ui_catalog};
+use assets::{
+    HudTextureRole, RuntimeUiAssets, UiAtlasPage, UiFile, UiTexturePlacement, encode_ui_catalog,
+};
 
 use super::*;
 
@@ -20,29 +22,7 @@ const HUD_SCREEN: &str = r#"{"namespace":"hud",
   ]}
 }"#;
 
-/// Sprites the native hotbar, heart and hunger renderers draw. Every one resolves, so settled
-/// frames never retry a missing texture.
-const SPRITES: [&str; 17] = [
-    "textures/ui/absorption_heart",
-    "textures/ui/absorption_heart_half",
-    "textures/ui/heart",
-    "textures/ui/heart_background",
-    "textures/ui/heart_half",
-    "textures/ui/hotbar_0",
-    "textures/ui/hotbar_1",
-    "textures/ui/hotbar_2",
-    "textures/ui/hotbar_3",
-    "textures/ui/hotbar_4",
-    "textures/ui/hotbar_5",
-    "textures/ui/hotbar_6",
-    "textures/ui/hotbar_7",
-    "textures/ui/hotbar_8",
-    "textures/ui/hunger_background",
-    "textures/ui/hunger_full",
-    "textures/ui/hunger_half",
-];
-
-/// A UI carrier holding only the HUD screen and flat sprites for its renderers.
+/// A UI carrier holding only the HUD screen and a flat sprite for every HUD texture role.
 fn hud_carrier() -> Arc<RuntimeUiAssets> {
     let files = [
         ("ui/_global_variables.json", "{}"),
@@ -53,14 +33,25 @@ fn hud_carrier() -> Arc<RuntimeUiAssets> {
         path: path.into(),
         bytes: text.as_bytes().into(),
     });
-    let placements = SPRITES.map(|path| UiTexturePlacement {
-        path: path.into(),
-        page: 0,
-        x: 0,
-        y: 0,
-        width: 9,
-        height: 9,
-    });
+    // Every HUD texture role resolves, so settled frames never retry missing artwork under the
+    // atlas's wall-clock decode deadline.
+    let mut sprites: Vec<_> = HudTextureRole::ALL
+        .iter()
+        .map(|role| role.source_path().trim_end_matches(".png"))
+        .collect();
+    sprites.sort_unstable();
+    sprites.dedup();
+    let placements: Vec<_> = sprites
+        .into_iter()
+        .map(|path| UiTexturePlacement {
+            path: path.into(),
+            page: 0,
+            x: 0,
+            y: 0,
+            width: 9,
+            height: 9,
+        })
+        .collect();
     let page = UiAtlasPage {
         width: 16,
         height: 16,
