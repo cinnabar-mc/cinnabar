@@ -26,6 +26,10 @@ pub(super) fn rotation_filter() -> impl FnMut(MovePlayerRotation) -> Option<[f32
     |_| None
 }
 
+/// How far a corrected boat may sit from the rider's eye, horizontally, for the view to stay
+/// continuous through the correction.
+const VEHICLE_CORRECTION_CONTINUOUS_BLOCKS: f32 = 2.0;
+
 /// Applies one committed local-player control event to the view pose, camera
 /// authority, and pending spawn anchor.
 ///
@@ -77,9 +81,15 @@ pub(crate) fn apply_committed_control(
             }
             resolved
         }
-        // The rider snapped to its corrected seat; the view keeps its position source.
-        CommittedControlEvent::VehicleMovementCorrection { .. } => {
-            view.reanchor_camera();
+        // The rider snapped to its corrected seat; the view keeps its position source. A boat
+        // the server nudges a little leaves the view continuous, so its motion history, such as
+        // the hand's sway, carries on; one it moves far restarts that history.
+        CommittedControlEvent::VehicleMovementCorrection { correction, .. } => {
+            let eye = view.eye_translation();
+            let apart = (correction.position[0] - eye.x).hypot(correction.position[2] - eye.z);
+            if !(apart <= VEHICLE_CORRECTION_CONTINUOUS_BLOCKS) {
+                view.reanchor_camera();
+            }
             return;
         }
         CommittedControlEvent::SetTime { .. }
@@ -394,6 +404,38 @@ mod tests {
         assert_ne!(view.camera_reanchor_epoch(), previous_epoch);
         assert_eq!(view.eye_translation(), Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(anchor, None);
+    }
+
+    /// A boat the server nudges leaves the view continuous, so the hand's sway and the camera's
+    /// motion history are not restarted at every correction.
+    #[test]
+    fn a_small_vehicle_correction_keeps_the_camera_motion_history() {
+        let mut settings = CameraSettingsAuthority::default();
+        let mut view = LocalViewPose::new(Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
+        let previous_epoch = view.camera_reanchor_epoch();
+        let mut anchor = None;
+        apply_committed_control(
+            CommittedControlEvent::VehicleMovementCorrection {
+                sequence: 1,
+                correction: protocol::PlayerMovementCorrectionEvent {
+                    position: [1.3, 0.6, 3.2],
+                    delta: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    subject: protocol::MovementCorrectionSubject::Vehicle,
+                    on_ground: false,
+                    tick: 5,
+                    vehicle_angular_velocity: None,
+                },
+                vehicle_runtime_id: 7,
+                vehicle_revision: client_world::VehicleRevision { pose: 0, motion: 0 },
+            },
+            &mut view,
+            &mut settings,
+            &mut anchor,
+            &mut server_rotation,
+        );
+        assert_eq!(view.camera_reanchor_epoch(), previous_epoch);
     }
 
     #[test]
