@@ -285,6 +285,7 @@
       "content": "value",
       "variants": [
         {"rust_name": "RakNet", "go_name": "TargetRakNet", "value": "raknet", "doc": "A `host:port` server."},
+        {"rust_name": "NetherNet", "go_name": "TargetNetherNet", "value": "nethernet", "doc": "A NetherNet identity reached through JSON-RPC signaling."},
         {"rust_name": "Realm", "go_name": "TargetRealm", "value": "realm", "doc": "A Realm id from the Realm target (`realm_id/<id>` \u2192 `<id>`)."},
         {"rust_name": "Friend", "go_name": "TargetFriend", "value": "friend", "doc": "A friend's XUID from the friend XUID."},
         {"rust_name": "Gathering", "go_name": "TargetGathering", "value": "gathering", "doc": "A featured experience's ID, from a `gathering/<id>` featured server address."}

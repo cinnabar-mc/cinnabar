@@ -31,6 +31,22 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 )
 
+func TestIdentityTransferHopUsesAuthenticatedNetherNet(t *testing.T) {
+	account := authcache.NewAccount(t.Context(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil)
+	connections := &preparedConnections{account: account}
+	target := &resolvedUpstreamTarget{address: "127.0.0.1:19132", network: remoteRakNet()}
+	id := "1234567890123456789"
+	address := NetherNetTargetPrefix + NetherNetSignalingJSONRPC + "/" + id
+	network, got, err := connections.transferHop(target, address, slog.Default())
+	if _, ok := network.(scopedNetherNetNetwork); err != nil || !ok || got != id {
+		t.Fatalf("hop = %T, %q, %v", network, got, err)
+	}
+	connections.addressNetwork = remoteRakNet()
+	if _, _, err := connections.transferHop(target, address, slog.Default()); err == nil {
+		t.Fatal("identity hop bypassed the session handler's restricted dialer")
+	}
+}
+
 // The join picks the owner's world the friends tab lists, never an invite-only or empty one.
 func TestSelectFriendWorldPicksAListedWorld(t *testing.T) {
 	listed := p2p.World{OwnerID: "1", HostName: "Host", MemberCount: 1, BroadcastSetting: p2p.BroadcastSettingFriendsOfFriends}
@@ -186,6 +202,48 @@ func TestNetherNetDialPresentsTheLoginTokenBoundToTheLoginKey(t *testing.T) {
 	_ = conn.Close()
 	if seen != token {
 		t.Fatal("listener did not receive the Login's multiplayer token")
+	}
+}
+
+// A transfer received during login must carry its identity into an authenticated NetherNet dial.
+func TestPreLoginIdentityTransferDialsNetherNet(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := syntheticMultiplayerToken(t, &key.PublicKey)
+	var result upstreamSession
+	conn, err, seen := dialIdentityListener(t, func(network scopedNetherNetNetwork, ctx context.Context, id string) (net.Conn, error) {
+		const identity = "1234567890123456789"
+		account := authcache.NewAccount(ctx, "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil)
+		connections := &preparedConnections{account: account}
+		target := &resolvedUpstreamTarget{address: "127.0.0.1:19132", network: remoteRakNet()}
+		var connected net.Conn
+		var dials int
+		result, err = dialFollowingTransfers(ctx, target.address, slog.New(slog.DiscardHandler), func(ctx context.Context, address string) (upstreamSession, error) {
+			dials++
+			if dials == 1 {
+				return nil, &minecraft.TransferError{Address: identity}
+			}
+			selected, dialAddress, selectErr := connections.transferHop(target, address, slog.Default())
+			if _, ok := selected.(scopedNetherNetNetwork); selectErr != nil || !ok || dialAddress != identity {
+				t.Fatalf("identity hop = %T, %q, %v", selected, dialAddress, selectErr)
+			}
+			// The in-memory signaling peer stands in for the account's signaling service.
+			connected, selectErr = network.DialContextIdentityProvider(ctx, id, token, key, "https://authorization.example/")
+			if selectErr != nil {
+				return nil, selectErr
+			}
+			return newFakeUpstream(nil), nil
+		})
+		return connected, err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if result == nil || seen != token {
+		t.Fatal("identity transfer did not establish an authenticated NetherNet session")
 	}
 }
 
