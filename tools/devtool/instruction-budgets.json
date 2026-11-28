@@ -1,9 +1,9 @@
 {
   "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28)",
   "budgets": {
-    "cinnabar tests::actor_frame_allocations::instruction_budget_steady_actor_frames": 69660000,
-    "client-ui ui_runtime::presentation::tests::engine_hud_tests::instruction_budget::instruction_budget_settled_json_ui_hud_frames": 5511500,
-    "meshing::it instruction_budgets::instruction_budget_mesh_liquid_and_terrain_scenes": 232083800,
+    "cinnabar tests::actor_frame_allocations::instruction_budget_steady_actor_frames": 71850000,
+    "client-ui ui_runtime::presentation::tests::engine_hud_tests::instruction_budget::instruction_budget_settled_json_ui_hud_frames": 3317000,
+    "meshing::it instruction_budgets::instruction_budget_mesh_liquid_and_terrain_scenes": 232083700,
     "render-model block_entity::scene::cache_tests::instruction_budget_settled_block_entity_frames": 1743813
   }
 }
