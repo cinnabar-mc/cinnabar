@@ -406,6 +406,13 @@ path = "crates/test-alloc"
 allowed_dependencies = []
 dependency_free = true
 
+# Callgrind-counted regions for instruction budgets stay std-only.
+[[crates]]
+name = "test-instructions"
+path = "crates/test-instructions"
+allowed_dependencies = []
+dependency_free = true
+
 # Render data contracts and CPU geometry; presentation builds against it without the GPU renderer.
 [[crates]]
 name = "render-model"
@@ -620,7 +627,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["cinnabar-cxb", "render-api", "crash-report", "diagnostics", "test-time", "workspace-declarations"]
+allowed_dependencies = ["cinnabar-cxb", "render-api", "crash-report", "diagnostics", "test-instructions", "test-time", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.

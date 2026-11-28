@@ -303,7 +303,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev spirv-tools
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev spirv-tools valgrind
       # Builds the whole workspace, which the cache keeps fresh, and runs only affected tests.
       # Cargo's messages name every unit these builds use, fresh ones included; saves leave out the rest.
       - name: Build Rust tests
@@ -339,6 +339,19 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: cargo nextest run --workspace -E "$TESTS" --locked --no-fail-fast --no-tests=warn
+      # Counts every budget test's instructions under Callgrind with the test binaries built above,
+      # failing when one moves past its committed budget in either direction.
+      - name: Check instruction budgets
+        id: instruction-budgets
+        if: ${{ !cancelled() && runner.os == 'Linux' && steps.build-tests.outcome == 'success' }}
+        run: cargo run -p devtool --locked -- instruction-budgets --out "$RUNNER_TEMP/instruction-budgets"
+      - name: Upload instruction budget measurements
+        if: ${{ !cancelled() && steps.instruction-budgets.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: instruction-budgets
+          path: ${{ runner.temp }}/instruction-budgets
+          if-no-files-found: warn
       - name: Upload Linux test build timings
         if: ${{ !cancelled() && runner.os == 'Linux' }}
         uses: actions/upload-artifact@v7

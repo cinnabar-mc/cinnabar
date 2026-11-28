@@ -1,3 +1,39 @@
+# Instruction budgets
+
+Instruction budgets are the CI gate against CPU regressions. A test whose name starts with
+`instruction_budget_` warms its scenario, then wraps the steady work in
+`test_instructions::count`. `devtool instruction-budgets` runs each such test under Callgrind,
+counting only what the calling thread retires inside that region, and compares the count with
+`tools/devtool/instruction-budgets.json`. A count above **or below** its budget by more than
+`TOLERANCE_PERCENT` in `tools/devtool/src/instruction_budgets.rs` fails,
+as do a test without a budget, a budget without a test and a toolchain change, so gains are
+locked in rather than left as headroom. For a given toolchain and build profile, repeated CI
+runs agree to well within the tolerance; the tool pins glibc's CPU-dependent copy strategies so
+CI's mixed runner CPUs agree too.
+
+```sh
+cargo run -p devtool --locked -- instruction-budgets   # check
+```
+
+It needs x86-64 Linux, Valgrind and cargo-nextest, and builds every workspace test binary, so run
+it on a build host. Budgets come from CI's build and runners only: CI runs the check in the Linux
+test job and uploads `instruction-budgets` with the measured file and one Callgrind profile per
+test. When a change is intended, commit that file and explain increases in the PR. `--update`
+writes and prints the file but runs only in GitHub Actions; through the
+[offloaded checks](agents/multi-agent-workflow.md#offloaded-checks) workflow, install Valgrind in
+the command first and copy the printed file from the job log. Both keep each budget
+still within the tolerance and take the measurement only for new, changed and removed tests, so
+repeated refreshes cannot absorb a slowdown step by step; a toolchain change re-measures every
+budget. A local check may differ from CI where local Cargo settings differ.
+`callgrind_annotate <test>.callgrind` attributes a change to functions.
+
+Add a budget beside the code it protects for each hot path, especially per-frame work that a
+settled frame should skip: keep the counted work single-threaded (make the test thread the only
+Rayon worker when the path uses Rayon), deterministic and fast under
+Callgrind (well under a second natively), assert the behaviour it measures, and record the new
+entry from CI's measured file. Counts track work, not wall time; the hardware runs below remain the
+evidence for frame-time claims.
+
 # Headless chunk benchmarks
 
 Criterion covers palette/column decode, full light solves, cube meshing, biome records,

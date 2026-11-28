@@ -27,6 +27,7 @@ pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
 serde_json = "1"
 tempfile = "3"
+test-instructions = { path = "../test-instructions" }
 
 [[bench]]
 name = "chunk_costs"

@@ -91,8 +91,9 @@ hardware gets lower resolution or view distance, never permission to stutter.
   terrain-streaming route, plugged in after thermal stabilisation. Take three 120 s runs per
   build, with cold-cache runs kept separate, capturing every frame, GPU timestamps, presentation
   intervals and thread waits. Report p50, p99, maximum, deadline misses and hitch counts.
-- **CI.** Assert work, never milliseconds. A warm, unchanged input does zero attributable heap
-  allocations, geometry or text rebuilds, pipeline creations and redundant upload bytes. A change
+- **CI.** Assert work, never milliseconds. [Instruction budgets](../benchmarks.md#instruction-budgets)
+  pin the instructions of steady hot paths in both directions. A warm, unchanged input does zero
+  attributable heap allocations, geometry or text rebuilds, pipeline creations and redundant upload bytes. A change
   rebuilds only its dependents, once per object per publication. Streaming queues stay bounded,
   obsolete work is cancelled, and no chunk version is processed twice.
 - **Slow-frame trigger.** `CINNABAR_SLOW_FRAME` fires on an interval over 1.1T (9.17 ms at

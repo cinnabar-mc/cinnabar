@@ -2,6 +2,7 @@ mod biome;
 mod cloud_mesh;
 mod cloud_viewport;
 mod ice_light;
+mod instruction_budgets;
 mod lighting;
 mod liquid;
 mod liquid_barriers;
