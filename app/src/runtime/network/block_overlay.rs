@@ -6,6 +6,8 @@ use assets::material_keys::MaterialKeys;
 
 mod bindings;
 mod condition;
+mod face_turns;
+use face_turns::turned_face_uv_flags;
 mod items;
 pub(super) use items::compile_block_item_overlay;
 mod geometry_inputs;
@@ -451,13 +453,16 @@ impl Builder<'_> {
         for (face, slot) in faces.iter_mut().enumerate() {
             // The face showing on world side `face` was model face `source`.
             let source = rotate_face_inverse(face, rotation);
+            // The art turns with the block: a turned cube's faces keep their texture's
+            // orientation relative to the model, as the model path's rotated quads do.
+            let turned = turned_face_uv_flags(source, face, rotation);
             let uv_flags = if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
                 && source == assets::BlockFace::Down as usize
             {
                 // Both reflections preserve the bottom orientation alongside positional turns.
-                assets::MATERIAL_FLAG_UV_INVERT
+                turned ^ assets::MATERIAL_FLAG_UV_INVERT
             } else {
-                0
+                turned
             };
             let (material, flags, _) =
                 self.face_material(components, FACE_NAMES[source], None, uv_flags);
