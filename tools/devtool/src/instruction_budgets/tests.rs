@@ -54,6 +54,19 @@ fn new_and_removed_tests_are_reported() {
 }
 
 #[test]
+fn refreshing_keeps_in_tolerance_budgets_and_replaces_the_rest() {
+    let committed = budgets(&[("a kept", 100_000), ("b moved", 100_000), ("c gone", 10)]);
+    let measured = budgets(&[("a kept", 100_800), ("b moved", 90_000), ("d new", 5)]);
+    assert_eq!(
+        refresh(&committed, &measured),
+        budgets(&[("a kept", 100_000), ("b moved", 90_000), ("d new", 5)])
+    );
+    let mut new_toolchain = measured.clone();
+    new_toolchain.toolchain = "rustc 2.0.0".into();
+    assert_eq!(refresh(&committed, &new_toolchain), new_toolchain);
+}
+
+#[test]
 fn report_explains_how_to_update_only_when_out_of_date() {
     let committed = budgets(&[("a t", 100)]);
     let current = report(&committed, &committed, &compare(&committed, &committed));

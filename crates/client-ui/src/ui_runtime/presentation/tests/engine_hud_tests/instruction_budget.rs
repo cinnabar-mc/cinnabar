@@ -61,10 +61,55 @@ fn hud_carrier() -> Arc<RuntimeUiAssets> {
     Arc::new(RuntimeUiAssets::decode(&bytes).unwrap())
 }
 
+/// One frame through the client's publication path: capture, then publish or repeat. Returns
+/// whether it built a frame.
+fn publish(
+    player: &player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    presentation: &mut UiPresentationRuntime,
+    now: u64,
+    inputs_unchanged: bool,
+) -> bool {
+    use crate::ui_runtime::presentation::{
+        ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame_if_changed,
+        render_prepared_ui,
+    };
+    let capture = capture_hud_frame_if_changed(
+        player,
+        runtime,
+        presentation,
+        None,
+        true,
+        now,
+        ItemIconFrames::default(),
+        inputs_unchanged,
+    );
+    let unchanged = inputs_unchanged && !capture.runtime_changed && !capture.presentation_changed;
+    let prepared = PendingUiPublication {
+        inventory: runtime.capture_presentation_inventory(player),
+        preview: PreviewCapture {
+            skin: None,
+            ready: false,
+            pose: Default::default(),
+            shown: false,
+            hands: false,
+        },
+        item_icons: capture.icons,
+        now_millis: now,
+        physical_size: [1280, 720],
+        dpi_scale: DpiScale::new(1.0).unwrap(),
+    };
+    render_prepared_ui(player, runtime, presentation, prepared, unchanged)
+        .unwrap()
+        .is_some()
+}
+
+/// Settled HUD frames as the client publishes them, repeating like a release build.
 #[test]
 fn instruction_budget_settled_json_ui_hud_frames() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.enable_json_ui_inline(hud_carrier()).unwrap();
+    presentation.set_frame_reuse(crate::ui_runtime::presentation::FrameReuse::Skip);
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     player
@@ -73,20 +118,24 @@ fn instruction_budget_settled_json_ui_hud_frames() {
     player.inventory.set_local_selected_slot(0);
     full_stats(&mut player, &mut runtime, 1);
     *presentation.hud_frame_mut() = first_person();
-    build(&player, &mut presentation, &runtime, 0);
+    assert!(publish(&player, &mut runtime, &mut presentation, 0, false));
     let nodes = presentation.hud_draw_nodes();
     assert!(!customs(nodes, HOTBAR_SLOTS).is_empty(), "the hotbar draws");
     assert!(
         !customs(nodes, "heart_renderer").is_empty(),
         "the hearts draw"
     );
-    test_instructions::count(|| {
-        for frame in 1..=FRAMES {
-            std::hint::black_box(build(&player, &mut presentation, &runtime, frame * 16));
-        }
+    for frame in 1..=3 {
+        publish(&player, &mut runtime, &mut presentation, frame * 16, true);
+    }
+    let built = test_instructions::count(|| {
+        (4..4 + FRAMES)
+            .filter(|frame| publish(&player, &mut runtime, &mut presentation, frame * 16, true))
+            .count()
     });
+    // Timed HUD state still rebuilds about once per 20 Hz tick; the frames between repeat.
     assert!(
-        !customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS).is_empty(),
-        "the hotbar still draws"
+        built < FRAMES as usize / 2,
+        "{built} of {FRAMES} settled frames built instead of repeating"
     );
 }

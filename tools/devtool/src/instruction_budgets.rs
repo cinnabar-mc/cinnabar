@@ -27,7 +27,7 @@ glibc.cpu.x86_non_temporal_threshold=268435456";
 const CALLGRIND_DEADLINE: Duration = Duration::from_secs(15 * 60);
 const UPDATE_COMMAND: &str = "cargo run -p devtool --locked -- instruction-budgets --update";
 
-#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Budgets {
     /// `rustc -V` of the toolchain that measured the budgets.
     toolchain: String,
@@ -119,17 +119,18 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             .budgets
             .insert(test.id.clone(), measure(test, &profile)?);
     }
-    write_budgets(&out.join("instruction-budgets.json"), &measured)?;
-    if options.update {
-        write_budgets(&path, &measured)?;
-        println!("wrote {} budgets to {BUDGET_FILE}", measured.budgets.len());
-        return Ok(());
-    }
     let committed: Budgets = match fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Budgets::default(),
         Err(source) => return Err(spawn_error(&format!("read {BUDGET_FILE}"), source)),
     };
+    let refreshed = refresh(&committed, &measured);
+    write_budgets(&out.join("instruction-budgets.json"), &refreshed)?;
+    if options.update {
+        write_budgets(&path, &refreshed)?;
+        println!("wrote {} budgets to {BUDGET_FILE}", refreshed.budgets.len());
+        return Ok(());
+    }
     let rows = compare(&committed, &measured);
     let report = report(&committed, &measured, &rows);
     println!("{report}");
@@ -371,6 +372,27 @@ fn write_budgets(path: &Path, budgets: &Budgets) -> Result<(), DevtoolError> {
     text.push('\n');
     fs::write(path, text)
         .map_err(|source| spawn_error(&format!("write {}", path.display()), source))
+}
+
+/// The budgets an update writes: in-tolerance entries keep their committed value, so repeated
+/// refreshes cannot ratchet a slowdown below the tolerance into the baseline; new, changed and
+/// removed tests take the measurement. A toolchain change re-measures every entry.
+fn refresh(committed: &Budgets, measured: &Budgets) -> Budgets {
+    let same_toolchain = committed.toolchain == measured.toolchain;
+    let budgets = measured
+        .budgets
+        .iter()
+        .map(|(id, &value)| {
+            let kept = committed.budgets.get(id).copied().filter(|&budget| {
+                same_toolchain && percent_change(budget, value).abs() <= TOLERANCE_PERCENT
+            });
+            (id.clone(), kept.unwrap_or(value))
+        })
+        .collect();
+    Budgets {
+        toolchain: measured.toolchain.clone(),
+        budgets,
+    }
 }
 
 /// Pairs committed budgets with measurements; a change past the tolerance either way fails.

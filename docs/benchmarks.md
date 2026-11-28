@@ -13,7 +13,7 @@ CI's mixed runner CPUs agree too.
 
 ```sh
 cargo run -p devtool --locked -- instruction-budgets            # check
-cargo run -p devtool --locked -- instruction-budgets --update   # rewrite the budgets
+cargo run -p devtool --locked -- instruction-budgets --update   # record changed budgets
 ```
 
 It needs x86-64 Linux, Valgrind and cargo-nextest, and builds every workspace test binary with
@@ -21,6 +21,9 @@ the caller's test profile, so run it on a build host and with the CI profile set
 (`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0`). CI runs it in
 the Linux test job and uploads `instruction-budgets` with the measured file and one Callgrind
 profile per test; when a change is intended, commit that file and explain increases in the PR.
+Both it and `--update` keep each budget still within the tolerance and take the measurement only
+for new, changed and removed tests, so repeated refreshes cannot absorb a slowdown step by step;
+a toolchain change re-measures every budget.
 `callgrind_annotate <test>.callgrind` attributes a change to functions.
 
 Add a budget beside the code it protects for each hot path, especially per-frame work that a
