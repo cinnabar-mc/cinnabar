@@ -77,9 +77,21 @@ impl PlayerInventoryLedger {
         recipe: &ShieldCraft,
         sink: CraftSink,
     ) -> Result<i32, InventoryGestureError> {
+        self.begin_special_craft(recipe.recipe_id, &recipe.output, &recipe.sources, sink)
+    }
+
+    /// Consumes one of each `(slot, stack id)` source and delivers `output` for a special
+    /// (multi) recipe, after checking every source still holds the stack the match saw.
+    pub(super) fn begin_special_craft(
+        &mut self,
+        recipe_id: u32,
+        output: &NetworkItemStack,
+        sources: &[(u8, i32)],
+        sink: CraftSink,
+    ) -> Result<i32, InventoryGestureError> {
         self.gesture_preflight(true)?;
         let mut consumed = Vec::new();
-        for &(slot, id) in &recipe.sources {
+        for &(slot, id) in sources {
             let cell = Cell::Craft(slot);
             self.check_surfaces([cell])?;
             let held = self
@@ -95,7 +107,7 @@ impl PlayerInventoryLedger {
             consumed.push((cell, 1, id));
         }
         let request_id = self.peek_request_id()?;
-        let mut created = recipe.output.clone();
+        let mut created = output.clone();
         created.stack_network_id = request_id;
         let entry = self
             .negotiated_item_entry(created.network_id)
@@ -109,7 +121,7 @@ impl PlayerInventoryLedger {
         };
         let submission = self.finish_craft_submission(
             output::CraftSubmissionPlan {
-                id: recipe.recipe_id,
+                id: recipe_id,
                 crafts: 1,
                 created,
                 results: Arc::from([result]),
