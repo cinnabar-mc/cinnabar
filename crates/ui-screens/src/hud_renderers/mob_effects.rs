@@ -22,6 +22,11 @@ const TOP_BAND_PAD: f32 = 4.0;
 const MIN_STATUS_ROWS: u32 = 2;
 const STATUS_ROW_HEIGHT: f32 = 10.0;
 
+/// The control property holding the GUI px the column starts below the screen's top edge,
+/// in place of vanilla's band over the status rows. A HUD layer that crowds the top of the
+/// screen sets it to start the column right under what it draws there.
+pub const COLUMN_TOP_PROP: &str = "column_top";
+
 /// One active effect, background then icon.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectIcon {
@@ -52,13 +57,15 @@ impl MobEffects {
 }
 
 /// Physical-pixel icon rects for `count` icons in one control; none when the
-/// control is too short to hold a single icon.
+/// control is too short to hold a single icon. `column_top` is the GUI px from the screen's
+/// top edge to the first icon, where vanilla's band over the status rows does not apply.
 pub(super) fn icon_rects(
     count: usize,
     control: [f32; 4],
     screen: [f32; 4],
     gui_scale: f32,
     status_rows: u32,
+    column_top: Option<f32>,
 ) -> impl Iterator<Item = [f32; 4]> {
     let screen_height = screen[3] - screen[1];
     let dpad = (screen_height * 0.5 / 48.0 - 3.0) * 0.5 + 3.0;
@@ -67,7 +74,8 @@ pub(super) fn icon_rects(
     let rows = status_rows.max(MIN_STATUS_ROWS) as f32;
     let band =
         (TOP_BAND_GUI * gui_scale + TOP_BAND_PAD + rows * STATUS_ROW_HEIGHT * gui_scale) as i32;
-    let top = screen[1] as i32 + band + side + ICON_GAP;
+    let top = screen[1] as i32
+        + column_top.map_or(band + side + ICON_GAP, |top| (top * gui_scale) as i32);
     let right = control[0] as i32 + (control[2] - control[0]) as i32 - RIGHT_INSET - side;
     let height = (control[3] - control[1]) as i32;
     let per_column = if step > 0 {
@@ -89,6 +97,7 @@ pub(super) fn paint(
     canvas: &mut Canvas<'_>,
     effects: &MobEffects,
     dest: [f32; 4],
+    column_top: Option<f32>,
     alpha: &dyn Fn([u8; 4]) -> [u8; 4],
 ) {
     let visible = visible_bounds(canvas);
@@ -106,6 +115,7 @@ pub(super) fn paint(
         canvas.screen().map(|edge| edge * to_physical),
         gui_scale,
         effects.status_rows,
+        column_top,
     );
     for (effect, rect) in effects.icons.iter().zip(rects) {
         let background = [
