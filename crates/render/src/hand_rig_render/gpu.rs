@@ -178,14 +178,20 @@ pub(super) fn prepare(
     if gpu.raw_views != raw_views {
         gpu.raw_views = raw_views;
     }
+    if scene.frame.is_none() {
+        gpu.artwork_routing = default();
+        gpu.catalog_bind_groups.clear();
+        gpu.bind_group = None;
+        deactivate(&mut gpu);
+        return;
+    }
     if background.is_some_and(|background| !background.game_visible()) {
         deactivate(&mut gpu);
         return;
     }
+    // The absent frame was handled before the panorama guard: an active frame behind a
+    // temporary panorama keeps its cached artwork.
     let Some(frame) = &scene.frame else {
-        gpu.artwork_routing = default();
-        gpu.catalog_bind_groups.clear();
-        gpu.bind_group = None;
         deactivate(&mut gpu);
         return;
     };

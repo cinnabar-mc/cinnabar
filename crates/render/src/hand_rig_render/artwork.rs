@@ -30,6 +30,63 @@ pub(super) enum TextureRoute {
 pub(super) struct HandArtworkRouting {
     pub(super) pages: Vec<Option<CatalogPage>>,
     pub(super) draw_spans: Vec<DrawSpan>,
+    failed: Vec<Option<PageUploadFailure>>,
+}
+
+/// One rejected page request, keyed by its source storage so a new revision retries at once.
+struct PageUploadFailure {
+    pixels: render_model::PagePixels,
+    size: [u32; 3],
+    format: TextureFormat,
+    raw_views: crate::actor::gpu::ArtworkRawViews,
+    attempts: u8,
+    last_revision: u64,
+    retry_revision: u64,
+}
+
+impl PageUploadFailure {
+    /// Whether the current request still names this rejected source and texture view.
+    fn matches(
+        &self,
+        page: &render_model::ActorTexturePage,
+        size: [u32; 3],
+        format: TextureFormat,
+        raw_views: crate::actor::gpu::ArtworkRawViews,
+    ) -> bool {
+        self.pixels.ptr_eq(&page.rgba8)
+            && self.size == size
+            && self.format == format
+            && self.raw_views == raw_views
+    }
+}
+
+/// Backs off a rejected page for a bounded number of frames, then retries for free memory.
+fn remember_upload_failure(
+    slot: &mut Option<PageUploadFailure>,
+    page: &render_model::ActorTexturePage,
+    size: [u32; 3],
+    format: TextureFormat,
+    raw_views: crate::actor::gpu::ArtworkRawViews,
+    revision: u64,
+) {
+    let unchanged = slot
+        .as_ref()
+        .is_some_and(|failure| failure.matches(page, size, format, raw_views));
+    let attempts = if unchanged {
+        slot.as_ref().map_or(0, |failure| failure.attempts.saturating_add(1))
+    } else {
+        0
+    };
+    let wait = 1u64 << attempts.min(4);
+    *slot = Some(PageUploadFailure {
+        pixels: page.rgba8.clone(),
+        size,
+        format,
+        raw_views,
+        attempts,
+        last_revision: revision,
+        retry_revision: revision.saturating_add(wait),
+    });
 }
 impl HandArtworkRouting {
     /// Uploads only demanded pages; unchanged frames do not join pixels or allocate.
@@ -46,9 +103,11 @@ impl HandArtworkRouting {
             .as_ref()
             .map(|a| a.pages.as_ref())
             .unwrap_or(&[]);
-        let mut changed = self.pages.len() != source.len();
+        let mut changed = self.pages.len() != source.len() || self.failed.len() != source.len();
         self.pages.resize_with(source.len(), || None);
-        for (slot, page) in self.pages.iter_mut().zip(source) {
+        self.failed.resize_with(source.len(), || None);
+        for (index, slot) in self.pages.iter_mut().enumerate() {
+            let page = &source[index];
             if slot.as_ref().is_some_and(|current| {
                 !current.pixels.ptr_eq(&page.rgba8)
                     || current.size != [u32::from(page.width), u32::from(page.height), page.layers]
@@ -56,6 +115,7 @@ impl HandArtworkRouting {
                     || current.raw_views != raw_views
             }) {
                 *slot = None;
+                self.failed[index] = None;
                 changed = true;
             }
         }
@@ -70,6 +130,20 @@ impl HandArtworkRouting {
                 continue;
             }
             let size = [u32::from(page.width), u32::from(page.height), page.layers];
+            let (backed_off, stale) = match self.failed[index].as_ref() {
+                Some(failure) if failure.matches(page, size, format, raw_views) => (
+                    failure.last_revision == frame.revision || frame.revision < failure.retry_revision,
+                    false,
+                ),
+                Some(_) => (false, true),
+                None => (false, false),
+            };
+            if stale {
+                self.failed[index] = None;
+            }
+            if backed_off {
+                continue;
+            }
             let bytes = usize::from(page.width)
                 .checked_mul(usize::from(page.height))
                 .and_then(|n| n.checked_mul(page.layers as usize))
@@ -81,6 +155,14 @@ impl HandArtworkRouting {
                 || size[1] > limits.max_texture_dimension_2d
                 || size[2] > limits.max_texture_array_layers
             {
+                remember_upload_failure(
+                    &mut self.failed[index],
+                    page,
+                    size,
+                    format,
+                    raw_views,
+                    frame.revision,
+                );
                 continue;
             }
             let Some(texture) = crate::gpu_allocation::texture_with_data(
@@ -106,6 +188,14 @@ impl HandArtworkRouting {
                 },
                 &page.rgba8.joined(),
             ) else {
+                remember_upload_failure(
+                    &mut self.failed[index],
+                    page,
+                    size,
+                    format,
+                    raw_views,
+                    frame.revision,
+                );
                 continue;
             };
             let Some(view) = crate::gpu_allocation::checked(
@@ -120,6 +210,14 @@ impl HandArtworkRouting {
                     })
                 },
             ) else {
+                remember_upload_failure(
+                    &mut self.failed[index],
+                    page,
+                    size,
+                    format,
+                    raw_views,
+                    frame.revision,
+                );
                 continue;
             };
             self.pages[index] = Some(CatalogPage {
@@ -130,6 +228,7 @@ impl HandArtworkRouting {
                 format,
                 raw_views,
             });
+            self.failed[index] = None;
             changed = true;
         }
         changed

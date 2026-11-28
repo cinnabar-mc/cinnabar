@@ -4,6 +4,8 @@
 //! layout rules. It has no dependencies and must not acquire game state or GPU types.
 
 mod actor_lighting;
+mod bone_range;
+pub use bone_range::{BoneRange, bone_range};
 pub mod far_terrain;
 mod frame_rate_limit;
 mod held_item;

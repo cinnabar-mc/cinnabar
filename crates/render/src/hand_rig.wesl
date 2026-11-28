@@ -82,6 +82,8 @@ struct VertexOutput {
     // Instance index whose glint words apply, or MAX without glint.
     @location(5) @interpolate(flat) glint_instance: u32,
     @location(6) native_light: vec3<f32>,
+    @location(7) @interpolate(flat) uv_anim: vec4<f32>,
+    @location(8) @interpolate(flat) authored_blend: u32,
 }
 
 // Each Bedrock vertex combines environment and directional light before interpolation.
@@ -155,9 +157,15 @@ fn hand_vertex(
     let span = geometry_spans[geometry_id];
 
     var out: VertexOutput;
+    let material_word = instance_words[instance_base + 27u];
+    out.authored_blend = select(0u, 1u, (material_word & ACTOR_MATERIAL_BLEND_FLAG) != 0u);
+    out.uv_anim = vec4(
+        word_f32(instance_base + 20u), word_f32(instance_base + 21u),
+        word_f32(instance_base + 22u), word_f32(instance_base + 23u),
+    );
     out.skin_layer = texture_layer;
     out.shade = 1.0;
-    let material = instance_words[instance_base + 27u];
+    let material = material_word;
     let has_glint = (material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
     out.glint_instance = select(0xffffffffu, instance_index, has_glint);
     if (vertex_index >= span.vertex_count) {
@@ -230,7 +238,16 @@ fn hand_gamma_sample(color: vec4<f32>, native: bool) -> vec4<f32> {
 fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let cutout = (input.skin_layer & hand_material.texture_flags.w) != 0u;
     let reverse_cube = select(false, input.back_uv.x < -1.0e8, !front);
-    let uv = select(input.back_uv, input.uv.xy, select(reverse_cube, true, front));
+    // Render-controller uv_anim shifts and scales both sampled UV sets before gradients.
+    let uv_offset = input.uv_anim.xy;
+    let uv_scale = input.uv_anim.zw;
+    let animated_uv = uv_offset + input.uv.xy * uv_scale;
+    let animated_back_uv = select(
+        uv_offset + input.back_uv * uv_scale,
+        input.back_uv,
+        input.back_uv.x < -1.0e8,
+    );
+    let uv = select(animated_back_uv, animated_uv, select(reverse_cube, true, front));
     // Sample footprints are computed before any lane is discarded.
     let uv_dx = dpdx(uv);
     let uv_dy = dpdy(uv);
@@ -241,8 +258,11 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
         discard;
     }
     var layer = input.skin_layer & hand_material.layer_mask.x;
+    // A catalog controller publishes its alpha mode in the instance material, not in held-item bits.
+    var catalog_blend = false;
     @if(CATALOG_ROUTING) {
         layer = select(layer, catalog_layer.layer, catalog_layer.enabled != 0u);
+        catalog_blend = catalog_layer.enabled != 0u && input.authored_blend != 0u;
     }
     let skin_color = textureSampleGrad(skins, skin_sampler, uv, i32(layer), uv_dx, uv_dy);
     let main_color = textureSampleGrad(item_atlas, skin_sampler, uv, i32(layer), uv_dx, uv_dy);
@@ -252,7 +272,7 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     let item_color = select(hand_color, paper_color, (input.skin_layer & hand_material.layer_mask.y) != 0u);
     let is_item = (input.skin_layer & hand_material.texture_flags.x) != 0u;
     let color = select(skin_color, item_color, is_item);
-    if ((!is_item || cutout) && color.a < 0.5) {
+    if ((!is_item || cutout) && !catalog_blend && color.a < 0.5) {
         discard;
     }
     let sample = hand_light.block_level | (hand_light.sky_level << 4u);
@@ -270,7 +290,7 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
         }
         gamma = tint_to_gamma(tint_to_linear(vec4(gamma, 1.0))).rgb + item_foil(uv, input.uv.zw, input.glint_instance, illumination);
     }
-    let blend = is_item && (input.skin_layer & hand_material.texture_flags.z) != 0u;
+    let blend = (is_item && (input.skin_layer & hand_material.texture_flags.z) != 0u) || catalog_blend;
     // Opaque Bedrock output rounds in a gamma-byte attachment before scene conversion.
     if native && !blend {
         gamma = round(gamma * 255.0) / 255.0;

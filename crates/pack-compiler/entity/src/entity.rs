@@ -101,6 +101,24 @@ struct PendingSymbol {
     identifier: Box<str>,
     source_path: Box<str>,
     dependencies: Box<[EntityDependency]>,
+    charged_dependencies: usize,
+}
+
+/// Charges dependencies as they are retained, so collection cannot accumulate unbounded storage.
+fn charge_retained_dependencies(
+    budget: &mut EntityDependencyStorageBudget,
+    symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
+) -> Result<(), AssetError> {
+    for symbol in symbols.values_mut() {
+        while symbol.charged_dependencies < symbol.dependencies.len() {
+            let dependency = &symbol.dependencies[symbol.charged_dependencies];
+            budget
+                .charge(dependency.identifier.len())
+                .map_err(|_| invalid("entity dependency storage exceeds catalog budget"))?;
+            symbol.charged_dependencies += 1;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -245,6 +263,7 @@ fn compile_with_behavior(
     let mut sources = Vec::with_capacity(selected.len());
     let mut source_payloads = SourcePayloads::new();
     let mut symbols = BTreeMap::<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>::new();
+    let mut dependency_budget = EntityDependencyStorageBudget::new(MAX_ENTITY_CATALOG_BYTES);
     let mut geometries = BTreeMap::<(Box<str>, Box<str>), PendingGeometry>::new();
     for (relative_path, absolute_path) in selected {
         let source_root = if relative_path.starts_with("behavior/") {
@@ -274,6 +293,7 @@ fn compile_with_behavior(
                 &mut symbols,
                 &mut geometries,
             )?;
+            charge_retained_dependencies(&mut dependency_budget, &mut symbols)?;
         }
         // Pinned vanilla samples occasionally omit a legacy cube bind transform that
         // the shipped native base pack retains. This is never applied to session packs.
@@ -320,6 +340,7 @@ fn compile_with_behavior(
         &mut symbols,
         &mut geometries,
     )?;
+    charge_retained_dependencies(&mut dependency_budget, &mut symbols)?;
     total_source_bytes = total_source_bytes
         .checked_add(native_binding_bytes)
         .ok_or_else(|| invalid("entity source-byte total overflow"))?;
@@ -422,14 +443,6 @@ fn assemble(
     sources.sort_by(|left, right| left.path.cmp(&right.path));
     if symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
-    }
-    let mut dependency_budget = EntityDependencyStorageBudget::new(MAX_ENTITY_CATALOG_BYTES);
-    for symbol in symbols.values() {
-        for dependency in &symbol.dependencies {
-            dependency_budget
-                .charge(dependency.identifier.len())
-                .map_err(|_| invalid("entity dependency storage exceeds catalog budget"))?;
-        }
     }
     let source_indices = sources
         .iter()
@@ -967,6 +980,7 @@ fn insert_symbol(
         identifier: identifier.clone(),
         source_path: source_path.clone(),
         dependencies,
+        charged_dependencies: 0,
     };
     if symbols
         .insert((kind, identifier.clone(), source_path), symbol)

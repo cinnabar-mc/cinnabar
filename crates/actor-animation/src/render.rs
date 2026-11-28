@@ -65,6 +65,52 @@ pub(super) struct AuthoredZeroRootCandidate {
     pub root_transform: BoneTransform,
 }
 
+/// Checks a no-draw controller's single-root pose for an authored zero-scale sample.
+pub(super) fn authored_zero_root_sample(
+    assets: &RuntimeEntityAssets,
+    state: &ActorRigState,
+    draw: Option<AuthoredDraw>,
+    pose: &[BoneTransform],
+) -> Option<AuthoredZeroRootCandidate> {
+    let draw = draw?;
+    let rig_geometry = assets
+        .rig_geometries()
+        .get(state.geometry_binding)?
+        .geometry;
+    if draw.geometry != rig_geometry || pose.len() != 1 || state.bones.len() != 1 {
+        return None;
+    }
+    let geometry = assets.geometries().get(draw.geometry as usize)?;
+    let [root] = geometry.bones.as_ref() else {
+        return None;
+    };
+    if root.parent.is_some()
+        || (root.cubes.is_empty() && root.texture_meshes.is_empty() && !root.has_polygons())
+        || state.bones[0].parent.is_some()
+    {
+        return None;
+    }
+    let transform = pose[0];
+    if !transform
+        .rotation
+        .into_iter()
+        .chain(transform.translation_scale)
+        .chain(transform.axis_scale)
+        .all(f32::is_finite)
+    {
+        return None;
+    }
+    let effective_scale = transform
+        .axis_scale
+        .map(|axis| axis * transform.translation_scale[3]);
+    (effective_scale == [0.0; 3]).then_some(AuthoredZeroRootCandidate {
+        layer: draw.layer,
+        geometry: draw.geometry,
+        effective_scale,
+        root_transform: transform,
+    })
+}
+
 /// The checked local sample and its identity/placement context, plus its original draw if present.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuthoredZeroRootProof<'a> {

@@ -13,6 +13,7 @@ mod colors_tests;
 mod invisible;
 mod layout;
 mod line_metrics;
+mod lore;
 mod palette;
 /// Design-pixel lean of an italic glyph's top edge.
 pub const TEXT_ITALIC_SHEAR_PX: f32 = 1.0;
@@ -21,6 +22,7 @@ mod single_line;
 mod units;
 
 pub use colors::{ColorDescriptor, FORMATTING_COLORS};
+pub use lore::lore_lines;
 pub use palette::FormattingPalette;
 
 use layout::build_layout;

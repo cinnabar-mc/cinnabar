@@ -18,12 +18,6 @@ const MAX_DRAWS: usize = 512;
 const MAX_BONE_MATRICES: usize = 8_192;
 const MAX_VERTICES: usize = 16_384;
 
-/// Reads one endpoint without hiding an invalid arena range as an empty pose.
-fn matrices(arena: &[[[f32; 4]; 3]], base: u32, count: usize) -> Option<&[[[f32; 4]; 3]]> {
-    let start = base as usize;
-    arena.get(start..start.checked_add(count)?)
-}
-
 /// Reads immutable publication data only when the control endpoint requests state.
 pub(super) fn snapshot(frame: &HandRigFrame) -> Value {
     let rig = &frame.rig;
@@ -35,12 +29,13 @@ pub(super) fn snapshot(frame: &HandRigFrame) -> Value {
     let mut geometries = Vec::new();
     let draws = rig.instances.iter().enumerate().take(MAX_DRAWS).map(|(index, instance)| {
         let entry = rig.manifest.iter().find(|entry| entry.instance_index as usize == index);
-        let count = entry.map_or(0, |entry| entry.bone_count as usize).min(bone_budget / 2);
+        let full_count = entry.map_or(0, |entry| entry.bone_count as usize);
+        let count = full_count.min(bone_budget / 2);
         bone_budget -= count * 2;
-        let previous = matrices(&rig.previous_bones, instance.previous_bone_base, count);
-        let current = matrices(&rig.current_bones, instance.current_bone_base, count);
-        let previous_count = previous.map_or(0, |bones| bones.len());
-        let current_count = current.map_or(0, |bones| bones.len());
+        let previous = render_api::bone_range(&rig.previous_bones, instance.previous_bone_base, count, full_count);
+        let current = render_api::bone_range(&rig.current_bones, instance.current_bone_base, count, full_count);
+        let previous_count = previous.matrices.map_or(0, |bones| bones.len());
+        let current_count = current.matrices.map_or(0, |bones| bones.len());
         let listed_bones = previous_count.min(current_count);
         serialized_matrices += previous_count + current_count;
         let location = frame.draw_locations.get(index).copied().flatten();
@@ -94,10 +89,10 @@ pub(super) fn snapshot(frame: &HandRigFrame) -> Value {
             "bone_count": entry.map(|entry| entry.bone_count),
             "listed_bones": listed_bones,
             "omitted_bones": entry.map(|entry| (entry.bone_count as usize).saturating_sub(listed_bones)),
-            "previous_bone_range_valid": previous.is_some(),
-            "current_bone_range_valid": current.is_some(),
-            "previous_bones": previous,
-            "current_bones": current,
+            "previous_bone_range_valid": previous.full_range_valid,
+            "current_bone_range_valid": current.full_range_valid,
+            "previous_bones": previous.matrices,
+            "current_bones": current.matrices,
         })
     }).collect::<Vec<_>>();
     json!({

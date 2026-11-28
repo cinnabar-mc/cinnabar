@@ -224,9 +224,10 @@ fn tooltip_lines_with_name_style(
         let text = protocol::parse_raw_text(line)
             .map(|document| runtime.resolve_raw_text(&document).text)
             .unwrap_or_else(|_| line.to_string());
-        text.split('\n')
+        ui::lore_lines(&text)
+            .into_iter()
             .map(|line| TooltipLine {
-                text: line.to_string(),
+                text: line,
                 color: LORE_COLOR,
             })
             .collect::<Vec<_>>()
