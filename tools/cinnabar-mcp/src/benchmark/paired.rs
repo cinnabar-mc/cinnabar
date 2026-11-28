@@ -83,6 +83,13 @@ fn compare_rounds(
 ) -> Result<(), String> {
     let run_dir =
         |round: usize, side: Side| output.join(format!("round-{round:02}-{}", side.name()));
+    let inputs = [runtime_inputs(base)?, runtime_inputs(candidate)?];
+    if inputs[0] != inputs[1] {
+        return Err(format!(
+            "the builds load different cores or carriers, so FPS would not compare the builds alone: {inputs:?}"
+        ));
+    }
+    files::write(&output.join("runtime-inputs.json"), &inputs[0])?;
     let mut pairs = Vec::with_capacity(rounds);
     let mut observed = BTreeSet::new();
     let mut first: Option<[Value; 3]> = None;
@@ -128,6 +135,23 @@ fn compare_rounds(
     } else {
         Err(format!("the candidate is slower in {slower:?}"))
     }
+}
+
+/// Hashes of the Go core and compiled carriers the plan's client resolves beside its binary.
+fn runtime_inputs(plan_file: &Path) -> Result<Value, String> {
+    let plan: super::Plan = files::read(plan_file)?;
+    let binary = plan_file
+        .parent()
+        .ok_or("plan has no parent directory")?
+        .join(&plan.binary)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let layout = launcher::install_layout::InstallLayout::discover_for(binary)
+        .map_err(|e| format!("resolve the client's install layout: {e}"))?;
+    Ok(serde_json::json!({
+        "core_sha256": files::hash_file(&layout.core_executable)?,
+        "carriers_sha256": files::hash_tree(&layout.compiled_assets)?,
+    }))
 }
 
 /// Metrics either build reported that some round could not pair: missing from one build, or a

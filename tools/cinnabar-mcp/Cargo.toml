@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 developer-control = { path = "../../crates/developer-control" }
 diagnostics = { path = "../../crates/diagnostics" }
+launcher = { path = "../../crates/launcher" }
 image.workspace = true
 mcp-stdio = { path = "../mcp-stdio" }
 render-api = { path = "../../crates/render-api" }

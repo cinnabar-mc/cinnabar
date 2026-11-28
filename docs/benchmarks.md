@@ -141,7 +141,8 @@ Hardware noise swamps single runs, so check a frame-time change with
 The two plans differ only in `binary`, for example a release build of `origin/dev` and one of
 the branch. Each round runs both builds, alternating which goes first, into
 `round-NN-base` and `round-NN-candidate`; every pair must pass the comparison checks above, and every round must measure the same
-binaries and workload as the first.
+binaries and workload as the first. Both clients must resolve the same Go core and compiled
+carriers; `runtime-inputs.json` records their hashes.
 `paired.json` gives each frame statistic's and CPU stage mean's candidate/base ratio as a median and
 interquartile range over the rounds; metrics some round could not pair, such as stage means that
 round to zero, are listed as unavailable rather than summarized. `outcome.json` records whether

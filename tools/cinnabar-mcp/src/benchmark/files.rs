@@ -27,7 +27,20 @@ pub(super) fn hash_file(path: &Path) -> Result<String, String> {
 
 /// Copies a frozen tree and hashes sorted path/content pairs from the copied bytes.
 pub(super) fn copy_tree(source: &Path, target: &Path) -> Result<String, String> {
-    std::fs::create_dir(target).map_err(|e| e.to_string())?;
+    tree_digest(source, Some(target))
+}
+
+/// Hashes a tree's sorted path/content pairs in place, as `copy_tree` would.
+pub(super) fn hash_tree(source: &Path) -> Result<String, String> {
+    tree_digest(source, None)
+}
+
+/// Walks `source` in name order, copying each file to `target` first when given, and hashes the
+/// bytes it then reads; links and other special files are rejected.
+fn tree_digest(source: &Path, target: Option<&Path>) -> Result<String, String> {
+    if let Some(target) = target {
+        std::fs::create_dir(target).map_err(|e| e.to_string())?;
+    }
     let mut entries = std::fs::read_dir(source)
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
@@ -36,14 +49,19 @@ pub(super) fn copy_tree(source: &Path, target: &Path) -> Result<String, String> 
     let mut hash = Sha256::new();
     for entry in entries {
         let kind = entry.file_type().map_err(|e| e.to_string())?;
-        let path = target.join(entry.file_name());
+        let copy = target.map(|target| target.join(entry.file_name()));
         let digest = if kind.is_dir() {
             hash.update(b"directory");
-            copy_tree(&entry.path(), &path)?
+            tree_digest(&entry.path(), copy.as_deref())?
         } else if kind.is_file() {
             hash.update(b"file");
-            std::fs::copy(entry.path(), &path).map_err(|e| e.to_string())?;
-            hash_file(&path)?
+            match &copy {
+                Some(path) => {
+                    std::fs::copy(entry.path(), path).map_err(|e| e.to_string())?;
+                    hash_file(path)?
+                }
+                None => hash_file(&entry.path())?,
+            }
         } else {
             return Err("fixture templates must contain only regular files and directories".into());
         };
