@@ -1,6 +1,7 @@
 //! Inventory controllers retain snapshots and save whole tuples through the bounded queue.
 
 use inventory::{InventoryContext, InventoryController, inventory_ledger::InventoryGestureError};
+use launcher::menu::settings_options::SettingId;
 use protocol::{InventoryLayout, InventoryRightTab, InventoryTab, PlayerGameMode, WindowKind};
 use ui_screens::container_actions::{SEARCH_TAB, inventory_tab, inventory_tab_ui};
 
@@ -34,11 +35,21 @@ impl UiRuntime {
                             .observes_window(player.inventory.ledger().storage_generation())
                 })
                 .unwrap_or_else(|| {
-                    InventoryController::new(
+                    let mut controller = InventoryController::new(
                         player.inventory.inventory_options(),
                         context,
                         player.facts.player_game_mode() == Some(PlayerGameMode::Creative),
-                    )
+                    );
+                    // The player's own choice wins over the stored layout, including the
+                    // creative catalog, each time the personal inventory opens. It only picks the
+                    // layout this screen starts with: nothing is saved or sent until the player
+                    // changes the layout with the screen's own controls.
+                    if context == InventoryContext::Personal
+                        && self.control_settings.value(SettingId::OpenPlainInventory) != 0
+                    {
+                        controller.set_layout(InventoryLayout::InventoryOnly);
+                    }
+                    controller
                 }),
         )
     }
@@ -172,3 +183,6 @@ impl UiRuntime {
         .unwrap_or(SEARCH_TAB)
     }
 }
+
+#[cfg(test)]
+mod tests;
