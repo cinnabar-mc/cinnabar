@@ -784,3 +784,68 @@ fn bedrock_sdr_hands_use_gamma_blending_independently_of_java_and_hdr() {
     }
     assert_eq!(created, 2);
 }
+
+/// A vanished frame drops retained catalog resources even when a panorama hides the world;
+/// a live frame behind the same panorama keeps them warm.
+#[test]
+fn absent_frame_clears_catalog_cache_even_under_panorama() {
+    use bevy::{
+        ecs::system::RunSystemOnce,
+        render::{render_resource::PipelineCache, view::RetainedViewEntity},
+    };
+    use render_scene::PanoramaScene;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.insert_resource(queue);
+    world.insert_resource(PipelineCache::new(device.clone(), false));
+    world.run_system_once(init_gpu).unwrap();
+    world.spawn((
+        Msaa::Off,
+        crate::render_test_support::camera(false),
+        ExtractedView {
+            retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+            clip_from_view: Mat4::IDENTITY,
+            world_from_view: GlobalTransform::IDENTITY,
+            clip_from_world: None,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
+            viewport: UVec4::new(0, 0, 64, 64),
+            color_grading: default(),
+            invert_culling: false,
+        },
+    ));
+    world.insert_resource(HandRigScene {
+        frame: Some(super::catalog_tests::fixture_frame()),
+    });
+    let mut panorama = PanoramaScene::default();
+    panorama.set_game_visible(true);
+    world.insert_resource(panorama);
+    world.run_system_once(prepare).unwrap();
+    {
+        let gpu = world.resource::<HandRigGpu>();
+        assert_eq!(gpu.revision, Some(1));
+        assert!(!gpu.artwork_routing.pages.is_empty());
+        assert!(!gpu.catalog_bind_groups.is_empty());
+        assert!(gpu.bind_group.is_some());
+    }
+
+    // Control: the panorama hides drawing but must not discard a live frame's artwork.
+    world.resource_mut::<PanoramaScene>().set_game_visible(false);
+    world.run_system_once(prepare).unwrap();
+    {
+        let gpu = world.resource::<HandRigGpu>();
+        assert!(!gpu.artwork_routing.pages.is_empty(), "panorama keeps warm pages");
+        assert!(!gpu.catalog_bind_groups.is_empty(), "panorama keeps catalog bindings");
+        assert!(gpu.bind_group.is_none(), "panorama only deactivates the draw");
+    }
+
+    world.resource_mut::<HandRigScene>().frame = None;
+    world.run_system_once(prepare).unwrap();
+    let gpu = world.resource::<HandRigGpu>();
+    assert!(gpu.artwork_routing.pages.is_empty(), "absent frame clears pages under panorama");
+    assert!(gpu.catalog_bind_groups.is_empty(), "absent frame clears catalog bindings");
+    assert!(gpu.bind_group.is_none());
+    assert_eq!(gpu.instance_count, 0);
+}

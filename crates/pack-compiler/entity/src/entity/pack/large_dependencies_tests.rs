@@ -102,3 +102,66 @@ fn large_dependencies_unique_references_round_trip_with_the_rig() {
 fn large_dependencies_bad_neighbor_does_not_remove_a_valid_entity() {
     assert_retained(700, false, true);
 }
+
+/// Synthetic identifiers cross the real 512 MiB catalog budget without a pack fixture:
+/// the first source that exceeds it is the one reported, and later sources are never walked.
+#[test]
+fn entity_dependency_budget_rejects_at_512mib_before_all_sources_accumulate() {
+    use assets::{
+        EntityAssetKind, EntityDependency, EntityDependencyKind, EntityDependencyResolution,
+        EntityDependencyStorageBudget, MAX_ENTITY_CATALOG_BYTES,
+    };
+    use std::collections::BTreeMap;
+
+    use super::super::{PendingSymbol, charge_retained_dependencies};
+
+    const CHUNK: usize = 128 * 1024 * 1024;
+    let identifier: Box<str> = "x".repeat(CHUNK).into();
+    let dependency = || EntityDependency {
+        kind: EntityDependencyKind::Animation,
+        identifier: identifier.clone(),
+        resolution: EntityDependencyResolution::Catalog,
+    };
+    let symbol = |name: &str, count: usize| PendingSymbol {
+        kind: EntityAssetKind::Entity,
+        identifier: name.into(),
+        source_path: format!("entity/{name}.json").into(),
+        dependencies: (0..count).map(|_| dependency()).collect(),
+        charged_dependencies: 0,
+    };
+
+    // Control: the same storage estimate below the real bound is fully charged once.
+    let mut accepted = BTreeMap::new();
+    accepted.insert((EntityAssetKind::Entity, "a".into(), "a".into()), symbol("a", 3));
+    assert!(charge_retained_dependencies(
+        &mut EntityDependencyStorageBudget::new(MAX_ENTITY_CATALOG_BYTES),
+        &mut accepted
+    )
+    .is_ok());
+    assert_eq!(accepted.values().next().unwrap().charged_dependencies, 3);
+
+    // First source keeps 128 MiB, the second crosses 512 MiB on its dependencies,
+    // and a third source must not be visited at all.
+    let mut symbols = BTreeMap::new();
+    for (name, count) in [("a", 1), ("b", 4), ("c", 4)] {
+        symbols.insert(
+            (EntityAssetKind::Entity, name.into(), name.into()),
+            symbol(name, count),
+        );
+    }
+    let error = charge_retained_dependencies(
+        &mut EntityDependencyStorageBudget::new(MAX_ENTITY_CATALOG_BYTES),
+        &mut symbols,
+    )
+    .expect_err("the catalog-sized dependency budget rejects the aggregate");
+    assert!(
+        format!("{error}").contains("entity dependency storage exceeds catalog budget"),
+        "{error}"
+    );
+    let charged = |name: &str| {
+        symbols[&(EntityAssetKind::Entity, name.into(), name.into())].charged_dependencies
+    };
+    assert_eq!(charged("a"), 1);
+    assert!(charged("b") < 4, "failure stops inside the offending source");
+    assert_eq!(charged("c"), 0, "no later source is traversed after rejection");
+}

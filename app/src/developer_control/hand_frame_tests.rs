@@ -128,6 +128,50 @@ fn snapshot_bounds_draws_and_pose_output_and_reports_invalid_references() {
     );
 }
 
+/// The output cap must not redefine whether the *full* published pose was present.
+#[test]
+fn snapshot_reports_full_range_valid_while_cap_omits_bones() {
+    let mut frame = frame();
+    let bone = [[0.0_f32; 4]; 3];
+    let arena: Arc<[[[f32; 4]; 3]]> = Arc::from(vec![bone; 4_200].into_boxed_slice());
+    frame.rig.previous_bones = Arc::clone(&arena);
+    frame.rig.current_bones = arena;
+    let manifest = Arc::make_mut(&mut frame.rig.manifest);
+    // The first draw consumes 4092 * 2 of the 8192-matrix budget, leaving room for
+    // exactly four matrices of the 16-bone second pose.
+    manifest[0].bone_count = 4_092;
+    manifest[1].bone_count = 16;
+    let report = snapshot(&frame);
+    let draw = &report["draws"][1];
+    assert_eq!(draw["listed_bones"], 4);
+    assert_eq!(draw["omitted_bones"], 12);
+    assert_eq!(draw["previous_bones"].as_array().unwrap().len(), 4);
+    assert_eq!(draw["current_bones"].as_array().unwrap().len(), 4);
+    assert_eq!(draw["previous_bone_range_valid"], true);
+    assert_eq!(draw["current_bone_range_valid"], true);
+
+    // Control: the same four-matrix prefix is publishable, but the complete
+    // 16-bone range is not present in the arena, so both flags must be false.
+    let mut short = frame;
+    short.rig.previous_bones = Arc::from(vec![bone; 4_096].into_boxed_slice());
+    short.rig.current_bones = Arc::from(vec![bone; 4_096].into_boxed_slice());
+    // The prefix ends at the arena boundary; the complete 16-bone range does not.
+    short.rig.instances = Arc::from([
+        short.rig.instances[0],
+        render_model::ActorGpuInstance {
+            previous_bone_base: 4_092,
+            current_bone_base: 4_092,
+            ..short.rig.instances[1]
+        },
+    ]);
+    let report = snapshot(&short);
+    let draw = &report["draws"][1];
+    assert_eq!(draw["listed_bones"], 4);
+    assert_eq!(draw["omitted_bones"], 12);
+    assert_eq!(draw["previous_bone_range_valid"], false);
+    assert_eq!(draw["current_bone_range_valid"], false);
+}
+
 #[test]
 fn counts_keep_legacy_main_offhand_and_skin_semantics() {
     let item = render_model::HAND_ITEM_LAYER_FLAG;
