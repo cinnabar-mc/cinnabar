@@ -141,12 +141,16 @@ fn frame_clock(world: &World) -> Instant {
     world.resource::<Time<Real>>().startup()
 }
 
-/// Advances the real clock by one 60 Hz frame and runs the actor publication systems.
+/// Advances the real clock by one 60 Hz frame and runs the actor motion and publication systems
+/// in the live frame's order.
 fn actor_frame(world: &mut World, clock: &mut Instant) {
     *clock += Duration::from_nanos(16_666_667);
     world
         .resource_mut::<Time<Real>>()
         .update_with_instant(*clock);
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_motion)
+        .unwrap();
     world
         .run_system_cached(crate::runtime::network::advance_actor_frame)
         .unwrap();
