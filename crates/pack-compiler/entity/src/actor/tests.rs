@@ -1,6 +1,6 @@
 use super::*;
 use crate::entity::compile_entity_pack;
-use image::{Rgba, RgbaImage};
+use image::{ImageFormat, Rgba, RgbaImage};
 
 /// Builds two valid rasters and an unusable one, drawn in a different order from source indices.
 fn pack() -> crate::entity::EntityPackCompilation {

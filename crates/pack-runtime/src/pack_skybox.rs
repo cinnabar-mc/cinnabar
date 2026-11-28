@@ -45,7 +45,10 @@ fn decode_face(view: &LayeredPackView, path: &str) -> Option<crate::pack_texture
         for (path, format) in &candidates {
             if let Some(bytes) = layer.read_file_with_limit(path, limit).ok()? {
                 // The bounded raster decoder does not admit HDR or compressed KTX images.
-                return crate::pack_textures::decode_image(&bytes, (*format)?);
+                if format.is_none() {
+                    return None;
+                }
+                return crate::pack_textures::decode_image(&bytes);
             }
         }
     }

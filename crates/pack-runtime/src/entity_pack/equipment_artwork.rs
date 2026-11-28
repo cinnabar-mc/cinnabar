@@ -1,6 +1,7 @@
 //! Texture-only packs replace startup artwork without introducing attachable bindings.
 
 use assets::{EquipmentTexture, RuntimeEquipmentCatalog};
+use pack_compile_input::texture_path::detect_image_format;
 use pack_entity_compiler::EquipmentRasterDrops;
 use resource_pack::LayeredPackView;
 
@@ -12,15 +13,12 @@ pub(super) fn collect(
 ) -> Vec<(Box<str>, image::ImageFormat)> {
     let mut sources = Vec::new();
     for texture in base.into_iter().flat_map(RuntimeEquipmentCatalog::textures) {
-        for (extension, format) in [
-            ("png", image::ImageFormat::Png),
-            ("tga", image::ImageFormat::Tga),
-        ] {
+        for extension in ["png", "tga"] {
             let path = format!("{}.{extension}", texture.identifier);
             let Some(bytes) = view.read_capped(&path, resource_pack::MAX_FILE_BYTES) else {
                 continue;
             };
-            sources.push((Box::<str>::from(path.as_str()), format));
+            sources.push((Box::<str>::from(path.as_str()), detect_image_format(&bytes)));
             if !files.iter().any(|(existing, _)| existing.as_ref() == path) {
                 files.push((path.into(), bytes.into_vec()));
             }

@@ -130,6 +130,7 @@ fn compile_stages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::ImageFormat;
 
     #[test]
     fn a_pack_without_actor_or_artwork_sources_compiles_to_nothing() {

@@ -1,6 +1,7 @@
 //! Every frame referenced by an attachable's compiled render controllers, not just standby.
 
 use pack_compile_input::source::read_bounded_source;
+use pack_compile_input::texture_path::detect_image_format;
 
 use super::invalid;
 use assets::{
@@ -113,17 +114,12 @@ pub(super) fn compile_texture_identifiers_with_priorities(
         let Some(source) = ["png", "tga"].into_iter().find_map(|extension| {
             by_path
                 .get(format!("{identifier}.{extension}").as_str())
-                .map(|source| (*source, extension))
+                .copied()
         }) else {
             continue;
         };
-        let (source, extension) = source;
         let bytes = read(source)?;
-        let format = if extension == "png" {
-            ImageFormat::Png
-        } else {
-            ImageFormat::Tga
-        };
+        let format = detect_image_format(&bytes);
         let (width, height, rgba8) = match decode_raster(&bytes, format, pixel_budget - pixel_bytes)
         {
             Ok(raster) => raster,
@@ -303,6 +299,27 @@ mod tests {
                 source_sha256: [0; 32],
             })
             .collect()
+    }
+
+    #[test]
+    fn png_pixels_in_a_tga_equipment_source_decode_by_content() {
+        let raster = png(2, 2);
+        let sources = [EntityAssetSource {
+            path: "textures/models/wearable/vest_6b3.tga".into(),
+            source_bytes: raster.len() as u32,
+            source_sha256: [0; 32],
+        }];
+        let textures = compile_texture_identifiers_with(
+            &sources,
+            vec!["textures/models/wearable/vest_6b3"],
+            &mut |_| Ok(raster.clone()),
+        )
+        .unwrap();
+        assert_eq!(textures.len(), 1);
+        assert_eq!(
+            textures[0].identifier.as_ref(),
+            "textures/models/wearable/vest_6b3"
+        );
     }
 
     #[test]

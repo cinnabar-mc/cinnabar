@@ -109,6 +109,27 @@ fn mixed_equipment_artwork_reuses_compiler_pixels_and_decodes_only_missing_paths
 }
 
 #[test]
+fn png_pixels_in_a_tga_equipment_path_decode_by_content() {
+    let (_, base) = fixture();
+    let png = raster([70, 80, 90, 255], image::ImageFormat::Png);
+    let view = LayeredPackView::new(crate::test_support::stack(&[(
+        &format!("{EXTRA}.tga"),
+        &png,
+    )]));
+    let mut files = Vec::new();
+    let sources = collect(&view, Some(&base), &mut files);
+    let mut textures = Vec::new();
+    let mut drops = pack_entity_compiler::EquipmentRasterDrops::default();
+    merge(&view, &mut textures, sources, &mut drops);
+    assert!(drops.undecodable.is_empty());
+    let texture = textures
+        .iter()
+        .find(|texture| texture.identifier.as_ref() == EXTRA)
+        .expect("PNG bytes in a .tga path decode");
+    assert_eq!(&texture.rgba8[..4], &[70, 80, 90, 255]);
+}
+
+#[test]
 fn invalid_artwork_only_input_does_not_publish_an_empty_layer() {
     let (_, base) = fixture();
     let view = LayeredPackView::new(crate::test_support::stack(&[(

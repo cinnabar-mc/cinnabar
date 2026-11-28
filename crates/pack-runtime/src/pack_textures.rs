@@ -105,7 +105,7 @@ fn merge_texture_catalog(paths: &mut HashMap<String, String>, bytes: &[u8]) {
 }
 
 use pack_compile_input::{
-    texture_path::IMAGE_EXTENSIONS,
+    texture_path::{IMAGE_EXTENSIONS, detect_image_format},
     texture_set::{TextureSetDefinition, TextureSetLayer, parse_texture_set},
 };
 const MAX_TEXTURE_SET_BYTES: u64 = 64 * 1024;
@@ -164,22 +164,17 @@ fn decode_image_file(
     allow_strip: bool,
 ) -> Option<ResolvedPackTexture> {
     texture_image_paths(path).into_iter().find_map(|path| {
-        let format = image_format(&path)?;
         let (index, bytes) = view.read_capped_with_layer(&path, MAX_TEXTURE_SOURCE_BYTES as u64)?;
         Some(ResolvedPackTexture {
-            texture: decode_image_with_policy(&bytes, format, policy, allow_strip)?,
+            texture: decode_image_with_policy(
+                &bytes,
+                detect_image_format(&bytes),
+                policy,
+                allow_strip,
+            )?,
             image_path: image_identity(index, &path),
         })
     })
-}
-
-/// The decoder format named by `path`'s extension.
-fn image_format(path: &str) -> Option<ImageFormat> {
-    let extension = path.rsplit_once('.')?.1;
-    IMAGE_EXTENSIONS
-        .into_iter()
-        .find(|(known, _)| extension.eq_ignore_ascii_case(known))
-        .map(|(_, format)| format)
 }
 
 /// Returns normalized image filenames in the same order used by the pack decoder.
@@ -302,12 +297,16 @@ fn decode_texture_set(
         TextureSetLayer::Image(name) => texture_set_image_paths(&source, &name)
             .into_iter()
             .find_map(|candidate| {
-                let format = image_format(&candidate)?;
                 let bytes = layer
                     .read_file_with_limit(&candidate, MAX_TEXTURE_SOURCE_BYTES as u64)
                     .ok()??;
                 Some(ResolvedPackTexture {
-                    texture: decode_image_with_policy(&bytes, format, policy, allow_strip)?,
+                    texture: decode_image_with_policy(
+                        &bytes,
+                        detect_image_format(&bytes),
+                        policy,
+                        allow_strip,
+                    )?,
                     image_path: image_identity(index, &candidate),
                 })
             }),
@@ -324,11 +323,12 @@ pub fn parse_pack_json(bytes: &[u8]) -> Option<Value> {
     parse_jsonc(bytes).ok()
 }
 
-/// Decodes only images whose source, dimensions, and allocation fit the established limits.
-pub(crate) fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedTexture> {
+/// Decodes bounded pack image bytes by content for a caller that already resolved the file,
+/// only when their dimensions and allocation fit the established limits.
+pub(crate) fn decode_image(bytes: &[u8]) -> Option<DecodedTexture> {
     decode_image_with_policy(
         bytes,
-        format,
+        detect_image_format(bytes),
         TexturePolicy::for_device(LEGACY_TEXTURE_SIDE),
         false,
     )

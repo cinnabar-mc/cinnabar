@@ -11,6 +11,14 @@ pub const IMAGE_EXTENSIONS: [(&str, ImageFormat); 4] = [
     ("jpeg", ImageFormat::Jpeg),
 ];
 
+/// The format of pack image bytes, as the vanilla loader detects it: content wins, and TGA,
+/// which carries no magic number, is the fallback. A `.tga` path may hold PNG data, and a
+/// `.png` path may hold TGA data.
+#[must_use]
+pub fn detect_image_format(bytes: &[u8]) -> ImageFormat {
+    image::guess_format(bytes).unwrap_or(ImageFormat::Tga)
+}
+
 /// Selects an explicit path or the highest-priority supported static image.
 pub fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathBuf, AssetError> {
     if Path::new(source).extension().is_some() {
@@ -34,7 +42,19 @@ pub fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathB
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
+
+    #[test]
+    fn image_format_follows_content_and_falls_back_to_tga() {
+        let mut png = Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut png, ImageFormat::Png)
+            .unwrap();
+        assert_eq!(detect_image_format(png.get_ref()), ImageFormat::Png);
+        assert_eq!(detect_image_format(b"not an image"), ImageFormat::Tga);
+    }
 
     #[test]
     fn extensionless_images_choose_tga_and_explicit_png_remains_explicit() {
