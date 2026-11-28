@@ -38,6 +38,7 @@ pub use import::{
 pub use library::{
     ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,
 };
+pub use manifest::{PackSummary, summarize_manifest};
 pub use merge::{MAX_MERGED_ENTRIES, MAX_WINNING_BYTES, MAX_WINNING_FILES};
 pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};
 pub use parser::validate_archive_bytes;

@@ -9,6 +9,7 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use launcher::local_worlds::{
     in_world::{Applied, Timing, timing},
     options::OptionChanges,
+    packs::{PackKind, WorldPack, WorldPacks},
     world::{NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldUpdate},
 };
 
@@ -19,7 +20,7 @@ use super::{
     process::{HostGrant, Instance, Runner, SAVE_BUDGET, StartSpec},
     provision::Provisioner,
     store::Store,
-    world::{WorldError, validate_name},
+    world::{WorldError, failed, validate_name},
 };
 
 const DEFAULT_STOP_TIMEOUT: Duration = SAVE_BUDGET;
@@ -192,12 +193,32 @@ impl Manager {
     }
 
     /// Saves a BDS world after any runtime detection completes; unsupported hosts save nothing.
+    /// A world whose packs cannot be installed is not kept.
     pub fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
         let mut world = world.clone();
         world.name = validate_name(&world.name)?;
         let backend = self.creatable_backend(world.backend)?;
         world.backend = Some(backend);
-        self.inner.store.create(&world)
+        let created = self.inner.store.create(&world)?;
+        for pack in &world.packs {
+            if let Err(error) = self.add_pack(&created.id, pack.kind, &pack.path, &|| false) {
+                let _ = self.delete(&created.id);
+                return Err(error);
+            }
+        }
+        Ok(created)
+    }
+
+    /// Checks the pack archive at `file` for a world yet to be created and names what it holds,
+    /// keeping nothing of it.
+    pub fn preview_pack(
+        &self,
+        kind: PackKind,
+        file: &std::path::Path,
+        cancelled: &(dyn Fn() -> bool + Sync),
+    ) -> Result<WorldPack, WorldError> {
+        let staging = self.inner.store.staging()?;
+        super::packs::preview(kind, file, &staging, cancelled)
     }
 
     /// Imports the `.mcworld` at `archive` as a new world on this machine's default backend.
@@ -324,6 +345,12 @@ impl Manager {
     /// Deletes a world that is not open or saving.
     pub fn delete(&self, id: &str) -> Result<(), WorldError> {
         let life = lock(&self.inner.life);
+        Self::ensure_idle(&life, id)?;
+        self.inner.store.delete(id)
+    }
+
+    /// Refuses a change to world `id`'s files while its server runs, starts or saves.
+    fn ensure_idle(life: &Life, id: &str) -> Result<(), WorldError> {
         // A stopping world is always retiring, so `saving` covers it.
         let open = matches!(life.state, WorldState::Starting | WorldState::Running);
         let saving = life
@@ -333,7 +360,79 @@ impl Manager {
         if saving || (open && life.world.as_ref().is_some_and(|world| world.id == id)) {
             return Err(WorldError::InUse);
         }
-        self.inner.store.delete(id)
+        Ok(())
+    }
+
+    /// The server folder of world `id`, once no server is using it.
+    fn idle_level_dir(&self, id: &str) -> Result<std::path::PathBuf, WorldError> {
+        let dir = self.inner.store.dir(id)?.join(super::store::LEVEL_DIR);
+        if !dir.is_dir() {
+            // A world BDS has never opened has no server folder, and so no packs.
+            self.inner.store.get(id)?;
+        }
+        Self::ensure_idle(&lock(&self.inner.life), id)?;
+        Ok(dir)
+    }
+
+    /// The resource and behaviour packs world `id` carries.
+    pub fn packs(&self, id: &str) -> Result<WorldPacks, WorldError> {
+        super::packs::read(&self.idle_level_dir(id)?)
+    }
+
+    /// Adds the packs of `kind` in the archive at `file` to world `id`, ahead of its others.
+    pub fn add_pack(
+        &self,
+        id: &str,
+        kind: PackKind,
+        file: &std::path::Path,
+        cancelled: &(dyn Fn() -> bool + Sync),
+    ) -> Result<WorldPacks, WorldError> {
+        let level = self.idle_level_dir(id)?;
+        std::fs::create_dir_all(&level)
+            .map_err(|error| failed(format!("create world: {error}")))?;
+        let staging = self.inner.store.staging()?;
+        super::packs::add(&level, kind, file, &staging, cancelled)?;
+        super::packs::read(&level)
+    }
+
+    /// Copies pack `pack` of `kind`, which world `id` lists without holding it, from the Bedrock
+    /// game folders `roots`.
+    pub fn find_pack(
+        &self,
+        id: &str,
+        kind: PackKind,
+        pack: &str,
+        roots: &[std::path::PathBuf],
+    ) -> Result<WorldPacks, WorldError> {
+        let level = self.idle_level_dir(id)?;
+        let staging = self.inner.store.staging()?;
+        super::packs::find(&level, kind, pack, roots, &staging)?;
+        super::packs::read(&level)
+    }
+
+    /// Removes pack `pack` from world `id`'s list of `kind` and deletes the world's copy.
+    pub fn remove_pack(
+        &self,
+        id: &str,
+        kind: PackKind,
+        pack: &str,
+    ) -> Result<WorldPacks, WorldError> {
+        let level = self.idle_level_dir(id)?;
+        super::packs::remove(&level, kind, pack)?;
+        super::packs::read(&level)
+    }
+
+    /// Moves pack `pack` to index `to` of world `id`'s list of `kind`.
+    pub fn move_pack(
+        &self,
+        id: &str,
+        kind: PackKind,
+        pack: &str,
+        to: usize,
+    ) -> Result<WorldPacks, WorldError> {
+        let level = self.idle_level_dir(id)?;
+        super::packs::move_to(&level, kind, pack, to)?;
+        super::packs::read(&level)
     }
 
     /// Records the user's acceptance of the Minecraft EULA, so BDS worlds may download the server.

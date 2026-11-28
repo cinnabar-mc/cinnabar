@@ -48,6 +48,7 @@ fn create_keeps_an_explicit_seed_including_zero() {
             game_mode: GameMode::Creative,
             difficulty: Difficulty::Hard,
             backend: None,
+            packs: Vec::new(),
         })
         .expect("create");
     assert_eq!(world.seed, 0);
