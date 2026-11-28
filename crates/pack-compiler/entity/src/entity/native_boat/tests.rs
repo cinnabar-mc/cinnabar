@@ -268,3 +268,65 @@ fn boat_and_chest_boat_sharing_an_absent_geometry_both_compile() {
         );
     }
 }
+
+/// Boats keep the water out of their hull with a depth-only patch above the floor; a raft has
+/// no hull to fill.
+#[test]
+fn hulls_carry_a_water_patch_above_their_floor_and_rafts_do_not() {
+    let pivot_y = |raft: bool, bone: &str| {
+        let (parts, size) = model(false, raft);
+        let document = geometry("geometry.test", &parts, size, 6.0);
+        document["bones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["name"] == bone)
+            .map(|bone| bone["pivot"][1].as_f64().unwrap())
+    };
+    let patch = pivot_y(false, WATER_PATCH_BONE).expect("the hull's water patch");
+    let floor = pivot_y(false, "bottom").unwrap();
+    assert!(patch > floor, "{patch} {floor}");
+    assert_eq!(pivot_y(true, WATER_PATCH_BONE), None);
+}
+
+/// The patch draws with the water-mask material, and the entity names that material.
+#[test]
+fn the_water_patch_draws_with_the_water_mask_material() {
+    let (mut sources, mut payloads) = (Vec::new(), SourcePayloads::new());
+    let (mut symbols, mut geometries) = (BTreeMap::new(), BTreeMap::new());
+    let path = "entity/boat.entity.json";
+    let bytes = serde_json::to_vec(&vanilla_shaped_boat()).unwrap();
+    parse_source(path, Path::new(path), &bytes, &mut symbols, &mut geometries).unwrap();
+    payloads.insert(path.into(), bytes.into());
+    complete_bindings(
+        Path::new(""),
+        &mut sources,
+        &mut payloads,
+        &mut symbols,
+        &mut geometries,
+        None,
+    )
+    .unwrap();
+    let controllers: Value =
+        serde_json::from_slice(&payloads["render_controllers/_cinnabar/boats.json"]).unwrap();
+    let materials = &controllers["render_controllers"][format!("{CONTROLLER}.boat")]["materials"];
+    assert_eq!(
+        *materials,
+        json!([
+            {"*": "Material.default"},
+            {WATER_PATCH_BONE: "Material.water_mask"},
+        ])
+    );
+    let entity: Value = serde_json::from_slice(&payloads["entity/_cinnabar/boat.json"]).unwrap();
+    assert_eq!(
+        entity["minecraft:client_entity"]["description"]["materials"]["water_mask"],
+        WATER_MASK_MATERIAL
+    );
+    let state = assets::facts::pack::rules()
+        .material_state(WATER_MASK_MATERIAL)
+        .expect("the mask material is a declared native material");
+    assert!(
+        state.disable_color_write && state.depth_write,
+        "the mask writes depth and no colour: {state:?}"
+    );
+}

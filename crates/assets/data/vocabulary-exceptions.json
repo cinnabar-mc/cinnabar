@@ -1500,6 +1500,17 @@
         "identifier": "minecraft:disc_press"
       },
       "reason": "The current catalog declares this block, but the pack vocabulary omits it and its carrier states remain reserved until geometry is verified."
+    },
+    {
+      "reference": {
+        "file": "entity-material-states.json",
+        "location": {
+          "pointer": "/boat_water_mask"
+        },
+        "domain": "entity_material",
+        "identifier": "boat_water_mask"
+      },
+      "reason": "Boats keep water out of their hull with a native depth-only patch that no pack file names; Cinnabar declares the material so the generated boat model can draw it."
     }
   ]
 }
