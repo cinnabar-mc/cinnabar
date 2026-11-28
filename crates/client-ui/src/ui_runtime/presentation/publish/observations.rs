@@ -24,11 +24,12 @@ pub(super) fn armor(
 }
 
 /// Opens a lectern's first observed book before the active screen is selected.
+/// Whether a book opened.
 pub(super) fn open_lectern(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     world: Option<client_world::ui_read::InventoryUi<'_>>,
-) {
+) -> bool {
     if runtime.inventory_open()
         && runtime.inventory_ledger(player_runtime).window_kind()
             == Some(protocol::WindowKind::Lectern)
@@ -64,7 +65,9 @@ pub(super) fn open_lectern(
             .and_then(|page| usize::try_from(page).ok())
             .map_or(0, |page| page.min(state.pages.len() - 1));
         runtime.open_book(state);
+        return true;
     }
+    false
 }
 
 /// Logs changed HUD counters once after the frame has been captured.

@@ -225,6 +225,11 @@ impl CommandBlockEditor {
         self.requested.is_some()
     }
 
+    /// Whether a request waits for [`Self::take_request`].
+    pub const fn has_request(&self) -> bool {
+        self.requested.is_some()
+    }
+
     /// Takes the position a waiting request names.
     pub const fn take_request(&mut self) -> Option<[i32; 3]> {
         self.requested.take()
@@ -256,6 +261,11 @@ impl CommandBlockEditor {
         self.active = None;
         self.exit = None;
         self.engine = FormEngineState::default();
+    }
+
+    /// Whether [`Self::synchronize_epoch`] with `dimension_epoch` would change nothing.
+    pub fn epoch_synchronized(&self, dimension_epoch: u64) -> bool {
+        self.watched_epoch == Some(dimension_epoch)
     }
 
     /// Closes an editor left open across a dimension transition without reporting: its block

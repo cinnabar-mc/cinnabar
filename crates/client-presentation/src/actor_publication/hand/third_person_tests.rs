@@ -46,6 +46,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     false,
                     false,
                     Some("math.abs(query.camera_rotation(1) - 90) < 0.01"),
+                    None,
                 )
             } else {
                 super::native_tests::fixture_with_appearance(
@@ -156,7 +157,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     local_feed: None,
                     predicted_eye: Some([0.0, 65.62, 0.0]),
                     predicted_feet: Some([0.0, 64.0, 0.0]),
-                    local_equipment: input.clone(),
+                    local_equipment: (input.clone()).into(),
                     swing_progress: None,
                     renders_game: true,
                     hide_hand: false,
@@ -279,8 +280,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 );
                 let hand = world
                     .resource::<render_scene::HandRigScene>()
-                    .frame
-                    .as_ref()
+                    .frame()
                     .expect("first-person hand remains available");
                 assert!(!hand.rig.instances.is_empty());
                 let unchanged = stream.authority().actor_rig(1).unwrap();

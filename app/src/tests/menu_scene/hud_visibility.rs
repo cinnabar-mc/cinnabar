@@ -240,3 +240,74 @@ fn hide_hud_clears_published_hands_and_nametags_and_restores_the_hand_preference
         );
     }
 }
+
+/// Preparation and publication across frames, as the schedule runs them: an idle frame repeats
+/// without building, and a HUD setting changed through the menu rebuilds the next frame.
+#[test]
+fn idle_frames_repeat_and_a_hud_setting_change_rebuilds() {
+    use crate::ui_runtime::presentation::publish_ui_runtime;
+    let mut world = fixture_world();
+    world.init_resource::<render_scene::UiRenderSceneResource>();
+    world.init_resource::<render_scene::UiRenderStatsResource>();
+    world
+        .resource_mut::<UiPresentationResource>()
+        .startup_mut()
+        .release(1);
+    // A shown paper doll sways with the time and builds every frame.
+    world
+        .resource_mut::<MenuRuntime>()
+        .set_session_option(SettingId::HidePaperdoll, Some(1));
+    world
+        .resource_mut::<UiPresentationResource>()
+        .set_frame_reuse(client_ui::ui_runtime::presentation::FrameReuse::Skip);
+    let frame = |world: &mut World| {
+        let built = world.resource::<UiPresentationResource>().frames_built();
+        world.run_system_cached(prepare_ui_runtime).unwrap();
+        world.run_system_cached(publish_ui_runtime).unwrap();
+        world.increment_change_tick();
+        world.resource::<UiPresentationResource>().frames_built() != built
+    };
+    assert!(frame(&mut world), "the first frame builds");
+    test_time::eventually("an idle frame repeats", || !frame(&mut world));
+    assert!(!frame(&mut world), "idle frames keep repeating");
+    world
+        .resource_mut::<MenuRuntime>()
+        .set_session_option(SettingId::HideHud, Some(1));
+    assert!(frame(&mut world), "hiding the HUD rebuilds the frame");
+    test_time::eventually("the hidden HUD repeats", || !frame(&mut world));
+}
+
+/// Publication marks neither the UI runtime nor the presentation changed, whether it builds or
+/// repeats the frame, so their change ticks revision only what other systems wrote.
+#[test]
+fn publication_leaves_the_ui_runtime_and_presentation_unchanged() {
+    use crate::ui_runtime::presentation::publish_ui_runtime;
+    use bevy::prelude::DetectChanges;
+    let mut world = fixture_world();
+    world.init_resource::<render_scene::UiRenderSceneResource>();
+    world.init_resource::<render_scene::UiRenderStatsResource>();
+    world
+        .resource_mut::<UiPresentationResource>()
+        .startup_mut()
+        .release(1);
+    for _ in 0..4 {
+        world.run_system_cached(prepare_ui_runtime).unwrap();
+        world.increment_change_tick();
+        let ticks = |world: &World| {
+            (
+                world.resource_ref::<UiRuntimeResource>().last_changed(),
+                world
+                    .resource_ref::<UiPresentationResource>()
+                    .last_changed(),
+            )
+        };
+        let before = ticks(&world);
+        world.run_system_cached(publish_ui_runtime).unwrap();
+        assert_eq!(
+            ticks(&world),
+            before,
+            "publication marked the UI runtime or presentation changed"
+        );
+        world.increment_change_tick();
+    }
+}

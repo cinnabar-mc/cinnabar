@@ -26,14 +26,16 @@ struct Source {
 
 impl LocalPlayerIdentity {
     /// Re-extracts on profile, skin, actor or session changes, and drops absent identities.
-    fn observe(&mut self, source: Option<Source>) {
+    /// Whether the source changed.
+    fn observe(&mut self, source: Option<Source>) -> bool {
         if self.source == source {
-            return;
+            return false;
         }
         self.portrait = source
             .as_ref()
             .and_then(|source| render_model::actor::skin_portrait::extract(&source.skin));
         self.source = source;
+        true
     }
 
     /// Discards a profile captured for an earlier session before any panel paints.
@@ -59,11 +61,12 @@ impl LocalPlayerIdentity {
 impl UiPresentationRuntime {
     /// Captures only the current world's admitted local profile. Missing or unsupported
     /// skins clear the old identity; launcher sample/default skins are never substituted.
+    /// Whether the identity changed.
     pub(super) fn capture_local_player_identity(
         &mut self,
         local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
         session: u64,
-    ) {
+    ) -> bool {
         let source = local.and_then(|local| {
             let actor = local.runtime_id();
             let profile = local.profile()?;
@@ -80,7 +83,7 @@ impl UiPresentationRuntime {
                 skin: skin.clone(),
             })
         });
-        self.local_player_identity.observe(source);
+        self.local_player_identity.observe(source)
     }
 
     /// Installs the current portrait in whichever atlas owns this frame's engine, then

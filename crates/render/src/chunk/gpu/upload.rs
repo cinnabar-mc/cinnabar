@@ -1,8 +1,8 @@
 use crate::chunk::*;
 use meshing::liquid::LIQUID_FACE_INSET;
 use render_scene::{
-    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements,
-    ChunkUploadBudget, RuntimeStageProfiler,
+    ChunkBiomeTints, ChunkInstanceChanges, ChunkRenderInstance, ChunkTextureAssets,
+    ChunkUploadAcknowledgements, ChunkUploadBudget, RuntimeStageProfiler,
 };
 mod arena_writes;
 #[allow(
@@ -21,21 +21,8 @@ pub(in crate::chunk) use lighting::packed_lighting_records;
 pub(in crate::chunk) use model_draw_bases::absolutize_model_draw_refs;
 pub(in crate::chunk) use model_draw_bases::absolutize_partitioned_model_draw_refs;
 use publication_removals::prepare_publication_removals;
-type AllChunkInstances<'w, 's> = Query<'w, 's, (Entity, &'static ChunkRenderInstance)>;
-type ChangedChunkInstances<'w, 's> =
-    Query<'w, 's, (Entity, &'static ChunkRenderInstance), Changed<ChunkRenderInstance>>;
-#[derive(SystemParam)]
-pub(in crate::chunk) struct ChunkInstanceQueries<'w, 's> {
-    queries: ParamSet<
-        'w,
-        's,
-        (
-            AllChunkInstances<'w, 's>,
-            ChangedChunkInstances<'w, 's>,
-            Query<'w, 's, &'static mut ChunkRenderInstance>,
-        ),
-    >,
-}
+mod marked_instances;
+pub(in crate::chunk) use marked_instances::ChunkInstanceQueries;
 #[derive(SystemParam)]
 pub(in crate::chunk) struct ChunkUploadPublication<'w> {
     acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
@@ -91,6 +78,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::GpuPreparation));
+    instances.take_marked();
     release_completed_transparent_retirements(&mut arena, retirement_fence.completed_epoch());
     if recovery.as_ref().is_some_and(|recovery| recovery.waiting()) {
         *upload_stats = default();
@@ -98,7 +86,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     }
     let active_tint_identity = biome_tints.table_identity();
     let tint_identity_changed = fairness.last_tint_identity != Some(active_tint_identity);
-    let candidates = if tint_identity_changed || fairness.recover_untracked {
+    let candidates: Vec<_> = if tint_identity_changed || fairness.recover_untracked {
         instances
             .queries
             .p0()
@@ -106,25 +94,25 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             .map(|(entity, instance)| GpuUpdateCandidate::from_instance(entity, instance))
             .collect()
     } else {
-        let mut candidates = Vec::with_capacity(fairness.wait_ages.len());
-        {
-            let all_instances = instances.queries.p0();
-            candidates.extend(fairness.wait_ages.keys().filter_map(|&entity| {
+        let marked = &instances.marked.entities;
+        let all_instances = instances.queries.p0();
+        fairness
+            .wait_ages
+            .keys()
+            .copied()
+            .chain(
+                marked
+                    .iter()
+                    .copied()
+                    .filter(|entity| !fairness.wait_ages.contains_key(entity)),
+            )
+            .filter_map(|entity| {
                 all_instances
                     .get(entity)
                     .ok()
                     .map(|(_, instance)| GpuUpdateCandidate::from_instance(entity, instance))
-            }));
-        }
-        candidates.extend(
-            instances
-                .queries
-                .p1()
-                .iter()
-                .filter(|(entity, _)| !fairness.wait_ages.contains_key(entity))
-                .map(|(entity, instance)| GpuUpdateCandidate::from_instance(entity, instance)),
-        );
-        candidates
+            })
+            .collect()
     };
     let urgent_updates = candidates
         .iter()
@@ -641,6 +629,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             metadata_index,
         };
         commands.entity(entity).insert(gpu.clone());
+        arena.tint_cache.queue_bake(entity);
         if let Some(coverage) = coverage.as_deref_mut() {
             coverage.publish_full(instance.key, instance.generation);
         }
@@ -718,6 +707,11 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 instance.publication_permit = None;
             }
         }
+        #[cfg(debug_assertions)]
+        instances
+            .marked
+            .completed
+            .extend_from_slice(&successful_updates);
     } else {
         for (key, token, _) in applied_tokens {
             acknowledgements.cancel(key, token);

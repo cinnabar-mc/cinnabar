@@ -45,7 +45,6 @@ pub(super) use windows::{TooltipLine, WindowIcons, WindowText, title_key};
 pub struct HudFrame {
     /// Equipment capabilities used by the painted mount layout and its pointer hits.
     pub mount_equipment: assets::entity::mount::MountEquipment,
-    pub now_millis: u64,
     /// The crosshair is a first-person-only surface in the reference.
     pub first_person: bool,
     /// Authoritative `(current, maximum)` health of the ridden actor.
@@ -105,8 +104,8 @@ pub struct HudFrame {
     pub player_block: Option<[i32; 3]>,
     /// Rendered camera state used only to project server-supplied locator positions.
     pub locator_view: Option<ui_screens::hud_renderers::LocatorView>,
-    /// The absolute world tick, when the session has a clock.
-    pub world_time: Option<f64>,
+    /// Whole days since the world began, when the session has a clock.
+    pub days_played: Option<f64>,
     /// A held filled map shows the position whatever the world rule says.
     pub holding_filled_map: bool,
     /// Lightning is falling: the bed screen talks of a thunderstorm.
@@ -251,13 +250,14 @@ impl<'a> HudLayout<'a> {
         player_runtime: &player_state::PlayerState,
         runtime: &UiRuntime,
         frame: &HudFrame,
+        clock: &super::frame_clock::FrameClock,
         container: bool,
     ) -> Result<(), UiPresentationError> {
         if container {
             self.inventory_screen(player_runtime, runtime, frame)?;
             return Ok(());
         }
-        self.sleep_overlay(frame)?;
+        self.sleep_overlay(frame, clock)?;
         let mode_allows_hotbar = player_runtime
             .facts
             .player_game_mode()

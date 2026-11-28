@@ -67,6 +67,8 @@ mod batches;
 pub(crate) mod composite;
 #[path = "ui_render/damage.rs"]
 mod damage;
+#[path = "ui_render/deferred_invert.rs"]
+mod deferred_invert;
 #[cfg(test)]
 #[path = "ui_render/harness.rs"]
 pub(crate) mod harness;
@@ -171,9 +173,14 @@ fn install_ui_render(app: &mut App) {
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
         .init_resource::<presentation::UiFrameContent>()
+        .init_resource::<deferred_invert::OutputInvertPipelines>()
+        .init_resource::<composite::fused::FusedComposite>()
         .add_systems(
             Render,
-            presentation::observe_ui_frame
+            (
+                presentation::observe_ui_frame,
+                composite::fused::retire_unused_bindings,
+            )
                 .after(bevy::render::renderer::render_system)
                 .before(crate::device_poll::FrameSubmissions),
         )

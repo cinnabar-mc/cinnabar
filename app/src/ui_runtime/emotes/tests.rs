@@ -133,6 +133,15 @@ struct Harness {
 
 impl Harness {
     fn new() -> Self {
+        Self::build(false)
+    }
+
+    /// Runs the wheel's driver behind the idle screen-reader gate, as the app does.
+    fn idle_gated() -> Self {
+        Self::build(true)
+    }
+
+    fn build(gated: bool) -> Self {
         let mut runtime = UiRuntime::new(1);
         let mut player = PlayerRuntime(player_state::PlayerState::new(1));
         runtime
@@ -140,6 +149,7 @@ impl Harness {
             .unwrap();
         let mut app = App::new();
         app.add_message::<KeyboardInput>()
+            .add_message::<bevy::input::keyboard::KeyboardFocusLost>()
             .init_resource::<Time<Real>>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
@@ -160,13 +170,20 @@ impl Harness {
                     collect_raw_input,
                     route_semantic_input,
                     crate::ui_runtime::input_owner::decide_input_owner,
-                    drive_emote_input,
+                    drive_emote_input.in_set(crate::ui_runtime::idle_screens::IdleScreenReaders),
                     crate::ui_runtime::interaction::drive_chat_keyboard_input,
                     finalize_semantic_input_after_ui_authority,
                     cancel_emote_from_gameplay,
                 )
                     .chain(),
             );
+        if gated {
+            app.configure_sets(
+                Update,
+                crate::ui_runtime::idle_screens::IdleScreenReaders
+                    .run_if(crate::ui_runtime::idle_screens::screen_readers_due),
+            );
+        }
         let window = app
             .world_mut()
             .spawn((
@@ -541,5 +558,38 @@ fn new_session_cannot_resume_an_old_emote() {
     assert!(
         h.runtime().emotes().is_open(),
         "new session's input remains usable"
+    );
+}
+
+/// An identity change on an idle frame, such as a new session or a replaced skin model resetting
+/// the local rig, is settled on that frame, so a wheel the touch button opens later stays open.
+#[test]
+fn a_wheel_opened_after_an_idle_identity_change_stays_open() {
+    let mut h = Harness::idle_gated();
+    h.app.update();
+    h.app.update();
+    h.app
+        .world_mut()
+        .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
+            let mut player = world.resource_mut::<PlayerRuntime>();
+            player.begin_session(2);
+            runtime.begin_session(2);
+            runtime
+                .publish_local_runtime_id(&mut player, 2, 43)
+                .unwrap();
+        });
+    for _ in 0..3 {
+        h.app.update();
+    }
+    // The touch emote button opens the wheel in the raw-input phase, before the screen drivers.
+    h.app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .emotes_mut()
+        .open();
+    h.app.update();
+    assert!(
+        h.runtime().emotes().is_open(),
+        "the wheel is not retired for an identity change settled frames earlier"
     );
 }

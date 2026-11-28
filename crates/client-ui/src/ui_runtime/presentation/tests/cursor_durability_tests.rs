@@ -113,7 +113,7 @@ fn cursor_durability_follows_predicted_pickup_and_server_corrections() {
             runtime,
             presentation,
             Some(stream.authority().inventory_ui()),
-            semantic_input::PerspectiveMode::FirstPerson,
+            true,
             0,
             Default::default(),
         );

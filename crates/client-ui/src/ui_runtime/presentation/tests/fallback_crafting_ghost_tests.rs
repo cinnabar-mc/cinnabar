@@ -443,7 +443,7 @@ fn assert_ghost_tooltip(workbench: bool, output: bool) {
         &mut runtime,
         &mut presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         0,
         ItemIconFrames::default(),
     );

@@ -1,5 +1,5 @@
 use bevy::{
-    prelude::{Local, Query, Res, ResMut, With},
+    prelude::{DetectChangesMut, Local, Query, Res, ResMut, With},
     window::{PrimaryWindow, Window},
 };
 use client_shell::menu::MenuRuntime;
@@ -26,6 +26,33 @@ pub(crate) fn drive_menu_panorama(
     let Some(mut scene) = scene else {
         return;
     };
+    // The scene is extracted whenever it counts as changed, so it is marked only when what it
+    // publishes differs; an unchanged in-world frame rewrites nothing.
+    let before = scene.clone();
+    follow_screen(
+        scene.bypass_change_detection(),
+        &player_runtime,
+        &presentation,
+        runtime.as_deref(),
+        menu.as_deref(),
+        &windows,
+        &mut state,
+    );
+    if !scene.publishes_same(&before) {
+        scene.set_changed();
+    }
+}
+
+/// Updates the panorama for the current screen: faces for a new carrier, visibility and view.
+fn follow_screen(
+    scene: &mut PanoramaScene,
+    player_runtime: &client_state::PlayerRuntime,
+    presentation: &UiPresentationResource,
+    runtime: Option<&UiRuntimeResource>,
+    menu: Option<&MenuRuntime>,
+    windows: &Query<&Window, With<PrimaryWindow>>,
+    state: &mut Option<PanoramaState>,
+) {
     let leave = bridge::leave_profile::LeaveProfile::pending_presentation();
     let _section = leave.section_once("menu_background");
     #[cfg(feature = "tracy")]
@@ -33,10 +60,10 @@ pub(crate) fn drive_menu_panorama(
     // The renderer keeps the faces on the GPU; their pixels are only needed until then.
     scene.release_uploaded_faces();
     let renders_game = client_shell::screen_policy::renders_game(
-        &player_runtime,
-        runtime.as_deref().map(|runtime| &runtime.0),
-        menu.as_deref(),
-        Some(&presentation),
+        player_runtime,
+        runtime.map(|runtime| &runtime.0),
+        menu,
+        Some(&presentation.0),
     );
     scene.set_game_visible(renders_game);
     let Some(assets) = presentation.ui_assets() else {
@@ -59,7 +86,7 @@ pub(crate) fn drive_menu_panorama(
     let shown = presentation
         .loading_stage()
         .is_some_and(ui::LoadingStage::is_world_entry)
-        || menu.as_deref().is_some_and(MenuRuntime::uses_panorama);
+        || menu.is_some_and(MenuRuntime::uses_panorama);
     let aspect = windows
         .iter()
         .next()
@@ -69,7 +96,7 @@ pub(crate) fn drive_menu_panorama(
         return;
     };
     let now = Instant::now();
-    let speed = menu.as_ref().map_or(1.0, |menu| {
+    let speed = menu.map_or(1.0, |menu| {
         menu.settings_snapshot().0.value(SettingId::PanoramaSpeed) as f32 / 100.0
     });
     state.seconds += now.duration_since(state.last).as_secs_f32() * speed;
@@ -171,6 +198,46 @@ mod tests {
         assert!(
             scene.faces.is_none(),
             "leaving must not decode the faces again"
+        );
+    }
+
+    /// The scene is extracted whenever it counts as changed, so steady in-world frames must not
+    /// mark it.
+    #[test]
+    fn steady_in_world_frames_leave_the_scene_unchanged() {
+        #[derive(Resource, Default)]
+        struct Seen(Vec<bool>);
+        let mut app = App::new();
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        client_shell::menu::test_support::suppress_catalog(&mut menu);
+        app.insert_resource(menu)
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
+            .insert_resource(UiPresentationResource(panorama_presentation()))
+            .init_resource::<PanoramaScene>()
+            .init_resource::<Seen>()
+            .add_systems(
+                Update,
+                (
+                    drive_menu_panorama,
+                    |scene: Res<PanoramaScene>, mut seen: ResMut<Seen>| {
+                        seen.0.push(scene.is_changed());
+                    },
+                )
+                    .chain(),
+            );
+        app.update();
+        let warm = app.world().resource::<PanoramaScene>().faces_revision;
+        app.world().resource::<PanoramaScene>().mark_uploaded(warm);
+        app.world_mut().resource_mut::<MenuRuntime>().show_world();
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<Seen>().0,
+            [true, true, false, false, false],
+            "entering the world releases the pixels once; later frames publish nothing new"
         );
     }
 }

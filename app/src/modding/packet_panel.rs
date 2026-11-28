@@ -11,6 +11,16 @@ pub(super) struct State {
     revision: u64,
     handle: Option<mod_host::packet_mod::panel::PanelHandle>,
 }
+/// Resets a panel that has neither a packet session nor a surface to retire, as [`poll`] would,
+/// without borrowing the presentation; whether it did.
+pub(super) fn poll_detached(packets: &mut PacketMods) -> bool {
+    if packets.panel_handle().is_some() || packets.panel.owner.is_some() {
+        return false;
+    }
+    packets.panel = State::default();
+    true
+}
+
 /// Exchanges a physical sample with the session mailbox without executing guest code.
 pub(super) fn poll(
     packets: &mut PacketMods,

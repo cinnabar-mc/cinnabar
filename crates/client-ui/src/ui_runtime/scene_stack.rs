@@ -47,6 +47,28 @@ pub enum Scene {
 }
 
 impl Scene {
+    /// Whether this scene's screen draws only from revisioned inputs and the frame clock, so a
+    /// frame of such scenes may repeat without being built. Other screens are built every frame.
+    pub const fn repeats_from_inputs(self) -> bool {
+        match self {
+            Self::Gameplay | Self::Crosshair | Self::Hud => true,
+            Self::Bed
+            | Self::Container
+            | Self::Chat
+            | Self::Emote
+            | Self::MobEffects
+            | Self::Loading
+            | Self::ResourcePackLoading
+            | Self::SignEditor
+            | Self::CommandBlock
+            | Self::ServerForm
+            | Self::DataDriven
+            | Self::Menu(_)
+            | Self::ServerSettingsForm
+            | Self::Credits => false,
+        }
+    }
+
     /// Whether a touchscreen reaches this scene only through an emulated mouse pointer.
     /// Gameplay and its overlays take touch controls; menus and chat read touches themselves.
     pub const fn reads_only_pointer(self) -> bool {
@@ -107,7 +129,7 @@ impl Scene {
 }
 
 /// What the host shows beyond [`UiRuntime`]'s own state.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SceneHost {
     /// The visible menu screen.
     pub menu: Option<MenuScreen>,
@@ -206,11 +228,13 @@ impl UiRuntime {
         &mut self,
         loading: Option<ui::LoadingStage>,
         table: Arc<ScreenSettingsTable>,
-    ) {
-        self.loading_screen = loading;
+    ) -> bool {
+        let mut changed = std::mem::replace(&mut self.loading_screen, loading) != loading;
         if !Arc::ptr_eq(&table, &self.screen_settings) {
             self.screen_settings = table;
+            changed = true;
         }
+        changed
     }
 
     /// The screens up this frame, bottom first.
@@ -362,8 +386,9 @@ pub struct SceneClocks {
 }
 
 impl SceneClocks {
-    /// Notes `stack` (bottom first) as this frame's scenes at `now` seconds.
-    pub fn observe(&mut self, stack: &[Scene], now: f64) {
+    /// Notes `stack` (bottom first) as this frame's scenes, at `now` seconds, which is read only
+    /// when a screen enters.
+    pub fn observe(&mut self, stack: &[Scene], now: impl Fn() -> f64) {
         if !std::mem::replace(&mut self.started, true) {
             self.previous.clear();
             self.previous.extend_from_slice(stack);
@@ -383,7 +408,7 @@ impl SceneClocks {
             };
             self.entered
                 .retain(|(open, name, _)| !(open.same_screen(*scene) && *name == event));
-            self.entered.push((*scene, event, now));
+            self.entered.push((*scene, event, now()));
         }
         self.entered.retain_mut(|(open, _, _)| {
             match stack.iter().find(|scene| scene.same_screen(*open)) {
@@ -416,6 +441,11 @@ fn form_screen(entry: &super::ServerFormEntry) -> &'static str {
 }
 
 impl UiRuntime {
+    /// Whether damage waits for [`Self::close_scenes_on_player_hurt`].
+    pub const fn hurt_pending(&self) -> bool {
+        self.session.hurt_pending
+    }
+
     /// Closes eligible top scenes when the player is hurt. Chat and containers stay open.
     pub fn close_scenes_on_player_hurt(
         &mut self,

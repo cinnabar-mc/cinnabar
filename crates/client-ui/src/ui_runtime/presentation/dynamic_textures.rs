@@ -12,13 +12,15 @@ use {
     ui::IconRef,
 };
 
-pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
+/// Resets session-owned art when the session changes; whether anything changed.
+pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) -> bool {
+    let first = runtime.texture_session.is_none();
     let changed = runtime
         .texture_session
         .is_some_and(|previous| previous != session);
     runtime.texture_session = Some(session);
     if !changed {
-        return;
+        return first;
     }
     runtime.reset_container_screens();
     runtime.clear_player_list();
@@ -38,6 +40,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.menu_artwork_dirty = true;
     runtime.preview_dirty = true;
     rebuild(runtime);
+    true
 }
 
 /// Rebuilds dynamic pages from immutable base assets so refreshed launcher

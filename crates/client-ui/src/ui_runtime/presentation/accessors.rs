@@ -27,19 +27,22 @@ impl UiPresentationRuntime {
         self.loading_stage = stage;
     }
 
-    pub fn set_menu_view(&mut self, view: Option<MenuView>) {
+    /// Whether anything changed.
+    pub fn set_menu_view(&mut self, view: Option<MenuView>) -> bool {
+        let mut changed = false;
         if !view
             .as_ref()
             .is_some_and(|view| view.visible && view.touch_editor_open)
         {
-            self.close_touch_editor();
+            changed = self.close_touch_editor();
         }
-        if let (Some(current), Some(incoming)) = (&self.menu_view, &view)
-            && current.as_ref() == incoming
-        {
-            return;
+        match (&self.menu_view, &view) {
+            (Some(current), Some(incoming)) if current.as_ref() == incoming => return changed,
+            (None, None) => return changed,
+            _ => {}
         }
         self.menu_view = view.map(Arc::new);
+        true
     }
 
     pub fn hit_test_menu(&self, position: UiPoint) -> Option<MenuAction> {
@@ -56,8 +59,9 @@ impl UiPresentationRuntime {
 
     /// Applies the platform safe area to layout and render clipping.
     /// A viewport too small for the fixed HUD shows no HUD.
-    pub fn set_safe_area(&mut self, safe_area: SafeArea) {
-        self.safe_area = safe_area;
+    /// Whether the insets changed.
+    pub fn set_safe_area(&mut self, safe_area: SafeArea) -> bool {
+        std::mem::replace(&mut self.safe_area, safe_area) != safe_area
     }
 
     /// Authored native panels use fixed design-pixel units inside the platform safe area.
@@ -103,6 +107,7 @@ impl UiPresentationRuntime {
     }
 
     /// Selects the local actor identity for a separate own-tag cosmetic colour.
+    /// Name tags only, which the UI frame never draws.
     pub fn set_nametag_local_actor(&mut self, runtime_id: Option<u64>) {
         self.nametag_local_actor = runtime_id;
     }
@@ -136,11 +141,13 @@ impl UiPresentationRuntime {
         scene
     }
 
-    /// Installs this session's font before label bounds reserve presentation resources.
-    pub fn prepare_nametag_layout(&mut self, runtime: &UiRuntime) {
-        dynamic_textures::observe_session(self, runtime.session_id());
-        session_glyphs::observe(self, Some(runtime.session_glyphs()));
+    /// Installs this session's font before label bounds reserve presentation resources; whether
+    /// the session's art or fonts changed, which the UI frame also draws.
+    pub fn prepare_nametag_layout(&mut self, runtime: &UiRuntime) -> bool {
+        let changed = dynamic_textures::observe_session(self, runtime.session_id())
+            | session_glyphs::observe(self, Some(runtime.session_glyphs()));
         self.nametag_bounds.begin_frame();
+        changed
     }
 
     /// Tests painted label bounds without changing actor eligibility or depth policy.
@@ -181,8 +188,10 @@ impl UiPresentationRuntime {
         self.loading_stage
     }
     /// Advances paper-doll presentation from the app's synchronous movement observation.
-    pub fn observe_paper_doll(&mut self, now: u64, state: Option<paper_doll::State>) {
-        self.hud_frame.paper_doll_visible = self.paper_doll.update(now, state);
+    /// Whether the doll's visibility changed; only it reaches a frame.
+    pub fn observe_paper_doll(&mut self, now: u64, state: Option<paper_doll::State>) -> bool {
+        let visible = self.paper_doll.update(now, state);
+        std::mem::replace(&mut self.hud_frame.paper_doll_visible, visible) != visible
     }
 
     /// The effective GUI preference consumed by the app scale adapter.

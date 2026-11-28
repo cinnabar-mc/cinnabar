@@ -235,7 +235,9 @@ fn publication_updates_changed_menu_icons_without_copying_unchanged_snapshots() 
             physical_size: [1280, 720],
             dpi_scale: dpi,
         };
-        render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+        render_prepared_ui(&player, &mut runtime, &mut presentation, prepared, false)
+            .unwrap()
+            .expect("a changed frame builds");
     }
     assert_eq!(
         presentation.menu_view.as_ref().unwrap().profile_icon,
@@ -279,7 +281,9 @@ fn publication_updates_changed_menu_icons_without_copying_unchanged_snapshots() 
         physical_size: [1280, 720],
         dpi_scale: dpi,
     };
-    render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+    render_prepared_ui(&player, &mut runtime, &mut presentation, prepared, false)
+        .unwrap()
+        .expect("a changed frame builds");
     assert_eq!(
         presentation
             .menu_view

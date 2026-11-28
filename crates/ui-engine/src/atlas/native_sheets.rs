@@ -377,6 +377,12 @@ impl Drop for NativeSheets {
 }
 
 impl NativeSheets {
+    /// Whether a submitted sheet decode has not finished yet.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn in_flight(&self) -> bool {
+        self.pending.is_some() && self.receiver.is_empty() && self.retry.is_none()
+    }
+
     /// Publishes completed immutable pages; pack replacement drops the whole namespace.
     pub(super) fn collect(&mut self) -> bool {
         let mut completed = false;

@@ -33,6 +33,7 @@ fn effect_icons_follow_effect_id_order_and_heart_rows() {
         &player_runtime,
         &runtime,
         &first_person(),
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
         None,
         &Default::default(),
     );
@@ -59,6 +60,7 @@ fn java_rows_split_beneficial_and_harmful_effects() {
         &player_runtime,
         &runtime,
         &first_person(),
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
         None,
         &Default::default(),
     );

@@ -64,8 +64,9 @@ impl UiPresentationRuntime {
         self.screens.emote.hit_test(point)
     }
 
-    pub fn set_emote_pointer(&mut self, pointer: Option<UiPoint>) {
-        self.screens.emote.set_pointer(pointer);
+    /// Whether the pointer changed.
+    pub fn set_emote_pointer(&mut self, pointer: Option<UiPoint>) -> bool {
+        self.screens.emote.set_pointer(pointer)
     }
 
     /// Last active device; stationary cursor coordinates preserve modality.

@@ -104,6 +104,11 @@ impl UiRuntime {
         Ok(scoreboard_adapter::apply_outcome(result))
     }
 
+    /// Whether a boss subscription reply waits for [`Self::flush_boss_responses`].
+    pub fn has_boss_responses(&self) -> bool {
+        !self.session.boss_responses.pending.is_empty()
+    }
+
     /// Keeps unsent subscription replies in order until the transport accepts them.
     pub fn flush_boss_responses(
         &mut self,

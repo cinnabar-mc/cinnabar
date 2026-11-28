@@ -135,6 +135,13 @@ impl SourceReads {
         Self::submit(&mut state, job);
     }
 
+    /// Whether a submitted read has not finished yet.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn in_flight(&self) -> bool {
+        let state = self.state.borrow();
+        state.pending.is_some() && state.receiver.is_empty() && state.retry.is_none()
+    }
+
     /// Delivers readiness once and retries a request deferred by another pack's queue occupancy.
     pub(super) fn collect(&self) -> Option<Completed> {
         let mut state = self.state.borrow_mut();

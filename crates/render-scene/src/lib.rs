@@ -78,6 +78,7 @@ pub use chunk::biome_tints::{
 };
 pub use chunk::frame_evidence::{MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_WITNESS_KEYS};
 pub use chunk::instance::ChunkRenderInstance;
+pub use chunk::instance_changes::ChunkInstanceChanges;
 pub use chunk::metrics::{ModelWorkloadMetrics, TransparentSortMetrics};
 pub use chunk::model_witness::{
     ModelWitnessEvent, ModelWitnessEvidence, ModelWitnessFrameAck, ModelWitnessManifestRecord,
@@ -105,7 +106,7 @@ pub use cloud_config::{
     adjusted_player_render_distance_blocks,
 };
 pub use cloud_visibility::{CloudDistanceChunks, CloudVisibility};
-pub use dropped_item::DroppedItemScene;
+pub use dropped_item::{DroppedItemRepublish, DroppedItemScene};
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;
 pub use far_terrain::{FarTerrainResidency, FarTerrainScene};

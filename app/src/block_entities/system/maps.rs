@@ -19,29 +19,32 @@ pub(super) fn request_missing_maps(
         runtime.missing_maps.clear();
         return;
     };
-    let Some(stream) = world.stream.as_mut() else {
+    let Some(stream) = world.stream.as_ref() else {
         runtime.missing_maps.clear();
         return;
     };
-    let runtime = &mut *runtime;
-    {
-        let held = client_presentation::presentation::equipment::local_input(
-            &player,
-            stream,
-            ui.as_deref().map(|ui| &ui.0),
-            stream.local_player_runtime_id(),
-        );
-        for item in [held.main, held.off].into_iter().flatten() {
-            if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
-                && let Some(id) = item.map_id
-                && stream.map_image(id).is_none()
-            {
-                runtime.missing_maps.push(id);
-            }
-        }
+    let held = client_presentation::presentation::equipment::local_held_map_ids(
+        &player,
+        stream,
+        ui.as_deref().map(|ui| &ui.0),
+    );
+    let mut held = held
+        .into_iter()
+        .flatten()
+        .filter(|id| stream.map_image(*id).is_none())
+        .peekable();
+    // Borrowing either resource mutably marks it changed, so a frame with nothing to request
+    // leaves both alone.
+    if runtime.missing_maps.is_empty() && held.peek().is_none() {
+        return;
     }
+    let runtime = &mut *runtime;
+    runtime.missing_maps.extend(held);
     runtime.missing_maps.sort_unstable();
     runtime.missing_maps.dedup();
+    let Some(stream) = world.stream.as_mut() else {
+        return;
+    };
     for id in std::mem::take(&mut runtime.missing_maps) {
         if !stream.map_is_known(id)
             && network

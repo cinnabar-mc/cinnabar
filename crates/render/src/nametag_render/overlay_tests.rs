@@ -396,9 +396,36 @@ fn leaving_the_pack_releases_the_label_overlay() {
         } else {
             world.entity_mut(view).remove::<ShaderPackRendering>();
         }
+        world.run_system_once(overlay::release_disabled).unwrap();
         world.run_system_once(overlay::prepare).unwrap();
         assert_eq!(world.entity(view).contains::<overlay::Overlay>(), pack);
     }
+}
+
+/// Label preparation idles while no label is drawn, but leaving the pack still releases the
+/// label layer.
+#[test]
+fn leaving_the_pack_without_labels_releases_the_label_overlay() {
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::render::renderer::RenderQueue;
+    use render_scene::shaderpack::ShaderPackRendering;
+    let (mut world, view) = overlay_world();
+    let (_, queue) = wgpu::Device::noop(&default());
+    world.insert_resource(RenderQueue::new(queue));
+    world.insert_resource(NametagSceneResource::default());
+    world.run_system_once(init_nametag_gpu).unwrap();
+    world.entity_mut(view).insert(ShaderPackRendering);
+    world.run_system_once(overlay::prepare).unwrap();
+    assert!(world.entity(view).contains::<overlay::Overlay>());
+    world.entity_mut(view).remove::<ShaderPackRendering>();
+    assert!(
+        !world.run_system_once(nametags_due).unwrap(),
+        "no label is drawn, so label preparation idles"
+    );
+    let mut frame = bevy::ecs::schedule::Schedule::default();
+    frame.add_systems(overlay::release_disabled);
+    frame.run(&mut world);
+    assert!(!world.entity(view).contains::<overlay::Overlay>());
 }
 
 /// Failed label overlays back off, then recover without reusing an incompatible layer.

@@ -527,3 +527,93 @@ fn a_gliding_doll_lies_forward_about_its_feet() {
     presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert_eq!(crown(&presentation), standing);
 }
+
+/// A capture whose inputs are unchanged repeats the last one; each input it reads, and a frame
+/// that captured nothing, makes the next capture run again.
+#[test]
+fn unchanged_live_captures_repeat_and_each_input_recaptures() {
+    let catalog = player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},
+        "bones":[{"name":"head","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec());
+    let mut stream = player_stream(Arc::clone(&catalog), catalog);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let item = render_model::hats::fixture::glowing_crown();
+    presentation.set_preview_cosmetics(&[item]);
+    let capture = |presentation: &mut UiPresentationRuntime,
+                   stream: &chunk_pipeline::WorldStream,
+                   swimming: bool| {
+        presentation.begin_live_capture();
+        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), swimming);
+        presentation.gui_models.live_player.captures
+    };
+    let first = capture(&mut presentation, &stream, false);
+    let emitter = presentation.gui_models.live_player.emitters[0].2;
+    assert_eq!(
+        capture(&mut presentation, &stream, false),
+        first,
+        "unchanged"
+    );
+    assert_eq!(presentation.gui_models.live_player.emitters[0].2, emitter);
+    assert!(presentation.gui_models.live_player.fresh);
+
+    assert_eq!(
+        capture(&mut presentation, &stream, true),
+        first + 1,
+        "swimming"
+    );
+    assert_ne!(presentation.gui_models.live_player.emitters[0].2, emitter);
+    assert_eq!(capture(&mut presentation, &stream, true), first + 1);
+
+    presentation.set_cosmetic_motion(&[(
+        item,
+        render_model::hats::Motion {
+            bend: 0.5,
+            ..Default::default()
+        },
+    )]);
+    assert_eq!(
+        capture(&mut presentation, &stream, true),
+        first + 2,
+        "hat motion"
+    );
+
+    presentation.set_preview_cosmetics(&[]);
+    assert_eq!(
+        capture(&mut presentation, &stream, true),
+        first + 3,
+        "cosmetics"
+    );
+    assert!(presentation.gui_models.live_player.emitters.is_empty());
+
+    stream
+        .submit(
+            2,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    metadata: Arc::from([protocol::ActorMetadata {
+                        key: 0,
+                        value: protocol::ActorMetadataValue::Flags(2),
+                    }]),
+                    properties: Arc::from([]),
+                    tick: 2,
+                },
+            )),
+        )
+        .unwrap();
+    assert_eq!(
+        capture(&mut presentation, &stream, true),
+        first + 4,
+        "actor"
+    );
+
+    presentation.begin_live_capture();
+    assert!(!presentation.gui_models.live_player.fresh);
+    assert_eq!(
+        capture(&mut presentation, &stream, true),
+        first + 5,
+        "a frame without a capture"
+    );
+}

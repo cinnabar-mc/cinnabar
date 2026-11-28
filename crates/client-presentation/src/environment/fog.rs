@@ -59,9 +59,87 @@ fn count_precipitation_samples(samples: impl IntoIterator<Item = Option<bool>>) 
     known.then_some(count)
 }
 
+/// Fog profiles of every lattice sample, with the lattice's precipitation-eligible count.
+pub type FogLatticeSample = (
+    [Option<FogProfileIndex>; PRECIPITATION_SAMPLE_OFFSETS.len()],
+    Option<usize>,
+);
+
+/// Everything [`FogLatticeCache::sample`] reads: the lattice, the dimension, the session's biome
+/// registry and the fog bindings.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FogLatticeKey {
+    biomes: LatticeBiomes,
+    dimension: i32,
+    tints: meshing::ChunkBiomeTintIdentity,
+    bindings: u64,
+}
+
+/// The last lattice's fog profiles and precipitation count.
+#[derive(Default)]
+pub struct FogLatticeCache {
+    last: Option<(FogLatticeKey, FogLatticeSample)>,
+}
+
+impl FogLatticeCache {
+    /// Returns [`fog_biome_samples`] and [`fog_precipitation_count`] for `biomes`, reusing the
+    /// last result while the lattice, the dimension, the stream's biome registry and the
+    /// bindings' revision are unchanged, so it returns exactly what computing them again would.
+    pub fn sample(
+        &mut self,
+        stream: &WorldStream,
+        biomes: &LatticeBiomes,
+        bindings: &FogBindings,
+    ) -> FogLatticeSample {
+        self.sample_registry(
+            biomes,
+            stream.current_dimension(),
+            stream.biome_tint_identity(),
+            stream.authority().resolved_biome_tints(),
+            bindings,
+        )
+    }
+
+    /// [`Self::sample`] for a lattice in `dimension`, with `registry` the biome registry whose
+    /// identity is `tints`.
+    fn sample_registry(
+        &mut self,
+        biomes: &LatticeBiomes,
+        dimension: i32,
+        tints: meshing::ChunkBiomeTintIdentity,
+        registry: &assets::ResolvedBiomeTints,
+        bindings: &FogBindings,
+    ) -> FogLatticeSample {
+        let key = FogLatticeKey {
+            biomes: *biomes,
+            dimension,
+            tints,
+            bindings: bindings.revision(),
+        };
+        if let Some((last, sample)) = &self.last
+            && *last == key
+        {
+            return *sample;
+        }
+        let sample = (
+            fog_biome_samples(biomes, dimension, bindings),
+            precipitation_count(registry, biomes),
+        );
+        self.last = Some((key, sample));
+        sample
+    }
+}
+
 /// Counts precipitation-eligible lattice biomes in the session registry, as weather does.
 pub fn fog_precipitation_count(stream: &WorldStream, biomes: &LatticeBiomes) -> Option<usize> {
-    let registry = stream.authority().resolved_biome_tints();
+    precipitation_count(stream.authority().resolved_biome_tints(), biomes)
+}
+
+/// [`fog_precipitation_count`] against one biome registry.
+fn precipitation_count(
+    registry: &assets::ResolvedBiomeTints,
+    biomes: &LatticeBiomes,
+) -> Option<usize> {
     count_precipitation_samples(biomes.map(|id| {
         Some(world::weather::precipitation_eligible(
             registry.biome(id?)?.downfall,

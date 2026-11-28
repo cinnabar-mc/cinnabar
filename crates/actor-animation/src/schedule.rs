@@ -116,23 +116,23 @@ impl ActorAnimationStore {
         let completed_tick = *completed_tick;
         let mut ordered: Vec<(ActorLifetimeId, &mut ActorRigState)> = if refresh_view {
             let local = refresh_local.and_then(|id| runtime_to_lifetime.get(&id).copied());
-            rigs.iter_mut()
-                .filter(|(lifetime, state)| {
-                    Some(**lifetime) == local
-                        || (initialize_new
-                            && actors.get(&lifetime.runtime_id).is_some_and(|actor| {
-                                initially_admitted(
-                                    state,
-                                    actor,
-                                    view,
-                                    exempt,
-                                    Some(&assets),
-                                    pack.as_ref(),
-                                )
-                            }))
-                })
-                .map(|(lifetime, state)| (*lifetime, state))
-                .collect()
+            // Only the admitted rigs change, so only they take a new presentation revision.
+            rigs.iter_mut_where(|lifetime, state| {
+                Some(*lifetime) == local
+                    || (initialize_new
+                        && actors.get(&lifetime.runtime_id).is_some_and(|actor| {
+                            initially_admitted(
+                                state,
+                                actor,
+                                view,
+                                exempt,
+                                Some(&assets),
+                                pack.as_ref(),
+                            )
+                        }))
+            })
+            .map(|(lifetime, state)| (*lifetime, state))
+            .collect()
         } else {
             rigs.iter_mut()
                 .map(|(lifetime, state)| (*lifetime, state))

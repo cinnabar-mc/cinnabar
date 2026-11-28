@@ -24,6 +24,8 @@ mod native_tests;
 #[cfg(test)]
 mod remote_body_tests;
 #[cfg(test)]
+mod reuse_tests;
+#[cfg(test)]
 mod shield_tests;
 #[cfg(test)]
 mod spear_tests;
@@ -108,44 +110,100 @@ pub(super) fn decorated_item_atlas(
 
 /// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
 /// it when not in first person, when the look FOV is unavailable, or when no skin resolved.
+/// A frame the scene already holds is left untouched, so the render world keeps its copy.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn publish_hand_rig(
     builder: &mut ActorRigFrameBuilder,
-    scene: &mut HandRigScene,
+    scene: &mut ResMut<HandRigScene>,
+    published: &mut super::hand_publication::PublishedHand,
     revision: &mut u64,
-    source: Option<HandSource>,
+    (source, retained): (Option<&HandSource>, bool),
     fov_radians: Option<f32>,
     mut light: HandRigLight,
     (partial_tick, glint): (f32, Option<&render_scene::UiGlintSettings>),
 ) {
-    let (Some(source), Some(fov)) = (source, fov_radians) else {
-        scene.clear();
+    // The previous frame's own source, unchanged but for its motion, needs no rebuilt inputs.
+    let quick = super::hand_publication::QuickKey::new(
+        source.map(|source| source.motion),
+        light,
+        fov_radians,
+        builder.geometry_revision(),
+        glint,
+    );
+    let quick_hit = retained && published.holds_quick(&quick, scene.publication());
+    #[cfg(test)]
+    {
+        published.quick_kept += u64::from(quick_hit);
+    }
+    // Debug and test builds check the quick decision against the full comparison below.
+    #[cfg(not(any(test, debug_assertions)))]
+    if quick_hit {
+        return;
+    }
+    let Some((source, fov, skin)) = source
+        .zip(fov_radians)
+        .and_then(|(source, fov)| Some((source, fov, source.presentation.skin_rgba8.clone()?)))
+    else {
+        published.record(None, None);
+        if scene.is_active() {
+            scene.clear();
+        }
         return;
     };
-    let Some(skin) = source.presentation.skin_rgba8.clone() else {
-        scene.clear();
-        return;
-    };
-    let frame = builder.build(
-        partial_tick,
-        None,
-        source.all_submissions().map(|mut submission| {
+    let submissions = source
+        .all_submissions()
+        .map(|mut submission| {
             super::equipment_layers::animate_glint(&mut submission, partial_tick, glint);
             submission
-        }),
-    );
+        })
+        .collect();
     let mut atlases = [None, None];
-    for (index, entry) in source.items.into_iter().enumerate() {
+    for (index, entry) in source.items.iter().enumerate() {
         if let Some((layer, atlas)) = entry {
             light.java_normal_axes[index + 1] = layer.java_normal_axis.extend(0.0).to_array();
             light.emitted_light[index + 1] = u32::from(layer.emitted_light);
-            atlases[index] = Some(atlas);
+            atlases[index] = Some(atlas.clone());
         }
     }
+    let inputs = super::hand_publication::Inputs::new(
+        submissions,
+        (source, skin.clone()),
+        (light, fov, builder.geometry_revision()),
+        atlases.clone(),
+    );
+    let held = published.holds(&inputs, scene.publication());
+    #[cfg(any(test, debug_assertions))]
+    assert!(
+        !quick_hit || held,
+        "a quickly kept frame must match its full inputs"
+    );
+    if held {
+        published.record_quick(quick);
+        #[cfg(any(test, debug_assertions))]
+        {
+            let fresh = builder.build(partial_tick, None, inputs.submissions().iter().cloned());
+            assert!(
+                scene.frame().is_some_and(|held| {
+                    super::hand_publication::same_frame(&held.rig, &fresh)
+                        && held.skin == skin
+                        && held.light == light
+                        && held.fov_radians.to_bits() == fov.to_bits()
+                }),
+                "a kept first-person frame must draw what a rebuilt one draws"
+            );
+        }
+        return;
+    }
+    let frame = builder.build(partial_tick, None, inputs.submissions().iter().cloned());
     *revision = revision.wrapping_add(1).max(1);
     if scene.publish(frame, skin, light, fov, *revision) {
         scene.set_item_atlases(atlases);
-        scene.set_item_glint(source.item_glint);
-        scene.set_map_background(source.maps.background);
+        scene.set_item_glint(source.item_glint.clone());
+        scene.set_map_background(source.maps.background.clone());
+        published.record(Some(inputs), scene.publication());
+        published.record_quick(quick);
+    } else {
+        published.record(None, None);
     }
 }
 

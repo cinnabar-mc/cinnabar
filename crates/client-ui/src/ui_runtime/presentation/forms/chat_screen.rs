@@ -105,8 +105,9 @@ impl UiPresentationRuntime {
     }
 
     /// Track the pointer for next frame's hover state.
-    pub fn set_chat_pointer(&mut self, position: Option<UiPoint>) {
-        self.screens.chat.set_pointer(position);
+    /// Whether the pointer changed.
+    pub fn set_chat_pointer(&mut self, position: Option<UiPoint>) -> bool {
+        self.screens.chat.set_pointer(position)
     }
 
     /// Scroll the history by a wheel delta in notches, or logical px when
@@ -144,12 +145,18 @@ impl UiPresentationRuntime {
     }
 
     /// Keeps gameplay chat bound to current settings without opening the launcher menu.
-    pub fn set_chat_settings_snapshot(&mut self, snapshot: (Arc<SettingsOptions>, Option<u16>)) {
+    /// Whether anything changed.
+    pub fn set_chat_settings_snapshot(
+        &mut self,
+        snapshot: (Arc<SettingsOptions>, Option<u16>),
+    ) -> bool {
+        let mut changed = false;
         if &self.screens.touch.saved != snapshot.0.touch_layout() {
             self.screens.touch.saved = snapshot.0.touch_layout().clone();
+            changed = true;
         }
-        self.set_touch_control_mode(snapshot.0.touch_control_mode());
-        self.screens.chat.settings.set_snapshot(snapshot);
+        changed |= self.set_touch_control_mode(snapshot.0.touch_control_mode());
+        changed | self.screens.chat.settings.set_snapshot(snapshot)
     }
 
     /// Borrows the persisted gameplay preferences even while the launcher menu is closed.

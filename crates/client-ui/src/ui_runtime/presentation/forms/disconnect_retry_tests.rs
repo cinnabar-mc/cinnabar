@@ -294,16 +294,16 @@ fn long_launcher_questions_scroll_without_moving_the_acknowledgement() {
 #[test]
 fn animated_launcher_questions_keep_scrolling_across_frames() {
     let mut presentation = long_question(true);
-    presentation.menu_seconds = 1.0;
+    presentation.set_menu_seconds(1.0);
     let (_, hits) = paint_question(&mut presentation);
     assert!(
         presentation
             .menu_scrolls
             .wheel(ui::UiPoint::new(640.0, 360.0).unwrap(), -120.0, true)
     );
-    presentation.menu_seconds += 1.0 / 60.0;
+    presentation.set_menu_seconds(presentation.menu_seconds() + 1.0 / 60.0);
     let (first, _) = paint_question(&mut presentation);
-    presentation.menu_seconds += 1.0;
+    presentation.set_menu_seconds(presentation.menu_seconds() + 1.0);
     let (settled, after_hits) = paint_question(&mut presentation);
     assert!(
         settled < first,

@@ -8,6 +8,11 @@ impl super::UiPresentationRuntime {
         self.menu_scrolls.begin_touch(point)
     }
 
+    /// Whether a menu touch scroll is in progress.
+    pub fn menu_touch_scrolling(&self) -> bool {
+        self.menu_scrolls.touching()
+    }
+
     /// Applies finger movement and reports whether the gesture consumed its pending row press.
     pub fn move_menu_touch_scroll(&mut self, point: Option<UiPoint>, held: bool) -> bool {
         self.menu_scrolls.move_touch(point, held)

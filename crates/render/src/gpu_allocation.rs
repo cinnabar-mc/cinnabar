@@ -104,6 +104,57 @@ pub(crate) fn checked<T>(
     checked_with_owner(device, label, bytes, false, create)
 }
 
+/// Runs a multi-step build inside out-of-memory and validation error scopes on this thread,
+/// returning `None`, with the build's result dropped, when either captured an error.
+///
+/// A step that runs out of memory hands back an invalid handle, and passing that handle to a
+/// later step raises a validation error there rather than another out-of-memory one. Capturing
+/// both kinds makes the whole build fail as one unit, so no step's failure reaches the device's
+/// uncaptured error handler. Submit the build's command buffers only after this returns them.
+/// WebGPU reports errors asynchronously through Bevy's device error handler instead.
+pub(crate) fn fallible<T>(
+    device: &RenderDevice,
+    label: &str,
+    bytes: u64,
+    build: impl FnOnce() -> T,
+) -> Option<T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let (validation, memory) = {
+        let gpu = device.wgpu_device();
+        let validation = gpu.push_error_scope(wgpu::ErrorFilter::Validation);
+        (
+            validation,
+            gpu.push_error_scope(wgpu::ErrorFilter::OutOfMemory),
+        )
+    };
+    let result = build();
+    // Scopes pop innermost first.
+    #[cfg(not(target_arch = "wasm32"))]
+    let failed = {
+        let memory = bevy::tasks::block_on(memory.pop());
+        let validation = bevy::tasks::block_on(validation.pop());
+        if let Some(error) = &validation {
+            bevy::log::warn!(label, %error, "GPU build failed validation; skipping it");
+        }
+        memory.is_some() || validation.is_some()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let failed = {
+        let _ = device;
+        false
+    };
+    #[cfg(test)]
+    let failed = failed
+        || FAILURE
+            .with_borrow_mut(|hook| hook.as_mut().is_some_and(|hook| hook(label, bytes, false)));
+    if failed {
+        warn_once(label, bytes);
+        None
+    } else {
+        Some(result)
+    }
+}
+
 /// Whether failed growth makes a draw invalid or only loses spare capacity.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Requirement {

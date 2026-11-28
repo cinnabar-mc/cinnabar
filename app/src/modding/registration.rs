@@ -270,6 +270,8 @@ pub(crate) struct Watcher {
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
     companions: Arc<Mutex<Vec<PathBuf>>>,
     drawing: Arc<Mutex<BTreeMap<PathBuf, super::admission::DrawingContext>>>,
+    /// The enabled entries [`install::sync_authority`] last computed and what they depend on.
+    authority: Mutex<Option<install::AuthorityMemo>>,
 }
 impl Watcher {
     /// Captures enabled grants even while their programs are still being prepared.
@@ -362,6 +364,7 @@ impl Watcher {
             companions: Arc::new(Mutex::new(Vec::new())),
             settings,
             drawing,
+            authority: Mutex::new(None),
         })
     }
     /// Publishes every surviving settings writer, including environment-loaded instances.

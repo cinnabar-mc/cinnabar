@@ -426,6 +426,21 @@ type ViewmodelCameras<'w, 's> = Query<
     With<FlyCamera>,
 >;
 
+/// Runs `update` on the scene without change detection and marks the scene changed only when
+/// the frame it publishes differs. The scene is extracted whenever it counts as changed, so a
+/// steady hand rewrites nothing.
+fn update_scene<R>(
+    scene: &mut ResMut<ViewmodelScene>,
+    update: impl FnOnce(&mut ViewmodelScene) -> R,
+) -> R {
+    let before = scene.published();
+    let result = update(scene.bypass_change_detection());
+    if scene.published() != before {
+        scene.set_changed();
+    }
+    result
+}
+
 #[derive(SystemParam)]
 pub struct ViewmodelPublish<'w, 's> {
     scene: Option<ResMut<'w, ViewmodelScene>>,
@@ -448,11 +463,13 @@ impl ViewmodelPublish<'_, '_> {
             .is_some_and(|scene| scene.is_opaque_cube());
         let icon = if cube { held.or(empty) } else { empty };
         if let (Some(scene), Some(gate), Some(icon)) = (&mut self.scene, &self.gate, icon) {
-            if cube {
-                scene.bind_cube_cpu_fallback(input, u32::from(icon.page), icon.uv, gate);
-            } else {
-                scene.bind_cpu_fallback(input, u32::from(icon.page), icon.uv, gate);
-            }
+            update_scene(scene, |scene| {
+                if cube {
+                    scene.bind_cube_cpu_fallback(input, u32::from(icon.page), icon.uv, gate);
+                } else {
+                    scene.bind_cpu_fallback(input, u32::from(icon.page), icon.uv, gate);
+                }
+            });
         } else {
             self.clear();
         }
@@ -473,7 +490,7 @@ impl ViewmodelPublish<'_, '_> {
     }
     pub fn clear(&mut self) {
         if let (Some(scene), Some(gate)) = (&mut self.scene, &self.gate) {
-            scene.clear(gate);
+            update_scene(scene, |scene| scene.clear(gate));
         }
         if let Some(adapter) = &mut self.adapter {
             adapter.stats.mode = None;
@@ -488,7 +505,7 @@ impl ViewmodelPublish<'_, '_> {
     /// so it never double-draws, and record the mode. No CPU fallback quad is bound.
     pub fn use_animated_rig(&mut self) {
         if let (Some(scene), Some(gate)) = (&mut self.scene, &self.gate) {
-            scene.clear(gate);
+            update_scene(scene, |scene| scene.clear(gate));
         }
         if let Some(adapter) = &mut self.adapter {
             adapter.cube = None;
@@ -566,7 +583,7 @@ impl ViewmodelPublish<'_, '_> {
                 completed
             }
             Err(reason) => {
-                self.scene.as_deref_mut().unwrap().clear(gate);
+                update_scene(self.scene.as_mut().unwrap(), |scene| scene.clear(gate));
                 adapter.cube = None;
                 adapter.stats.fallback = Some(reason);
                 adapter.stats.cpu_fallback_requested_frames = adapter
@@ -914,12 +931,10 @@ impl ViewmodelPublish<'_, '_> {
             geometry: ViewmodelScene::geometry_identity(&geometry),
             revision: adapter.revision,
         };
-        if !self.scene.as_deref_mut().unwrap().publish(
-            token,
-            &skin,
-            &geometry,
-            self.gate.as_deref().unwrap(),
-        ) {
+        let gate = self.gate.as_deref().unwrap();
+        if !update_scene(self.scene.as_mut().unwrap(), |scene| {
+            scene.publish(token, &skin, &geometry, gate)
+        }) {
             return Err(HandFallback::View);
         }
         Ok(token)

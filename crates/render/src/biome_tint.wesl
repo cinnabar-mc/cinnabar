@@ -246,6 +246,37 @@ fn uniform_biome_tint_gamma(tint_kind: u32, material_flags: u32, record: u32) ->
     return vec4(tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, vec3(0))).rgb, 1.0);
 }
 
+// The last two position-independent gamma tints of one blend, keyed by their raw tint index.
+// Validity flags are `0u` or `1u`, since Mali drivers reject bools inside structs.
+struct GammaMemo {
+    first_valid: u32,
+    first_index: u32,
+    first_gamma: vec4<f32>,
+    second_valid: u32,
+    second_index: u32,
+    second_gamma: vec4<f32>,
+}
+
+/// `tint_to_gamma(tint_domain_colour(index, ...))`, reusing a result `memo` already holds for
+/// `index`. A blend repeats the same few tints across its lattice samples, and the colour is a pure
+/// function of the index for fixed `tint_kind` and `material_flags`, so a reused value is the
+/// value recomputing would give. Swamp grass depends on `world_position` and is never stored.
+fn memo_tint_gamma(memo: ptr<function, GammaMemo>, index: u32, tint_kind: u32, material_flags: u32, world_position: vec3<i32>) -> vec4<f32> {
+    if ((*memo).first_valid != 0u && (*memo).first_index == index) { return (*memo).first_gamma; }
+    if ((*memo).second_valid != 0u && (*memo).second_index == index) { return (*memo).second_gamma; }
+    let gamma = tint_to_gamma(tint_domain_colour(index, tint_kind, material_flags, world_position));
+    let positional = tint_kind == 0x10u && (tint_flags(safe_tint_index(index)) & BIOME_SWAMP_GRASS) != 0u;
+    if (!positional) {
+        (*memo).second_valid = (*memo).first_valid;
+        (*memo).second_index = (*memo).first_index;
+        (*memo).second_gamma = (*memo).first_gamma;
+        (*memo).first_valid = 1u;
+        (*memo).first_index = index;
+        (*memo).first_gamma = gamma;
+    }
+    return gamma;
+}
+
 fn lattice_point_index(position: vec3<i32>) -> u32 {
     let axis = vec3<u32>((position + vec3(BIOME_LATTICE_STEP)) / BIOME_LATTICE_STEP);
     return (axis.x * BIOME_LATTICE_SIDE + axis.y) * BIOME_LATTICE_SIDE + axis.z;
@@ -290,6 +321,7 @@ fn blended_biome_tint(
     let weights = ((magnitude.x * magnitude_side + magnitude.y) * magnitude_side + magnitude.z) * 2u;
     var sum = vec4(0.0);
     var denominator = 0.0;
+    var memo = GammaMemo(0u, 0u, vec4(0.0), 0u, 0u, vec4(0.0));
     for (var point = 0u; point < BIOME_QUERY_POINTS; point += 1u) {
         let cell = (stencil[point / 4u] >> (point % 4u * 8u)) & 0xffu;
         let weight = biome_query_tables.weights[weights + point / 4u][point % 4u];
@@ -302,7 +334,7 @@ fn blended_biome_tint(
             let tint = lattice_tint_index(start, i, compact);
             let fraction = lattice_fraction(start, i, compact);
             if (!(fraction >= 0.0 && fraction <= 1.0)) { continue; }
-            colour += tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin))) * fraction;
+            colour += memo_tint_gamma(&memo, tint, tint_kind, material_flags, position + vec3<i32>(world_origin)) * fraction;
         }
         sum += clamp(colour, vec4(0.0), vec4(1.0)) * weight;
         denominator += weight;

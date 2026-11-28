@@ -13,7 +13,7 @@ pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     direct_support: Option<Res<'w, DirectOcclusionSupport>>,
     direct: Option<ResMut<'w, DirectOcclusionFrame>>,
     direct_state: Option<Res<'w, DirectOcclusion>>,
-    adapter: Option<Res<'w, RenderAdapter>>,
+    adapter: Option<Res<'w, RenderAdapterInfo>>,
     views: Query<'w, 's, SelectionViewComponents>,
 }
 
@@ -119,7 +119,7 @@ impl GpuCullQueue<'_, '_> {
             .and_then(|entity| {
                 let (_, _, extracted, msaa) = self.views.get(entity).ok()?;
                 Some(work_admission::WorkContext::of(
-                    &self.adapter.as_deref()?.get_info(),
+                    self.adapter.as_deref()?,
                     extracted?,
                     *msaa?,
                 ))

@@ -41,6 +41,13 @@ impl BlockCracks {
         self.snapshot.as_ref()
     }
 
+    /// Whether [`Self::synchronize_dimension`] with `dimension` would change nothing.
+    pub fn dimension_synchronized(&self, dimension: Option<i32>) -> bool {
+        self.snapshot
+            .as_ref()
+            .is_none_or(|snapshot| Some(snapshot.dimension) == dimension)
+    }
+
     pub fn synchronize_dimension(&mut self, dimension: Option<i32>) {
         if self
             .snapshot

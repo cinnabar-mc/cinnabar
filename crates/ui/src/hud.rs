@@ -598,25 +598,34 @@ impl HudStore {
         evicted
     }
 
-    pub fn expire(&mut self, now_millis: u64) {
+    /// Advances the presentation clock and drops expired output. Returns whether anything
+    /// changed besides the clock, which the timed getters filter by and whose readers bound
+    /// their own deadlines.
+    pub fn expire(&mut self, now_millis: u64) -> bool {
         self.presentation_millis = now_millis;
+        let mut changed = false;
         if self.title.is_some() {
-            self.pending_subtitle = None;
+            changed |= self.pending_subtitle.take().is_some();
         }
-        self.title_since_tick = false;
-        self.presented_subtitle.clone_from(&self.subtitle);
+        changed |= std::mem::take(&mut self.title_since_tick);
+        if self.presented_subtitle != self.subtitle {
+            self.presented_subtitle.clone_from(&self.subtitle);
+            changed = true;
+        }
         if self
             .tip
             .as_ref()
             .is_some_and(|value| !value.visible_at(now_millis))
         {
             self.tip = None;
+            changed = true;
         }
         // Toasts show one after another, so expiry is monotone from the front.
         while let Some(front) = self.toasts.front() {
             if now_millis < front.expires_millis {
                 break;
             }
+            changed = true;
             let removed = self.toasts.pop_front().expect("front checked above");
             self.queue_ended_millis = self.queue_ended_millis.max(removed.expires_millis);
             self.toast_retained_bytes = self
@@ -627,7 +636,9 @@ impl HudStore {
             now_millis >= toast.until_millis.saturating_add(TOAST_SLIDE_OUT_MILLIS)
         }) {
             self.standing = None;
+            changed = true;
         }
+        changed
     }
 
     pub const fn standing_toast(&self) -> Option<&StandingToast> {

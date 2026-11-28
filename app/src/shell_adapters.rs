@@ -29,6 +29,9 @@ pub(crate) fn drive_menu_services(
     if menu.fixture_active() {
         return;
     }
+    if !menu.services_due(client_world.stream.is_some(), std::time::Instant::now()) {
+        return;
+    }
     let send = network
         .as_ref()
         .map(|network| move |generation, packet| network.send_settings_packet(generation, packet));
@@ -47,9 +50,11 @@ pub(crate) fn drive_menu_services(
         menu.sync_anti_aliasing_support(support.0);
     }
     menu.sync_user_settings(settings);
-    menu.sync_language(&mut runtime);
+    if menu.language_pending() {
+        menu.sync_language(&mut runtime);
+    }
     if let Some(account) = launcher_account.as_deref() {
-        client_shell::menu::sync_cinnabar_players(account, &mut runtime.0);
+        client_shell::menu::sync_cinnabar_players(account, &mut runtime);
     }
     if let Some(worlds) = local_worlds.as_deref() {
         worlds.set_player_name(if client_world.stream.is_some() {

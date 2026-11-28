@@ -9,6 +9,7 @@ use std::{
 use json_ui::{Draw, DrawNode};
 
 use super::{ScreenArt, banner_renderer, screen::CustomRenderer, tooltip};
+use crate::textures::TextureRevision;
 
 // Keep a few screen/omission projections, not every layout visited by a long session.
 const MAX_ENTRIES: usize = 8;
@@ -242,6 +243,101 @@ pub(super) fn paths<'a>(
         });
     }
     paths
+}
+
+/// Lists the paths every live renderer callback reports for a layout without overlays, in
+/// callback order, so a retained screen can tell whether its resolved keys still apply.
+pub(super) fn renderer_paths<'a>(
+    base: &Dependencies<'_>,
+    renderers: &'a [&mut dyn CustomRenderer],
+) -> Vec<&'a str> {
+    let mut paths = Vec::new();
+    let drawn = |name: &str| base.has_renderer(name);
+    for renderer in renderers {
+        renderer.textures(&drawn, &mut |path| paths.push(path));
+    }
+    paths
+}
+
+/// The paths a layout without overlays draws: its retained base paths and the renderer paths
+/// already collected by [`renderer_paths`], so each callback reports once per frame.
+pub(super) fn paths_with_rendered<'a>(
+    base: &'a Dependencies<'_>,
+    rendered: &[&'a str],
+) -> HashSet<&'a str> {
+    let mut paths = HashSet::new();
+    base.append_paths(&mut paths);
+    paths.extend(rendered.iter().copied());
+    paths
+}
+
+/// What a set of required keys was resolved from: the layout's and carrier's addresses and the
+/// texture-set revision.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct KeySources {
+    pub(super) layout: usize,
+    pub(super) carrier: usize,
+    pub(super) revision: TextureRevision,
+}
+
+/// The atlas keys one retained screen last resolved, reused while its layout, carrier, its
+/// renderers' reported paths and the texture sources the keys were resolved against are
+/// unchanged. The keys are still required every frame; only their resolution is skipped.
+///
+/// Nothing here owns the layout: the owning [`super::RetainedPaint`] clears these keys whenever
+/// it forgets its paint, so they only outlive a frame beside a retained paint that holds the
+/// same layout, whose address therefore cannot be reused.
+#[derive(Default)]
+pub(super) struct RequiredKeys {
+    sources: Option<KeySources>,
+    rendered: Vec<Box<str>>,
+    keys: Box<[Box<str>]>,
+    /// Key resolutions run, for tests bounding per-frame work.
+    #[cfg(test)]
+    pub(super) resolutions: usize,
+}
+
+impl RequiredKeys {
+    /// Whether the keys were resolved from `sources` and `rendered`.
+    pub(super) fn current(&self, sources: KeySources, rendered: &[&str]) -> bool {
+        self.sources == Some(sources)
+            && self.rendered.len() == rendered.len()
+            && self
+                .rendered
+                .iter()
+                .zip(rendered)
+                .all(|(old, current)| old.as_ref() == *current)
+    }
+
+    /// The keys last resolved.
+    pub(super) fn keys(&self) -> &[Box<str>] {
+        &self.keys
+    }
+
+    /// Records `keys` as resolved from `sources` and `rendered`.
+    pub(super) fn remember(
+        &mut self,
+        sources: KeySources,
+        rendered: &[&str],
+        keys: &[std::borrow::Cow<'_, str>],
+    ) {
+        #[cfg(test)]
+        {
+            self.resolutions += 1;
+        }
+        self.sources = Some(sources);
+        self.rendered.clear();
+        self.rendered
+            .extend(rendered.iter().map(|path| Box::from(*path)));
+        self.keys = keys.iter().map(|key| Box::from(key.as_ref())).collect();
+    }
+
+    /// Drops the keys and what they were resolved from, keeping the test counter.
+    pub(super) fn clear(&mut self) {
+        self.sources = None;
+        self.rendered = Vec::new();
+        self.keys = Box::default();
+    }
 }
 
 /// Captures the same texture dependencies as ordinary screens for one retained fragment.

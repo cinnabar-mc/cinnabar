@@ -115,7 +115,7 @@ fn custom_wearable_protection_reaches_the_rendered_hud() {
         &mut runtime,
         &mut presentation,
         Some(stream.authority().inventory_ui()),
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         0,
         Default::default(),
     );
@@ -163,7 +163,7 @@ fn unknown_worn_item_keeps_protection_unresolved_in_the_hud() {
         &mut runtime,
         &mut presentation,
         None,
-        semantic_input::PerspectiveMode::FirstPerson,
+        true,
         0,
         Default::default(),
     );

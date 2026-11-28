@@ -49,7 +49,7 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-            now: self.menu_seconds,
+            now: self.clock.seconds(),
             nodes: &mut *nodes,
             next: &mut *next,
             renderers: &mut [],

@@ -241,7 +241,7 @@ fn selection_frame(
     drop(canvas);
     transitions
         .effects
-        .finish(&mut nodes, &mut next, seconds, SIZE)
+        .finish(&mut nodes, &mut next, &|| seconds, SIZE)
         .unwrap();
     transitions.end_frame();
     let mut tree = ui::UiTree::new(nodes).unwrap();

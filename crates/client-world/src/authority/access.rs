@@ -1,6 +1,40 @@
 use super::*;
 
+/// Identifies the session tables that map wire block ids to store ids: the network id mode, air,
+/// the custom block range and identities, and the sequential remap. That mapping and resolving a
+/// store id to a block state also read the runtime assets, which consumers compare separately.
+/// The shared tables it holds keep their addresses from being reused.
+#[derive(Clone, Debug)]
+pub struct BlockPaletteIdentity {
+    mode: NetworkIdMode,
+    air: u32,
+    custom_ids: std::ops::Range<u32>,
+    custom_identities: Arc<std::collections::HashMap<u32, u32>>,
+    remap: Arc<assets::SequentialIdRemap>,
+}
+
+impl PartialEq for BlockPaletteIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.mode == other.mode
+            && self.air == other.air
+            && self.custom_ids == other.custom_ids
+            && Arc::ptr_eq(&self.custom_identities, &other.custom_identities)
+            && Arc::ptr_eq(&self.remap, &other.remap)
+    }
+}
+
 impl WorldAuthority {
+    /// The palette that resolves wire block ids now; see [`BlockPaletteIdentity`].
+    pub fn block_palette_identity(&self) -> BlockPaletteIdentity {
+        BlockPaletteIdentity {
+            mode: self.network_id_mode,
+            air: self.air_block_id,
+            custom_ids: self.custom_block_ids.clone(),
+            custom_identities: Arc::clone(&self.custom_block_identities),
+            remap: Arc::clone(&self.id_remap),
+        }
+    }
+
     /// Reports whether this session has committed a nondefault camera event.
     pub const fn audio_nondefault_camera_observed(&self) -> bool {
         self.audio_nondefault_camera_observed

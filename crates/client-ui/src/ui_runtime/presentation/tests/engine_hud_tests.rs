@@ -321,6 +321,7 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             &player_runtime,
             &runtime,
             presentation.hud_frame(),
+            &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
             None,
             &Default::default(),
         );
@@ -425,7 +426,14 @@ fn heart_variants_mount_rows_air_and_armor_follow_authoritative_state() {
     full_stats(&mut player_runtime, &mut runtime, 1);
     let frame = first_person();
     let paint = |runtime: &UiRuntime, frame: &HudFrame| {
-        hud_layout::capture_hud_paint(&player_runtime, runtime, frame, None, &Default::default())
+        hud_layout::capture_hud_paint(
+            &player_runtime,
+            runtime,
+            frame,
+            &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
+            None,
+            &Default::default(),
+        )
     };
     let baseline = paint(&runtime, &frame);
     assert!(
@@ -492,6 +500,7 @@ fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
         &player_runtime,
         &runtime,
         &HudFrame::default(),
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
         None,
         &Default::default(),
     );
@@ -635,6 +644,7 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
         &player_runtime,
         &runtime,
         presentation.hud_frame(),
+        &crate::ui_runtime::presentation::frame_clock::FrameClock::default(),
         presentation.hud_textures.as_ref(),
         &Default::default(),
     );
@@ -871,7 +881,7 @@ fn world_rules_raise_the_position_and_days_lines() {
     };
     let mut runtime = UiRuntime::new(1);
     presentation.hud_frame_mut().player_block = Some([12, 64, -7]);
-    presentation.hud_frame_mut().world_time = Some(f64::from(world::TICKS_PER_DAY) * 3.0 + 5.0);
+    presentation.hud_frame_mut().days_played = Some(3.0);
     build(&player_runtime, &mut presentation, &runtime, 0);
     let shown = |presentation: &UiPresentationRuntime, wanted: &str| {
         text(presentation.hud_draw_nodes(), wanted).is_some()

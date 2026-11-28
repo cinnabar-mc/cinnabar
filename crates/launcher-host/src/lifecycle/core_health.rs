@@ -5,7 +5,8 @@ use std::time::Duration;
 const BASE_DELAY: Duration = Duration::from_millis(500);
 const MAX_DELAY: Duration = Duration::from_secs(8);
 const MAX_CONSECUTIVE_FAILURES: u32 = 5;
-const STABLE_RUN: Duration = Duration::from_secs(60);
+/// How long a core must run for its exit to start the failure count again.
+pub const STABLE_RUN: Duration = Duration::from_secs(60);
 
 /// Exponential restart delay that resets once a core stays up for a stable interval.
 #[derive(Debug, Default)]

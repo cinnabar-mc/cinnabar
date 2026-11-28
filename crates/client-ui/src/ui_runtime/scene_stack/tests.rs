@@ -292,19 +292,19 @@ fn carrier_settings_route_input_like_vanilla() {
 #[test]
 fn scene_clocks_time_entrance_transitions() {
     let mut clocks = SceneClocks::default();
-    clocks.observe(&[], 0.0);
-    clocks.observe(&[Scene::Gameplay, Scene::Hud], 1.0);
+    clocks.observe(&[], || 0.0);
+    clocks.observe(&[Scene::Gameplay, Scene::Hud], || 1.0);
     assert_eq!(
         clocks.clocks(Scene::Hud).get("screen.entrance_push"),
         Some(&1.0)
     );
     clocks.observe(
         &[Scene::Gameplay, Scene::Hud, Scene::Menu(MenuScreen::Pause)],
-        2.0,
+        || 2.0,
     );
     let pause = clocks.clocks(Scene::Menu(MenuScreen::Pause));
     assert_eq!(pause.get("screen.entrance_push"), Some(&2.0));
-    clocks.observe(&[Scene::Gameplay, Scene::Hud], 3.0);
+    clocks.observe(&[Scene::Gameplay, Scene::Hud], || 3.0);
     assert_eq!(
         clocks.clocks(Scene::Hud).get("screen.entrance_pop"),
         Some(&3.0)
@@ -316,9 +316,9 @@ fn scene_clocks_time_entrance_transitions() {
 #[test]
 fn menu_tabs_share_one_entrance() {
     let mut clocks = SceneClocks::default();
-    clocks.observe(&[], 0.0);
-    clocks.observe(&[Scene::Menu(MenuScreen::Play)], 1.0);
-    clocks.observe(&[Scene::Menu(MenuScreen::Servers)], 2.0);
+    clocks.observe(&[], || 0.0);
+    clocks.observe(&[Scene::Menu(MenuScreen::Play)], || 1.0);
+    clocks.observe(&[Scene::Menu(MenuScreen::Servers)], || 2.0);
     let servers = clocks.clocks(Scene::Menu(MenuScreen::Servers));
     assert_eq!(servers.get("screen.entrance_push"), Some(&1.0));
 }

@@ -419,9 +419,14 @@ pub(super) fn session(gameplay: &super::gameplay::GameplayContext<'_>) -> Drawin
     }
 }
 /// Supports a packet-only configuration without introducing an empty component host.
-pub(super) fn publish_alone(scene: &mut render_scene::ModRenderScene, drawing: &Drawing) {
+/// Publishes packet drawing without a mod runtime and returns whether the scene's published
+/// content changed: its overlay buffers or personal output. Callers mark the scene changed only
+/// then, so steady frames extract nothing.
+pub(super) fn publish_alone(scene: &mut render_scene::ModRenderScene, drawing: &Drawing) -> bool {
+    let overlays = super::render::overlay_buffers(scene);
     drawing.publish_blocks(scene);
-    scene.apply_if_changed(&drawing.output);
+    let overlays_changed = super::render::overlay_buffers(scene) != overlays;
+    scene.apply_if_changed(&drawing.output) || overlays_changed
 }
 
 #[cfg(test)]
@@ -501,7 +506,10 @@ mod tests {
                 .any(|layer| Arc::ptr_eq(layer, &server))
         );
         let generation = scene.generation();
-        publish_alone(&mut scene, &drawing);
+        assert!(
+            !publish_alone(&mut scene, &drawing),
+            "an unchanged drawing republishes nothing"
+        );
         assert_eq!(scene.generation(), generation);
     }
 
@@ -521,7 +529,10 @@ mod tests {
         publish_alone(&mut scene, &drawing);
         assert!(!scene.retained.is_empty());
         let generation = scene.generation();
-        publish_alone(&mut scene, &drawing);
+        assert!(
+            !publish_alone(&mut scene, &drawing),
+            "an unchanged drawing republishes nothing"
+        );
         assert_eq!(scene.generation(), generation);
     }
 }

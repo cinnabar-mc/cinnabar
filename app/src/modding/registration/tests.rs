@@ -97,6 +97,7 @@ fn world() -> (World, Receiver<Message>, Receiver<Retired>) {
         settings: Arc::new(Mutex::new(BTreeMap::new())),
         drawing: Arc::new(Mutex::new(BTreeMap::new())),
         companions: Arc::new(Mutex::new(Vec::new())),
+        authority: Mutex::new(None),
     });
     (world, incoming, retiring)
 }

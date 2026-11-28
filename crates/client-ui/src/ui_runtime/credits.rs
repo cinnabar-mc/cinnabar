@@ -114,6 +114,11 @@ impl CreditsState {
         }
     }
 
+    /// Whether a completion waits for [`Self::flush`].
+    pub const fn has_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
     pub fn flush(
         &mut self,
         current_runtime_id: Option<u64>,

@@ -28,6 +28,11 @@ impl UiRuntime {
         &self.session.chat_source_name
     }
 
+    /// The local player's display name chat mentions match.
+    pub fn local_player_display_name(&self) -> &str {
+        &self.session.local_player_display_name
+    }
+
     /// Updates the local actor's presentation name without changing outbound chat identity.
     pub fn set_local_player_display_name(&mut self, name: Arc<str>) {
         self.session.local_player_display_name = name;

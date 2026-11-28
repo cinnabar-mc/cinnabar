@@ -10,7 +10,7 @@ use super::reload_environment::{
 };
 use super::resource_packs::{self, PackApplication};
 use crate::runtime::world::ClientWorld;
-use bevy::prelude::{Query, Res, ResMut, Resource};
+use bevy::prelude::{Res, ResMut, Resource};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 use std::{
@@ -403,7 +403,8 @@ pub(crate) fn reload_resource_packs(
     mut entity_artwork: Option<ResMut<render_scene::ActorArtworkResource>>,
     equipment: Option<Res<client_presentation::presentation::equipment::EquipmentRuntime>>,
     gpu_reload: Option<Res<render_scene::ChunkTextureReload>>,
-    mut chunks: Query<&mut render_scene::ChunkRenderInstance>,
+    mut chunks: client_runtime::pack_geometry::ResidentChunkInstances,
+    chunk_changes: Option<Res<render_scene::ChunkInstanceChanges>>,
     mut render_queue: Option<ResMut<render_scene::ChunkRenderQueue>>,
     mut biome_tints: Option<ResMut<render_scene::ChunkBiomeTints>>,
     profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
@@ -522,7 +523,9 @@ pub(crate) fn reload_resource_packs(
                     return;
                 }
                 if let Some(gpu) = gpu_reload.as_ref()
-                    && reload.geometry.publish(&mut chunks, gpu)
+                    && reload
+                        .geometry
+                        .publish(&mut chunks, chunk_changes.as_deref(), gpu)
                     && textures.as_ref().is_some_and(|current| {
                         !current.assets().has_same_geometry(&prepared.assets)
                             || current.assets().biome_assets() != prepared.assets.biome_assets()
@@ -651,7 +654,7 @@ fn start_early_geometry(
     reload: &mut PackReload,
     stream: Option<&chunk_pipeline::WorldStream>,
     current: &render_scene::ChunkTextureAssets,
-    chunks: &Query<&mut render_scene::ChunkRenderInstance>,
+    chunks: &client_runtime::pack_geometry::ResidentChunkInstances,
     gpu: &render_scene::ChunkTextureReload,
 ) {
     let Some(pending) = reload.pending.as_mut() else {

@@ -3,14 +3,15 @@
 use super::UiRuntime;
 
 impl UiRuntime {
-    /// Expires retained HUD output and emits sounds when queued notifications start.
-    pub fn expire_hud(&mut self, now: u64) {
-        self.advance_toasts(now, |name| crate::sound_requests::ui_sound(name, 1.0, 1.0));
+    /// Expires retained HUD output and emits sounds when queued notifications start; whether
+    /// anything changed besides the HUD's presentation clock.
+    pub fn expire_hud(&mut self, now: u64) -> bool {
+        self.advance_toasts(now, |name| crate::sound_requests::ui_sound(name, 1.0, 1.0))
     }
 
     /// Advances notification presentation through the caller's sound sink.
-    fn advance_toasts(&mut self, now: u64, mut sound: impl FnMut(&'static str)) {
-        self.session.hud.expire(now);
+    fn advance_toasts(&mut self, now: u64, mut sound: impl FnMut(&'static str)) -> bool {
+        let changed = self.session.hud.expire(now);
         let Some(toast) = self
             .session
             .hud
@@ -18,7 +19,7 @@ impl UiRuntime {
             .front()
             .filter(|toast| toast.visible_at(now))
         else {
-            return;
+            return changed;
         };
         let identity = (
             toast.fifo_sequence,
@@ -28,7 +29,9 @@ impl UiRuntime {
         if self.session.last_sounded_toast != Some(identity) {
             self.session.last_sounded_toast = Some(identity);
             sound(crate::sound_requests::TOAST);
+            return true;
         }
+        changed
     }
 }
 

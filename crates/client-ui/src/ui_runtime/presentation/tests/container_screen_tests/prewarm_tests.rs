@@ -634,3 +634,123 @@ fn rejoining_prepares_a_fresh_inventory_lifetime_before_open() {
     assert!(warm.engine_container_placed() - placed < 32);
     assert!(warm.engine_inventory_rebuilt() - bound < 16);
 }
+
+/// Closed-inventory preparation finishes during frames that would otherwise repeat, never on
+/// the frame that opens the inventory.
+#[test]
+fn inventory_preparation_finishes_while_frames_would_repeat() {
+    use crate::ui_runtime::presentation::{
+        FrameReuse, PendingUiPublication, PreviewCapture, render_prepared_ui,
+    };
+    let (mut presentation, mut runtime, mut player) = inventory_fixture(once_name_screen());
+    populate(&mut runtime, &mut player);
+    presentation.set_frame_reuse(FrameReuse::Skip);
+    let mut publish = |presentation: &mut UiPresentationRuntime, now: u64, unchanged: bool| {
+        let prepared = PendingUiPublication {
+            inventory: runtime.capture_presentation_inventory(&player),
+            preview: PreviewCapture {
+                skin: None,
+                ready: false,
+                pose: Default::default(),
+                shown: false,
+                hands: false,
+            },
+            item_icons: (None, None),
+            now_millis: now,
+            physical_size: [320, 240],
+            dpi_scale: DpiScale::new(1.0).unwrap(),
+        };
+        render_prepared_ui(&player, &mut runtime, presentation, prepared, unchanged).unwrap()
+    };
+    assert!(publish(&mut presentation, 0, false).is_some());
+    let mut now = 0;
+    test_time::eventually(
+        "closed-inventory preparation under unchanged frames",
+        || {
+            now += 16;
+            publish(&mut presentation, now, true);
+            !presentation.engine_inventory_preparation_pending()
+        },
+    );
+}
+
+/// The open creative grid shows a trimmed stack, so its art is requested. A prepared inventory
+/// keeps its projected inputs across opening and closing, so the projected stacks stay the same,
+/// but a closed inventory shows no creative stacks: the art the open frame requested is not
+/// requested again.
+#[test]
+fn closing_a_prepared_inventory_stops_requesting_the_open_screens_art() {
+    use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
+    let (mut presentation, mut runtime, mut player) = inventory_fixture(once_name_screen());
+    populate(&mut runtime, &mut player);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Creative(CreativeContentEvent {
+            groups: vec![CreativeGroup {
+                category: CreativeCategory::Equipment,
+                name: "".into(),
+                icon: None,
+            }]
+            .into(),
+            items: vec![CreativeItem {
+                creative_network_id: 1,
+                stack: NetworkItemStack {
+                    network_id: 7,
+                    count: 1,
+                    ..NetworkItemStack::empty()
+                },
+                group: 0,
+            }]
+            .into(),
+            skipped: 0,
+        }));
+    let trim = render_api::ItemTrim {
+        material: "gold".into(),
+        pattern: "sentry".into(),
+    };
+    let resolve = |stack: &NetworkItemStack| {
+        (stack.network_id == 7).then(|| client_world::CanonicalItemStack {
+            trim: Some(trim.clone()),
+            identifier: Some(Arc::from("fixture:coat")),
+            ..crate::test_support::fixture_item("fixture:coat")
+        })
+    };
+    let observe = |presentation: &mut UiPresentationRuntime,
+                   runtime: &UiRuntime,
+                   player: &player_state::PlayerState| {
+        crate::ui_runtime::presentation::publish::prepare_shield_art(
+            player,
+            runtime,
+            presentation,
+            None,
+            resolve,
+        );
+        presentation
+            .inventory_cache
+            .as_ref()
+            .unwrap()
+            .requested_trims()
+    };
+    // Prewarming prepares the closed inventory, which keeps its projected inputs.
+    draw(&mut presentation, &runtime, &player, 0);
+    assert!(
+        presentation.inventory_inputs_needed(&player, &runtime),
+        "the prepared inventory keeps its inputs"
+    );
+    observe(&mut presentation, &runtime, &player);
+    runtime.toggle_inventory(&mut player, None);
+    assert_eq!(
+        observe(&mut presentation, &runtime, &player),
+        std::slice::from_ref(&trim),
+        "the open creative grid shows the trimmed stack"
+    );
+    runtime.toggle_inventory(&mut player, None);
+    assert_eq!(
+        observe(&mut presentation, &runtime, &player),
+        [],
+        "a closed inventory shows no creative stacks"
+    );
+}

@@ -20,24 +20,29 @@ pub(super) struct UiModelDepths {
 }
 
 impl UiModelDepths {
-    pub(super) fn synchronize_device(&mut self, device: &RenderDevice) {
-        if self.device.as_ref() != Some(device.wgpu_device()) {
-            self.views.clear();
-            self.failed = Default::default();
-            self.device = Some(device.wgpu_device().clone());
+    /// Drops every depth target of another device; whether it did.
+    pub(super) fn synchronize_device(&mut self, device: &RenderDevice) -> bool {
+        if self.device.as_ref() == Some(device.wgpu_device()) {
+            return false;
         }
+        self.views.clear();
+        self.failed = Default::default();
+        self.device = Some(device.wgpu_device().clone());
+        true
     }
 
+    /// Gives `owner` a depth surface matching `layer`; whether it has one afterwards. A failed
+    /// allocation retries with backoff on later calls.
     pub(super) fn ensure(
         &mut self,
         owner: Entity,
         layer: &super::composite::UiLayerTexture,
         device: &RenderDevice,
-    ) {
+    ) -> bool {
         let color = &layer.texture;
         let size = color.size();
         let samples = color.sample_count();
-        self.ensure_surface(owner, size, samples, device);
+        self.ensure_surface(owner, size, samples, device)
     }
 
     fn ensure_surface(
@@ -46,13 +51,13 @@ impl UiModelDepths {
         size: Extent3d,
         samples: u32,
         device: &RenderDevice,
-    ) {
+    ) -> bool {
         if self
             .views
             .get(&owner)
             .is_some_and(|depth| depth.size == size && depth.samples == samples)
         {
-            return;
+            return true;
         }
         // Without compatible depth, depth-enabled model batches skip until allocation recovers.
         self.views.remove(&owner);
@@ -71,7 +76,7 @@ impl UiModelDepths {
                 })
             })
         }) else {
-            return;
+            return false;
         };
         let view = texture.create_view(&TextureViewDescriptor::default());
         self.views.insert(
@@ -83,6 +88,7 @@ impl UiModelDepths {
                 samples,
             },
         );
+        true
     }
 
     pub(super) fn compatible(

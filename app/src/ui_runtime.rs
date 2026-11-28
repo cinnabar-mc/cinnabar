@@ -1,4 +1,5 @@
 //! App systems driving client-ui; the app retains system ordering and services.
+use bevy::prelude::DetectChangesMut;
 use client_shell::ui_resources::UiRuntimeResource;
 use client_ui::ui_runtime::UiRuntime;
 #[cfg(not(target_arch = "wasm32"))]
@@ -13,6 +14,8 @@ pub(crate) mod emotes;
 pub mod forms;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod gameplay_touch;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod idle_screens;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod input_owner;
 #[cfg(not(target_arch = "wasm32"))]
@@ -50,5 +53,11 @@ pub(crate) fn drain_inventory_authority(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut runtime: bevy::prelude::ResMut<UiRuntimeResource>,
 ) {
-    runtime.drain_pending_inventory(&mut player_runtime);
+    if runtime
+        .bypass_change_detection()
+        .drain_pending_inventory(player_runtime.bypass_change_detection())
+    {
+        runtime.set_changed();
+        player_runtime.set_changed();
+    }
 }

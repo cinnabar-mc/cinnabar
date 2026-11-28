@@ -1,7 +1,7 @@
 //! Publishes atmosphere and lighting from app-owned UI, settings, and camera inputs.
 
 use bevy::{
-    prelude::{Local, Query, Res, ResMut, Time, Transform, With},
+    prelude::{DetectChangesMut, Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
 };
 use launcher::menu::settings_options::SettingId;
@@ -109,25 +109,32 @@ pub(crate) fn update_atmosphere_frame(
     let cloud_chunks = options
         .as_ref()
         .map(|options| options.value(SettingId::CloudDistance).clamp(8, 128) as u16);
+    // These outputs are extracted to the render world whenever they change, so each is written
+    // only when its value does.
     if let Some(mut clouds) = clouds {
-        clouds.0 = options
-            .as_ref()
-            .is_none_or(|options| options.value(SettingId::RenderClouds) != 0);
+        clouds.set_if_neq(render_scene::CloudVisibility(
+            options
+                .as_ref()
+                .is_none_or(|options| options.value(SettingId::RenderClouds) != 0),
+        ));
     }
     if let (Some(mut cloud_distance), Some(chunks)) = (cloud_distance, cloud_chunks) {
-        cloud_distance.0 = chunks;
+        cloud_distance.set_if_neq(render_scene::CloudDistanceChunks(chunks));
     }
     if let Some(mut skybox) = skybox {
-        skybox.visible = options
-            .as_ref()
-            .is_none_or(|options| options.value(SettingId::FancySkies) != 0)
-            && !vision.sky_hidden;
-        skybox.native_vertical_offset = options.as_ref().map_or_else(
-            || settings.user_settings_update().1.video.native_skybox_offset,
-            |options| {
-                options.value(launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0
-            },
-        );
+        skybox.set_if_neq(render_scene::SkyboxSettings {
+            visible: options
+                .as_ref()
+                .is_none_or(|options| options.value(SettingId::FancySkies) != 0)
+                && !vision.sky_hidden,
+            native_vertical_offset: options.as_ref().map_or_else(
+                || settings.user_settings_update().1.video.native_skybox_offset,
+                |options| {
+                    options.value(launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.id)
+                        != 0
+                },
+            ),
+        });
     }
     let darkness_scale = options.as_ref().map_or(1.0, |options| {
         options.value(SettingId::Darkness) as f32 / 100.0
@@ -140,14 +147,14 @@ pub(crate) fn update_atmosphere_frame(
         server_shown.with_visual_weather(levels)
     });
     let fog_level = weather_override.map_or_else(|| display.fog_level(), |levels| levels[0]);
-    *view_inputs = render_scene::AtmosphereViewInputs {
+    view_inputs.set_if_neq(render_scene::AtmosphereViewInputs {
         forward: cameras
             .single()
             .map_or([0.0; 3], |transform| transform.forward().to_array()),
         fog_weather_level: fog_level,
         current_rain_level: weather_override
             .map_or_else(|| display.current_rain_level(), |levels| levels[0]),
-    };
+    });
     display.publish_ticks(&mut weather_ticks);
     let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
     let submerged = display.submerged_seconds(medium.0);
@@ -197,7 +204,7 @@ pub(crate) fn update_atmosphere_frame(
             1.055 * c.powf(1.0 / 2.4) - 0.055
         };
     }
-    lighting.0 = render_model::LightmapInputs {
+    lighting.set_if_neq(render_scene::WorldLighting(render_model::LightmapInputs {
         // Vanilla's ordinary renderer sets the lightmap's ambient flag, which
         // applies both ambient stages around gamma;
         // omitting it crushes shaded terrain at night, despite matching gamma.
@@ -220,6 +227,6 @@ pub(crate) fn update_atmosphere_frame(
             0.45,
         ),
         ..Default::default()
-    };
+    }));
     *route = next_route;
 }

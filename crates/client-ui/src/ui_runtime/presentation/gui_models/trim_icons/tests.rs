@@ -250,3 +250,197 @@ fn trimmable_custom_armor_icons_draw_the_stack_trim() {
     }));
     assert_eq!(custom_world_texels(&masked, "gold"), None);
 }
+
+/// Repeated shield and trim observations keep exactly the trims a fresh observation would: a
+/// trim whose stack leaves the inventory retires while the other stays, and replaced trim
+/// artwork recomposes although the stacks did not change.
+#[test]
+fn repeated_observations_retire_removed_trims_and_follow_artwork_reloads() {
+    let gold = render_api::ItemTrim {
+        material: "gold".into(),
+        pattern: "sentry".into(),
+    };
+    let diamond = render_api::ItemTrim {
+        material: "minecraft:diamond".into(),
+        pattern: "sentry".into(),
+    };
+    let art = protocol::CustomArmorTrim {
+        icon_mask: None,
+        icon_palettes: [(
+            Arc::from("gold"),
+            Arc::from("textures/trims/color_palettes/fixture_gold"),
+        )]
+        .into_iter()
+        .collect(),
+    };
+    let mut presentation = custom_armor_presentation(Some(art));
+    let stack = |network_id: i32| protocol::NetworkItemStack {
+        network_id,
+        count: 1,
+        stack_network_id: network_id,
+        ..Default::default()
+    };
+    let hold = |player: &mut player_state::PlayerState, stacks: &[protocol::NetworkItemStack]| {
+        player
+            .inventory
+            .ledger_mut()
+            .apply(&protocol::InventoryEvent::Content(
+                protocol::InventoryContentEvent {
+                    container: protocol::ContainerIdentity::window(
+                        protocol::PLAYER_INVENTORY_WINDOW_ID,
+                    ),
+                    slots: stacks.to_vec().into(),
+                    storage_item: Default::default(),
+                },
+            ));
+    };
+    let mut player = player_state::PlayerState::new(1);
+    hold(&mut player, &[stack(1), stack(2)]);
+    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    let resolve = |stack: &protocol::NetworkItemStack| {
+        Some(client_world::CanonicalItemStack {
+            trim: Some(if stack.network_id == 1 {
+                gold.clone()
+            } else {
+                diamond.clone()
+            }),
+            identifier: Some(Arc::from("fixture:coat")),
+            ..crate::test_support::fixture_item("fixture:coat")
+        })
+    };
+    let observe = |presentation: &mut UiPresentationRuntime, player: &player_state::PlayerState| {
+        crate::ui_runtime::presentation::publish::prepare_shield_art(
+            player,
+            &runtime,
+            presentation,
+            None,
+            resolve,
+        );
+        presentation.finish_trim_art();
+    };
+    let packed = |presentation: &UiPresentationRuntime| {
+        let cache = presentation.gui_models.trim_icons.cache.lock().unwrap();
+        cache
+            .images
+            .keys()
+            .map(|key| key.trim.material.clone())
+            .collect::<BTreeSet<_>>()
+    };
+    for _ in 0..3 {
+        observe(&mut presentation, &player);
+        assert_eq!(
+            packed(&presentation),
+            BTreeSet::from(["gold".into(), "minecraft:diamond".into()])
+        );
+    }
+    hold(&mut player, &[stack(1)]);
+    observe(&mut presentation, &player);
+    observe(&mut presentation, &player);
+    assert_eq!(packed(&presentation), BTreeSet::from(["gold".into()]));
+
+    // Replaced trim artwork recomposes while the stacks stay the same.
+    let texel = |presentation: &UiPresentationRuntime| {
+        let icon = presentation.trim_icon("fixture:coat", 0, &gold, None)?;
+        let page = &presentation.gui_models.trim_icons.pages()[usize::from(icon.page)
+            - presentation.textures.dynamic_start()
+            - render_model::UI_TRIM_PAGE_OFFSET];
+        let [x, y, _, _] = icon.uv;
+        let at = (usize::from(y) * page.dimensions()[0] as usize + usize::from(x)) * 4;
+        Some(page.pixels()[at..at + 4].to_vec())
+    };
+    assert_eq!(texel(&presentation).as_deref(), Some(&[1, 2, 3, 255][..]));
+    let mut textures = presentation
+        .equipment_catalog
+        .as_ref()
+        .unwrap()
+        .textures()
+        .to_vec();
+    for texture in &mut textures {
+        if texture.identifier.as_ref() == "textures/trims/color_palettes/fixture_gold" {
+            texture.rgba8 = Arc::from([9, 8, 7, 255]);
+        }
+    }
+    presentation.set_equipment_catalog(Some(Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts([8; 32], Vec::new(), textures).unwrap(),
+    )));
+    observe(&mut presentation, &player);
+    observe(&mut presentation, &player);
+    assert_eq!(texel(&presentation).as_deref(), Some(&[9, 8, 7, 255][..]));
+}
+
+/// Compositions a recording marked survive the sweep when marked again; once one is gone,
+/// marking again refuses, so the calls that compose it run instead.
+#[test]
+fn recorded_trim_marks_keep_compositions_until_one_is_gone() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let texture = |identifier: &str, pixel: [u8; 4]| assets::EquipmentTexture {
+        identifier: identifier.into(),
+        width: 1,
+        height: 1,
+        rgba8: Arc::from(pixel),
+    };
+    presentation.set_equipment_catalog(Some(Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [7; 32],
+            Vec::new(),
+            vec![
+                texture("textures/trims/sentry", [100, 100, 100, 255]),
+                texture(
+                    "textures/trims/color_palettes/trim_palette",
+                    [100, 100, 100, 255],
+                ),
+                texture("textures/trims/color_palettes/gold", [240, 170, 20, 255]),
+            ],
+        )
+        .unwrap(),
+    )));
+    let base = player_preview::PreviewTexture {
+        width: 1,
+        height: 1,
+        rgba: Arc::from([10, 20, 30, 255]),
+        tint: None,
+    };
+    let trim = render_api::ItemTrim {
+        material: "gold".into(),
+        pattern: "sentry".into(),
+    };
+    presentation.gui_models.trim_icons.begin_frame();
+    presentation
+        .gui_models
+        .trim_icons
+        .record_marks(TrimMarks::default());
+    let preview = presentation
+        .trim_preview(
+            &base,
+            "textures/models/armor/diamond_1",
+            None,
+            &trim,
+            "minecraft:diamond_chestplate",
+        )
+        .unwrap();
+    let marks = presentation.gui_models.trim_icons.take_marks();
+    presentation.finish_trim_art();
+    for _ in 0..3 {
+        presentation.gui_models.trim_icons.begin_frame();
+        assert!(presentation.gui_models.trim_icons.mark_again(&marks));
+        presentation.finish_trim_art();
+        assert!(
+            presentation
+                .gui_models
+                .trim_icons
+                .region(&preview)
+                .is_some()
+        );
+    }
+    presentation.gui_models.trim_icons.begin_frame();
+    presentation.finish_trim_art();
+    assert!(
+        presentation
+            .gui_models
+            .trim_icons
+            .region(&preview)
+            .is_none()
+    );
+    assert!(!presentation.gui_models.trim_icons.mark_again(&marks));
+}

@@ -60,6 +60,64 @@ pub(super) fn animation_view(
         })
 }
 
+/// The last animation view with the camera it was built from; an unchanged camera reuses it.
+#[derive(Default)]
+pub(super) struct AnimationViewMemo(
+    Option<(
+        [u32; 10],
+        [u32; 3],
+        Option<actor_animation::ActorAnimationView>,
+    )>,
+);
+
+impl AnimationViewMemo {
+    /// [`animation_view`] for this camera, rebuilt only when its transform or perspective changes.
+    pub(super) fn view(
+        &mut self,
+        transform: &bevy::prelude::Transform,
+        projection: &Projection,
+    ) -> Option<actor_animation::ActorAnimationView> {
+        let Projection::Perspective(perspective) = projection else {
+            return animation_view(transform, projection);
+        };
+        // The fields `animation_view` reads.
+        let perspective =
+            [perspective.fov, perspective.aspect_ratio, perspective.near].map(f32::to_bits);
+        // Compared by bits, so signed zeros and other equal floats that build different views
+        // never share one.
+        let placement = [
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z,
+            transform.rotation.w,
+            transform.scale.x,
+            transform.scale.y,
+            transform.scale.z,
+        ]
+        .map(f32::to_bits);
+        if let Some((cached_placement, cached_perspective, view)) = &self.0
+            && *cached_placement == placement
+            && *cached_perspective == perspective
+        {
+            #[cfg(any(test, debug_assertions))]
+            {
+                let fresh = animation_view(transform, projection);
+                assert!(
+                    crate::reuse_check::same_debug(view, &fresh),
+                    "a reused animation view must match a fresh one: {view:?} != {fresh:?}"
+                );
+            }
+            return *view;
+        }
+        let view = animation_view(transform, projection);
+        self.0 = Some((placement, perspective, view));
+        view
+    }
+}
+
 impl super::ActorPresentationState<'_, '_> {
     /// Keeps the hand's independent perspective through the world's portal projection.
     pub(super) fn hand_camera_fov(&self) -> Option<f32> {

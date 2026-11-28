@@ -215,6 +215,11 @@ impl Session {
         self.rate = None;
     }
 
+    /// Whether an authorized handshake packet waits for [`Self::take_outbound`].
+    pub fn outbound_pending(&self) -> bool {
+        self.outbound.is_some()
+    }
+
     /// Takes only an already authorized handshake packet.
     pub fn take_outbound(&mut self) -> Option<Vec<u8>> {
         self.outbound.take()

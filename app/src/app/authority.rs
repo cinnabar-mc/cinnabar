@@ -1,6 +1,7 @@
 //! Shared production commit-to-input authority registrations.
 use super::*;
 use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_before_authority};
+use crate::ui_runtime::idle_screens::{IdleScreenReaders, screen_readers_due};
 
 /// UI readers that leave the whole frame's input to a server experience's consent prompt.
 ///
@@ -8,6 +9,14 @@ use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_befor
 /// reader in the authority chain.
 #[derive(bevy::prelude::SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct OrdinaryInputSet;
+
+/// The in-world inventory key and held-book reader's production registration. It stays out of
+/// `RawInputReaders`: a world tap presses Use a few frames after its finger lifts, on a frame
+/// that may carry no raw input, and the reader must still see that press.
+pub(crate) fn world_inventory_keys()
+-> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    drive_world_inventory_keys.in_set(OrdinaryInputSet)
+}
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
@@ -60,14 +69,20 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         (
             crate::ui_runtime::input_owner::decide_input_owner,
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
-            drive_sign_editor.in_set(OrdinaryInputSet),
-            drive_command_block.in_set(OrdinaryInputSet),
+            drive_sign_editor
+                .in_set(OrdinaryInputSet)
+                .in_set(IdleScreenReaders),
+            drive_command_block
+                .in_set(OrdinaryInputSet)
+                .in_set(IdleScreenReaders),
             drive_server_form_input.in_set(OrdinaryInputSet),
             // Runs while consent owns input too, to drain the ordered events it must not replay.
             crate::ui_runtime::data_driven::drive_data_driven_input,
-            crate::ui_runtime::emotes::drive_emote_input,
-            crate::ui_runtime::mob_effects::drive_mob_effect_screen_input,
-            drive_chat_ui_actions.in_set(OrdinaryInputSet),
+            crate::ui_runtime::emotes::drive_emote_input.in_set(IdleScreenReaders),
+            crate::ui_runtime::mob_effects::drive_mob_effect_screen_input.in_set(IdleScreenReaders),
+            drive_chat_ui_actions
+                .in_set(OrdinaryInputSet)
+                .in_set(IdleScreenReaders),
             drain_inventory_authority,
             drive_chat_keyboard_input
                 .in_set(OrdinaryInputSet)
@@ -79,7 +94,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),
             synchronize_semantic_input_authority.after(client_state::ShellFrameSet::Focus),
-            drive_world_inventory_keys.in_set(OrdinaryInputSet),
+            world_inventory_keys(),
         )
             .chain()
             .in_set(ClientFrameSet::UiAuthority),
@@ -88,6 +103,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         Update,
         OrdinaryInputSet.run_if(client_extensions::server_experiences::input::ordinary_input),
     )
+    .configure_sets(Update, IdleScreenReaders.run_if(screen_readers_due))
     .add_systems(
         Update,
         (

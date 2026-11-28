@@ -23,6 +23,16 @@ pub(in super::super) struct PlayerLayers {
     pub(super) live: Vec<LiveLayer>,
     pub(super) visibility: actor_animation::RenderVisibility,
     pub(super) held_item_scale: Option<f32>,
+    /// The last capture, set aside at the start of a frame until it captures again or repeats.
+    parked: Option<Capture>,
+}
+
+/// One frame's captured controller layers.
+struct Capture {
+    layers: Vec<(ModelGeometry, actor_animation::RenderTextureLayer, IconRef)>,
+    live: Vec<LiveLayer>,
+    visibility: actor_animation::RenderVisibility,
+    held_item_scale: Option<f32>,
 }
 
 /// One UI-context controller draw, retaining authored order across body and alternate geometry.
@@ -41,6 +51,68 @@ impl PlayerLayers {
         self.held_item_scale = None;
     }
 
+    /// Sets this frame's capture aside, leaving none, until the frame captures again or repeats
+    /// it with [`Self::restore_capture`].
+    pub(super) fn park_capture(&mut self) {
+        self.parked = Some(Capture {
+            layers: std::mem::take(&mut self.layers),
+            live: std::mem::take(&mut self.live),
+            visibility: std::mem::take(&mut self.visibility),
+            held_item_scale: self.held_item_scale.take(),
+        });
+    }
+
+    /// Takes back the storage of the capture [`Self::park_capture`] set aside, emptied, for a
+    /// frame that captures again. A capture repeated later in the frame keeps the new one.
+    pub(super) fn reclaim_capture(&mut self) {
+        if let Some(parked) = self.parked.take() {
+            self.layers = parked.layers;
+            self.live = parked.live;
+            self.clear_capture();
+        }
+    }
+
+    /// Restores the capture [`Self::park_capture`] set aside, for a frame that repeats it; after
+    /// [`Self::reclaim_capture`] the current capture stands.
+    pub(super) fn restore_capture(&mut self) {
+        if let Some(parked) = self.parked.take() {
+            self.layers = parked.layers;
+            self.live = parked.live;
+            self.visibility = parked.visibility;
+            self.held_item_scale = parked.held_item_scale;
+        }
+    }
+
+    /// The session pack the layers come from.
+    pub(super) fn source(&self) -> Option<&Arc<assets::SessionEntityPack>> {
+        self.source.as_ref()
+    }
+
+    /// A digest of the captured layers, computed without allocating.
+    #[cfg(debug_assertions)]
+    pub(super) fn capture_digest(&self) -> u64 {
+        use super::live_player::debug_digest;
+        let mut digest = debug_digest(&(self.visibility, self.held_item_scale));
+        for live in &self.live {
+            let model = live
+                .model
+                .as_ref()
+                .map(|model| (model.geometry.is_some(), &model.transforms));
+            digest =
+                digest
+                    .rotate_left(7)
+                    .wrapping_add(debug_digest(&(model, &live.layer, live.icon)));
+        }
+        for (geometry, layer, icon) in &self.layers {
+            digest = digest.rotate_left(7).wrapping_add(debug_digest(&(
+                &geometry.transforms,
+                layer,
+                icon,
+            )));
+        }
+        digest
+    }
+
     /// Whether the level-view doll has any drawable additional controller geometry.
     pub(super) fn has_layers(&self) -> bool {
         !self.layers.is_empty()
@@ -49,20 +121,25 @@ impl PlayerLayers {
 
 impl UiPresentationRuntime {
     /// Replaces the immutable catalog; geometry and texture identities never cross pack changes.
-    pub fn set_preview_player_layers(&mut self, source: Option<Arc<assets::SessionEntityPack>>) {
+    /// Whether the pack changed.
+    pub fn set_preview_player_layers(
+        &mut self,
+        source: Option<Arc<assets::SessionEntityPack>>,
+    ) -> bool {
         let old = &self.gui_models.player_layers.source;
         if match (old, &source) {
             (Some(old), Some(new)) => Arc::ptr_eq(old, new),
             (None, None) => true,
             _ => false,
         } {
-            return;
+            return false;
         }
         self.gui_models.player_layers = PlayerLayers {
             source,
             ..Default::default()
         };
         self.rebuild_dynamic_textures();
+        true
     }
 
     /// Whether this session can supply authored player-controller layers to HUD controls.

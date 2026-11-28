@@ -10,16 +10,23 @@ pub struct HandRigFrame {
     pub light: HandRigLight,
     pub fov_radians: f32,
     pub revision: u64,
+    /// Assigned by [`HandRigScene::publish`] and advanced by every edit through the scene's
+    /// setters, so no two frame states a scene shows share it.
+    pub publication: u64,
     pub item_atlases: [Option<HandItemAtlas>; 3],
     /// The held-item glint raster for item instances drawn with the glint material.
     pub item_glint: Option<EquipmentRaster>,
 }
 
-/// Published by the app each frame the first-person hand should draw; empty otherwise.
+/// Published by the app each frame the first-person hand should draw; empty otherwise. Edit the
+/// held frame through the scene's methods, which give each new state its own publication token.
 #[derive(Clone, Default, Debug, Resource, ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct HandRigScene {
-    pub frame: Option<HandRigFrame>,
+    /// Private, so every change goes through a method that advances the publication token.
+    frame: Option<HandRigFrame>,
+    /// The last publication token handed out.
+    publications: u64,
 }
 
 impl HandRigScene {
@@ -54,12 +61,14 @@ impl HandRigScene {
             self.clear();
             return false;
         }
+        self.publications = self.publications.wrapping_add(1);
         self.frame = Some(HandRigFrame {
             rig,
             skin,
             light,
             fov_radians,
             revision,
+            publication: self.publications,
             item_atlases: [None, None, None],
             item_glint: None,
         });
@@ -84,6 +93,7 @@ impl HandRigScene {
             frame.item_atlases[0] = main;
             frame.item_atlases[1] = off;
         }
+        self.republish();
     }
 
     /// Shares the paper raster without copying or resizing it with changing map images.
@@ -99,6 +109,7 @@ impl HandRigScene {
                         == Some(atlas.rgba8.len())
             });
         }
+        self.republish();
     }
 
     /// Supplies the held-item glint raster of the published frame; ignored when inactive or
@@ -112,6 +123,27 @@ impl HandRigScene {
         if let Some(frame) = &mut self.frame {
             frame.item_glint = glint.filter(valid);
         }
+        self.republish();
+    }
+
+    /// Gives the held frame a new publication token after an edit that changes what it draws.
+    fn republish(&mut self) {
+        if let Some(frame) = &mut self.frame {
+            self.publications = self.publications.wrapping_add(1);
+            frame.publication = self.publications;
+        }
+    }
+
+    /// The frame the scene holds, if any.
+    #[must_use]
+    pub fn frame(&self) -> Option<&HandRigFrame> {
+        self.frame.as_ref()
+    }
+
+    /// The publication token of the frame the scene holds, if any.
+    #[must_use]
+    pub fn publication(&self) -> Option<u64> {
+        self.frame.as_ref().map(|frame| frame.publication)
     }
 
     #[must_use]

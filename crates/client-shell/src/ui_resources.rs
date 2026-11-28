@@ -19,3 +19,19 @@ impl Default for FrameInputOwner {
 /// Retained UI presentation: fonts, icons, screens and the published frame.
 #[derive(Resource, Deref, DerefMut)]
 pub struct UiPresentationResource(pub UiPresentationRuntime);
+
+/// Applies `mutate` to a resource without marking it changed unless `mutate` reports a change.
+///
+/// Systems that usually change nothing use this so an idle frame leaves the resource's change
+/// tick alone; the UI frame's revision reads the ticks of these resources and the player
+/// runtime. `mutate` must return `true` whenever it changed anything a reader can observe.
+pub fn update<T: ?Sized>(
+    resource: &mut impl bevy::prelude::DetectChangesMut<Inner = T>,
+    mutate: impl FnOnce(&mut T) -> bool,
+) -> bool {
+    let changed = mutate(resource.bypass_change_detection());
+    if changed {
+        resource.set_changed();
+    }
+    changed
+}

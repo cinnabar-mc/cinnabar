@@ -43,12 +43,13 @@ impl UiRuntime {
         player_runtime.inventory.pop_inventory_event()
     }
 
+    /// Follows the stream's committed crafting frontier; whether anything changed.
     pub fn synchronize_crafting_frontier(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         session: u64,
         identity: Option<(u64, u64, Option<u64>)>,
-    ) {
+    ) -> bool {
         player_runtime
             .inventory
             .synchronize_crafting_frontier(session, identity)

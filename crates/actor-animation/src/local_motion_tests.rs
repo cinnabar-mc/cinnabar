@@ -622,3 +622,103 @@ fn local_gait_corrections_preserve_intervening_and_consecutive_hurt_events() {
         "a new movement tick consumes the boost"
     );
 }
+
+/// A frame refresh of the local view leaves the revision of every rig it does not refresh.
+#[test]
+fn local_view_refresh_stamps_only_the_local_rig() {
+    let (mut actors, mut store) = fixture();
+    let mut other = actors[&1].clone();
+    other.runtime_id = 2;
+    other.unique_id = 2;
+    store.insert(1, 0, &other);
+    actors.insert(2, other);
+    let context = ActorTickContext {
+        is_local: true,
+        ..Default::default()
+    };
+    store.advance_tick(&actors, None, Some(1), true, true, |_| context.clone());
+    let remote = store.get(2).unwrap().presentation_revision;
+    let local = store.get(1).unwrap().presentation_revision;
+    store.refresh_local_view(&actors, 1, |_| context.clone());
+    assert_ne!(store.get(1).unwrap().presentation_revision, local);
+    assert_eq!(
+        store.get(2).unwrap().presentation_revision,
+        remote,
+        "a rig the refresh skips keeps its revision"
+    );
+}
+
+/// Per-frame local setters that repeat their values, apart from the frame fractions, keep the
+/// rig's presentation revision; real changes and ticks advance it.
+#[test]
+fn repeated_local_frame_inputs_keep_the_presentation_revision() {
+    let (actors, mut store) = fixture();
+    let authority = (
+        SessionGeneration::new(1),
+        PositionAuthorityGeneration::new(1),
+    );
+    let context = ActorTickContext {
+        is_local: true,
+        ..Default::default()
+    };
+    store.advance_tick(&actors, None, Some(1), true, true, |_| context.clone());
+    let progress = |alpha| LocalSwingProgress {
+        bedrock: [0.25, 0.5],
+        java: [0.1, 0.2],
+        frame_alpha: Some(alpha),
+    };
+    store.sync_local_swing(1, progress(0.2));
+    store.sync_local_swing_motion(1, authority, [sample(5, 30.0, progress(0.2))]);
+    let revision = store.get(1).unwrap().presentation_revision;
+    for alpha in [0.4, 0.6, 0.9] {
+        store.set_local_motion_authority(1, Some(authority));
+        assert!(!store.sync_local_swing(1, progress(alpha)));
+        store.sync_local_swing_motion(1, authority, [sample(5, 30.0, progress(alpha))]);
+        store.sync_skin_model(1, None);
+        let rig = store.get(1).unwrap();
+        assert_eq!(rig.presentation_revision, revision, "alpha {alpha}");
+        assert_eq!(rig.java.local_swing_alpha, Some(alpha));
+    }
+
+    assert!(store.sync_local_swing(
+        1,
+        LocalSwingProgress {
+            bedrock: [0.5, 0.75],
+            ..progress(0.9)
+        }
+    ));
+    let swung = store.get(1).unwrap().presentation_revision;
+    assert_ne!(swung, revision, "a new swing sample changes the rig");
+    store.sync_local_swing_motion(1, authority, [sample(6, 30.0, progress(0.1))]);
+    let walked = store.get(1).unwrap().presentation_revision;
+    assert_ne!(walked, swung, "a new physics tick changes the rig");
+    store.advance_tick(&actors, None, Some(1), true, false, |_| context.clone());
+    assert_ne!(store.get(1).unwrap().presentation_revision, walked);
+    store.set_local_motion_authority(1, None);
+    let released = store.get(1).unwrap().presentation_revision;
+    store.set_local_motion_authority(1, None);
+    assert_eq!(store.get(1).unwrap().presentation_revision, released);
+    store.set_pack(None);
+    assert_ne!(
+        store.get(1).unwrap().presentation_revision,
+        released,
+        "a catalog change changes every rig's revision"
+    );
+}
+
+/// Revisions carry process-wide stamps, so equal histories in two stores never compare equal.
+#[test]
+fn revisions_from_different_stores_never_match() {
+    let (actors, mut first) = fixture();
+    let (_, mut second) = fixture();
+    let context = |_: &TestActor| ActorTickContext {
+        is_local: true,
+        ..Default::default()
+    };
+    first.advance_tick(&actors, None, Some(1), true, true, context);
+    second.advance_tick(&actors, None, Some(1), true, true, context);
+    assert_ne!(
+        first.presentation_revision(1),
+        second.presentation_revision(1)
+    );
+}

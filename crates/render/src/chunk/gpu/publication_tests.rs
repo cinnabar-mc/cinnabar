@@ -43,7 +43,8 @@ pub(in crate::chunk) fn noop_gpu_publication_app(
         .insert_resource(TransparentSortRuntime::default())
         .insert_resource(TransparentWitnessRequest::default())
         .insert_resource(TransparentWitnessEvidence::default())
-        .insert_resource(GpuUpdateFairness::default());
+        .insert_resource(GpuUpdateFairness::default())
+        .init_resource::<render_scene::ChunkInstanceChanges>();
     app.world_mut()
         .run_system_once(init_chunk_gpu_arena)
         .unwrap();

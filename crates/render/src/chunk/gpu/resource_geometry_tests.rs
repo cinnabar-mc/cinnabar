@@ -436,6 +436,7 @@ fn review_render_fairness_overflow_keeps_unchanged_uploads_discoverable() {
         .init_resource::<ChunkGpuRemovalQueue>()
         .init_resource::<TransparentRetirementFence>()
         .insert_resource(GpuUpdateFairness::with_limit(2))
+        .init_resource::<render_scene::ChunkInstanceChanges>()
         .add_systems(Update, prepare_gpu_chunks);
     for x in 0..3 {
         let mut instance = water(ChunkBiomeTintIdentity::default());

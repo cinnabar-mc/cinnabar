@@ -77,6 +77,14 @@ impl AttachablesRuntime {
             })
     }
 
+    /// Whether selecting `identifier`'s definition evaluates an owner condition, which may read
+    /// per-frame owner state such as the frame fraction.
+    pub fn has_item_condition(&self, identifier: &str) -> bool {
+        self.assets
+            .attachable_rig_binding(identifier)
+            .is_some_and(|binding| self.assets.rig_bindings()[binding].item_condition.is_some())
+    }
+
     /// Tests an owner condition within the caller's shared operation budget; absent rigs stay unresolved.
     pub fn matches_owner(
         &mut self,

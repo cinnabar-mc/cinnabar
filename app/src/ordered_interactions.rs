@@ -282,9 +282,13 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
         return;
     };
     let ordered = snapshot.ordered.as_ref().expect("ordered snapshot");
-    let mut runtime = world
-        .remove_resource::<InteractionRuntime>()
-        .unwrap_or_else(|| InteractionRuntime::with_existing_build_action(world));
+    // The runtime stays in the world as an empty placeholder while this drain owns it, sparing
+    // a resource removal and insertion every call. Only edge dispatch reads it, and dispatch
+    // removes the placeholder first so its systems still see no runtime.
+    let mut runtime = match world.get_resource_mut::<InteractionRuntime>() {
+        Some(mut placed) => std::mem::take(&mut *placed),
+        None => InteractionRuntime::with_existing_build_action(world),
+    };
     let authority = world
         .resource::<MovementTicker>()
         .interaction_authority_identity();
@@ -362,18 +366,17 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
     }
     run_cached(world, crate::item_use::ordered::flush_release, ())
         .expect("ordered release carrier");
-    let stop_ready = run_cached(
+    let stop_ready = crate::block_use::ordered::run_fence(
         world,
-        crate::block_use::ordered::fence,
         !active || snapshot.authority_released || runtime.frames.quarantined(),
-    )
-    .expect("accepted block stop carrier");
+    );
     if active
         && !snapshot.authority_released
         && !runtime.frames.quarantined()
         && stop_ready
         && !tail.is_empty()
     {
+        world.remove_resource::<InteractionRuntime>();
         let mut context = None;
         for edge in tail.iter().copied() {
             if accepted_work_pending(world)
@@ -455,7 +458,10 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
         || run_cached(world, crate::hotbar::ordered::flush_existing, ())
             .expect("older selection carrier");
     runtime.barrier_pending = !stop_ready || !selection_ready || maintenance_carrier_pending(world);
-    world.insert_resource(runtime);
+    match world.get_resource_mut::<InteractionRuntime>() {
+        Some(mut placed) => *placed = runtime,
+        None => world.insert_resource(runtime),
+    }
 }
 
 /// Hand edges capture the selected stack, so a pending selection must reach the server first.
@@ -474,12 +480,10 @@ fn selects_slot(edge: ActionEvent) -> bool {
 fn dispatch(world: &mut World, input: InteractionInput) {
     let edge = input.edge;
     if edge.action != Action::Use
-        && !run_cached(
+        && !crate::block_use::ordered::run_fence(
             world,
-            crate::block_use::ordered::fence,
             edge.action == Action::Attack && edge.pressed,
         )
-        .expect("older block stop carrier")
     {
         return;
     }

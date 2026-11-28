@@ -16,15 +16,17 @@ pub(super) fn capture(
     items: &ItemResolver<'_>,
     world: Option<client_world::ui_read::InventoryUi<'_>>,
     window_icons: &mut WindowIcons,
-) -> WindowText {
+) -> (WindowText, bool) {
     let runtime = items.runtime;
     let inventory_screen = InventoryScreen::of_runtime(player_runtime, runtime);
     let mut window_text = WindowText::default();
+    let mut book_changed = false;
     if items
         .presentation
         .inventory_preparation_needed(player_runtime, runtime)
     {
-        super::recipes::recipe_entries(player_runtime, items, inventory_screen, window_icons);
+        book_changed |=
+            super::recipes::recipe_entries(player_runtime, items, inventory_screen, window_icons);
     }
     if runtime.inventory_open() {
         capture_titles(
@@ -34,7 +36,8 @@ pub(super) fn capture(
             inventory_screen,
             &mut window_text,
         );
-        super::recipes::recipe_entries(player_runtime, items, inventory_screen, window_icons);
+        book_changed |=
+            super::recipes::recipe_entries(player_runtime, items, inventory_screen, window_icons);
         super::recipes::creative_page(player_runtime, items, inventory_screen, window_icons);
         super::recipes::screen_outputs(player_runtime, items, window_icons);
         super::recipes::book_page(
@@ -46,7 +49,7 @@ pub(super) fn capture(
         );
         capture_tooltip(player_runtime, items, &mut window_text);
     }
-    window_text
+    (window_text, book_changed)
 }
 
 /// Captures untranslated custom titles and the screen's localized labels.

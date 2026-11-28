@@ -21,14 +21,16 @@ use json_ui::{TextureMeta, parse_texture_meta};
 use render_model::UiTexturePage;
 
 use crate::revision::{AtlasRevision, Revision};
-use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
+use crate::sources::{ImageWork, LocalPack, RemoteSource, is_remote};
 
+mod fallbacks;
 pub(crate) mod fitted;
 mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
 mod outlines;
 mod oversized;
+mod pending_work;
 pub use oversized::{OversizedFrame, OversizedTextures};
 mod client_rasters;
 pub use client_rasters::LOCAL_PLAYER_HEAD;
@@ -297,6 +299,11 @@ pub struct ServerAtlas {
     carrier: Option<Arc<assets::RuntimeUiAssets>>,
     builtin: BuiltinImages,
     remote: Option<Arc<dyn RemoteSource>>,
+    /// Downloaded URLs a paint asked for while they were still loading.
+    loading_remote: RefCell<std::collections::BTreeSet<String>>,
+    /// Whether a paint this frame asked for a loading URL [`Self::loading_remote`] had no room
+    /// to track, so its completion cannot be noticed.
+    untracked_remote: std::cell::Cell<bool>,
     resident: BTreeMap<String, ServerTexture>,
     pages: Vec<Page>,
     images: Vec<UiTexturePage>,
@@ -332,6 +339,8 @@ struct Decodes {
     bytes: usize,
     failed: VecDeque<String>,
     jobs: fitted::FittedDecodes,
+    /// A miss of this frame's requires was left for a later frame's inline budget.
+    deferred: bool,
 }
 
 /// Where a missing texture's decode runs this frame.
@@ -357,11 +366,14 @@ impl DecodeOn {
 }
 
 impl Decodes {
-    /// Files finished worker decodes.
-    fn collect(&mut self) {
+    /// Files finished worker decodes; whether any finished.
+    fn collect(&mut self) -> bool {
+        let mut collected = false;
         while let Some((key, pixels)) = self.jobs.collect() {
             self.store(key, pixels);
+            collected = true;
         }
+        collected
     }
 
     fn store(&mut self, key: String, pixels: Option<Vec<u8>>) {
@@ -398,7 +410,10 @@ impl Decodes {
                 self.store(key.to_owned(), decode(&source.bytes, source.packed));
                 return self.pixels.get(key).cloned();
             }
-            DecodeOn::Later => return None,
+            DecodeOn::Later => {
+                self.deferred = true;
+                return None;
+            }
             DecodeOn::Worker => {}
         }
         self.jobs.request(key, source);
@@ -686,35 +701,6 @@ impl ServerAtlas {
         found
     }
 
-    /// The vanilla image or downloaded URL behind `key`. A vanilla miss is
-    /// remembered; a URL still loading is asked again next time.
-    fn fallback(&self, key: &str) -> Option<Source> {
-        if let Some(found) = self.extra.borrow().get(key) {
-            return found.clone();
-        }
-        let (found, settled) = if is_remote(key) {
-            match self.remote.as_ref()?.load(key) {
-                RemoteImage::Ready(bytes) => (source(bytes), true),
-                RemoteImage::Failed => (None, true),
-                RemoteImage::Loading | RemoteImage::ReadyWithoutBody => (None, false),
-            }
-        } else {
-            self.local_source(key)
-        };
-        if settled {
-            let mut extra = self.extra.borrow_mut();
-            // Cache admission also bounds diagnostics when misses churn.
-            if found.is_none() && extra.len() < MAX_EXTRA {
-                tracing::debug!(target: "server_form", key, "UI texture unresolved");
-            }
-            if extra.len() >= MAX_EXTRA {
-                extra.pop_first();
-            }
-            extra.insert(key.to_owned(), found.clone());
-        }
-        found
-    }
-
     pub fn placement(&self, key: &str) -> Option<ServerTexture> {
         self.resident.get(key).copied()
     }
@@ -739,7 +725,10 @@ impl ServerAtlas {
 
     /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
     pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
-        self.decodes.collect();
+        // A finished decode changes what a paint resolves, even before its texture is placed.
+        if self.decodes.collect() {
+            self.revision.bump();
+        }
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page
         // this frame still draws.

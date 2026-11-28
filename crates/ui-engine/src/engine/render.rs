@@ -1,6 +1,6 @@
 //! Layout and texture preparation, followed by painting only for visible screens.
 
-use std::{borrow::Borrow, cell::RefCell, ops::Range};
+use std::{borrow::Borrow, cell::RefCell, ops::Range, sync::Arc};
 
 use json_ui::{Draw, DrawNode, FormRender, HitRegion, LayoutEnv};
 use ui::FONT_DESIGN_PIXEL_TEXELS;
@@ -26,7 +26,19 @@ impl FormEngine {
         frame: &mut PaintFrame<'_>,
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
     ) -> Option<R> {
-        prepare_with(self.art(), frame, art, draw)
+        prepare_with(self.art(), frame, art, draw, None)
+    }
+
+    /// Whether `retained` kept its last paint and would reuse it while the paint's other inputs
+    /// hold: no animation it drew still runs.
+    pub fn retained_settled(&self, retained: &RetainedPaint) -> bool {
+        retained.settled(&self.animator)
+    }
+
+    /// Repeats `retained`'s settled paint bookkeeping at `now` for a frame that is not painted;
+    /// `false` when the paint would now draw differently.
+    pub fn repeat_retained(&self, retained: &RetainedPaint, now: f64) -> bool {
+        retained.repeat(&self.animator, now)
     }
 
     /// [`Self::draw`] that reuses `retained`'s last paint while the layout, frame, art, textures
@@ -41,7 +53,8 @@ impl FormEngine {
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
     ) -> Result<Option<EngineFrame>, PaintError> {
         let textures = self.art();
-        let Some(render) = prepare_with(textures, frame, art, draw) else {
+        let required = reusable(&art).then_some(&mut retained.required);
+        let Some(render) = prepare_with(textures, frame, art, draw, required) else {
             retained.forget();
             return Ok(None);
         };
@@ -61,12 +74,14 @@ impl FormEngine {
     }
 }
 
-/// Measures a screen and requests all textures its laid-out nodes and renderers use.
+/// Measures a screen and requests all textures its laid-out nodes and renderers use. A retained
+/// screen passes the keys it `required` last, reused while still current.
 fn prepare_with<R: Borrow<FormRender>>(
     textures: Art<'_>,
     frame: &mut PaintFrame<'_>,
     art: ScreenArt<'_>,
     draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    required: Option<&mut dependencies::RequiredKeys>,
 ) -> Option<R> {
     let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     let root = [
@@ -103,15 +118,34 @@ fn prepare_with<R: Borrow<FormRender>>(
         .unwrap_or_else(|poison| poison.into_inner())
         .get(&laid_render.nodes, art);
     let mut atlas = textures.set.lock();
-    let paths = dependencies::paths(&base, art, frame.renderers);
-    let drawn = Textures {
+    let view = |atlas| Textures {
         assets: textures.assets,
         set: textures.set,
-        atlas: &atlas,
+        atlas,
         images: art.images,
+    };
+    match required {
+        // Keys depend only on the layout, carrier, renderers' paths and texture sources.
+        Some(required) => {
+            let rendered = dependencies::renderer_paths(&base, frame.renderers);
+            let sources = dependencies::KeySources {
+                layout: Arc::as_ptr(&laid_render.nodes).cast::<DrawNode>().addr(),
+                carrier: std::ptr::from_ref(textures.assets).addr(),
+                revision: textures.set.revision(&atlas),
+            };
+            if !required.current(sources, &rendered) {
+                let paths = dependencies::paths_with_rendered(&base, &rendered);
+                let keys = view(&atlas).atlas_keys(paths.into_iter());
+                required.remember(sources, &rendered, &keys);
+            }
+            atlas.require(required.keys().iter().map(AsRef::as_ref));
+        }
+        None => {
+            let paths = dependencies::paths(&base, art, frame.renderers);
+            let drawn = view(&atlas).atlas_keys(paths.into_iter());
+            atlas.require(drawn.iter().map(std::ops::Deref::deref));
+        }
     }
-    .atlas_keys(paths.into_iter());
-    atlas.require(drawn.iter().map(std::ops::Deref::deref));
     drop(base);
     Some(render)
 }
@@ -123,7 +157,7 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
     art: ScreenArt<'_>,
     draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
 ) -> Result<Option<EngineFrame>, PaintError> {
-    let Some(render) = prepare_with(textures, frame, art, draw) else {
+    let Some(render) = prepare_with(textures, frame, art, draw, None) else {
         return Ok(None);
     };
     paint(textures, frame, art, render.borrow(), None)

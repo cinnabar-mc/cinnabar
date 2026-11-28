@@ -2,10 +2,7 @@ use super::HandRigGpu;
 use bevy::{
     prelude::*,
     render::{
-        render_resource::{
-            LoadOp, Operations, PipelineCache, RenderPassDepthStencilAttachment,
-            RenderPassDescriptor, StoreOp,
-        },
+        render_resource::{PipelineCache, RenderPassDepthStencilAttachment, RenderPassDescriptor},
         renderer::RenderContext,
         view::ViewTarget,
     },
@@ -72,6 +69,10 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     });
     let final_world_draw =
         !encoded && !(render_model::enhanced_rendering_enabled() && enhanced) && msaa.samples() > 1;
+    // While the erase pipeline compiles, the attachment is cleared and discarded as before.
+    let erase = gpu
+        .erase_pipeline
+        .and_then(|id| cache.get_render_pipeline(id));
     let attachments = [Some(if final_world_draw {
         scene_target.final_attachment(target.main_texture_view())
     } else {
@@ -82,10 +83,7 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
         color_attachments: &attachments,
         depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
             view: &depth.view,
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(0.0),
-                store: StoreOp::Discard,
-            }),
+            depth_ops: Some(depth.cleared.operations(erase.is_some())),
             stencil_ops: None,
         }),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
@@ -98,6 +96,12 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     pass.set_render_pipeline(pipeline);
     pass.set_bind_group(0, binding, &[]);
     pass.set_bind_group(1, &lightmap.bind_group, &[]);
-    pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count.max(1));
+    let vertices = 0..gpu.maximum_vertex_count;
+    let instances = 0..gpu.instance_count.max(1);
+    pass.draw(vertices.clone(), instances.clone());
+    if let Some(erase) = erase {
+        super::erase::erase_draw(&mut pass, erase, extent, vertices, instances);
+    }
+    depth.cleared.record(erase.is_some());
     Ok(())
 }

@@ -2,17 +2,24 @@
 use super::*;
 
 /// Builds all terrain variants before specialization adds per-view shader definitions.
-pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
+/// `tint_cache` binds the per-quad tint cache in the opaque layout and enables it in the cube
+/// programs; see [`crate::chunk::gpu::tint_cache`].
+pub(in crate::chunk) fn build(compact: bool, tint_cache: bool) -> [RenderPipelineDescriptor; 5] {
     let transparent_bind_group_layout = if compact {
         compact_chunk_bind_group_layout()
     } else {
         chunk_bind_group_layout()
     };
-    let bind_group_layout = if compact {
+    let mut bind_group_layout = if compact {
         transparent_bind_group_layout.clone()
     } else {
         opaque_chunk_bind_group_layout()
     };
+    if tint_cache {
+        bind_group_layout
+            .entries
+            .push(crate::chunk::gpu::tint_cache::layout_entry());
+    }
     let mut descriptor = RenderPipelineDescriptor {
         label: Some("packed chunk pipeline".into()),
         layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
@@ -106,6 +113,13 @@ pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
     depth_fragment.entry_point = Some("fragment_depth".into());
     depth_liquid_descriptor.primitive.cull_mode = None;
     depth_liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
+    if tint_cache {
+        for cube in [&mut descriptor, &mut solid_descriptor] {
+            cube.vertex
+                .shader_defs
+                .push(crate::chunk::gpu::tint_cache::SHADER_DEF.into());
+        }
+    }
     // Apply after cloning: model geometry includes the opaque stairs/slabs
     // that must win a shared plane against a two-sided cutout cube.
     terrain_cutout::apply(&mut descriptor);

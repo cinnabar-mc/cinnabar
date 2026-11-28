@@ -43,7 +43,9 @@ pub(crate) fn publish_host_screens(
         runtime.release_closed_data_driven_input();
     }
     let host = SceneHost::of(menu.as_deref().map(|menu| menu as &dyn MenuScene), &runtime);
-    runtime.observe_host_screens(host);
+    if runtime.observed_host_screens() != host {
+        runtime.observe_host_screens(host);
+    }
 }
 
 /// Logical px a wheel line scrolls the form's column.

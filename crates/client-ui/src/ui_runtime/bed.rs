@@ -4,10 +4,11 @@ use super::{UiApplyOutcome, UiRuntime};
 use oreui::SleepStatus;
 
 impl UiRuntime {
-    /// Tracks the local player's sleep; waking closes a chat opened from the bed.
-    pub fn set_local_sleeping(&mut self, sleeping: bool) {
+    /// Tracks the local player's sleep; waking closes a chat opened from the bed. Returns
+    /// whether the sleeping state changed.
+    pub fn set_local_sleeping(&mut self, sleeping: bool) -> bool {
         if sleeping == self.session.local_sleeping {
-            return;
+            return false;
         }
         self.session.local_sleeping = sleeping;
         if !sleeping {
@@ -16,6 +17,7 @@ impl UiRuntime {
                 self.close_chat();
             }
         }
+        true
     }
 
     /// Whether the bed screen owns input: the player lies in bed.
@@ -52,6 +54,11 @@ impl UiRuntime {
     /// Queues one StopSleeping action; a no-op unless the local player is asleep.
     pub fn request_wake(&mut self) {
         self.session.wake_requested |= self.session.local_sleeping;
+    }
+
+    /// Whether a wake request waits for [`Self::flush_wake_request`].
+    pub const fn wake_requested(&self) -> bool {
+        self.session.wake_requested
     }
 
     /// Sends a wake action when the local actor is known and the transport accepts it.

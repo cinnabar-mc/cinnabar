@@ -515,7 +515,8 @@ pub(in crate::chunk) fn advance_arena_migration(
         {
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("terrain.migration_submit", bytes = slice).entered();
-            uploads.queue.submit([command]);
+            // A resource-pack reload runs this on a worker, outside the frame's submission.
+            crate::device_poll::worker_gate::submit(uploads.queue, [command]);
         }
         migration.copied_bytes += slice;
     }

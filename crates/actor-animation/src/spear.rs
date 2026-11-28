@@ -118,6 +118,11 @@ impl Slots {
         self.0.is_empty()
     }
 
+    /// Whether [`Self::apply`] writes the persistent variable `slot`.
+    pub(super) fn writes(&self, slot: usize) -> bool {
+        self.0.iter().any(|&(bound, _)| bound == slot)
+    }
+
     /// Publishes one sampled pose without advancing any actor or item clocks.
     pub(super) fn apply(
         &self,

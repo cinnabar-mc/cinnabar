@@ -23,6 +23,9 @@ pub mod actor_feed;
 mod plugin;
 pub use plugin::ClientPresentationPlugin;
 
+#[cfg(any(test, debug_assertions))]
+mod reuse_check;
+
 #[cfg(test)]
 mod molang_conformance_tests;
 

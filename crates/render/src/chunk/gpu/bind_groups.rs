@@ -46,6 +46,7 @@ pub(in crate::chunk) struct ChunkBindGroupBuffers {
     pub(in crate::chunk) atmosphere: BufferId,
     pub(in crate::chunk) biome_tint_table: ChunkBiomeTintResourceIdentity,
     pub(in crate::chunk) textures: ChunkTextureBindingIdentity,
+    pub(in crate::chunk) tint_cache: Option<BufferId>,
 }
 
 #[repr(C)]
@@ -387,6 +388,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     biome_tints: Res<ChunkGpuBiomeTints>,
     atmosphere: Res<AtmosphereGpu>,
     mut arena: ResMut<ChunkGpuArena>,
+    tint_bake: Option<Res<super::tint_cache::TintBakePipeline>>,
 ) {
     if compact.release_if_idle(&arena) {
         arena.bind_group = None;
@@ -412,7 +414,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         arena.bind_group_buffers = None;
         return;
     };
-    let buffers = ChunkBindGroupBuffers {
+    let mut buffers = ChunkBindGroupBuffers {
         view: view_buffer.id(),
         quads: arena.quad_buffer.id(),
         origins: arena.origin_buffer.id(),
@@ -428,18 +430,54 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         atmosphere: atmosphere.buffer.id(),
         biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
+        tint_cache: None,
     };
-    if !bind_group_needs_rebuild(
+    if pipeline.tint_cache {
+        let quad_capacity = arena.quad_capacity;
+        arena.tint_cache.prepare(
+            &render_device,
+            quad_capacity,
+            super::tint_cache::TintInputs {
+                materials: buffers.materials,
+                biome_tints: buffers.biome_tints,
+                biome_tint_table: buffers.biome_tint_table,
+            },
+        );
+        buffers.tint_cache = arena.tint_cache.id();
+    }
+    let rebuilding = bind_group_needs_rebuild(
         arena.bind_group.is_some() && arena.transparent_bind_group.is_some(),
         arena.bind_group_buffers.as_ref(),
         &buffers,
-    ) && !biome_tint_bind_group_needs_rebuild(
+    ) || biome_tint_bind_group_needs_rebuild(
         arena
             .bind_group_buffers
             .as_ref()
             .map(|buffers| buffers.biome_tint_table),
         biome_tints.identity,
-    ) {
+    );
+    if pipeline.tint_cache
+        && let Some(tint_bake) = &tint_bake
+    {
+        let layouts = tint_bake.layouts(&pipeline_cache);
+        let arena = &mut *arena;
+        arena.tint_cache.prepare_bake(
+            &render_device,
+            rebuilding,
+            (&layouts.0, &layouts.1),
+            &super::tint_cache::BakeSources {
+                quads: &arena.quad_buffer,
+                origins: &arena.origin_buffer,
+                materials: &texture_assets.material_buffer,
+                biome_records: &arena.biome_buffer,
+                biome_tints: &biome_tints.buffer,
+                query_tables: &biome_tints.query_tables,
+            },
+        );
+        // A refused bake binding releases the cache; this rebuild then binds the alias.
+        buffers.tint_cache = arena.tint_cache.id();
+    }
+    if !rebuilding {
         return;
     }
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
@@ -477,6 +515,10 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     let opaque_entries: Vec<_> = entries
         .into_iter()
         .filter(|entry| entry.binding != TRANSPARENT_REFS_BINDING)
+        .chain(pipeline.tint_cache.then(|| BindGroupEntry {
+            binding: crate::material_shader::TERRAIN_TINT_CACHE_BINDING,
+            resource: arena.tint_cache.binding(&arena.biome_buffer),
+        }))
         .collect();
     let bind_group = render_device.create_bind_group(
         "opaque packed chunk bind group",

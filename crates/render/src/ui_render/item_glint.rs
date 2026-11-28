@@ -51,6 +51,13 @@ impl GpuItemGlint {
         page: Option<&UiTexturePage>,
         profile: Option<&UiProfile>,
     ) -> bool {
+        // The held identity belongs to a page that already passed the checks below, which read
+        // only the immutable page and this device's fixed limits.
+        if let Some(page) = page
+            && self.identity == Some((page.dimensions(), page.identity()))
+        {
+            return false;
+        }
         let page = page.filter(|page| {
             page.format() == UiTextureFormat::Rgba8
                 && page.font_atlas_side().is_none()

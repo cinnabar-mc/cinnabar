@@ -156,7 +156,10 @@ pub(super) fn prepare_mod_input(
         .ok()
         .map(|(_, window, _)| presentation.mod_panel_viewport([window.width(), window.height()]))
         .filter(|size| size.iter().all(|extent| *extent > 0.0));
-    if let Some(packets) = packets.as_mut() {
+    // A detached panel leaves the presentation unchanged for the UI frame's revision.
+    if let Some(packets) = packets.as_mut()
+        && !super::packet_panel::poll_detached(packets)
+    {
         super::packet_panel::poll(
             packets,
             &mut presentation,

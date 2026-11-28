@@ -124,8 +124,10 @@ pub(super) fn publish(
         );
     }
     let Some(mut runtime) = runtime else {
-        if let Some(packet_drawing) = packet_drawing.as_deref() {
-            super::packet_render::publish_alone(&mut scene, packet_drawing);
+        if let Some(packet_drawing) = packet_drawing.as_deref()
+            && super::packet_render::publish_alone(scene.bypass_change_detection(), packet_drawing)
+        {
+            scene.set_changed();
         }
         return;
     };
@@ -143,21 +145,38 @@ pub(crate) fn publish_frame(
     scene: Res<render_scene::ModRenderScene>,
     world: Res<crate::runtime::world::ClientWorld>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
-    mut drawing: ResMut<DrawingFrame>,
+    mut published: ResMut<DrawingFrame>,
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
+    mut next: Local<DrawingFrame>,
+) {
+    rebuild_drawing_frame(&scene, &world, actors.as_deref(), &mut next, &cameras);
+    // The frame is extracted whenever it counts as changed, so it is replaced only when this
+    // frame's availability differs; the previous frame becomes the next frame's scratch.
+    if *published != *next {
+        std::mem::swap(&mut *published, &mut *next);
+    }
+}
+
+/// Rebuilds this frame's drawing availability into `drawing`, reusing its allocations.
+fn rebuild_drawing_frame(
+    scene: &render_scene::ModRenderScene,
+    world: &crate::runtime::world::ClientWorld,
+    actors: Option<&render_scene::ActorRenderFrame>,
+    drawing: &mut DrawingFrame,
+    cameras: &Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
     let authority = world
         .stream
         .as_ref()
         .filter(|_| !world.dimension_transfer.active())
         .map(|stream| stream.authority());
-    super::drawing_policy::rebuild_frame(&scene.retained, authority, &mut drawing);
+    super::drawing_policy::rebuild_frame(&scene.retained, authority, drawing);
     let Some(authority) = authority else { return };
     for resources in &scene.retained {
         if resources.connection != drawing.connection || resources.dimension != drawing.dimension {
             continue;
         }
-        let Some(actors) = actors.as_deref() else {
+        let Some(actors) = actors else {
             continue;
         };
         let server = scene.is_server_contributor(resources);
@@ -194,5 +213,52 @@ pub(crate) fn publish_frame(
                 drawing.entity_poses.insert(*handle, root);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The frame is extracted whenever it counts as changed, so an unchanged rebuild must not
+    /// mark it, while a stale published frame is still replaced.
+    #[test]
+    fn unchanged_availability_leaves_the_drawing_frame_unchanged() {
+        #[derive(Resource, Default)]
+        struct Seen(Vec<bool>);
+        let mut app = App::new();
+        app.init_resource::<render_scene::ModRenderScene>()
+            .init_resource::<crate::runtime::world::ClientWorld>()
+            .init_resource::<DrawingFrame>()
+            .init_resource::<Seen>()
+            .add_systems(
+                Update,
+                (
+                    publish_frame,
+                    |frame: Res<DrawingFrame>, mut seen: ResMut<Seen>| {
+                        seen.0.push(frame.is_changed());
+                    },
+                )
+                    .chain(),
+            );
+        for _ in 0..3 {
+            app.update();
+        }
+        app.world_mut()
+            .resource_mut::<DrawingFrame>()
+            .loaded_blocks
+            .insert([0; 3]);
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<Seen>().0,
+            [true, false, false, true, false]
+        );
+        assert!(
+            app.world()
+                .resource::<DrawingFrame>()
+                .loaded_blocks
+                .is_empty()
+        );
     }
 }

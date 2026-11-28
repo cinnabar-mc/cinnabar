@@ -129,22 +129,26 @@ impl UiPresentationRuntime {
         Some((bounded_observed_text(&presented.title), rows))
     }
 
-    pub fn set_scoreboard_owner_names(&mut self, names: impl IntoIterator<Item = (i64, Arc<str>)>) {
-        self.scoreboard_owner_names.replace(names);
+    /// Whether the names changed.
+    pub fn set_scoreboard_owner_names(
+        &mut self,
+        names: impl IntoIterator<Item = (i64, Arc<str>)>,
+    ) -> bool {
+        self.scoreboard_owner_names.replace(names)
     }
 
     pub fn refresh_scoreboard_owner_names(
         &mut self,
         store: &ScoreboardStore,
         names: Option<client_world::ui_read::NametagUi<'_>>,
-    ) {
+    ) -> bool {
         self.set_scoreboard_owner_names(required_sidebar_owner_ids(store).into_iter().filter_map(
             |unique_id| {
                 names?
                     .actor_display_name(unique_id)
                     .map(|name| (unique_id, name))
             },
-        ));
+        ))
     }
 }
 
@@ -174,15 +178,18 @@ impl ScoreboardOwnerNameAuthority {
         self.revision
     }
 
-    pub(super) fn replace(&mut self, names: impl IntoIterator<Item = (i64, Arc<str>)>) {
+    /// Whether the names changed.
+    pub(super) fn replace(&mut self, names: impl IntoIterator<Item = (i64, Arc<str>)>) -> bool {
         let next = names
             .into_iter()
             .filter(|(_, name)| !name.is_empty())
             .collect::<BTreeMap<_, _>>();
-        if self.names != next {
-            self.names = next;
-            self.revision = self.revision.saturating_add(1);
+        if self.names == next {
+            return false;
         }
+        self.names = next;
+        self.revision = self.revision.saturating_add(1);
+        true
     }
 
     fn resolve(&self, owner: &ScoreOwner) -> Option<Arc<str>> {
