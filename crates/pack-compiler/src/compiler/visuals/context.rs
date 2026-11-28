@@ -132,6 +132,7 @@ pub(in crate::compiler) enum SignTemplateKey {
     },
     HangingCeiling {
         material: u32,
+        /// The applied sixteen-step model yaw, not the raw `ground_sign_direction`.
         rotation: u8,
         attached: bool,
     },
@@ -139,10 +140,20 @@ pub(in crate::compiler) enum SignTemplateKey {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::compiler) enum SignState {
-    Standing { rotation: u8 },
-    Wall { facing: u8 },
-    HangingWall { facing: u8 },
-    HangingCeiling { rotation: u8, attached: bool },
+    Standing {
+        rotation: u8,
+    },
+    Wall {
+        facing: u8,
+    },
+    HangingWall {
+        facing: u8,
+    },
+    HangingCeiling {
+        rotation: u8,
+        attached: bool,
+        facing: u8,
+    },
 }
 
 pub(in crate::compiler) fn push_model_template(
