@@ -19,8 +19,9 @@ It needs x86-64 Linux, Valgrind and cargo-nextest, and builds every workspace te
 it on a build host. Budgets come from CI's build and runners only: CI runs the check in the Linux
 test job and uploads `instruction-budgets` with the measured file and one Callgrind profile per
 test. When a change is intended, commit that file and explain increases in the PR. `--update`
-writes the file directly but runs only in GitHub Actions, for example through the
-[offloaded checks](agents/multi-agent-workflow.md#offloaded-checks) workflow. Both keep each budget
+writes and prints the file but runs only in GitHub Actions; through the
+[offloaded checks](agents/multi-agent-workflow.md#offloaded-checks) workflow, install Valgrind in
+the command first and copy the printed file from the job log. Both keep each budget
 still within the tolerance and take the measurement only for new, changed and removed tests, so
 repeated refreshes cannot absorb a slowdown step by step; a toolchain change re-measures every
 budget. A local check may differ from CI where local Cargo settings differ.

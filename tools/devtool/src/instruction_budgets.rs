@@ -27,7 +27,7 @@ glibc.cpu.x86_non_temporal_threshold=268435456";
 const CALLGRIND_DEADLINE: Duration = Duration::from_secs(15 * 60);
 /// How budgets are recorded: from CI, whose build and runners define them.
 const UPDATE_HINT: &str = "commit the `instruction-budgets.json` from CI's `instruction-budgets` \
-artifact, or one an `--update` run in GitHub Actions printed (see docs/benchmarks.md)";
+artifact (see docs/benchmarks.md)";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Budgets {
@@ -135,7 +135,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     write_budgets(&out.join("instruction-budgets.json"), &refreshed)?;
     if options.update {
         write_budgets(&path, &refreshed)?;
-        println!("wrote {} budgets to {BUDGET_FILE}", refreshed.budgets.len());
+        println!(
+            "wrote {} budgets to {BUDGET_FILE}:\n{}",
+            refreshed.budgets.len(),
+            fs::read_to_string(&path).unwrap_or_default()
+        );
         return Ok(());
     }
     let rows = compare(&committed, &measured);
