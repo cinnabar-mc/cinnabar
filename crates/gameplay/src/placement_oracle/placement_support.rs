@@ -112,6 +112,15 @@ pub(crate) fn attachment_states(
         }
         set_state(&mut states, "facing_direction", Value::from(input.face))?;
         set_state(&mut states, "button_pressed_bit", Value::from(0))?;
+    } else if identifier == "minecraft:ladder" {
+        if !known_keys(canonical, &["facing_direction"])
+            || !(0..=5).contains(&state_value(canonical, "facing_direction")?.as_u64()?)
+            || !(2..=5).contains(&input.face)
+            || !supports[usize::from(input.face ^ 1)]?
+        {
+            return None;
+        }
+        set_state(&mut states, "facing_direction", Value::from(input.face))?;
     } else if known_keys(canonical, &["hanging"]) {
         state_bit(canonical, "hanging")?;
         let below = supports[0]?;
@@ -186,6 +195,12 @@ pub(crate) fn support_requirement(
     }
     if identifier == "minecraft:frog_spawn" {
         return SupportRequirement::Face(0);
+    }
+    if identifier == "minecraft:ladder" {
+        return match state_value(states, "facing_direction").and_then(Value::as_u64) {
+            Some(face @ 2..=5) => SupportRequirement::Face((face as u8) ^ 1),
+            _ => SupportRequirement::Unsupported,
+        };
     }
     if is_carpet(identifier) {
         return SupportRequirement::Face(0);
@@ -427,7 +442,6 @@ const UNRESOLVED_SURVIVAL_IDENTIFIERS: &[&str] = &[
     "minecraft:leaf_litter",
     "minecraft:fire",
     "minecraft:soul_fire",
-    "minecraft:ladder",
     "minecraft:bell",
     "minecraft:tripwire_hook",
     "minecraft:trip_wire",

@@ -556,7 +556,7 @@ minecraft:jungle_trapdoor	Trapdoor	Vanilla	-
 minecraft:jungle_wall_sign	WallSign	Vanilla	minecraft:jungle_standing_sign
 minecraft:jungle_wood	Axis	Vanilla	-
 minecraft:kelp	Unresolved	Vanilla	-
-minecraft:ladder	Unresolved	Vanilla	-
+minecraft:ladder	Ladder	Vanilla	-
 minecraft:lantern	Lantern	Vanilla	-
 minecraft:lapis_block	Identity	Vanilla	-
 minecraft:lapis_ore	Identity	Vanilla	-

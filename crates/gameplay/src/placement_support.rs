@@ -115,6 +115,20 @@ pub(crate) fn attachment_states(
             Value::from(input.face),
         )?;
         set_state(&mut states, P::ButtonPressedBit.name(), Value::from(0))?;
+    } else if fact.placement == R::Ladder {
+        // A ladder faces the clicked side face, backed by the block that was clicked.
+        if !known_keys(canonical, &[P::FacingDirection.name()])
+            || crate::placement_state::valid_property(fact, canonical, P::FacingDirection).is_none()
+            || !(2..=5).contains(&input.face)
+            || !supports[usize::from(input.face ^ 1)]?
+        {
+            return None;
+        }
+        set_state(
+            &mut states,
+            P::FacingDirection.name(),
+            Value::from(input.face),
+        )?;
     } else if known_keys(canonical, &[P::Hanging.name()]) {
         state_bit(canonical, P::Hanging.name())?;
         let below = supports[0]?;
@@ -172,6 +186,10 @@ pub(crate) fn support_requirement(
         },
         R::Lantern => state_bit(states, P::Hanging.name()).map(u8::from),
         R::FrogSpawn => Some(0),
+        R::Ladder => state_value(states, P::FacingDirection.name())
+            .and_then(Value::as_u64)
+            .filter(|face| (2..=5).contains(face))
+            .map(|face| face as u8 ^ 1),
         _ => {
             return match fact.survival {
                 S::Carpet | S::Door | S::Candle | S::SeaPickle | S::SnowLayer => {
