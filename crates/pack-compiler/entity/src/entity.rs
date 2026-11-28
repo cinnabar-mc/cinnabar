@@ -44,7 +44,7 @@ mod sanitize;
 mod vanilla_refs;
 mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
-pub use sample_omissions::missing_equipment_bindings;
+pub use sample_omissions::{missing_baby_armor_bindings, missing_equipment_bindings};
 pub use vanilla_refs::compile_vanilla_entity_refs;
 pub use versions::load_vanilla_entity_definitions;
 
