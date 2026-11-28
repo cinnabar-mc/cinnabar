@@ -8,17 +8,6 @@ use std::{collections::BTreeMap, path::Path};
 const FORMAT: &str = "horizon-benchmark-report";
 const MANIFEST_FORMAT: &str = "cinnabar-benchmark-manifest";
 const VERSION: u32 = 1;
-/// Per-phase frame statistics that comparisons pair; `_fps` is higher-better, `_ms` lower-better.
-pub(super) const FRAME_METRICS: [&str; 8] = [
-    "avg_fps",
-    "low_1pct_fps",
-    "low_01pct_fps",
-    "p50_ms",
-    "p95_ms",
-    "p99_ms",
-    "p999_ms",
-    "max_ms",
-];
 
 /// Writes one summary and a linked companion with explicit measurement gaps.
 #[expect(
@@ -127,7 +116,7 @@ fn comparable_settings(state: &Value) -> Value {
 }
 
 /// Reads a report and its mandatory checksum-linked local companion.
-pub(super) fn load(path: &Path) -> Result<(Value, Value), String> {
+fn load(path: &Path) -> Result<(Value, Value), String> {
     let report: Value = files::read(path)?;
     let companion: Value = files::read(&path.with_file_name("manifest.json"))?;
     if report["format"] != FORMAT
@@ -266,7 +255,16 @@ pub(super) fn compare(first: &Path, second: &Path) -> Result<(), String> {
             .find(|other| other["phase"] == phase["phase"])
             .ok_or("missing matching phase")?;
         let mut row = BTreeMap::new();
-        for metric in FRAME_METRICS {
+        for metric in [
+            "avg_fps",
+            "low_1pct_fps",
+            "low_01pct_fps",
+            "p50_ms",
+            "p95_ms",
+            "p99_ms",
+            "p999_ms",
+            "max_ms",
+        ] {
             let value = phase[metric]
                 .as_f64()
                 .filter(|v| v.is_finite() && *v > 0.)

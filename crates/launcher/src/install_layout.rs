@@ -172,23 +172,17 @@ impl InstallLayout {
         if cfg!(target_os = "ios") {
             return ios::discover();
         }
-        Self::discover_for(cargo_artifact_path(
-            std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
-            std::env::var_os("CARGO_MANIFEST_DIR")
-                .map(PathBuf::from)
-                .as_deref(),
-        ))
-    }
-
-    /// The desktop layout a client at `executable` would discover with this process's
-    /// environment, so tools can find the core and carriers another build runs with.
-    pub fn discover_for(executable: PathBuf) -> Result<Self, LayoutError> {
         let platform = current_platform();
         let home = std::env::var_os(home_variable(platform)).map(PathBuf::from);
         let layout = Self::resolve(
             platform,
             &InstallEnvironment {
-                executable,
+                executable: cargo_artifact_path(
+                    std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                    std::env::var_os("CARGO_MANIFEST_DIR")
+                        .map(PathBuf::from)
+                        .as_deref(),
+                ),
                 user_root: std::env::var_os(render_api::USER_ROOT_ENV).map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),

@@ -134,23 +134,6 @@ statistics only. One process run has no confidence interval. Full stage tracing
 changes the workload; neither this report nor a matching comparison closes a
 shipping-artifact, displayed-pacing, streaming, stability or hardware release gate.
 
-## Paired comparisons
-
-Hardware noise swamps single runs, so check a frame-time change with
-`cinnabar-mcp --repo <checkout> --benchmark-paired <base-plan.json> <candidate-plan.json> <rounds> <new-output-directory>`.
-The two plans differ only in `binary`, for example a release build of `origin/dev` and one of
-the branch. Each round runs both builds, alternating which goes first, into
-`round-NN-base` and `round-NN-candidate`; every pair must pass the comparison checks above, and every round must measure the same
-binaries and workload as the first. Both clients must resolve the same Go core and compiled
-carriers; `runtime-inputs.json` records their hashes.
-`paired.json` gives each frame statistic's and CPU stage mean's candidate/base ratio as a median and
-interquartile range over the rounds; metrics some round could not pair, such as stage means that
-round to zero, are listed as unavailable rather than summarized. `outcome.json` records whether
-the attempt completed or why it stopped. The command fails when the candidate's average FPS is lower
-in at least three quarters of the pairs for any route. Use seven or more rounds on an idle,
-plugged-in machine, ideally with both processes pinned to one CPU complex, and quote the median
-and IQR in the PR. For a near-stationary view, give a route a short distance at low speed.
-
 Trace overwrites, missing frame sequences and unclosed final intervals fail capture.
 Intervals belong to their starting frame, including a stall ending after the route.
 Every attempt retains an outcome receipt; failed attempts must not be replaced by
