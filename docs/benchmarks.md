@@ -12,25 +12,25 @@ runs agree to well within the tolerance; the tool pins glibc's CPU-dependent cop
 CI's mixed runner CPUs agree too.
 
 ```sh
-cargo run -p devtool --locked -- instruction-budgets            # check
-cargo run -p devtool --locked -- instruction-budgets --update   # record changed budgets
+cargo run -p devtool --locked -- instruction-budgets   # check
 ```
 
 It needs x86-64 Linux, Valgrind and cargo-nextest, and builds every workspace test binary, so run
-it on a build host. It builds with CI's test-profile settings whatever the environment sets,
-dropping `CARGO_PROFILE_*` and rustflags overrides, so a local update measures what CI does. CI runs it in
-the Linux test job and uploads `instruction-budgets` with the measured file and one Callgrind
-profile per test; when a change is intended, commit that file and explain increases in the PR.
-Both it and `--update` keep each budget still within the tolerance and take the measurement only
-for new, changed and removed tests, so repeated refreshes cannot absorb a slowdown step by step;
-a toolchain change re-measures every budget.
+it on a build host. Budgets come from CI's build and runners only: CI runs the check in the Linux
+test job and uploads `instruction-budgets` with the measured file and one Callgrind profile per
+test. When a change is intended, commit that file and explain increases in the PR. `--update`
+writes the file directly but runs only in GitHub Actions, for example through the
+[offloaded checks](agents/multi-agent-workflow.md#offloaded-checks) workflow. Both keep each budget
+still within the tolerance and take the measurement only for new, changed and removed tests, so
+repeated refreshes cannot absorb a slowdown step by step; a toolchain change re-measures every
+budget. A local check may differ from CI where local Cargo settings differ.
 `callgrind_annotate <test>.callgrind` attributes a change to functions.
 
 Add a budget beside the code it protects for each hot path, especially per-frame work that a
 settled frame should skip: keep the counted work single-threaded (make the test thread the only
 Rayon worker when the path uses Rayon), deterministic and fast under
 Callgrind (well under a second natively), assert the behaviour it measures, and record the new
-entry with `--update`. Counts track work, not wall time; the hardware runs below remain the
+entry from CI's measured file. Counts track work, not wall time; the hardware runs below remain the
 evidence for frame-time claims.
 
 # Headless chunk benchmarks

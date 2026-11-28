@@ -8,7 +8,6 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
 reads = [
-    ".github/workflows/ci.yml",
     "Cargo.lock",
     "web/site/**",
     "packaging/android/AndroidManifest.xml",

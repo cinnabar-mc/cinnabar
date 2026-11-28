@@ -25,22 +25,9 @@ glibc.cpu.x86_non_temporal_threshold=268435456";
 /// Longest a budget test may run under Callgrind, which is roughly fifty times slower than
 /// native; nextest stops a native test after fifteen minutes.
 const CALLGRIND_DEADLINE: Duration = Duration::from_secs(15 * 60);
-/// The test-profile settings CI's workflow sets for every Rust build; budgets are measured with
-/// exactly these.
-const PINNED_BUILD: [(&str, &str); 3] = [
-    ("CARGO_INCREMENTAL", "0"),
-    ("CARGO_PROFILE_DEV_DEBUG", "0"),
-    ("CARGO_PROFILE_TEST_DEBUG", "0"),
-];
-/// Environment overrides of code generation that the pinned build drops, with every
-/// `CARGO_PROFILE_*` variable.
-const BUILD_FLAG_VARIABLES: [&str; 4] = [
-    "RUSTFLAGS",
-    "CARGO_ENCODED_RUSTFLAGS",
-    "CARGO_BUILD_RUSTFLAGS",
-    "CARGO_BUILD_TARGET",
-];
-const UPDATE_COMMAND: &str = "cargo run -p devtool --locked -- instruction-budgets --update";
+/// How budgets are recorded: from CI, whose build and runners define them.
+const UPDATE_HINT: &str = "commit the `instruction-budgets.json` from CI's `instruction-budgets` \
+artifact, or one an `--update` run in GitHub Actions printed (see docs/benchmarks.md)";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Budgets {
@@ -98,6 +85,11 @@ struct Options {
 /// Measures every `instruction_budget_*` test and checks or rewrites the committed budgets.
 pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     let options = parse(args)?;
+    if options.update && std::env::var_os("GITHUB_ACTIONS").is_none_or(|value| value != "true") {
+        return Err(error(format!(
+            "budgets are recorded from CI's build, not local build settings: {UPDATE_HINT}"
+        )));
+    }
     if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         return Err(error(
             "budgets are measured on x86-64 Linux; run this through offload or CI",
@@ -239,19 +231,11 @@ fn toolchain(root: &Path) -> Result<String, DevtoolError> {
     .to_owned())
 }
 
-/// Lists budget tests through nextest, which builds their binaries with CI's pinned test
-/// profile whatever the caller's environment sets, so local updates measure what CI measures.
+/// Lists budget tests through nextest, which builds their binaries with the caller's profile.
 fn discover(root: &Path) -> Result<Vec<BudgetTest>, DevtoolError> {
     let filter = format!("test(/(^|::){}/)", test_instructions::TEST_PREFIX);
-    let mut command = Command::new("cargo");
-    for (name, _) in std::env::vars_os() {
-        let name = name.to_string_lossy();
-        if name.starts_with("CARGO_PROFILE_") || BUILD_FLAG_VARIABLES.contains(&name.as_ref()) {
-            command.env_remove(name.as_ref());
-        }
-    }
     let listing = output(
-        command
+        Command::new("cargo")
             .args([
                 "nextest",
                 "list",
@@ -261,7 +245,6 @@ fn discover(root: &Path) -> Result<Vec<BudgetTest>, DevtoolError> {
                 "json",
             ])
             .args(["-E", &filter])
-            .envs(PINNED_BUILD)
             .current_dir(root),
         "cargo nextest list",
     )?;
@@ -498,10 +481,9 @@ fn report(committed: &Budgets, measured: &Budgets, rows: &[Row]) -> String {
     {
         let _ = writeln!(
             text,
-            "\nIf the change is intended, replace `{BUDGET_FILE}` with this run's \
-             `instruction-budgets.json` (CI uploads it as the `instruction-budgets` artifact), or run \
-             `{UPDATE_COMMAND}` on x86-64 Linux with Valgrind. Explain increases in the pull request. \
-             `callgrind_annotate` on the uploaded `.callgrind` files attributes the change."
+            "\nIf the change is intended, update `{BUDGET_FILE}`: {UPDATE_HINT}. Explain increases \
+             in the pull request. `callgrind_annotate` on the uploaded `.callgrind` files \
+             attributes the change."
         );
     }
     text

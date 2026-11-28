@@ -70,7 +70,7 @@ fn refreshing_keeps_in_tolerance_budgets_and_replaces_the_rest() {
 fn report_explains_how_to_update_only_when_out_of_date() {
     let committed = budgets(&[("a t", 100)]);
     let current = report(&committed, &committed, &compare(&committed, &committed));
-    assert!(!current.contains(UPDATE_COMMAND));
+    assert!(!current.contains(UPDATE_HINT));
     let mut other_toolchain = budgets(&[("a t", 100)]);
     other_toolchain.toolchain = "rustc 2.0.0".into();
     let stale = report(
@@ -79,7 +79,7 @@ fn report_explains_how_to_update_only_when_out_of_date() {
         &compare(&committed, &other_toolchain),
     );
     assert!(stale.contains("rustc 2.0.0"));
-    assert!(stale.contains(UPDATE_COMMAND));
+    assert!(stale.contains(UPDATE_HINT));
 }
 
 #[test]
@@ -127,20 +127,6 @@ fn committed_budgets_name_existing_budget_tests() {
         assert!(
             test.starts_with(test_instructions::TEST_PREFIX),
             "{id} is not a budget test"
-        );
-    }
-}
-
-#[test]
-fn pinned_build_matches_the_ci_workflow() {
-    let workflow = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.yml"),
-    )
-    .unwrap();
-    for (name, value) in PINNED_BUILD {
-        assert!(
-            workflow.contains(&format!("\n  {name}: \"{value}\"\n")),
-            "ci.yml's workflow env must set {name}: \"{value}\""
         );
     }
 }
