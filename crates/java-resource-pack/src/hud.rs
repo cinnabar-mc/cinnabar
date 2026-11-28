@@ -1,7 +1,7 @@
 //! HUD textures: Java's `gui/icons.png` and `gui/widgets.png` atlases, the 1.20.2+ HUD sprites
 //! that replaced them, and the individual textures the Bedrock HUD draws.
 
-use crate::texture::{Budget, canvas, crop, duplicate, is_empty, paste};
+use crate::texture::{Budget, canvas, crop, decode, duplicate, encode, is_empty, paste};
 use image::RgbaImage;
 use std::collections::BTreeMap;
 
@@ -333,6 +333,53 @@ pub(crate) fn hud_textures(
         out.insert("textures/ui/selected_hotbar_slot.png".into(), selection);
     }
     out.into_iter().collect()
+}
+
+/// The Bedrock UI files a legacy `gui/icons.png` and hotbar atlas (`gui/gui.png`, or Java's
+/// `gui/widgets.png`) describe: each HUD sprite, the hotbar slots and selection, and the
+/// experience bar's sidecars. A file is left out when `has` says the pack already provides it,
+/// when its source region is missing, when its encoding exceeds `max_texture_bytes`, or when the
+/// budget runs out.
+pub(crate) fn legacy_atlas_files(
+    icons: Option<&[u8]>,
+    hotbar_atlas: Option<&[u8]>,
+    has: &dyn Fn(&str) -> bool,
+    max_texture_bytes: u64,
+    budget: &Budget,
+) -> Vec<(String, Vec<u8>)> {
+    let icons = icons.and_then(|bytes| decode(bytes, budget));
+    let atlas = hotbar_atlas.and_then(|bytes| decode(bytes, budget));
+    let sprites = icons
+        .as_ref()
+        .map(|icons| legacy_sprites(icons, budget))
+        .unwrap_or_default();
+    let region = |region| {
+        let atlas = atlas.as_ref()?;
+        crop_rect(atlas, region, atlas_scale(atlas), budget)
+    };
+    let hotbar = region(LEGACY_HOTBAR);
+    let selection = region(LEGACY_SELECTION);
+    let mut files: Vec<(String, Vec<u8>)> =
+        hud_textures(&sprites, hotbar.as_ref(), selection.as_ref(), budget)
+            .into_iter()
+            .filter(|(path, _)| !has(path))
+            .map(|(path, image)| (path, encode(&image)))
+            .filter(|(_, bytes)| bytes.len() as u64 <= max_texture_bytes)
+            .collect();
+    // The sidecars describe the bar they follow, so they are added only with it.
+    let survived = |path: &str| files.iter().any(|(file, _)| file == path);
+    let mut companions = Vec::new();
+    for bar in XP_BAR_TEXTURES.into_iter().filter(|bar| survived(bar)) {
+        let sidecar = format!("{}.json", bar.trim_end_matches(".png"));
+        if !has(&sidecar) {
+            companions.push((sidecar, XP_BAR_SIDECAR.to_vec()));
+        }
+    }
+    if survived(XP_BAR_TEXTURES[0]) && !has(XP_NUB) {
+        companions.push((XP_NUB.to_owned(), encode(&RgbaImage::new(1, 1))));
+    }
+    files.extend(companions);
+    files
 }
 
 /// Pads the 24x23 hotbar selection of 1.20.2+ to Bedrock's 24x24 by repeating its top border row
