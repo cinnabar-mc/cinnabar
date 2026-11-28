@@ -84,6 +84,8 @@ pub struct ItemComponents {
     pub wearable_declared: bool,
     /// Exact non-negative integer protection; absent or invalid values stay unresolved.
     pub wearable_protection: Option<u32>,
+    /// Whole non-negative `minecraft:damage` value a melee hit adds; other values stay unresolved.
+    pub damage: Option<u32>,
     /// Block `minecraft:block_placer` places.
     pub block_placer: Option<Arc<str>>,
     /// `minecraft:rarity`: `common`, `uncommon`, `rare` or `epic`.
@@ -354,6 +356,10 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
                 }
                 _ => None,
             }),
+        damage: component("minecraft:damage")
+            .and_then(value_of)
+            .filter(|value| value.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(value))
+            .map(|value| value as u32),
         block_placer: component("minecraft:block_placer").and_then(|placer| {
             let block = placer.field("block")?;
             text(Some(block)).or_else(|| text(block.field("name")))

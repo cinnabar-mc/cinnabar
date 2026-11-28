@@ -654,3 +654,72 @@ fn cursor_durability_paints_on_fallback_personal_and_storage_screens() {
         }
     }
 }
+
+#[test]
+fn creative_boots_group_shows_only_its_heading_and_member_shows_stats() {
+    use crate::ui_runtime::presentation::publish::capture_hud_frame;
+    use ui_screens::container_actions::InventoryCellHit;
+
+    let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 42,
+        dimension: 0,
+        player_position: [0.; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    let boots = NetworkItemStack {
+        network_id: protocol::vanilla_item_registry()
+            .iter()
+            .find(|item| item.identifier.as_ref() == "minecraft:leather_boots")
+            .unwrap()
+            .network_id,
+        count: 1,
+        ..NetworkItemStack::empty()
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = personal_inventory(&mut player, None);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+            groups: Arc::from([protocol::CreativeGroup {
+                category: protocol::CreativeCategory::Equipment,
+                name: "Boots".into(),
+                icon: Some(boots.clone()),
+            }]),
+            items: Arc::from([protocol::CreativeItem {
+                creative_network_id: 1,
+                group: 0,
+                stack: boots,
+            }]),
+            skipped: 0,
+        }));
+    runtime.screen_state_mut().select_tab(2);
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    for (expanded, index) in [(false, 0), (true, 0), (true, 1)] {
+        if expanded {
+            runtime.screen_state_mut().creative_expanded.insert(0);
+        }
+        runtime.screen_state_mut().hover = Some(InventoryCellHit::RecipeBook(index));
+        capture_hud_frame(
+            &player,
+            &mut runtime,
+            &mut presentation,
+            Some(stream.authority().inventory_ui()),
+            semantic_input::PerspectiveMode::FirstPerson,
+            1,
+            Default::default(),
+        );
+        let tooltip = &presentation.hud_frame().window_text.tooltip;
+        if index == 0 {
+            assert_eq!(tooltip.len(), 1);
+            assert_eq!(tooltip[0].text, "Boots§r");
+        } else {
+            assert_eq!(tooltip[1].text, "+1 Armor");
+        }
+    }
+}

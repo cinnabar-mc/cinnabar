@@ -355,6 +355,23 @@ fn wearable_protection_retains_zero_and_rejects_invalid_or_missing_values() {
 }
 
 #[test]
+fn damage_component_keeps_only_whole_nonnegative_values() {
+    let damage = |entry: Vec<u8>| {
+        let payload = compound("", &[compound("components", &[entry])]);
+        parse_components(&payload).unwrap().damage
+    };
+    let value = |field: Vec<u8>| compound("minecraft:damage", &[field]);
+    assert_eq!(damage(value(int("value", 4))), Some(4));
+    assert_eq!(damage(int("minecraft:damage", 0)), Some(0));
+    assert_eq!(damage(value(float("value", 3.0))), Some(3));
+    assert_eq!(damage(value(float("value", 2.5))), None);
+    assert_eq!(damage(value(int("value", -1))), None);
+    assert_eq!(damage(value(string("value", "4"))), None);
+    assert_eq!(damage(compound("minecraft:damage", &[])), None);
+    assert_eq!(damage(int("unrelated", 4)), None);
+}
+
+#[test]
 fn food_classification_uses_the_food_component() {
     let food = compound(
         "",
