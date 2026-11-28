@@ -313,11 +313,12 @@ fn measure(test: &BudgetTest, profile: &Path) -> Result<u64, DevtoolError> {
         if started.elapsed() > CALLGRIND_DEADLINE {
             let _ = child.kill();
             let _ = child.wait();
+            let log = fs::read_to_string(&log_path).unwrap_or_default();
+            let tail = &log[log.floor_char_boundary(log.len().saturating_sub(4096))..];
             return Err(error(format!(
-                "{} ran past {} s under Callgrind; see {}",
+                "{} ran past {} s under Callgrind; its output ended:\n{tail}",
                 test.id,
                 CALLGRIND_DEADLINE.as_secs(),
-                log_path.display()
             )));
         }
         std::thread::sleep(Duration::from_millis(100));

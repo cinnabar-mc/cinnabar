@@ -75,6 +75,18 @@ impl Key {
     }
 }
 
+/// Debug builds recheck every repeated capture, except where a test counts release work.
+#[cfg(debug_assertions)]
+fn repeated_captures_verified(presentation: &UiPresentationRuntime) -> bool {
+    #[cfg(test)]
+    return presentation.verify_repeated_captures;
+    #[cfg(not(test))]
+    {
+        let _ = presentation;
+        true
+    }
+}
+
 /// [`capture_hud_frame`], repeating the last capture's result when `runtimes_unchanged`, the
 /// caller's word that neither `player_runtime` nor `runtime` changed since the last call, and
 /// nothing else the capture reads changed either. A capture with the inventory or a window open,
@@ -122,7 +134,7 @@ pub fn capture_hud_frame_if_changed(
             runtime.session_id(),
         );
         #[cfg(debug_assertions)]
-        {
+        if repeated_captures_verified(presentation) {
             let fresh = capture_hud_frame(
                 player_runtime,
                 runtime,

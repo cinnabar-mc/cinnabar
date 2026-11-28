@@ -110,6 +110,7 @@ fn instruction_budget_settled_json_ui_hud_frames() {
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.enable_json_ui_inline(hud_carrier()).unwrap();
     presentation.set_frame_reuse(crate::ui_runtime::presentation::FrameReuse::Skip);
+    presentation.verify_repeated_captures = false;
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     player

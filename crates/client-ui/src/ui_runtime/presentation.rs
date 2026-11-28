@@ -148,6 +148,10 @@ pub struct UiPresentationRuntime {
     /// HUD captures that ran rather than repeated.
     #[cfg(test)]
     hud_captures: usize,
+    /// Whether debug builds recapture each repeated HUD capture to check it; instruction
+    /// budgets turn it off to count what a release build does.
+    #[cfg(test)]
+    verify_repeated_captures: bool,
     /// Repeats in a row since `FrameReuse::Audit` last checked one.
     #[cfg(debug_assertions)]
     repeats_since_check: u32,
