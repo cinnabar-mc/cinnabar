@@ -25,6 +25,21 @@ glibc.cpu.x86_non_temporal_threshold=268435456";
 /// Longest a budget test may run under Callgrind, which is roughly fifty times slower than
 /// native; nextest stops a native test after fifteen minutes.
 const CALLGRIND_DEADLINE: Duration = Duration::from_secs(15 * 60);
+/// The test-profile settings CI's workflow sets for every Rust build; budgets are measured with
+/// exactly these.
+const PINNED_BUILD: [(&str, &str); 3] = [
+    ("CARGO_INCREMENTAL", "0"),
+    ("CARGO_PROFILE_DEV_DEBUG", "0"),
+    ("CARGO_PROFILE_TEST_DEBUG", "0"),
+];
+/// Environment overrides of code generation that the pinned build drops, with every
+/// `CARGO_PROFILE_*` variable.
+const BUILD_FLAG_VARIABLES: [&str; 4] = [
+    "RUSTFLAGS",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "CARGO_BUILD_RUSTFLAGS",
+    "CARGO_BUILD_TARGET",
+];
 const UPDATE_COMMAND: &str = "cargo run -p devtool --locked -- instruction-budgets --update";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,11 +239,19 @@ fn toolchain(root: &Path) -> Result<String, DevtoolError> {
     .to_owned())
 }
 
-/// Lists budget tests through nextest, which builds their binaries with the caller's profile.
+/// Lists budget tests through nextest, which builds their binaries with CI's pinned test
+/// profile whatever the caller's environment sets, so local updates measure what CI measures.
 fn discover(root: &Path) -> Result<Vec<BudgetTest>, DevtoolError> {
     let filter = format!("test(/(^|::){}/)", test_instructions::TEST_PREFIX);
+    let mut command = Command::new("cargo");
+    for (name, _) in std::env::vars_os() {
+        let name = name.to_string_lossy();
+        if name.starts_with("CARGO_PROFILE_") || BUILD_FLAG_VARIABLES.contains(&name.as_ref()) {
+            command.env_remove(name.as_ref());
+        }
+    }
     let listing = output(
-        Command::new("cargo")
+        command
             .args([
                 "nextest",
                 "list",
@@ -238,6 +261,7 @@ fn discover(root: &Path) -> Result<Vec<BudgetTest>, DevtoolError> {
                 "json",
             ])
             .args(["-E", &filter])
+            .envs(PINNED_BUILD)
             .current_dir(root),
         "cargo nextest list",
     )?;

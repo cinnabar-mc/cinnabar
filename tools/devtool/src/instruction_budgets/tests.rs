@@ -130,3 +130,17 @@ fn committed_budgets_name_existing_budget_tests() {
         );
     }
 }
+
+#[test]
+fn pinned_build_matches_the_ci_workflow() {
+    let workflow = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.yml"),
+    )
+    .unwrap();
+    for (name, value) in PINNED_BUILD {
+        assert!(
+            workflow.contains(&format!("\n  {name}: \"{value}\"\n")),
+            "ci.yml's workflow env must set {name}: \"{value}\""
+        );
+    }
+}

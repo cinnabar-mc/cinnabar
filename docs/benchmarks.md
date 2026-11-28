@@ -16,9 +16,9 @@ cargo run -p devtool --locked -- instruction-budgets            # check
 cargo run -p devtool --locked -- instruction-budgets --update   # record changed budgets
 ```
 
-It needs x86-64 Linux, Valgrind and cargo-nextest, and builds every workspace test binary with
-the caller's test profile, so run it on a build host and with the CI profile settings
-(`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0`). CI runs it in
+It needs x86-64 Linux, Valgrind and cargo-nextest, and builds every workspace test binary, so run
+it on a build host. It builds with CI's test-profile settings whatever the environment sets,
+dropping `CARGO_PROFILE_*` and rustflags overrides, so a local update measures what CI does. CI runs it in
 the Linux test job and uploads `instruction-budgets` with the measured file and one Callgrind
 profile per test; when a change is intended, commit that file and explain increases in the PR.
 Both it and `--update` keep each budget still within the tolerance and take the measurement only
