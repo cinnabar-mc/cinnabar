@@ -9,9 +9,10 @@ need their own grants. Screens suspend reads. Limits are `MAX_TERRAIN_*` in
 ## Query lifecycle
 
 A query has inclusive minimum, exclusive maximum and requested collision/selection
-geometry (either, both or neither). Extents and distance from the player's feet
-must fit the SDK limits. Errors are `denied`, `unavailable`, `invalid-query`,
-`out-of-range`, `budget-exhausted` or `limit-exceeded`.
+geometry (either, both or neither) and sky/block light channels (either, both or
+neither). Each requested light channel costs one per-cell read. Extents and distance
+from the player's feet must fit the SDK limits. Errors are `denied`, `unavailable`,
+`invalid-query`, `out-of-range`, `budget-exhausted` or `limit-exceeded`.
 
 Queries read in a callback replace its subscriptions. Deferred/skipped callbacks
 retain them. New queries first return `pending`; the client refreshes subscriptions
@@ -20,8 +21,9 @@ without copying unchanged terrain. Stamps compare only within the same query,
 session, dimension and registry generation.
 
 Subscriptions refresh when their session, dimension, registry or read columns
-change. A shared round-robin frame-cell budget defers remaining refreshes as
-`pending`. Oversized geometry/metadata/responses return `limit-exceeded`; shrink
+change; light-requesting subscriptions also refresh when a consulted column's light
+generation changes. A shared round-robin frame-cell budget defers remaining refreshes
+as `pending`. Oversized geometry/metadata/responses return `limit-exceeded`; shrink
 the query. Sampling is host work; guest pathfinding and caches still consume the
 ordinary frame fuel and should be incremental.
 
@@ -45,10 +47,11 @@ they find with world drawing.
 | Cell index | `((x * size-z) + z) * size-y + y`, relative to minimum |
 | `loaded[cell / 64]` | Bit `cell % 64` marks known cells; unknown is not air |
 | `states[l * cells + cell]` | Palette index at layer `l`; 65535 means no layer |
+| `sky-light`, `block-light` | One byte per cell, 0–15, or 255 when not loaded or not solved; empty unless requested |
 | `palette` | Runtime ID, identifier, canonical state JSON, tags and available physics; missing facts stay absent |
 | `shape-offsets`, `shape-boxes` | Shared block-local boxes; shape 0 is known-empty |
 | `overrides` | Per-cell geometry, sorted by slot |
-| `chunks` | Every consulted column and its revision, including neighbor geometry reads; none means absent terrain |
+| `chunks` | Every consulted column, its revision and, for light queries, the light generation used; none means absent terrain |
 
 A known section without storage is air in layer 0. Geometry may be `fixed`,
 `not-requested`, `per-cell` or `unavailable`. Position-dependent shapes include

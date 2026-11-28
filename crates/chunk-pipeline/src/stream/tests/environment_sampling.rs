@@ -233,3 +233,39 @@ fn camera_environment_context_exposes_palette_biome_and_effective_block_radius()
     assert_eq!(stream.camera_biome_id([f32::NAN, -63.5, 4.5]), None);
     assert_eq!(stream.render_distance_blocks(), 256.0);
 }
+
+#[test]
+fn column_light_generation_tracks_the_highest_resident_generation() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    let key = ChunkKey::new(0, 0, 0);
+    assert_eq!(stream.column_light_generation(key), None);
+    stream
+        .lighting
+        .store
+        .insert_resident(SubChunkKey::new(0, 0, 0, 0), SubChunkLight::uniform(1, 2, 7).unwrap());
+    assert_eq!(stream.column_light_generation(key), Some(7));
+    stream
+        .lighting
+        .store
+        .insert_resident(SubChunkKey::new(0, 0, 1, 0), SubChunkLight::uniform(3, 4, 9).unwrap());
+    assert_eq!(stream.column_light_generation(key), Some(9));
+    stream
+        .lighting
+        .store
+        .insert_resident(SubChunkKey::new(0, 0, 1, 0), SubChunkLight::uniform(3, 4, 10).unwrap());
+    assert_eq!(stream.column_light_generation(key), Some(10));
+    // Another column's light leaves this column's stamp alone.
+    stream.lighting.store.insert_resident(
+        SubChunkKey::new(0, 1, 0, 0),
+        SubChunkLight::uniform(0, 15, 12).unwrap(),
+    );
+    assert_eq!(stream.column_light_generation(key), Some(10));
+}

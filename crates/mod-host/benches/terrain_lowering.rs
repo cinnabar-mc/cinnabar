@@ -171,6 +171,7 @@ fn flat_region(metadata: &Metadata, shape: &Shape) -> TerrainRegion {
                     x,
                     z,
                     revision: (x + z < 2).then_some(7),
+                    light: Some(7),
                 })
             })
             .collect(),
@@ -187,6 +188,8 @@ fn flat_region(metadata: &Metadata, shape: &Shape) -> TerrainRegion {
                 }
             })
             .collect(),
+        sky_light: vec![15; cells],
+        block_light: vec![0; cells],
         palette,
         shape_offsets: (0..=boxes as u32 + 1)
             .map(|index| index.saturating_sub(1))

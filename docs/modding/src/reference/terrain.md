@@ -113,6 +113,24 @@ flags geometry {
 | `collision` |  |  |
 | `selection` |  |  |
 
+<a id="type-light-channels"></a>
+
+### `light-channels`
+
+Selects which per-cell light channels to report; an empty set requests neither.
+
+```wit
+flags light-channels {
+    sky,
+    block,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `sky` |  |  |
+| `block` |  |  |
+
 <a id="type-region-query"></a>
 
 ### `region-query`
@@ -124,6 +142,7 @@ record region-query {
     min: position,
     max: position,
     geometry: geometry,
+    light: light-channels,
 }
 ```
 
@@ -132,8 +151,9 @@ record region-query {
 | `min` | `position` |  |
 | `max` | `position` |  |
 | `geometry` | `geometry` |  |
+| `light` | `light-channels` | Light channels to read for every cell, at one read each. |
 
-Types: [`geometry`](terrain.md#type-geometry), [`position`](terrain.md#type-position).
+Types: [`geometry`](terrain.md#type-geometry), [`light-channels`](terrain.md#type-light-channels), [`position`](terrain.md#type-position).
 
 <a id="type-stamp"></a>
 
@@ -315,13 +335,15 @@ Types: [`physics`](terrain.md#type-physics), [`shape-binding`](terrain.md#type-s
 
 ### `chunk-revision`
 
-Revision of a column the region depends on; none is absent terrain.
+Revision of a column the region depends on; none is absent terrain. `light` is the
+column's light generation when the query requested light, and none otherwise.
 
 ```wit
 record chunk-revision {
     x: s32,
     z: s32,
     revision: option<u64>,
+    light: option<u64>,
 }
 ```
 
@@ -330,6 +352,7 @@ record chunk-revision {
 | `x` | `s32` |  |
 | `z` | `s32` |  |
 | `revision` | `option<u64>` |  |
+| `light` | `option<u64>` |  |
 
 <a id="type-shape-override"></a>
 
@@ -367,6 +390,8 @@ record region {
     layer-count: u8,
     loaded: list<u64>,
     states: list<u16>,
+    sky-light: list<u8>,
+    block-light: list<u8>,
     palette: list<block-state>,
     shape-offsets: list<u32>,
     shape-boxes: list<f64>,
@@ -381,6 +406,8 @@ record region {
 | `layer-count` | `u8` |  |
 | `loaded` | `list<u64>` | Bit `cell % 64` of word `cell / 64` is set for known cells. |
 | `states` | `list<u16>` | Palette index per slot; 65535 is no layer, never air. |
+| `sky-light` | `list<u8>` | Sky light per cell in cell order, 0..=15, or 255 when the cell is not loaded or its<br>light is not solved. Empty unless the query requested sky light. |
+| `block-light` | `list<u8>` | Block light per cell in cell order, 0..=15, or 255 when the cell is not loaded or its<br>light is not solved. Empty unless the query requested block light. |
 | `palette` | `list<block-state>` |  |
 | `shape-offsets` | `list<u32>` | Shape `s` is boxes `shape-offsets[s]` to `shape-offsets[s + 1]`. |
 | `shape-boxes` | `list<f64>` | Six values per box: minimum then maximum x, y and z. |
@@ -462,7 +489,9 @@ read-region: func(query: region-query, after: option<stamp>) -> result<read-resu
 
 Requires terrain authority and a gameplay frame; the query lies within
 `MAX_TERRAIN_DISTANCE` blocks of the player's feet on each axis. Pass the stamp last received
-for this query to skip unchanged data. Limits are `mod-api`'s `MAX_TERRAIN_*` constants.
+for this query to skip unchanged data. A light-requesting sample is refreshed when any
+column's light generation changes, so light alone can invalidate it. Limits are `mod-api`'s
+`MAX_TERRAIN_*` constants.
 
 Types: [`read-error`](terrain.md#type-read-error), [`read-result`](terrain.md#type-read-result), [`region-query`](terrain.md#type-region-query), [`stamp`](terrain.md#type-stamp).
 

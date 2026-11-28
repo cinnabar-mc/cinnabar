@@ -216,6 +216,8 @@ pub fn terrain_region_bytes(region: &TerrainRegion) -> usize {
         + list(&region.chunks)
         + list(&region.loaded)
         + list(&region.states)
+        + list(&region.sky_light)
+        + list(&region.block_light)
         + list(&region.palette)
         + list(&region.shape_offsets)
         + list(&region.shape_boxes)
@@ -310,12 +312,13 @@ impl TerrainDescriptors {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TerrainGeometry, TerrainPosition, TerrainStamp};
+    use crate::{TerrainGeometry, TerrainLightChannels, TerrainPosition, TerrainStamp};
     fn query(min: i32, max: i32) -> TerrainQuery {
         TerrainQuery {
             min: TerrainPosition { x: min, y: 0, z: 0 },
             max: TerrainPosition { x: max, y: 1, z: 1 },
             geometry: TerrainGeometry::empty(),
+            light: TerrainLightChannels::empty(),
         }
     }
     fn region() -> TerrainRegion {
@@ -330,11 +333,21 @@ mod tests {
             layer_count: 1,
             loaded: vec![],
             states: vec![],
+            sky_light: vec![],
+            block_light: vec![],
             palette: vec![],
             shape_offsets: vec![],
             shape_boxes: vec![],
             overrides: vec![],
         }
+    }
+    #[test]
+    fn region_bytes_count_both_light_lists() {
+        let mut lit = region();
+        let base = terrain_region_bytes(&lit);
+        lit.sky_light = vec![15; 8];
+        lit.block_light = vec![7; 8];
+        assert_eq!(terrain_region_bytes(&lit), base + 16);
     }
     #[test]
     fn returning_to_a_dimension_cannot_reuse_an_old_terrain_stamp() {

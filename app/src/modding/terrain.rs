@@ -8,8 +8,9 @@ use client_extensions::modding::multi::ModHosts;
 use client_interaction::movement::PhysicsCollisionRegistries;
 use mod_host::{
     TerrainBlockState, TerrainCheck, TerrainChunkRevision, TerrainGeometry, TerrainPhysics,
-    TerrainPhysicsFlags, TerrainQuery, TerrainReadError, TerrainRefresh, TerrainRegion,
-    TerrainShape, TerrainShapeBinding, TerrainShapeOverride, TerrainStamp, TerrainSurfaceResponse,
+    TerrainLightChannels, TerrainPhysicsFlags, TerrainQuery, TerrainReadError, TerrainRefresh,
+    TerrainRegion, TerrainShape, TerrainShapeBinding, TerrainShapeOverride, TerrainStamp,
+    TerrainSurfaceResponse,
 };
 use sim::{BlockPhysicsFlags, PaletteWorld, SurfaceResponse};
 use world::{ChunkKey, ChunkStore};
@@ -60,6 +61,7 @@ impl mod_host::TerrainMetadata for Metadata<'_> {
 /// This frame's world, with the scratch that samples it.
 struct Source<'a> {
     store: &'a ChunkStore,
+    stream: &'a chunk_pipeline::WorldStream,
     registries: &'a PhysicsCollisionRegistries,
     mode: NetworkIdMode,
     observation: &'a mod_host::WorldObservation,
@@ -96,6 +98,7 @@ impl TerrainSampling {
         }
         let mut source = Source {
             store: authority.terrain(),
+            stream,
             registries,
             mode,
             observation,
@@ -121,7 +124,13 @@ impl Source<'_> {
     }
 
     /// Moves a sample's bulk arrays into a response and copies metadata once per state.
-    fn region(&mut self, sample: sim::TerrainSample) -> TerrainRefresh {
+    fn region(
+        &mut self,
+        sample: sim::TerrainSample,
+        min: [i32; 3],
+        size: [u8; 3],
+        light: TerrainLightChannels,
+    ) -> TerrainRefresh {
         let metadata = Metadata(self.registries, self.mode);
         let mut bytes = 0;
         let mut palette = Vec::with_capacity(sample.palette.len());
@@ -140,6 +149,12 @@ impl Source<'_> {
                 ..description.clone()
             });
         }
+        let (sky_light, block_light) = light_cells(min, size, &sample.loaded, light, |position| {
+            self.stream
+                .solved_light_at(position.map(|value| value as f32 + 0.5))
+        });
+        let light_generation = light.contains(TerrainLightChannels::SKY)
+            || light.contains(TerrainLightChannels::BLOCK);
         TerrainRefresh::Replace(Box::new(TerrainRegion {
             stamp: self.stamp(),
             chunks: sample
@@ -149,11 +164,22 @@ impl Source<'_> {
                     x: column.x,
                     z: column.z,
                     revision: column.revision,
+                    light: if light_generation {
+                        self.stream.column_light_generation(ChunkKey::new(
+                            self.observation.dimension,
+                            column.x,
+                            column.z,
+                        ))
+                    } else {
+                        None
+                    },
                 })
                 .collect(),
             layer_count: sample.layer_count,
             loaded: sample.loaded,
             states: sample.states,
+            sky_light,
+            block_light,
             palette,
             shape_offsets: sample.shape_offsets,
             shape_boxes: sample.shape_boxes,
@@ -179,6 +205,9 @@ impl mod_host::TerrainSource for Source<'_> {
             Err(error) => return TerrainCheck::Failed(error),
         };
         let stamp = self.stamp();
+        let light = retained.is_some_and(|region| {
+            !region.sky_light.is_empty() || !region.block_light.is_empty()
+        });
         let current = retained.is_some_and(|region| {
             (
                 region.stamp.session,
@@ -191,6 +220,8 @@ impl mod_host::TerrainSource for Source<'_> {
                         .collision_revision(key)
                         .map(|value| value.revision)
                         == chunk.revision
+                        && (!light
+                            || chunk.light == self.stream.column_light_generation(key))
                 })
         });
         if current {
@@ -223,13 +254,63 @@ impl mod_host::TerrainSource for Source<'_> {
             .sampler
             .sample(&world, min, size, geometry, mod_api::MAX_TERRAIN_BOXES)
         {
-            Ok(sample) => self.region(sample),
+            Ok(sample) => self.region(sample, min, size, query.light),
             Err(sim::TerrainSampleError::OutOfRange) => {
                 TerrainRefresh::Failed(TerrainReadError::OutOfRange)
             }
             Err(_) => TerrainRefresh::Failed(TerrainReadError::LimitExceeded),
         }
     }
+}
+
+/// Per-cell sky and block light in cell order; 255 marks a cell not loaded or not solved.
+fn light_cells(
+    min: [i32; 3],
+    size: [u8; 3],
+    loaded: &[u64],
+    channels: TerrainLightChannels,
+    mut light_at: impl FnMut([i32; 3]) -> Option<(u8, u8)>,
+) -> (Vec<u8>, Vec<u8>) {
+    let [sx, sy, sz] = size.map(usize::from);
+    let cells = sx * sy * sz;
+    let sky = channels.contains(TerrainLightChannels::SKY);
+    let block = channels.contains(TerrainLightChannels::BLOCK);
+    let (mut sky_light, mut block_light) = (Vec::new(), Vec::new());
+    if !sky && !block {
+        return (sky_light, block_light);
+    }
+    if sky {
+        sky_light.reserve(cells);
+    }
+    if block {
+        block_light.reserve(cells);
+    }
+    for x in 0..sx {
+        for z in 0..sz {
+            for y in 0..sy {
+                let cell = ((x * sz) + z) * sy + y;
+                let known = loaded
+                    .get(cell / 64)
+                    .is_some_and(|word| word & (1 << (cell % 64)) != 0);
+                let light = known
+                    .then(|| {
+                        light_at([
+                            min[0] + x as i32,
+                            min[1] + y as i32,
+                            min[2] + z as i32,
+                        ])
+                    })
+                    .flatten();
+                if sky {
+                    sky_light.push(light.map_or(u8::MAX, |light| light.1));
+                }
+                if block {
+                    block_light.push(light.map_or(u8::MAX, |light| light.0));
+                }
+            }
+        }
+    }
+    (sky_light, block_light)
 }
 
 fn physics(facts: sim::BlockPhysicsFacts) -> TerrainPhysics {
@@ -288,5 +369,39 @@ mod tests {
         }
         assert_eq!(covered, BlockPhysicsFlags::KNOWN_BITS);
         assert_eq!(seen, TerrainPhysicsFlags::all());
+    }
+
+    /// Light follows cell order, and unloaded or unsolved cells read 255.
+    #[test]
+    fn light_cells_cover_loaded_cells_in_cell_order() {
+        let loaded = [0b1011_u64];
+        let mut asked = Vec::new();
+        let channels = TerrainLightChannels::SKY | TerrainLightChannels::BLOCK;
+        let (sky, block) =
+            light_cells([10, 60, 20], [2, 2, 1], &loaded, channels, |position| {
+                asked.push(position);
+                match position {
+                    [10, 60, 20] => Some((5, 12)),
+                    [10, 61, 20] => Some((0, 15)),
+                    [11, 61, 20] => Some((3, 7)),
+                    _ => None,
+                }
+            });
+        assert_eq!(asked, vec![[10, 60, 20], [10, 61, 20], [11, 61, 20]]);
+        assert_eq!(sky, vec![12, 15, u8::MAX, 7]);
+        assert_eq!(block, vec![5, 0, u8::MAX, 3]);
+    }
+
+    /// An unrequested channel costs nothing and reads no light.
+    #[test]
+    fn light_cells_skip_unrequested_channels() {
+        let (sky, block) = light_cells(
+            [0; 3],
+            [1, 1, 1],
+            &[1],
+            TerrainLightChannels::empty(),
+            |_| panic!("no channel was requested"),
+        );
+        assert!(sky.is_empty() && block.is_empty());
     }
 }

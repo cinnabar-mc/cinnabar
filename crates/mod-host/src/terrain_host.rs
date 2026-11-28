@@ -153,7 +153,7 @@ mod tests {
     use super::*;
     use crate::{
         GameplaySnapshot, GameplayVector3, ModGrants, TerrainGeometry, TerrainPosition,
-        TerrainRefresh, TerrainRegion,
+        TerrainLightChannels, TerrainRefresh, TerrainRegion,
     };
     use cinnabar::extension::terrain::Host as _;
     fn state(grants: ModGrants) -> State {
@@ -228,6 +228,7 @@ mod tests {
                 z: 1,
             },
             geometry: TerrainGeometry::COLLISION,
+            light: TerrainLightChannels::empty(),
         }
     }
     fn region(session: u64, dimension: i32) -> TerrainRegion {
@@ -242,6 +243,8 @@ mod tests {
             layer_count: 1,
             loaded: vec![1],
             states: vec![0],
+            sky_light: vec![],
+            block_light: vec![],
             palette: vec![],
             shape_offsets: vec![0, 0],
             shape_boxes: vec![],
