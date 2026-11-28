@@ -310,6 +310,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let color_mask_material = (input.material_parameters.z & (ACTOR_MATERIAL_COLOR_MASK_FLAG | ACTOR_COLOR_MASK_MATERIAL_FLAG)) != 0u;
     let legacy_mask = legacy && (input.material_parameters.z & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let authored = (input.material_parameters.z & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
+    let authored_mask = authored && (input.material_parameters.z & ACTOR_MATERIAL_COLOR_MASK_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material_parameters.z & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
     if (input.skin_info.y == 0u) {
         discard;
@@ -358,8 +359,10 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     if (authored && (input.material_parameters.z & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
         if (emissive && (input.material_parameters.z & ACTOR_MATERIAL_ONLY_EMISSIVE_FLAG) != 0u && (color.a == 0.0 || color.a == 1.0)) { discard; }
         if (emissive && all(color == vec4(0.0))) { discard; }
+        // Under USE_COLOR_MASK texture alpha weights the dye, so the alpha test rejects only zero.
+        if (!emissive && authored_mask && color.a == 0.0) { discard; }
         @if(!ALPHA_TO_COVERAGE)
-        if (!emissive && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
+        if (!emissive && !legacy_mask && !authored_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     }
     if (!authored && !color_mask_material && !multitexture_material && material == ACTOR_MATERIAL_DEFAULT && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;

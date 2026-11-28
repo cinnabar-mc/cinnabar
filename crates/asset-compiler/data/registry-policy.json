@@ -7436,6 +7436,7 @@
     },
     "powered_prefix": "powered",
     "materials": {
+      "cat": "ColorMask",
       "elytra": "UnmaskedArmor",
       "ender_dragon": "Dragon",
       "entity_dissolve_layer0": "DissolveDepth",
