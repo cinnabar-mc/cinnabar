@@ -177,6 +177,40 @@ fn registered_filled_maps_admit_manual_and_quick_move_offhand_placement() {
     }
 }
 
+/// BDS marks vanilla items component-based without restating the native offhand permission;
+/// arrows must still enter the offhand from a manual click and a quick move.
+#[test]
+fn component_based_arrow_admits_manual_and_quick_move_offhand_placement() {
+    let mut entry = registered("minecraft:arrow");
+    entry.component_based = true;
+    entry.version = protocol::ItemRegistryVersion::DataDriven;
+    entry.components = Some(std::sync::Arc::new(protocol::ItemComponents::default()));
+    for quick_move in [false, true] {
+        let mut ledger = equipment_ledger(&entry);
+        ledger.apply(&content(
+            ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+            vec![NetworkItemStack::empty()],
+        ));
+        assert_eq!(
+            ledger.item_facts().get(entry.network_id).allow_off_hand,
+            Some(true)
+        );
+        if quick_move {
+            assert_quick_move(&mut ledger, &entry, InventoryTarget::Offhand);
+        } else {
+            ledger.begin_click(SOURCE_SLOT).unwrap();
+            ledger
+                .begin_target_gesture(InventoryTarget::Offhand, CellGesture::Click)
+                .unwrap();
+            assert!(ledger.displayed_stack(SOURCE_SLOT).is_none());
+            assert!(ledger.cursor_stack().is_none());
+            let moved = ledger.target_stack(InventoryTarget::Offhand).unwrap();
+            assert_eq!(moved.network_id, entry.network_id);
+            assert_eq!(moved.count, 1);
+        }
+    }
+}
+
 /// Admits a server-defined item with a known role tag and an optional wearable slot.
 fn tagged_entry(identifier: &str, tag: &str, wearable: Option<&str>) -> ItemRegistryEntry {
     assert!(protocol::vanilla_tag_contains(tag, identifier).is_some());

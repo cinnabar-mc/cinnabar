@@ -166,11 +166,14 @@ fn resolve(
     } else {
         pinned_fact.copied().unwrap_or_default()
     };
+    // Bedrock decides retail offhand use natively instead of restating it in each item's
+    // components, so omitting the component keeps the reviewed retail admission.
+    if component_item && let Some(pinned_fact) = pinned_fact {
+        fact.allow_off_hand = pinned_fact.allow_off_hand;
+        fact.offhand_provisional = pinned_fact.offhand_provisional;
+    }
     // Preserve admission for registered native maps outside the retail census.
-    if !component_item
-        && pinned_fact.is_none()
-        && entry.identifier.as_ref() == FILLED_MAP_IDENTIFIER
-    {
+    if pinned_fact.is_none() && entry.identifier.as_ref() == FILLED_MAP_IDENTIFIER {
         fact.allow_off_hand = Some(true);
         fact.offhand_provisional = true;
     }
