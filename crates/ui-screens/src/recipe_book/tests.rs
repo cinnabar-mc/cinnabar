@@ -181,3 +181,27 @@ fn hidden_recipe_book_uses_survival_binding_and_retains_unknown_layouts() {
         }
     }
 }
+
+#[test]
+fn search_tab_heading_names_craftable_items_only_while_the_toggle_is_on() {
+    assert_eq!(
+        tab_label_key(InventoryTab::Search, false),
+        "craftingScreen.tab.allItems"
+    );
+    assert_eq!(
+        tab_label_key(InventoryTab::Search, true),
+        "craftingScreen.tab.craftableItems"
+    );
+    for tab in [
+        InventoryTab::Construction,
+        InventoryTab::Nature,
+        InventoryTab::Equipment,
+        InventoryTab::Items,
+    ] {
+        assert_eq!(tab_label_key(tab, true), tab_label_key(tab, false));
+    }
+    assert_eq!(
+        tab_label_key(InventoryTab::Survival, true),
+        tab_label_key(InventoryTab::Survival, false)
+    );
+}
