@@ -944,3 +944,78 @@ fn browser_canvas_pick_binding_publishes_one_request_per_press() {
         }
     }
 }
+
+#[test]
+fn middle_click_with_ctrl_requests_block_data() {
+    for (with_data, expected) in [
+        (false, protocol::block_pick_request_packet([4, 2, 6], false)),
+        (true, protocol::block_pick_request_packet([4, 2, 6], true)),
+    ] {
+        let (mut world, mut captured) = fixture();
+        world
+            .resource_mut::<client_state::PlayerRuntime>()
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        buttons(&mut world, vec![]);
+        world.init_resource::<client_state::GameplayScreenControls>();
+        {
+            let mut controls = world.resource_mut::<client_state::GameplayScreenControls>();
+            controls.pick_block_pressed = true;
+            controls.pick_block_with_data = with_data;
+        }
+        world
+            .run_system_cached(crate::pick_block::produce_pick_block)
+            .unwrap();
+        let picks: Vec<_> = captured
+            .drain()
+            .into_iter()
+            .filter(|packet| packet.kind() == expected.kind())
+            .map(|packet| protocol::encode(&packet).unwrap())
+            .collect();
+        assert_eq!(
+            picks,
+            [protocol::encode(&expected).unwrap()],
+            "with_data={with_data}"
+        );
+    }
+}
+
+#[test]
+fn browser_canvas_ctrl_pick_requests_block_data() {
+    use crate::browser_input::{BrowserOptions, CanvasCapture, InputSource, sample_input};
+    use semantic_input::{ButtonEdges, DeviceFrame, KeyboardMouseFrame, ModifierChord};
+
+    let (mut world, mut captured) = fixture();
+    world
+        .resource_mut::<client_state::PlayerRuntime>()
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Creative);
+    buttons(&mut world, vec![]);
+    world.init_resource::<client_state::GameplayScreenControls>();
+    world.init_resource::<crate::semantic_controls::PendingDeviceFrame>();
+    world.insert_resource(BrowserOptions::default());
+    world.init_resource::<CanvasCapture>();
+    world.insert_non_send(InputSource(Box::new(|| DeviceFrame {
+        keyboard_mouse: Some(KeyboardMouseFrame {
+            mouse_buttons: vec![3],
+            mouse_edges: ButtonEdges {
+                pressed: vec![3],
+                ..Default::default()
+            },
+            modifiers: ModifierChord {
+                control: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    })));
+    world.run_system_cached(sample_input).unwrap();
+    world
+        .run_system_cached(crate::pick_block::produce_pick_block)
+        .unwrap();
+    assert_eq!(
+        captured.drain(),
+        [protocol::block_pick_request_packet([4, 2, 6], true)]
+    );
+}

@@ -46,6 +46,7 @@ fn observe(
     context: &PickBlockContext,
     ui: &UiRuntimeResource,
     pressed: bool,
+    block_with_data: bool,
     mode: semantic_input::InputMode,
     identity: (
         semantic_input::identity::InputAuthorityGeneration,
@@ -115,7 +116,7 @@ fn observe(
     }
     let hit = observed.value?;
     Some(PickAttempt {
-        packet: protocol::block_pick_request_packet(hit.target.position, false),
+        packet: protocol::block_pick_request_packet(hit.target.position, block_with_data),
         lifetime: None,
         world: observed.identity,
     })
@@ -146,6 +147,7 @@ pub(crate) fn produce_pick_block(
                 .input
                 .phase(semantic_input::Action::PickItem)
                 .pressed,
+        context.controls.pick_block_with_data,
         snapshot.input_mode,
         (snapshot.authority_generation, snapshot.frame_sequence),
         &context.origin,
@@ -166,6 +168,7 @@ pub(crate) fn ordered_pick(
         &context,
         &ui,
         input.edge.pressed,
+        context.controls.pick_block_with_data,
         input.context.mode,
         input.context.identity,
         &input.context.origin,

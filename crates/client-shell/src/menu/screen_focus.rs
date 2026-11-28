@@ -48,6 +48,9 @@ pub fn publish_gameplay_screen_controls(
     if let (Some(menu), Some(presentation)) = (menu.as_deref(), presentation.as_mut()) {
         sync_touch_controls(menu, effective_mode.map(|mode| mode.0), presentation);
     }
+    let pick_block_with_data = keys
+        .as_ref()
+        .is_some_and(|keys| keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]));
     *controls = GameplayScreenControls {
         pick_block_pressed: menu.is_some()
             && (control_bindings::binding_gamepad(menu.as_deref(), BindingId::PickItem, &pads)
@@ -59,6 +62,7 @@ pub fn publish_gameplay_screen_controls(
                         &mouse,
                     )
                 })),
+        pick_block_with_data,
         spyglass_mouse_damping: menu
             .as_deref()
             .map_or(0.0, |menu| menu.spyglass_damping(InputMode::KeyboardMouse)),
