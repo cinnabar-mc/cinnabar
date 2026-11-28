@@ -79,16 +79,7 @@ impl BookEntry<'_> {
         match self {
             Self::Creative { item, .. } => item.stack.clone(),
             Self::Group { group, .. } => group.icon.clone().unwrap_or_default(),
-            Self::Recipe(recipe) => {
-                let output = recipe.recipe.output();
-                NetworkItemStack {
-                    network_id: output.network_id,
-                    metadata: u32::from(output.aux),
-                    count: u16::from(output.count),
-                    block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
-                    ..NetworkItemStack::empty()
-                }
-            }
+            Self::Recipe(recipe) => recipe.recipe.output().stack(),
             Self::Furnace(recipe) => crate::furnace_book::output_stack(recipe),
         }
     }

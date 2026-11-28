@@ -1,6 +1,7 @@
 use super::{
     brewing::{BrewingMix, BrewingMixItem},
     budget::MAX_RECORDS,
+    crafting::RecipeOutputData,
     model::Output,
     reader::{ReadResult, Reader, Refusal},
     screen::ScreenRecipeKind,
@@ -22,7 +23,7 @@ pub(super) struct Candidate<'a> {
     pub(super) mirror: bool,
     pub(super) priority: i32,
     pub(super) ingredients: [Ingredient<'a>; super::model::MAX_INGREDIENTS],
-    pub(super) output: Output,
+    pub(super) output: WireOutput<'a>,
     pub(super) extra: ExtraOutputs<'a>,
 }
 
@@ -46,10 +47,33 @@ impl ExtraOutputs<'_> {
             .try_reserve_exact(self.count)
             .map_err(|_| Refusal::Policy)?;
         for _ in 0..self.count {
-            outputs.push(output(&mut reader)?.ok_or(Refusal::Wire)?);
+            outputs.push(output(&mut reader)?.ok_or(Refusal::Wire)?.owned()?);
         }
         reader.finish()?;
         Ok(outputs)
+    }
+}
+
+/// One admitted result, borrowing its item data until the batch has reserved credit for it.
+#[derive(Clone, Copy)]
+pub(super) struct WireOutput<'a> {
+    id: i32,
+    aux: u16,
+    count: u8,
+    block: u32,
+    user_data: &'a [u8],
+}
+
+impl WireOutput<'_> {
+    /// Copies the result and its item data into the retained recipe form.
+    pub(super) fn owned(&self) -> ReadResult<Output> {
+        Ok(Output {
+            id: self.id,
+            aux: self.aux,
+            count: self.count,
+            block: self.block,
+            user_data: RecipeOutputData::decode(self.user_data).ok_or(Refusal::Wire)?,
+        })
     }
 }
 
@@ -75,7 +99,7 @@ pub(super) struct ScreenRecord<'a> {
     pub(super) kind: ScreenRecipeKind,
     pub(super) ingredients: [Ingredient<'a>; 3],
     pub(super) len: usize,
-    pub(super) output: Option<Output>,
+    pub(super) output: Option<WireOutput<'a>>,
 }
 
 /// Something the screens need beyond crafting-table recipes.
@@ -167,27 +191,28 @@ fn item_id(name: &str, aux: i32) -> Option<(&str, i32)> {
     identifier(base).then_some((base, aux))
 }
 
-fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
+fn output<'a>(reader: &mut Reader<'a>) -> ReadResult<Option<WireOutput<'a>>> {
     let id = reader.int()?;
     let bytes = reader.take(2)?;
     let count = u16::from_le_bytes([bytes[0], bytes[1]]);
     let aux = reader.uint()?;
     let block = reader.int()?;
     let extra = reader.opaque()?;
-    let user_data = super::crafting::RecipeOutputData::decode(extra);
     // Block items carry negative network ids; only 0 (air) makes nothing.
-    Ok(user_data
-        .filter(|_| id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32)
-        .map(|user_data| Output {
-            id,
-            aux: aux as u16,
-            count: count as u8,
-            // The recipe descriptor transports block identity as signed
-            // ZigZag32; inventory item descriptors retain its raw u32 bits.
-            // Hashed block identities may have bit 31 set.
-            block: u32::from_ne_bytes(block.to_ne_bytes()),
-            user_data,
-        }))
+    let craftable = id != 0
+        && (1..=255).contains(&count)
+        && aux <= u32::from(u16::MAX)
+        && RecipeOutputData::admits(extra);
+    Ok(craftable.then_some(WireOutput {
+        id,
+        aux: aux as u16,
+        count: count as u8,
+        // The recipe descriptor transports block identity as signed
+        // ZigZag32; inventory item descriptors retain its raw u32 bits.
+        // Hashed block identities may have bit 31 set.
+        block: u32::from_ne_bytes(block.to_ne_bytes()),
+        user_data: extra,
+    }))
 }
 
 /// Reads discovery context without using it as a recipe admission gate.

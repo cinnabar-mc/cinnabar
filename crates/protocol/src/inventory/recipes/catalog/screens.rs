@@ -68,7 +68,7 @@ pub(super) fn merge(
             id: recipe.id,
             kind: recipe.kind,
             ingredients,
-            output: recipe.output,
+            output: recipe.output.clone(),
         });
     }
     let count = merged_views(&old.multi, &incoming.multi, records, |recipe| recipe.id).count();
