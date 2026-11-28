@@ -132,7 +132,7 @@ fn material(block: &Value) -> Option<(&str, CrossMaterial)> {
         }
         geometry.get("identifier")?.as_str()?
     };
-    if identifier != "minecraft:geometry.cross" {
+    if identifier != crate::CROSS_IDENTIFIER {
         return None;
     }
     let instances = components
