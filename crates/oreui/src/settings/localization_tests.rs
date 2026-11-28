@@ -158,6 +158,78 @@ fn mention_target_fallbacks_use_current_chat_labels() {
     }
 }
 
+/// The wheel toggle has built-in English and French text without a resource-pack catalog.
+#[test]
+fn wheel_hotbar_labels_use_builtin_english_and_french() {
+    let title = "mouse_wheel_hotbar_scrolling";
+    let help = "mouse_wheel_hotbar_scrolling.description";
+    for (locale, expected_title, expected_help) in [
+        (
+            "en_US",
+            "Mouse wheel hotbar scrolling",
+            "Cycle hotbar slots with the mouse wheel. Turn off to ignore wheel input in gameplay.",
+        ),
+        (
+            "fr_FR",
+            "Défilement de la barre d'outils avec la molette",
+            "Alterne les emplacements de la barre d'outils avec la molette. Désactivez cette option pour ignorer la molette pendant le jeu.",
+        ),
+        (
+            "fr_CA",
+            "Défilement de la barre d'outils avec la molette",
+            "Alterne les emplacements de la barre d'outils avec la molette. Désactivez cette option pour ignorer la molette pendant le jeu.",
+        ),
+    ] {
+        assert_eq!(
+            localization::word(title, Some(locale), &|_| None),
+            expected_title,
+            "{locale}"
+        );
+        assert_eq!(
+            localization::word(help, Some(locale), &|_| None),
+            expected_help,
+            "{locale}"
+        );
+    }
+}
+
+/// Locales without built-in text read the toggle's title and help from the active catalog.
+#[test]
+fn wheel_hotbar_row_uses_catalog_text_where_no_builtin_locale_exists() {
+    let translate = |key: &str| match key {
+        "mouse_wheel_hotbar_scrolling" => Some(Arc::<str>::from("Katalog Mausrad")),
+        "mouse_wheel_hotbar_scrolling.description" => Some(Arc::<str>::from("Katalog Hilfe")),
+        _ => None,
+    };
+    for (locale, expected_title, expected_help) in [
+        ("de_DE", "Katalog Mausrad", "Katalog Hilfe"),
+        (
+            "fr_FR",
+            "Défilement de la barre d'outils avec la molette",
+            "Alterne les emplacements de la barre d'outils avec la molette. Désactivez cette option pour ignorer la molette pendant le jeu.",
+        ),
+    ] {
+        let mut view = MenuView::new(true, "Player".into());
+        assert!(Arc::make_mut(&mut view.settings_options).set_language(locale));
+        paint(HashMap::new(), |canvas| {
+            let content = Content {
+                canvas,
+                view: &view,
+                span: [0.0, 1000.0],
+                column_width: 1000.0,
+                y: 0.0,
+                translate: &translate,
+                nested: false,
+            };
+            assert_eq!(
+                content.option_text(SettingId::MouseWheelHotbarScrolling),
+                (expected_title.to_owned(), expected_help.to_owned()),
+                "{locale}"
+            );
+        });
+    }
+}
+
 /// Cloud rows display localized titles, help and distance values without a catalog.
 #[test]
 fn cloud_distance_labels_use_the_selected_language() {

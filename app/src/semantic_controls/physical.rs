@@ -8,6 +8,7 @@ use bevy::{
     prelude::{
         ButtonInput, KeyCode, MouseButton, Query, Res, ResMut, Resource, Single, Window, With,
     },
+    time::{Real, Time},
     window::{CursorOptions, PrimaryWindow},
 };
 use semantic_input::{
@@ -17,10 +18,9 @@ use semantic_input::{
 
 use crate::camera::mouse_input_active;
 mod ordered;
-use {
-    super::{SemanticInputRuntime, SemanticTouchTargets},
-    client_state::SemanticInputSnapshot,
-};
+use super::{SemanticInputRuntime, SemanticTouchTargets};
+use client_interaction::hotbar::WheelAccumulator;
+use client_state::SemanticInputSnapshot;
 
 #[derive(Resource, Debug, Default)]
 pub(crate) struct PendingDeviceFrame {
@@ -73,13 +73,39 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
 
 pub(crate) fn collect_raw_input(
     inputs: SemanticPhysicalInputs,
+    settings: Option<Res<client_state::RuntimeSettings>>,
+    screen_focus: Option<Res<client_state::ScreenFocus>>,
+    time: Option<Res<Time<Real>>>,
+    mut wheel: Option<ResMut<WheelAccumulator>>,
     mut pending: ResMut<PendingDeviceFrame>,
     mut input_gated: bevy::prelude::Local<bool>,
     events: Option<Res<bevy::prelude::Messages<bevy::window::WindowEvent>>>,
     mut cursor: bevy::prelude::Local<bevy::ecs::message::MessageCursor<bevy::window::WindowEvent>>,
 ) {
+    let wheel_enabled = settings
+        .is_none_or(|settings| {
+            settings
+                .user_settings_update()
+                .1
+                .gameplay
+                .mouse_wheel_hotbar_scrolling
+        })
+        && screen_focus.is_none_or(|focus| !focus.absorbs_input);
+    let now = time.map_or(std::time::Duration::ZERO, |clock| clock.elapsed());
     let mode = inputs.effective_mode.as_ref().map(|m| m.0);
-    let ordered = ordered::collect(&inputs, events.as_deref(), &mut cursor);
+    // Only KeyboardMouse frames publish ordered desktop events. Other modes must leave the
+    // shared accumulator to the raw hotbar system, or one wheel delta is consumed twice.
+    let ordered_owns_wheel =
+        mode.is_none_or(|mode| mode == semantic_input::InputMode::KeyboardMouse);
+    let ordered = ordered::collect(
+        &inputs,
+        events.as_deref(),
+        &mut cursor,
+        wheel_enabled,
+        ordered_owns_wheel,
+        wheel.as_deref_mut(),
+        now,
+    );
     let mut translated = translate_device_frame(inputs);
     if let Some((events, lost)) = ordered {
         translated.frame.window_focus_lost |= lost;

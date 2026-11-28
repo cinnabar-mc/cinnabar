@@ -58,7 +58,7 @@ fn next_slot(world: &mut World) {
             unit: MouseScrollUnit::Line,
             phase: bevy::input::touch::TouchPhase::Moved,
             x: 0.0,
-            y: -1.0,
+            y: -16.0,
             window,
         }
         .into(),

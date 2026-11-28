@@ -133,6 +133,10 @@ pub(super) fn french_text(key: &str) -> Option<&'static str> {
         "color.dark_blue" => "Bleu foncé",
         "color.black" => "Noir",
         "options.on" | "On" | "gui.yes" | "True" | "true" => "Oui",
+        "mouse_wheel_hotbar_scrolling" => "Défilement de la barre d'outils avec la molette",
+        "mouse_wheel_hotbar_scrolling.description" => {
+            "Alterne les emplacements de la barre d'outils avec la molette. Désactivez cette option pour ignorer la molette pendant le jeu."
+        }
         "options.off" | "Off" | "gui.no" | "False" | "false" => "Non",
         "Automatic" => "Automatique",
         "Low" => "Faible",
@@ -395,6 +399,10 @@ pub(super) fn fallback(key: &str) -> &str {
             "Display an aesthetic Lunar-style player list overlay with server MOTD and latency indicators."
         }
         "options.renderClouds" => "Render Clouds",
+        "mouse_wheel_hotbar_scrolling" => ui::MOUSE_WHEEL_HOTBAR_SCROLLING_LABEL,
+        "mouse_wheel_hotbar_scrolling.description" => {
+            "Cycle hotbar slots with the mouse wheel. Turn off to ignore wheel input in gameplay."
+        }
         "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
             "Menus stay within display refresh. VSync and Variable Refresh Rate may lower the rate."

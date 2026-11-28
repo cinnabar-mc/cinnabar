@@ -69,6 +69,18 @@ fn registered_ids_keep_names_and_indices_unique_at_string_boundaries() {
     }
 }
 
+/// The wheel toggle occupies the row after Always Sprint and before Macro Modifier.
+#[test]
+fn wheel_scrolling_row_follows_always_sprint_before_macro_modifier() {
+    let keyboard: Vec<_> = SettingPanel::Keyboard.options().map(|row| row.id).collect();
+    let sprint = keyboard
+        .iter()
+        .position(|id| *id == SettingId::AlwaysSprint)
+        .unwrap();
+    assert_eq!(keyboard[sprint + 1], SettingId::MouseWheelHotbarScrolling);
+    assert_eq!(keyboard[sprint + 2], SettingId::MacroModifier);
+}
+
 #[test]
 fn section_rows_keep_order_and_shared_controls_from_the_registry() {
     for panel in SettingPanel::ALL {

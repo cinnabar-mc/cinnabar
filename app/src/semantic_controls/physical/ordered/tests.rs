@@ -1,6 +1,8 @@
 use super::*;
 use bevy::{input::touch::Touches, prelude::*};
 
+mod wheel_hotbar;
+
 #[test]
 fn mod_reservations_remove_ordered_mouse_edges_and_preserve_other_controls() {
     let mut app = App::new();

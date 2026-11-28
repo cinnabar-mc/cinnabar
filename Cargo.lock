@@ -2584,6 +2584,7 @@ dependencies = [
  "sha2",
  "sim",
  "simulation-clock",
+ "test-time",
  "tokio",
  "ui",
  "world",

@@ -1794,7 +1794,9 @@ native packet order remains incomplete. A hotbar press behind pending work appli
 locally when its frame ends, because the native digit handler has no such gate. A press
 during an accepted item release still expires, which is a confirmed gap. A queued attack
 press takes the newer slot; native's order for that case and its mouse-wheel path are
-unverified.
+unverified. The client's own wheel step is default-on but can be switched off in
+Keyboard & Mouse; one notch is 16 raw pixels, half a notch starts a step and a
+100 ms cooldown bounds trackpad inertia.
 
 ### Held block placement
 

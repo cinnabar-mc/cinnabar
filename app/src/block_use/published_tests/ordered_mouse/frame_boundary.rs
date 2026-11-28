@@ -161,7 +161,9 @@ fn ordered_frame_boundary_picks_use_the_updated_eye_and_direction_in_edge_order(
                     .or_else(|| (*packet == pick).then_some(-1))
             })
             .collect();
-        assert_eq!(order, [1, -1, 2, -1], "actor target: {actor}");
+        // The second wheel event is inside the 100 ms cooldown, so only the first selection
+        // reaches this edge-ordered frame.
+        assert_eq!(order, [1, -1, -1], "actor target: {actor}");
         frame(&mut app);
         assert!(captured.drain().is_empty(), "picks must not replay");
     }

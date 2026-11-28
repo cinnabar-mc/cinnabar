@@ -116,7 +116,8 @@ fn ordered_equipment_full_prefix_keeps_only_accepted_actions_before_movement() {
     }
 }
 
-/// Several selections before a tick announce only the final slot, once, ahead of that tick's input.
+/// One wheel step before a tick announces that slot once, ahead of that tick's input. A second
+/// backend wheel event inside the cooldown cannot advance the hotbar again.
 #[test]
 fn ordered_scroll_within_one_tick_announces_only_the_final_slot() {
     let (mut app, mut captured) = app_fixture(8);
@@ -127,7 +128,7 @@ fn ordered_scroll_within_one_tick_announces_only_the_final_slot() {
         app.world()
             .resource::<client_state::PlayerRuntime>()
             .selected_hotbar_slot(),
-        Some(2)
+        Some(1)
     );
     assert_eq!(admissions(&captured.drain()), []);
 
@@ -138,11 +139,11 @@ fn ordered_scroll_within_one_tick_announces_only_the_final_slot() {
     let [report] = &reports[..] else {
         panic!("expected one equipment report: {reports:?}");
     };
-    assert_eq!(report.slot, 2);
-    assert_eq!(report.selected_slot, 2);
+    assert_eq!(report.slot, 1);
+    assert_eq!(report.selected_slot, 1);
     assert_eq!(report.stack_network_id, None);
     assert_eq!(
         admissions(&packets),
-        [Admission::Equipment(2), Admission::Input(102)],
+        [Admission::Equipment(1), Admission::Input(102)],
     );
 }

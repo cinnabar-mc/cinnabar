@@ -21,6 +21,7 @@ fn compose() -> ScreenRegistry {
     let catalog = registry.catalog_mut();
     catalog.layer_builtin(ui_screens::graphics_expander::install);
     catalog.layer_builtin(ui_screens::always_sprint_setting::install);
+    catalog.layer_builtin(ui_screens::mouse_wheel_hotbar_setting::install);
     catalog.layer_builtin(ui_screens::vsync_setting::install);
     catalog.layer_builtin(ui_screens::vrr_setting::install);
     catalog.layer_builtin(ui_screens::motion_blur_setting::install);

@@ -44,6 +44,7 @@ pub mod menu_renderers;
 pub mod menu_screens;
 pub mod mob_effect_screen;
 pub mod motion_blur_setting;
+pub mod mouse_wheel_hotbar_setting;
 pub mod npc;
 pub mod occlusion_setting;
 pub mod play_screen;
