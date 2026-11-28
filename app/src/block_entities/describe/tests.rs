@@ -292,7 +292,8 @@ fn sign_text_needs_visible_characters_on_some_face() {
             "hi".into(),
             DEFAULT_SIGN_COLOR,
             false,
-            false
+            false,
+            STANDING_WRAP_PIXELS,
         ))
     );
     assert!(back.is_none());

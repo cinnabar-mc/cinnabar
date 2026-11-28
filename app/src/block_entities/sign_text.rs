@@ -1,18 +1,21 @@
 //! Rasterizes sign text into the 96x48 canvas the renderer maps onto a board face.
 //!
-//! The canvas is in Mojang design pixels (two font texels each). Line pitch, width and the
-//! glow outline treatment follow the Java Edition sign and need native measurement for Bedrock.
+//! The canvas is in Mojang design pixels (two font texels each). Bedrock wraps each source
+//! line at its board's text width and draws the first four visual lines. Line pitch and the
+//! glow outline treatment still follow the Java Edition sign and need native measurement.
 
 use assets::CompiledFontCatalog;
 use render_model::TEXT_CELL;
 use std::hash::Hash;
 use std::hash::Hasher;
-use ui::{TextLayoutCache, TextLayoutRequest, TextStyle, UiScale};
+use ui::{TextLayoutCache, TextLayoutRequest, TextLineAlign, TextStyle, TextWrap, UiScale};
 
 const LINES: usize = 4;
 const LINE_PITCH_PIXELS: i32 = 10;
-/// Widest line before the text stops fitting the board.
-const MAX_LINE_PIXELS: u32 = 90;
+/// Widest line a standing sign holds before wrapping.
+pub(super) const STANDING_WRAP_PIXELS: u32 = 90;
+/// Widest line a hanging sign holds before wrapping; its board is narrower.
+pub(super) const HANGING_WRAP_PIXELS: u32 = 60;
 const TEXELS_PER_PIXEL: u32 = 2;
 /// Wrap width wide enough that a measured line never wraps.
 const WIDTH_PROBE_PIXELS: u32 = 4_096;
@@ -29,6 +32,8 @@ pub(super) struct SignTextSpec {
     color_argb: i32,
     glowing: bool,
     hide_glow_outline: bool,
+    /// Widest line before Bedrock wraps it, in design pixels.
+    wrap_width_pixels: u32,
     /// Hash of every field above; equal specs share one canvas.
     key: u64,
 }
@@ -40,17 +45,20 @@ impl SignTextSpec {
         color_argb: i32,
         glowing: bool,
         hide_glow_outline: bool,
+        wrap_width_pixels: u32,
     ) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         text.hash(&mut hasher);
         color_argb.hash(&mut hasher);
         glowing.hash(&mut hasher);
         hide_glow_outline.hash(&mut hasher);
+        wrap_width_pixels.hash(&mut hasher);
         Self {
             text,
             color_argb,
             glowing,
             hide_glow_outline,
+            wrap_width_pixels,
             key: hasher.finish(),
         }
     }
@@ -118,6 +126,29 @@ struct Placed {
     rgb: [u8; 3],
 }
 
+/// The wrapped, centre-aligned layout every sign face rasterizes from.
+fn layout_request<'a>(
+    spec: &'a SignTextSpec,
+    font: &'a CompiledFontCatalog,
+) -> TextLayoutRequest<'a> {
+    TextLayoutRequest {
+        text: &spec.text,
+        style: TextStyle::default(),
+        width_64: spec.wrap_width_pixels * TEXELS_PER_PIXEL * 64,
+        line_height_64: LINE_HEIGHT_TEXELS * 64,
+        baseline_64: ASCENT_TEXELS * 64,
+        scale: UiScale::default(),
+        font,
+        wrap: TextWrap {
+            align: TextLineAlign::Center,
+            // Ask for one line past the four drawn so the layout's `...` lands on the
+            // discarded line, and it stops before the wrap-line limit on huge text.
+            max_lines: Some(LINES as u16 + 1),
+            ..TextWrap::default()
+        },
+    }
+}
+
 /// Rasterizes `spec` into a `TEXT_CELL` RGBA8 canvas; `None` when the font cannot lay it out.
 pub(super) fn rasterize(
     spec: &SignTextSpec,
@@ -125,41 +156,35 @@ pub(super) fn rasterize(
     layouts: &mut TextLayoutCache,
 ) -> Option<Vec<u8>> {
     let [width, height] = TEXT_CELL.map(|value| value as i32);
+    let Ok(layout) = layouts.layout(layout_request(spec, font)) else {
+        return None;
+    };
+    let mut canvas = vec![0u8; (width * height * 4) as usize];
     let mut placed = Vec::new();
     let block_top = (height - LINES as i32 * LINE_PITCH_PIXELS) / 2;
-    for (index, line) in spec.text.split('\n').take(LINES).enumerate() {
-        if line.trim().is_empty() {
-            continue;
+    // The layout centres lines inside its wrap column; the column itself is centred on the board.
+    let left = (width - spec.wrap_width_pixels as i32) / 2;
+    let texel_64 = (TEXELS_PER_PIXEL * 64) as f32;
+    let line_height_64 = (LINE_HEIGHT_TEXELS * 64) as i32;
+    for glyph in layout.glyphs() {
+        let line = i32::from(glyph.line);
+        if line >= LINES as i32 {
+            break;
         }
-        let Ok(layout) = layouts.layout(TextLayoutRequest {
-            text: line,
-            style: TextStyle::default(),
-            width_64: MAX_LINE_PIXELS * TEXELS_PER_PIXEL * 64,
-            line_height_64: LINE_HEIGHT_TEXELS * 64,
-            baseline_64: ASCENT_TEXELS * 64,
-            scale: UiScale::default(),
-            font,
-            wrap: Default::default(),
-        }) else {
-            continue;
-        };
-        let texel_64 = (TEXELS_PER_PIXEL * 64) as f32;
-        let line_width = layout.size_64()[0] as f32 / texel_64;
-        let left = (width as f32 - line_width) / 2.0;
-        let top = block_top + index as i32 * LINE_PITCH_PIXELS;
-        for glyph in layout.glyphs().iter().filter(|glyph| glyph.line == 0) {
-            placed.push(Placed {
-                origin: [
-                    (left + glyph.bounds_64[0] as f32 / texel_64).round() as i32,
-                    top + (glyph.bounds_64[1] as f32 / texel_64).round() as i32,
-                ],
-                source: glyph.uv,
-                page: usize::from(glyph.page),
-                rgb: glyph.style.color.rgb().unwrap_or_else(|| spec.base_rgb()),
-            });
-        }
+        // Glyph bounds carry the layout's own 9-pixel pitch; the board pitches lines 10 pixels apart.
+        let within_line_64 = glyph.bounds_64[1] - line * line_height_64;
+        placed.push(Placed {
+            origin: [
+                left + (glyph.bounds_64[0] as f32 / texel_64).round() as i32,
+                block_top
+                    + line * LINE_PITCH_PIXELS
+                    + (within_line_64 as f32 / texel_64).round() as i32,
+            ],
+            source: glyph.uv,
+            page: usize::from(glyph.page),
+            rgb: glyph.style.color.rgb().unwrap_or_else(|| spec.base_rgb()),
+        });
     }
-    let mut canvas = vec![0u8; (width * height * 4) as usize];
     if spec.glowing && !spec.hide_glow_outline {
         let outline = spec.outline_rgb();
         for glyph in &placed {
@@ -237,12 +262,56 @@ mod tests {
     use super::*;
 
     fn spec(text: &str) -> SignTextSpec {
-        SignTextSpec::new(text.into(), -0x1000000, false, false)
+        SignTextSpec::new(text.into(), -0x1000000, false, false, STANDING_WRAP_PIXELS)
+    }
+
+    /// Whether the canvas has ink in the band one visual line occupies.
+    fn line_has_ink(canvas: &[u8], line: i32) -> bool {
+        let [width, height] = TEXT_CELL.map(|value| value as i32);
+        let top = (height - LINES as i32 * LINE_PITCH_PIXELS) / 2 + line * LINE_PITCH_PIXELS;
+        (top..top + LINE_PITCH_PIXELS)
+            .any(|y| (0..width).any(|x| canvas[((y * width + x) * 4 + 3) as usize] != 0))
+    }
+
+    /// The installed UI font, or `None` when its local carrier is absent.
+    fn installed_font() -> Option<CompiledFontCatalog> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../.local/assets/compiled/ui-cinnangles-sans-v1.mcbefont");
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "skipping installed-font sign test: missing {}; make assets",
+                    path.display()
+                );
+                return None;
+            }
+            Err(error) => panic!("read font fixture {}: {error}", path.display()),
+        };
+        let manifest = assets::carriers::startup::canonical_source_manifest_sha256(include_str!(
+            "../../../assets/cinnangles-sans-source.json"
+        ));
+        Some(CompiledFontCatalog::decode(&bytes, manifest).expect("decode installed font fixture"))
+    }
+
+    /// The text of each visual line, in order.
+    fn visual_lines(layout: &ui::TextLayout) -> Vec<String> {
+        let mut lines = vec![String::new(); usize::from(layout.line_count())];
+        for glyph in layout.glyphs() {
+            lines[usize::from(glyph.line)].push(glyph.codepoint);
+        }
+        lines
     }
 
     #[test]
     fn color_decoding_ignores_alpha_and_black_outlines_are_light() {
-        let face = SignTextSpec::new("x".into(), 0x00FF8040u32 as i32, false, false);
+        let face = SignTextSpec::new(
+            "x".into(),
+            0x00FF8040u32 as i32,
+            false,
+            false,
+            STANDING_WRAP_PIXELS,
+        );
         assert_eq!(face.base_rgb(), [0xFF, 0x80, 0x40]);
         assert_eq!(spec("x").outline_rgb(), BLACK_OUTLINE_RGB);
         assert_eq!(face.outline_rgb(), [102, 51, 25]);
@@ -252,10 +321,94 @@ mod tests {
     fn keys_track_every_visible_input() {
         let base = spec("hello");
         assert_eq!(base.cache_key(), spec("hello").cache_key());
-        let glowing = SignTextSpec::new("hello".into(), -0x1000000, true, false);
+        let glowing = SignTextSpec::new(
+            "hello".into(),
+            -0x1000000,
+            true,
+            false,
+            STANDING_WRAP_PIXELS,
+        );
+        let hanging = SignTextSpec::new(
+            "hello".into(),
+            -0x1000000,
+            false,
+            false,
+            HANGING_WRAP_PIXELS,
+        );
         assert_ne!(base.cache_key(), glowing.cache_key());
+        assert_ne!(base.cache_key(), hanging.cache_key());
         assert_ne!(base.cache_key(), spec("world").cache_key());
         assert!(!spec("  \n \n").is_visible());
         assert!(base.is_visible());
+    }
+
+    #[test]
+    fn wrapped_source_lines_draw_every_visual_line() {
+        let font = ui_engine::test_support::fixture_font();
+        let mut layouts = TextLayoutCache::new(4, 64 * 1024);
+        let face = spec("00000 00000 00000 00000 00000");
+        let canvas = rasterize(&face, &font, &mut layouts).unwrap();
+        for line in 0..3 {
+            assert!(
+                line_has_ink(&canvas, line),
+                "visual line {line} drew no ink"
+            );
+        }
+        assert!(!line_has_ink(&canvas, 3));
+    }
+
+    #[test]
+    fn trailing_lines_beyond_the_layout_limit_keep_the_visible_prefix() {
+        let font = ui_engine::test_support::fixture_font();
+        let mut layouts = TextLayoutCache::new(4, 64 * 1024);
+        let text = "hi\n".repeat(1_025);
+        let canvas = rasterize(&spec(&text), &font, &mut layouts).unwrap();
+        for line in 0..LINES as i32 {
+            assert!(
+                line_has_ink(&canvas, line),
+                "visual line {line} drew no ink"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reported_long_line_wraps_into_three_visual_lines() {
+        let Some(font) = installed_font() else {
+            return;
+        };
+        let mut layouts = TextLayoutCache::new(4, 64 * 1024);
+        let face = spec("that is 100% with less lag/lag reducer");
+        {
+            let layout = layouts.layout(layout_request(&face, &font)).unwrap();
+            assert_eq!(
+                visual_lines(&layout),
+                ["that is 100% with", "less lag/lag", "reducer"]
+            );
+        }
+        let canvas = rasterize(&face, &font, &mut layouts).unwrap();
+        for line in 0..3 {
+            assert!(
+                line_has_ink(&canvas, line),
+                "visual line {line} drew no ink"
+            );
+        }
+        assert!(!line_has_ink(&canvas, 3));
+    }
+
+    #[test]
+    fn hanging_signs_wrap_at_the_narrower_board_width() {
+        let font = ui_engine::test_support::fixture_font();
+        let mut layouts = TextLayoutCache::new(4, 64 * 1024);
+        // Fifteen fixture glyphs measure exactly 90 design pixels.
+        let text = "000000000000000";
+        let standing =
+            SignTextSpec::new(text.into(), -0x1000000, false, false, STANDING_WRAP_PIXELS);
+        let hanging = SignTextSpec::new(text.into(), -0x1000000, false, false, HANGING_WRAP_PIXELS);
+        let standing_canvas = rasterize(&standing, &font, &mut layouts).unwrap();
+        let hanging_canvas = rasterize(&hanging, &font, &mut layouts).unwrap();
+        assert!(line_has_ink(&standing_canvas, 0));
+        assert!(!line_has_ink(&standing_canvas, 1));
+        assert!(line_has_ink(&hanging_canvas, 0));
+        assert!(line_has_ink(&hanging_canvas, 1));
     }
 }
