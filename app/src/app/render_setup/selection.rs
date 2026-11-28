@@ -1,5 +1,10 @@
 //! Probes APIs separately, ranks eligible adapters, and exhausts device candidates.
 
+use std::{
+    any::Any,
+    sync::{Mutex, PoisonError},
+};
+
 use anyhow::{Context, Result, bail};
 use launcher::graphics_backend::{Adapter, Backend, Platform, blocklist};
 use launcher_host::renderer_startup::{Attempt, Stage, StartupGuard};
@@ -177,8 +182,30 @@ pub(super) fn rank<T>(
     });
 }
 
+/// Whether an enumerated but unused adapter of `backend` must stay alive after startup.
+///
+/// Releasing DX12 adapters right after a DX12 device is created deadlocks inside the NVIDIA
+/// driver: DXGI lists one GPU twice beside the WARP software adapter, and releasing those
+/// leftovers while the new device initializes hung about 40% of launches. Holding them costs
+/// roughly 13 MB of working set and never releases them.
+fn outlives_startup(backend: Backend) -> bool {
+    backend == Backend::Dx12
+}
+
+/// Keeps `unused` alive until the process exits, so its destructor never runs.
+fn retain_for_process<T: Send + 'static>(unused: Candidate<T>) {
+    static RETAINED: Mutex<Vec<Box<dyn Any + Send>>> = Mutex::new(Vec::new());
+    RETAINED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(Box::new(unused));
+}
+
 /// Tries every ranked candidate, retaining a sentinel for native creation and cleanup.
-pub(super) fn try_candidates<T, R>(
+///
+/// Unused candidates of an API that [`outlives_startup`] are kept for the process; the rest are
+/// released under their own API's sentinel.
+pub(super) fn try_candidates<T: Send + 'static, R>(
     candidates: Vec<Candidate<T>>,
     guard: &mut StartupGuard,
     explicit: bool,
@@ -190,8 +217,11 @@ pub(super) fn try_candidates<T, R>(
         guard.begin(candidate.attempt(Stage::CreatingDevice, explicit))?;
         match create(candidate) {
             Ok(renderer) => {
-                // Unused native resources must also be dropped under their own API's sentinel.
                 for unused in remaining {
+                    if outlives_startup(unused.backend) {
+                        retain_for_process(unused);
+                        continue;
+                    }
                     probe_backend(guard, unused.backend, explicit, || {
                         drop(unused);
                         Ok(())
